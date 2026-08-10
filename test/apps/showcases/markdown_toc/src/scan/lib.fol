@@ -1,0 +1,248 @@
+// Finding the headings in a markdown document.
+//
+// The std string surface is small (`sub`, `byte_at`, `from_byte`, `find`,
+// `replace`, `to_int`), so everything here works on raw byte offsets. Every
+// span is half-open `[from, upto)`.
+//
+// FOL containers cannot grow -- there is no append and no concatenation -- so
+// the scanner does not return a list of headings. It exposes the document as
+// an indexable sequence instead: `count` says how many headings there are and
+// `nth` re-walks the text to produce one of them. Documents are small and the
+// walk is linear, which is a fair trade for keeping every value immutable.
+
+use std: pkg = {"std"};
+use model: loc = {"../model"};
+
+con[exp] TAB: int = 9;
+con[exp] NEWLINE: int = 10;
+con[exp] RETURN: int = 13;
+con[exp] SPACE: int = 32;
+con[exp] HASH: int = 35;
+con[exp] DASH: int = 45;
+con[exp] EQUALS: int = 61;
+con[exp] BACKTICK: int = 96;
+con[exp] TILDE: int = 126;
+
+// Four leading spaces start an indented code block, so anything further right
+// than that is literal text no matter what it looks like.
+con[exp] CODE_INDENT: int = 4;
+
+fun[exp] is_blank(code: int): bol = {
+    return (code == SPACE) or (code == TAB) or (code == RETURN);
+};
+
+fun[exp] skip_blank(text: str, from: int, upto: int): int = {
+    ~var cursor: int = from;
+    loop ((cursor < upto) and is_blank(std::strn::byte_at(text, cursor))) {
+        cursor = cursor + 1;
+    };
+    return cursor;
+};
+
+fun[exp] trim_end(text: str, from: int, upto: int): int = {
+    ~var cursor: int = upto;
+    loop ((cursor > from) and is_blank(std::strn::byte_at(text, cursor - 1))) {
+        cursor = cursor - 1;
+    };
+    return cursor;
+};
+
+// std::strn::sub takes a byte count, not an end offset.
+fun[exp] slice(text: str, from: int, upto: int): str = {
+    if (upto <= from) {
+        return "";
+    }
+    return std::strn::sub(text, from, upto - from);
+};
+
+// End of the line starting at `from`: the next newline, or end of input.
+fun[exp] line_end(text: str, from: int): int = {
+    ~var cursor: int = from;
+    var limit: int = .len(text);
+    loop ((cursor < limit) and (std::strn::byte_at(text, cursor) != NEWLINE)) {
+        cursor = cursor + 1;
+    };
+    return cursor;
+};
+
+// Length of the run of `code` starting at `from`.
+fun[exp] run_of(text: str, from: int, upto: int, code: int): int = {
+    ~var cursor: int = from;
+    loop ((cursor < upto) and (std::strn::byte_at(text, cursor) == code)) {
+        cursor = cursor + 1;
+    };
+    return cursor - from;
+};
+
+// True when the span is non-empty and made of nothing but `code`.
+fun[exp] all_of(text: str, from: int, upto: int, code: int): bol = {
+    if (upto <= from) {
+        return false;
+    }
+    return run_of(text, from, upto, code) == (upto - from);
+};
+
+// A fence line opens or closes a code block. Whatever follows the marker on
+// the same line is an info string, not part of the fence test.
+fun[exp] is_fence(text: str, from: int, upto: int): bol = {
+    var start: int = skip_blank(text, from, upto);
+    if ((start - from) >= CODE_INDENT) {
+        return false;
+    }
+    return (run_of(text, start, upto, BACKTICK) >= 3) or (run_of(text, start, upto, TILDE) >= 3);
+};
+
+// Level of the ATX heading on this line, or 0. Seven or more hashes is not a
+// heading, and `#nospace` is not one either: the marker has to be separated
+// from the title.
+fun[exp] atx_level(text: str, from: int, upto: int): int = {
+    var start: int = skip_blank(text, from, upto);
+    if ((start - from) >= CODE_INDENT) {
+        return 0;
+    }
+    var hashes: int = run_of(text, start, upto, HASH);
+    if ((hashes < 1) or (hashes > 6)) {
+        return 0;
+    }
+    var after: int = start + hashes;
+    if (after >= upto) {
+        return hashes;
+    }
+    if (is_blank(std::strn::byte_at(text, after))) {
+        return hashes;
+    }
+    return 0;
+};
+
+// Title of an ATX heading, with an optional closing run of hashes removed.
+// `## done ##` is titled "done", but `## C#` keeps its trailing hash because
+// nothing separates it from the word.
+fun[exp] atx_title(text: str, from: int, upto: int): str = {
+    var start: int = skip_blank(text, from, upto);
+    var hashes: int = run_of(text, start, upto, HASH);
+    var head: int = skip_blank(text, start + hashes, upto);
+    var tail: int = trim_end(text, head, upto);
+    ~var back: int = tail;
+    loop ((back > head) and (std::strn::byte_at(text, back - 1) == HASH)) {
+        back = back - 1;
+    };
+    if (back == tail) {
+        return slice(text, head, tail);
+    }
+    if (back == head) {
+        return "";
+    }
+    if (is_blank(std::strn::byte_at(text, back - 1))) {
+        return slice(text, head, trim_end(text, head, back));
+    }
+    return slice(text, head, tail);
+};
+
+// What one line turned out to be. `underlined` means the heading also consumed
+// the following line, which held the `===` or `---` rule.
+typ[exp] Hit: rec = {
+    level: int,
+    text: str,
+    underlined: bol,
+};
+
+fun miss(): Hit = {
+    return { level = 0, text = "", underlined = false };
+};
+
+// Setext headings are the reason a line cannot be classified on its own: the
+// marker lives on the *next* line, so the paragraph text above it only becomes
+// a heading in hindsight.
+fun[exp] classify(text: str, from: int, upto: int, limit: int): Hit = {
+    var level: int = atx_level(text, from, upto);
+    if (level > 0) {
+        return { level = level, text = atx_title(text, from, upto), underlined = false };
+    }
+    var start: int = skip_blank(text, from, upto);
+    var stop: int = trim_end(text, start, upto);
+    if (stop <= start) {
+        return miss();
+    }
+    if ((start - from) >= CODE_INDENT) {
+        return miss();
+    }
+    var next: int = upto + 1;
+    if (next > limit) {
+        return miss();
+    }
+    var next_stop: int = line_end(text, next);
+    var rule_start: int = skip_blank(text, next, next_stop);
+    var rule_stop: int = trim_end(text, rule_start, next_stop);
+    if ((rule_start - next) >= CODE_INDENT) {
+        return miss();
+    }
+    if (all_of(text, rule_start, rule_stop, EQUALS)) {
+        return { level = 1, text = slice(text, start, stop), underlined = true };
+    }
+    if (all_of(text, rule_start, rule_stop, DASH)) {
+        return { level = 2, text = slice(text, start, stop), underlined = true };
+    }
+    return miss();
+};
+
+// Result of one walk: either the requested heading, or the total when nothing
+// was requested.
+typ[exp] Found: rec = {
+    ok: bol,
+    item: model::Heading,
+    total: int,
+};
+
+// One walker serves both queries. `want` is the ordinal to stop at; a negative
+// ordinal means "never stop", which counts the whole document.
+fun[exp] walk(doc: str, want: int): Found = {
+    var limit: int = .len(doc);
+    ~var from: int = 0;
+    ~var total: int = 0;
+    ~var lineno: int = 1;
+    ~var fenced: bol = false;
+    loop (from <= limit) {
+        var stop: int = line_end(doc, from);
+        ~var advance: int = stop + 1;
+        ~var consumed: int = 1;
+        if (is_fence(doc, from, stop)) {
+            fenced = .not(fenced);
+        } else {
+            if (.not(fenced)) {
+                var hit: Hit = classify(doc, from, stop, limit);
+                if (hit.level > 0) {
+                    if (hit.underlined) {
+                        advance = line_end(doc, stop + 1) + 1;
+                        consumed = 2;
+                    }
+                    if (total == want) {
+                        var found: model::Heading = {
+                            level = hit.level,
+                            text = hit.text,
+                            anchor = "",
+                            line = lineno,
+                        };
+                        return { ok = true, item = found, total = total };
+                    }
+                    total = total + 1;
+                }
+            }
+        }
+        from = advance;
+        lineno = lineno + consumed;
+    };
+    return { ok = false, item = model::blank(), total = total };
+};
+
+fun[exp] count(doc: str): int = {
+    var walked: Found = walk(doc, 0 - 1);
+    return walked.total;
+};
+
+// The n-th heading, counting from zero. An out-of-range ordinal yields the
+// blank heading, whose level is 0 -- callers loop to `count`, so that only
+// happens on a programming mistake.
+fun[exp] nth(doc: str, ordinal: int): model::Heading = {
+    var walked: Found = walk(doc, ordinal);
+    return walked.item;
+};

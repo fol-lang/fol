@@ -1,0 +1,239 @@
+// The taskkit behaviour suite.
+//
+// These checks are pure: they build documents as strings and never touch a
+// filesystem, so they say what the workflow *means* independently of where a
+// store lives. `taskbook check` runs them and returns the failure count.
+//
+// They would sit better in a `graph.add_test` bundle. They cannot: a test
+// bundle needs its own `fun[] main`, and a second entry routine anywhere under
+// the workspace makes `fol code run <path>` fail with F1004.
+//
+// This file declares no imports. `std` and `kit` come from main.fol, since an
+// import alias belongs to the whole package.
+
+fun check_int(name: str, actual: int, expected: int): int = {
+    when(actual == expected) {
+        case(true) { return 0; }
+        * {
+            std::io::echo_str("FAIL " + name
+            + ": expected " + std::fmt::int_to_str(expected)
+            + ", got " + std::fmt::int_to_str(actual));
+            return 1;
+        }
+    }
+};
+
+fun check_str(name: str, actual: str, expected: str): int = {
+    when(actual == expected) {
+        case(true) { return 0; }
+        * {
+            std::io::echo_str("FAIL " + name + ": expected `" + expected + "`, got `" + actual + "`");
+            return 1;
+        }
+    }
+};
+
+fun check_bool(name: str, actual: bol, expected: bol): int = {
+    when(actual == expected) {
+        case(true) { return 0; }
+        * {
+            std::io::echo_str("FAIL " + name);
+            return 1;
+        }
+    }
+};
+
+fun sample(): str = {
+    return "1|0|3|home|buy milk\n"
+    + "2|1|5|work,urgent|ship release\n"
+    + "3|2|1||archive photos\n";
+};
+
+fun test_text(): int = {
+    var[mut] failures: int = 0;
+    failures = failures + check_str("trim/spaces", kit::text::trim("  hi  "), "hi");
+    failures = failures + check_str("trim/empty", kit::text::trim("   "), "");
+
+    // A newline is a record separator, not whitespace: trimming one would
+    // fuse two rows.
+    failures = failures + check_str("trim/keeps-newline", kit::text::trim(" a\nb "), "a\nb");
+
+    failures = failures + check_int("nth_byte/first", kit::text::nth_byte("a|b|c", 124, 0), 1);
+    failures = failures + check_int("nth_byte/second", kit::text::nth_byte("a|b|c", 124, 1), 3);
+    failures = failures + check_int("nth_byte/missing", kit::text::nth_byte("abc", 124, 0), -1);
+
+    failures = failures + check_bool("token/exact", kit::text::token_member("home,work", "work"), true);
+    failures = failures + check_bool("token/prefix-is-not-member",
+    kit::text::token_member("homework", "home"), false);
+    failures = failures + check_bool("token/empty-needle", kit::text::token_member("home", ""), false);
+    failures = failures + check_bool("token/spaced", kit::text::token_member("home , work", "work"), true);
+
+    failures = failures + check_int("line_count/empty", kit::text::line_count(""), 0);
+    failures = failures + check_int("line_count/no-terminator", kit::text::line_count("a\nb"), 2);
+    failures = failures + check_int("line_count/terminated", kit::text::line_count("a\nb\n"), 2);
+    return failures;
+};
+
+fun test_entry(): int = {
+    var[mut] failures: int = 0;
+    var one: kit::entry::Task = kit::entry::decode("1|0|3|home|buy milk");
+    failures = failures + check_int("decode/id", one.id, 1);
+    failures = failures + check_int("decode/state", one.state, 0);
+    failures = failures + check_int("decode/priority", one.priority, 3);
+    failures = failures + check_str("decode/tags", one.tags, "home");
+    failures = failures + check_str("decode/title", one.title, "buy milk");
+    failures = failures + check_str("encode/roundtrip", kit::entry::encode(one), "1|0|3|home|buy milk");
+
+    // The title is the remainder after the fourth separator, so a `|` inside
+    // it survives the round trip.
+    var piped: kit::entry::Task = kit::entry::decode("4|0|2||a|b");
+    failures = failures + check_str("decode/pipe-in-title", piped.title, "a|b");
+
+    failures = failures + check_bool("decode/too-few-fields",
+    kit::entry::is_broken(kit::entry::decode("1|0|3|home")), true);
+    failures = failures + check_bool("decode/bad-id",
+    kit::entry::is_broken(kit::entry::decode("x|0|3||t")), true);
+    failures = failures + check_bool("decode/bad-state",
+    kit::entry::is_broken(kit::entry::decode("1|9|3||t")), true);
+    failures = failures + check_bool("decode/bad-priority",
+    kit::entry::is_broken(kit::entry::decode("1|0|9||t")), true);
+    failures = failures + check_bool("decode/blank", kit::entry::is_broken(kit::entry::decode("")), true);
+
+    failures = failures + check_bool("move/todo->doing",
+    kit::entry::can_move(kit::entry::State.TODO, kit::entry::State.DOING), true);
+    failures = failures + check_bool("move/todo->done",
+    kit::entry::can_move(kit::entry::State.TODO, kit::entry::State.DONE), true);
+    failures = failures + check_bool("move/doing->done",
+    kit::entry::can_move(kit::entry::State.DOING, kit::entry::State.DONE), true);
+    failures = failures + check_bool("move/done->todo",
+    kit::entry::can_move(kit::entry::State.DONE, kit::entry::State.TODO), true);
+    failures = failures + check_bool("move/doing->todo",
+    kit::entry::can_move(kit::entry::State.DOING, kit::entry::State.TODO), false);
+    failures = failures + check_bool("move/same-state",
+    kit::entry::can_move(kit::entry::State.DONE, kit::entry::State.DONE), false);
+
+    failures = failures + check_bool("tag/hit", kit::entry::has_tag(one, "home"), true);
+    failures = failures + check_bool("tag/miss", kit::entry::has_tag(one, "work"), false);
+    return failures;
+};
+
+fun test_book(): int = {
+    var[mut] failures: int = 0;
+    var doc: str = sample();
+    failures = failures + check_int("count", kit::book::count(doc), 3);
+    failures = failures + check_int("count/blank-lines", kit::book::count("\n\n1|0|1||a\n"), 1);
+    failures = failures + check_int("next_id", kit::book::next_id(doc), 4);
+    failures = failures + check_int("next_id/empty", kit::book::next_id(""), 1);
+
+    // Ids are never recycled. Derived from the live rows alone, dropping the
+    // newest task would hand its id straight to the next one, so the store
+    // remembers a high-water mark in a `#next` line that survives deletion.
+    var stored: str = kit::book::with_counter(doc, 4);
+    failures = failures + check_int("counter/read", kit::book::counter(stored), 4);
+    failures = failures + check_int("counter/not-a-task", kit::book::count(stored), 3);
+    failures = failures + check_int("next_id/after-drop", kit::book::next_id(kit::book::drop(stored, 3)), 4);
+    failures = failures + check_int("next_id/counter-wins", kit::book::next_id(kit::book::with_counter(doc, 99)), 99);
+
+    // A user's own note is not a task and is not a counter; it has to come
+    // back out of every mutation byte for byte.
+    var noted: str = "# groceries\n" + doc;
+    failures = failures + check_int("note/not-a-task", kit::book::count(noted), 3);
+    failures = failures + check_bool("note/survives-drop",
+    kit::text::starts_with(kit::book::drop(noted, 1), "# groceries\n"), true);
+
+    failures = failures + check_str("find/hit", kit::book::find(doc, 2).title, "ship release");
+    failures = failures + check_bool("find/miss", kit::book::holds(doc, 9), false);
+    failures = failures + check_int("drop", kit::book::count(kit::book::drop(doc, 2)), 2);
+    failures = failures + check_int("drop/absent", kit::book::count(kit::book::drop(doc, 9)), 3);
+
+    // Priority 5 first, then 3, then 1.
+    var order: str = kit::book::sorted(doc);
+    failures = failures + check_int("sorted/first", kit::book::row_at(order, 0).id, 2);
+    failures = failures + check_int("sorted/second", kit::book::row_at(order, 1).id, 1);
+    failures = failures + check_int("sorted/third", kit::book::row_at(order, 2).id, 3);
+
+    // Equal priorities fall back to the older id.
+    var tie: str = "7|0|2||later\n4|0|2||earlier\n";
+    failures = failures + check_int("sorted/tie-break", kit::book::row_at(kit::book::sorted(tie), 0).id, 4);
+
+    failures = failures + check_int("filter/state", kit::book::count(kit::book::filter(doc, 0, "")), 1);
+    failures = failures + check_int("filter/tag", kit::book::count(kit::book::filter(doc, -1, "urgent")), 1);
+    failures = failures + check_int("filter/none", kit::book::count(kit::book::filter(doc, 0, "urgent")), 0);
+
+    var totals: kit::book::Summary = kit::book::survey(doc);
+    failures = failures + check_int("survey/todo", totals.todo, 1);
+    failures = failures + check_int("survey/doing", totals.doing, 1);
+    failures = failures + check_int("survey/done", totals.done, 1);
+    failures = failures + check_int("survey/total", totals.total, 3);
+
+    // A row this build cannot read is still somebody's data. `drop` copies it
+    // through untouched and `survey` counts it, but the views leave it out.
+    var damaged: str = doc + "this line is not a task\n";
+    failures = failures + check_int("damaged/counted", kit::book::survey(damaged).damaged, 1);
+    failures = failures + check_int("damaged/not-in-view",
+    kit::book::count(kit::book::filter(damaged, -1, "")), 3);
+    failures = failures + check_int("damaged/survives-drop",
+    kit::book::count(kit::book::drop(damaged, 1)), 3);
+    return failures;
+};
+
+fun test_workflow(): int = {
+    var[mut] failures: int = 0;
+    var doc: str = sample();
+
+    var added: kit::Change = kit::add(doc, "  write notes  ", "docs", 4);
+    failures = failures + check_int("add/verdict", added.verdict, kit::Verdict.OK);
+    failures = failures + check_int("add/id", added.id, 4);
+    failures = failures + check_str("add/trims-title", kit::book::find(added.doc, 4).title, "write notes");
+    failures = failures + check_int("add/bumps-counter", kit::book::counter(added.doc), 5);
+    failures = failures + check_int("add/id-not-recycled",
+    kit::book::next_id(kit::book::drop(added.doc, 4)), 5);
+
+    var bad_title: kit::Change = kit::add(doc, "a\nb", "", 3);
+    failures = failures + check_int("add/newline-rejected", bad_title.verdict, kit::Verdict.REJECTED);
+    failures = failures + check_int("add/rejection-leaves-doc", kit::book::count(bad_title.doc), 3);
+
+    var bad_prio: kit::Change = kit::add(doc, "fine", "", 9);
+    failures = failures + check_int("add/priority-rejected", bad_prio.verdict, kit::Verdict.REJECTED);
+
+    var bad_tags: kit::Change = kit::add(doc, "fine", "a|b", 3);
+    failures = failures + check_int("add/pipe-tag-rejected", bad_tags.verdict, kit::Verdict.REJECTED);
+
+    var started: kit::Change = kit::move_to(doc, 1, kit::entry::State.DOING);
+    failures = failures + check_int("move/ok", started.verdict, kit::Verdict.OK);
+    failures = failures + check_int("move/applied", kit::book::find(started.doc, 1).state, 1);
+
+    var illegal: kit::Change = kit::move_to(doc, 2, kit::entry::State.TODO);
+    failures = failures + check_int("move/illegal", illegal.verdict, kit::Verdict.ILLEGAL_MOVE);
+
+    var absent: kit::Change = kit::move_to(doc, 42, kit::entry::State.DONE);
+    failures = failures + check_int("move/absent", absent.verdict, kit::Verdict.NO_SUCH_TASK);
+
+    var dropped: kit::Change = kit::drop(doc, 42);
+    failures = failures + check_int("drop/absent", dropped.verdict, kit::Verdict.NO_SUCH_TASK);
+
+    var raised: kit::Change = kit::set_priority(doc, 3, 5);
+    failures = failures + check_int("priority/applied", kit::book::find(raised.doc, 3).priority, 5);
+    var refused: kit::Change = kit::set_priority(doc, 3, 0);
+    failures = failures + check_int("priority/rejected", refused.verdict, kit::Verdict.REJECTED);
+
+    // A view is filtered first and ordered second.
+    var listing: str = kit::view(doc, -1, "");
+    failures = failures + check_int("view/order", kit::book::row_at(listing, 0).id, 2);
+    failures = failures + check_int("view/filtered", kit::book::count(kit::view(doc, 2, "")), 1);
+    return failures;
+};
+
+fun[exp] run_all(): int = {
+    var[mut] failures: int = 0;
+    failures = failures + test_text();
+    failures = failures + test_entry();
+    failures = failures + test_book();
+    failures = failures + test_workflow();
+
+    when(failures == 0) {
+        case(true) { std::io::echo_str("taskkit: all checks passed"); }
+        * { std::io::echo_str("taskkit: " + std::fmt::int_to_str(failures) + " check(s) failed"); }
+    }
+    return failures;
+};

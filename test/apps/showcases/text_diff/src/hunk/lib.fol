@@ -1,0 +1,165 @@
+// Unified-diff presentation: turn an edit script into hunks and print them.
+//
+// A hunk is a maximal run of positions that sit within `context` opcodes of a
+// change. Marking every position first and then walking the runs keeps the two
+// concerns apart, and the mark string doubles as something the self-checks can
+// compare against a value worked out by hand.
+
+use std: pkg = {"std"};
+use lcs: loc = {"../lcs"};
+use doc: loc = {"../doc"};
+
+// Positions worth printing: those at most `context` opcodes away from a change.
+fun[exp] mask(script: str, context: int): str = {
+    var out: str = "";
+    var total: int = .len(script);
+    var index: int = 0;
+    loop (index < total) {
+        var near: bol = false;
+        var probe: int = index - context;
+        loop (probe <= index + context) {
+            when((probe >= 0) and (probe < total)) {
+                case(true) {
+                    when(.eq(lcs::op_at(script, probe), lcs::op_keep())) {
+                        case(true) { }
+                        * { near = true; }
+                    }
+                }
+                * { }
+            }
+            probe = probe + 1;
+        }
+        when(near) {
+            case(true) { out = out + lcs::hit(); }
+            * { out = out + lcs::miss(); }
+        }
+        index = index + 1;
+    }
+    return out;
+};
+
+// End of the run of marked positions that starts at `start`. Written as a flag
+// loop rather than a compound condition so the mask is never read past its end.
+fun[exp] run_end(marks: str, start: int): int = {
+    var stop: int = start;
+    var total: int = .len(marks);
+    var going: bol = true;
+    loop (going) {
+        when(stop < total) {
+            case(true) {
+                when(.eq(std::strn::sub(marks, stop, 1), lcs::hit())) {
+                    case(true) { stop = stop + 1; }
+                    * { going = false; }
+                }
+            }
+            * { going = false; }
+        }
+    }
+    return stop;
+};
+
+fun[exp] header(script: str, start: int, stop: int): str = {
+    var left_at: int = lcs::left_cursor(script, start) + 1;
+    var right_at: int = lcs::right_cursor(script, start) + 1;
+    return "@@ -" + std::fmt::int_to_str(left_at)
+    + "," + std::fmt::int_to_str(lcs::left_span(script, start, stop))
+    + " +" + std::fmt::int_to_str(right_at)
+    + "," + std::fmt::int_to_str(lcs::right_span(script, start, stop))
+    + " @@";
+};
+
+fun[exp] hunk_count(script: str, context: int): int = {
+    var marks: str = mask(script, context);
+    var total: int = .len(marks);
+    var found: int = 0;
+    var index: int = 0;
+    loop (index < total) {
+        when(.eq(std::strn::sub(marks, index, 1), lcs::hit())) {
+            case(true) {
+                found = found + 1;
+                index = run_end(marks, index);
+            }
+            * { index = index + 1; }
+        }
+    }
+    return found;
+};
+
+// Prints the diff and hands back the number of hunks it emitted. Both documents
+// are consumed: the text of a line is read straight out of the vector, which is
+// only legal on a value this routine owns.
+fun[exp] render(script: str, was: vec[doc::Line], now: vec[doc::Line], context: int): int = {
+    var marks: str = mask(script, context);
+    var total: int = .len(marks);
+    var hunks: int = 0;
+    var index: int = 0;
+    loop (index < total) {
+        when(.eq(std::strn::sub(marks, index, 1), lcs::hit())) {
+            case(true) {
+                var stop: int = run_end(marks, index);
+                std::io::echo_str(header(script, index, stop));
+                var left_at: int = lcs::left_cursor(script, index);
+                var right_at: int = lcs::right_cursor(script, index);
+                var step: int = index;
+                loop (step < stop) {
+                    var op: str = lcs::op_at(script, step);
+                    when(.eq(op, lcs::op_add())) {
+                        case(true) {
+                            var added: doc::Line = now[right_at];
+                            std::io::echo_str("+" + added.text);
+                            right_at = right_at + 1;
+                        }
+                        * {
+                            var kept: doc::Line = was[left_at];
+                            when(.eq(op, lcs::op_keep())) {
+                                case(true) {
+                                    std::io::echo_str(" " + kept.text);
+                                    right_at = right_at + 1;
+                                }
+                                * { std::io::echo_str("-" + kept.text); }
+                            }
+                            left_at = left_at + 1;
+                        }
+                    }
+                    step = step + 1;
+                }
+                hunks = hunks + 1;
+                index = stop;
+            }
+            * { index = index + 1; }
+        }
+    }
+    return hunks;
+};
+
+// Word-level view of one rewritten sentence: removals in [- -], additions in
+// {+ +}, everything else printed once.
+fun[exp] inline_words(script: str, was: vec[doc::Word], now: vec[doc::Word]): str = {
+    var out: str = "";
+    var left_at: int = 0;
+    var right_at: int = 0;
+    var index: int = 0;
+    loop (index < .len(script)) {
+        var op: str = lcs::op_at(script, index);
+        when(.eq(op, lcs::op_add())) {
+            case(true) {
+                var added: doc::Word = now[right_at];
+                out = out + "{+" + added.text + "+} ";
+                right_at = right_at + 1;
+            }
+            * {
+                var kept: doc::Word = was[left_at];
+                when(.eq(op, lcs::op_keep())) {
+                    case(true) {
+                        out = out + kept.text + " ";
+                        right_at = right_at + 1;
+                    }
+                    * { out = out + "[-" + kept.text + "-] "; }
+                }
+                left_at = left_at + 1;
+            }
+        }
+        index = index + 1;
+    }
+    return out;
+};

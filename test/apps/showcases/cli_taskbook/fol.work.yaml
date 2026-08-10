@@ -1,0 +1,12 @@
+# The workspace root. `taskkit` is the library, `taskbook` the executable that
+# consumes it.
+#
+# The whole tree holds exactly one entry routine on purpose. `fol code run
+# <path>` compiles every `.fol` file under the path — including files no
+# artifact references — so a second `fun[] main` anywhere, even in a test
+# bundle, makes the path form fail with F1004 while `cd <path> && fol code run`
+# still succeeds. The library's checks therefore live inside the executable
+# rather than in a `graph.add_test` bundle.
+members:
+  - taskkit
+  - taskbook

@@ -1,0 +1,76 @@
+use std: pkg = {"std"};
+
+// Fixed-width decimal slot tables.
+//
+// A search needs three things it can write to as it runs: a visited bitmap, a
+// came-from table, and a distance table. FOL containers are read-only once
+// built -- there is no `vec` append and no `map` insert -- so the only store a
+// routine can update in place is a `str` it rebuilds. Every table here is a
+// flat string of `count` slots, each `width` characters of zero-padded decimal,
+// indexed by cell id. That keeps writes O(n) instead of O(1), which is why the
+// mazes in this package stay small.
+
+// Cell id that means "no cell". Three digits, so it never collides with a real
+// id in a maze of fewer than 999 cells.
+fun[exp] absent(): int = {
+    return 999;
+};
+
+// Zero-padded decimal, left-padded to `width`.
+fun[exp] pad(value: int, width: int): str = {
+    ~var text: str = std::fmt::int_to_str(value);
+    loop(.len(text) < width) {
+        text = "0" + text;
+    };
+    return text;
+};
+
+// `count` copies of `unit`, i.e. a table of `count` slots all holding the same
+// initial value.
+fun[exp] fill(unit: str, count: int): str = {
+    ~var out: str = "";
+    ~var index: int = 0;
+    loop(index < count) {
+        out = out + unit;
+        index = index + 1;
+    };
+    return out;
+};
+
+fun[exp] slot(table: str, index: int, width: int): int = {
+    return std::strn::to_int(std::strn::sub(table, index * width, width), 0);
+};
+
+// Rewrites one slot and hands back the whole table. The caller must rebind,
+// because nothing in FOL writes into a string in place.
+fun[exp] store(table: str, index: int, width: int, value: int): str = {
+    var head: int = index * width;
+    var tail: int = .len(table) - head - width;
+    var before: str = std::strn::sub(table, 0, head);
+    var after: str = std::strn::sub(table, head + width, tail);
+    return before + pad(value, width) + after;
+};
+
+// One-wide tables double as bitmaps.
+fun[exp] flagged(bits: str, index: int): bol = {
+    return .eq(slot(bits, index, 1), 1);
+};
+
+fun[exp] raise(bits: str, index: int): str = {
+    return store(bits, index, 1, 1);
+};
+
+// How many slots in a one-wide bitmap are set. Used to report how much of a
+// maze a search actually touched.
+fun[exp] popcount(bits: str): int = {
+    ~var total: int = 0;
+    ~var index: int = 0;
+    loop(index < .len(bits)) {
+        when(flagged(bits, index)) {
+            case(true) { total = total + 1; }
+            * { }
+        };
+        index = index + 1;
+    };
+    return total;
+};

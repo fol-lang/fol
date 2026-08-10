@@ -1,0 +1,133 @@
+use std: pkg = {"std"};
+use catalog: loc = {"../catalog"};
+use zones: loc = {"../zones"};
+
+// Reachability proofs and the run's self-check.
+//
+// FOL exposes no reader for a shared pointer's reference count, so "is this
+// allocation still alive" is answered the only way the language allows: try to
+// upgrade a weak observer. `nil` means the last strong owner is gone and the
+// allocation was actually freed. That makes `[upg]` a usable leak detector,
+// and `detached` below is the test that uses it.
+
+typ[exp] Trace: rec = {
+    dock: ptr[weak, zones::Zone],
+    rack: ptr[weak, zones::Zone],
+};
+
+fun[exp] gone(): str = {
+    return "<collected>";
+};
+
+// Attempts the upgrade and throws the revived handle away again. The revived
+// handle is a real strong owner for as long as the arm runs, which is why it
+// is not returned: handing it out would keep alive the very allocation the
+// caller is trying to observe.
+fun[exp] witness(observer: ptr[weak, zones::Zone]): str = {
+    var revived: opt[ptr[shared, zones::Zone]] = [upg]observer;
+    when(revived) {
+        on(live) { return zones::zone_name(live); }
+        * { return gone(); }
+    }
+};
+
+fun[exp] alive(observer: ptr[weak, zones::Zone]): bol = {
+    return witness(observer) != gone();
+};
+
+// Builds a complete layout that nothing outside this routine owns, and hands
+// back only weak observers of two of its allocations.
+//
+// Every strong handle dies at the return, so both observers must fail to
+// upgrade. If the dock back-edge in `zones` were spelled `ptr[shared, Zone]`
+// instead of `ptr[weak, Zone]`, dock and tree would keep each other alive and
+// this routine would leak the entire layout — and the caller would still see
+// "alive" for both observers. The check in `main` is what tells the two apart.
+fun[exp] detached(bolt: catalog::Card, nut: catalog::Card, belt: catalog::Card): Trace = {
+    var yard: zones::Yard = zones::sample(bolt, nut, belt);
+    var dock_cell: ptr[shared, zones::Zone] = yard.dock;
+    var aisle: ptr[shared, zones::Zone] = zones::kid_at(yard.root, 0);
+    var rack: ptr[shared, zones::Zone] = zones::kid_at(aisle, 0);
+    return { dock = [weak]dock_cell, rack = [weak]rack };
+};
+
+// A depth-labelled dump of the layout, one line per zone.
+pro[exp] dump(cell: ptr[shared, zones::Zone], depth: int, fuel: int): non = {
+    when(fuel == 0) {
+        * { return; }
+    };
+    var pad: str = indent(depth);
+    std::io::echo_str(pad + zones::zone_name(cell)
+    + " [dock=" + zones::dock_name(cell) + "]");
+    ~var index: int = 0;
+    var bins: int = zones::bin_count(cell);
+    loop(index < bins) {
+        var bin: zones::Bin = zones::bin_at(cell, index);
+        std::io::echo_str(pad + "  " + bin.slot + " "
+        + catalog::card_code(bin.card)
+        + " x" + std::fmt::int_to_str(bin.units)
+        + " = " + std::fmt::int_to_str(bin.units * catalog::card_price(bin.card)));
+        index = index + 1;
+    };
+    ~var kid: int = 0;
+    var kids: int = zones::kid_count(cell);
+    loop(kid < kids) {
+        dump(zones::kid_at(cell, kid), depth + 1, fuel - 1);
+        kid = kid + 1;
+    };
+    return;
+};
+
+fun[exp] indent(depth: int): str = {
+    ~var pad: str = "";
+    ~var step: int = 0;
+    loop(step < depth) {
+        pad = pad + "  ";
+        step = step + 1;
+    };
+    return pad;
+};
+
+// The self-checks return a failure count so `main` can sum them and pick its
+// exit status from the total rather than from the last check.
+fun[exp] check_int(label: str, got: int, want: int): int = {
+    when(got == want) {
+        * {
+            std::io::echo_str("ok   " + label + " = " + std::fmt::int_to_str(got));
+            return 0;
+        }
+    };
+    std::io::echo_str("FAIL " + label + " = " + std::fmt::int_to_str(got)
+    + " want " + std::fmt::int_to_str(want));
+    return 1;
+};
+
+fun[exp] check_str(label: str, got: str, want: str): int = {
+    when(got == want) {
+        * {
+            std::io::echo_str("ok   " + label + " = " + got);
+            return 0;
+        }
+    };
+    std::io::echo_str("FAIL " + label + " = " + got + " want " + want);
+    return 1;
+};
+
+fun[exp] check_bol(label: str, got: bol, want: bol): int = {
+    when(got == want) {
+        * {
+            std::io::echo_str("ok   " + label + " = " + render_bol(got));
+            return 0;
+        }
+    };
+    std::io::echo_str("FAIL " + label + " = " + render_bol(got)
+    + " want " + render_bol(want));
+    return 1;
+};
+
+fun[exp] render_bol(value: bol): str = {
+    when(value) {
+        * { return "true"; }
+    };
+    return "false";
+};

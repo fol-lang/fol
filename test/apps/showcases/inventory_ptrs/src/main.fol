@@ -1,0 +1,174 @@
+use std: pkg = {"std"};
+use catalog: loc = {"catalog"};
+use zones: loc = {"zones"};
+use intake: loc = {"intake"};
+use audit: loc = {"audit"};
+
+// A small warehouse driven end to end, with each of the three pointer kinds
+// doing the job it is actually for:
+//
+//   ptr[shared, Sku]   one catalog allocation named by many bins
+//   ptr[weak, Zone]    the dock back-edge, so the layout is not a cycle
+//   ptr[Pallet]        an arriving pallet with exactly one owner at a time
+//
+// The transcript is the proof. Every derived number is checked against the
+// value the layout means, and the two weak-upgrade results are checked against
+// what the ownership graph implies, so a regression in pointer lowering shows
+// up as a FAIL line and a nonzero exit rather than as a plausible-looking
+// number.
+
+// Fuel bounds every traversal: the layout is a tree today, but a weak edge is
+// upgradable and a future walker that follows one must not be able to spin.
+fun[] fuel(): int = {
+    return 8;
+};
+
+fun[] main(): int = {
+    var bolt: catalog::Card = catalog::publish("BOLT-M8", 12);
+    var nut: catalog::Card = catalog::publish("NUT-M8", 3);
+    var belt: catalog::Card = catalog::publish("BELT-A", 250);
+
+    var yard: zones::Yard = zones::sample(bolt, nut, belt);
+
+    std::io::echo_str("layout");
+    audit::dump(yard.root, 1, fuel());
+    std::io::echo_str("");
+
+    ~var fails: int = 0;
+
+    // -- shared catalog ----------------------------------------------------
+    // Two racks stock BOLT-M8. Both bins hold a handle onto the one published
+    // allocation, so the derived holder count is 2 and both see one price.
+    std::io::echo_str("shared catalog");
+    fails = fails + audit::check_int("bolt holders",
+    zones::holders_of(yard.root, "BOLT-M8", fuel()), 2);
+    fails = fails + audit::check_int("belt holders",
+    zones::holders_of(yard.root, "BELT-A", fuel()), 1);
+    fails = fails + audit::check_int("bolt price via card",
+    catalog::card_price(bolt), 12);
+    fails = fails + audit::check_int("bolt price via alias",
+    catalog::card_price(catalog::alias(bolt)), 12);
+
+    // -- custom clone override --------------------------------------------
+    // `[cln]` routes through `fun (Sku[bor])clone()`, which stamps the copy.
+    // A structural clone would leave every generation at 0 and the receiving
+    // audit would accept a photocopy as an original.
+    std::io::echo_str("");
+    std::io::echo_str("clone override");
+    var original: catalog::Sku = catalog::snapshot(bolt);
+    var first: catalog::Sku = catalog::duplicate([bor]original);
+    var second: catalog::Sku = catalog::duplicate([bor]first);
+    std::io::echo_str("  " + catalog::describe([bor]original));
+    std::io::echo_str("  " + catalog::describe([bor]first));
+    std::io::echo_str("  " + catalog::describe([bor]second));
+    fails = fails + audit::check_int("original generation", original.generation, 0);
+    fails = fails + audit::check_int("first copy generation", first.generation, 1);
+    fails = fails + audit::check_int("second copy generation", second.generation, 2);
+    // The published allocation never moved: cloning a snapshot cannot age the
+    // card every bin is pointing at.
+    fails = fails + audit::check_int("published generation",
+    catalog::card_generation(bolt), 0);
+
+    // -- weak back-edge ----------------------------------------------------
+    std::io::echo_str("");
+    std::io::echo_str("weak dock edge");
+    fails = fails + audit::check_str("root dock", zones::dock_name(yard.root), "dock");
+    fails = fails + audit::check_str("rack dock",
+    zones::dock_name(zones::kid_at(zones::kid_at(yard.root, 0), 1)), "dock");
+    // The dock predates every zone, so it observes nothing itself. That
+    // asymmetry is what keeps the layout acyclic.
+    fails = fails + audit::check_str("dock's own dock", zones::dock_name(yard.dock), "<none>");
+
+    var dock_cell: ptr[shared, zones::Zone] = yard.dock;
+    var live_watch: ptr[weak, zones::Zone] = [weak]dock_cell;
+    fails = fails + audit::check_bol("dock alive while yard held",
+    audit::alive(live_watch), true);
+
+    // -- reachability ------------------------------------------------------
+    std::io::echo_str("");
+    std::io::echo_str("reachability");
+    var to_rack: opt[str] = zones::route_to(yard.root, "rack-b1", fuel());
+    when(to_rack) {
+        on(path) {
+            fails = fails + audit::check_str("route to rack-b1", path, "yard/aisle-b/rack-b1");
+        }
+        * {
+            fails = fails + audit::check_str("route to rack-b1", "<none>", "yard/aisle-b/rack-b1");
+        }
+    };
+    // The dock is only weakly observed, never a child, so it is unreachable by
+    // following owning edges. A strong back-edge would have made it reachable
+    // from every zone - and would have been the leak.
+    var to_dock: opt[str] = zones::route_to(yard.root, "dock", fuel());
+    when(to_dock) {
+        on(found) {
+            fails = fails + audit::check_str("dock not owned by tree", found, "<none>");
+        }
+        * {
+            fails = fails + audit::check_str("dock not owned by tree", "<none>", "<none>");
+        }
+    };
+    fails = fails + audit::check_int("zone count", zones::zone_count(yard.root, fuel()), 6);
+    fails = fails + audit::check_int("total units", zones::total_units(yard.root, fuel()), 612);
+    fails = fails + audit::check_int("stock value", zones::stock_value(yard.root, fuel()), 6600);
+
+    // -- unique pallet ownership -------------------------------------------
+    std::io::echo_str("");
+    std::io::echo_str("intake");
+    var arriving: ptr[intake::Pallet] = intake::receive("PAL-2201", bolt, 60, 5200, 900);
+    // Borrowed reads leave the pallet with its owner, so the same binding can
+    // be measured twice before anyone takes it.
+    fails = fails + audit::check_int("declared gross", intake::gross([bor]arriving), 5200);
+    fails = fails + audit::check_str("ticket", intake::ticket([bor]arriving), "PAL-2201");
+
+    // The certified scale takes the pallet, writes through the allocation and
+    // hands it back. `weighed` is the same allocation, not a copy.
+    var weighed: ptr[intake::Pallet] = intake::reweigh([mov]arriving, 4800);
+    fails = fails + audit::check_int("scaled gross", intake::gross([bor]weighed), 4800);
+    fails = fails + audit::check_int("net after tare", intake::net([bor]weighed), 3900);
+
+    // Putaway consumes it. `weighed` cannot be named again after this line;
+    // the compiler rejects the second putaway that a warehouse fears.
+    var receipt: intake::Receipt = intake::stow([mov]weighed);
+    std::io::echo_str(intake::render(receipt));
+    fails = fails + audit::check_bol("pallet accepted", receipt.accepted, true);
+    fails = fails + audit::check_int("receipt units", receipt.units, 60);
+    fails = fails + audit::check_str("receipt code", receipt.code, "BOLT-M8");
+
+    // A short-shipped pallet weighs less than its own tare, so putaway refuses
+    // it instead of writing a negative net into the stock value.
+    var short: ptr[intake::Pallet] = intake::receive("PAL-2202", belt, 4, 700, 900);
+    var short_receipt: intake::Receipt = intake::stow([mov]short);
+    std::io::echo_str(intake::render(short_receipt));
+    fails = fails + audit::check_bol("short pallet rejected", short_receipt.accepted, false);
+    fails = fails + audit::check_int("short net", short_receipt.net_g, 0 - 200);
+
+    // -- leak detector -----------------------------------------------------
+    // A whole layout built and abandoned inside one routine. Nothing strong
+    // survives, so both observers must come back nil. If the dock edge were
+    // strong the layout would be a cycle, nothing would be freed, and these
+    // two checks would report "true".
+    std::io::echo_str("");
+    std::io::echo_str("leak detector");
+    var trace: audit::Trace = audit::detached(bolt, nut, belt);
+    std::io::echo_str("  detached dock -> " + audit::witness(trace.dock));
+    std::io::echo_str("  detached rack -> " + audit::witness(trace.rack));
+    fails = fails + audit::check_bol("detached dock freed", audit::alive(trace.dock), false);
+    fails = fails + audit::check_bol("detached rack freed", audit::alive(trace.rack), false);
+    // The yard held here is untouched by that sweep: freeing one layout must
+    // not disturb another that shares the same catalog allocations.
+    fails = fails + audit::check_bol("held dock still alive",
+    audit::alive(live_watch), true);
+    fails = fails + audit::check_int("catalog survived sweep",
+    catalog::card_price(bolt), 12);
+
+    std::io::echo_str("");
+    when(fails == 0) {
+        * {
+            std::io::echo_str("all checks passed");
+            return 0;
+        }
+    };
+    std::io::echo_str("failures: " + std::fmt::int_to_str(fails));
+    return 1;
+};

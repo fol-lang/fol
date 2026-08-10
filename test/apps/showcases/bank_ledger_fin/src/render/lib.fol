@@ -1,0 +1,82 @@
+// Rendering. Everything upstream works in whole cents, so the decimal point is
+// inserted here and nowhere else.
+
+fun[exp] repeat(unit: str, count: int): str = {
+    var[mut] out: str = "";
+    var[mut] made: int = 0;
+    loop(.lt(made, count)) {
+        out = out + unit;
+        made = made + 1;
+    }
+    return out;
+};
+
+fun[exp] pad_right(text: str, width: int): str = {
+    if(.ge(.len(text), width)) {
+        return text;
+    }
+    return text + repeat(" ", width - .len(text));
+};
+
+fun[exp] pad_left(text: str, width: int): str = {
+    if(.ge(.len(text), width)) {
+        return text;
+    }
+    return repeat(" ", width - .len(text)) + text;
+};
+
+fun[exp] rule(): str = {
+    return repeat("-", 62);
+};
+
+// 250000 becomes "2500.00" and -350 becomes "-3.50". The fraction is padded by
+// hand because no float is allowed anywhere near a balance.
+fun[exp] money(cents: int): str = {
+    var[mut] sign: str = "";
+    var[mut] value: int = cents;
+    if(.lt(cents, 0)) {
+        sign = "-";
+        value = 0 - cents;
+    }
+    var units: int = value / 100;
+    var rest: int = value % 100;
+    var[mut] tail: str = std::fmt::int_to_str(rest);
+    if(.lt(rest, 10)) {
+        tail = "0" + tail;
+    }
+    return sign + std::fmt::int_to_str(units) + "." + tail;
+};
+
+fun[exp] header(): str = {
+    return pad_right("CODE", 7) + pad_right("ACCOUNT", 22) + pad_left("OPENING", 14) + pad_left("AFTER", 14);
+};
+
+fun[exp] account_line(account: model::Account, legs: vec[model::Posting]): str = {
+    return pad_right(account.code, 7) + pad_right(account.name, 22)
+    + pad_left(money(account.opening), 14)
+    + pad_left(money(engine::balance(account, legs)), 14);
+};
+
+fun[exp] receipt_line(receipt: model::Receipt): str = {
+    return "batch " + std::fmt::int_to_str(receipt.batch)
+    + ": " + std::fmt::int_to_str(receipt.legs) + " legs, "
+    + std::fmt::int_to_str(receipt.slots_used) + " slots, "
+    + money(receipt.moved) + " moved";
+};
+
+// One self-check line. The whole run is a pass only if every one of these says
+// ok, which is what main's exit status reports.
+fun[exp] verdict(label: str, got: int, want: int): str = {
+    if(.eq(got, want)) {
+        return "ok    " + pad_right(label, 40) + pad_left(std::fmt::int_to_str(got), 12);
+    }
+    return "FAIL  " + pad_right(label, 40) + pad_left(std::fmt::int_to_str(got), 12)
+    + "  want " + std::fmt::int_to_str(want);
+};
+
+fun[exp] verdict_text(label: str, got: str, want: str): str = {
+    if(.eq(got, want)) {
+        return "ok    " + pad_right(label, 40) + "  " + got;
+    }
+    return "FAIL  " + pad_right(label, 40) + "  " + got + "  want " + want;
+};

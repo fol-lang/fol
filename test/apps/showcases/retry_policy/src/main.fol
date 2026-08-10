@@ -1,0 +1,332 @@
+// retry_policy -- a retry/backoff policy engine over fallible operations.
+//
+// Six simulated operations are driven through three policies. Two of them are
+// the shapes that justify a retry engine at all: `flaky-index` fails a fixed
+// number of times and then succeeds, and `dead-replica` never succeeds. The
+// rest cover the exits that are easy to get wrong -- a fatal fault that must
+// not be retried at all, a peer-supplied cool-down that outranks the curve, and
+// a body that decodes badly even though the transport was fine.
+//
+// Nothing sleeps. `waited` is the simulated cost of the delays the policy asked
+// for, so every number below is a hand-checkable consequence of the curve and
+// the fault classifier, and the self-checks at the bottom assert exactly those.
+//
+// Error surfaces used here, and why each one:
+//   * `int / str` for the effect layers, because a failed call must be handled
+//     at the call site rather than quietly becoming a sentinel.
+//   * `||` to supply a value, to forward with `report`, and to assert an
+//     impossible case with `panic`.
+//   * `err[str]` wherever a reason has to be stored and looked at later, and
+//     `opt[int]` wherever an answer may simply be absent.
+//   * `when ... on ... *` for every shell. Nothing is flattened to -1 first.
+
+use std: pkg = {"std"};
+use faults: loc = {"faults"};
+use policy: loc = {"policy"};
+use ops: loc = {"ops"};
+use engine: loc = {"engine"};
+use report: loc = {"report"};
+
+// Exponential backoff doubling from 100ms, capped at 400ms, five attempts, a
+// budget generous enough that it never binds.
+fun[] standard(): policy::Policy = {
+    return {
+        label = "standard",
+        max_attempts = 5,
+        base_ms = 100,
+        factor = 2,
+        cap_ms = 400,
+        budget_ms = 2000,
+        jitter_pct = 0,
+        seed = 0,
+    };
+};
+
+// Same curve, but a 250ms budget. It pays for exactly one 100ms retry, so the
+// second retry -- which would cost 200ms more -- is refused before it is made.
+fun[] tight(): policy::Policy = {
+    return {
+        label = "tight",
+        max_attempts = 5,
+        base_ms = 100,
+        factor = 2,
+        cap_ms = 400,
+        budget_ms = 250,
+        jitter_pct = 0,
+        seed = 7,
+    };
+};
+
+// Same curve with a 40% equal-jitter band, so a fleet running this policy does
+// not re-collide on every round.
+fun[] jittery(): policy::Policy = {
+    return {
+        label = "jittery",
+        max_attempts = 5,
+        base_ms = 100,
+        factor = 2,
+        cap_ms = 400,
+        budget_ms = 5000,
+        jitter_pct = 40,
+        seed = 7,
+    };
+};
+
+// A policy whose cap sits below its base: the curve can never grow, which is
+// almost always a typo rather than an intent.
+fun[] upside_down(): policy::Policy = {
+    return {
+        label = "upside-down",
+        max_attempts = 3,
+        base_ms = 500,
+        factor = 2,
+        cap_ms = 100,
+        budget_ms = 1000,
+        jitter_pct = 0,
+        seed = 0,
+    };
+};
+
+pro[] show(text: str): non = {
+    std::io::write(text);
+    return;
+};
+
+// The catalogue is a compile-time constant, so a missing name is a bug in this
+// file rather than a runtime condition -- `|| panic` says so out loud.
+fun[] run_named(name: str, pol: policy::Policy): engine::Outcome = {
+    var op: ops::Op = ops::require(name) || panic "catalogue lost an operation";
+    return engine::run(op, pol);
+};
+
+fun[] value_or(outcome: engine::Outcome, fallback: int): int = {
+    when(outcome.value) {
+        on(found) { return found; }
+        * { return fallback; }
+    }
+};
+
+// Assertions read the shells directly rather than the rendered text, so a
+// change to the report's placeholder can never quietly turn a check green.
+fun[] is_value(value: opt[int], expected: int): bol = {
+    when(value) {
+        on(found) { return found == expected; }
+        * { return false; }
+    }
+};
+
+fun[] is_absent(value: opt[int]): bol = {
+    when(value) {
+        on(found) { return false; }
+        * { return true; }
+    }
+};
+
+fun[] is_faulted(fault: err[str]): bol = {
+    when(fault) {
+        on(reason) { return true; }
+        * { return false; }
+    }
+};
+
+fun[] failed_with(outcome: engine::Outcome, expected: int): bol = {
+    return is_absent(outcome.value) and outcome.stop == expected;
+};
+
+pro[] print_runs(pol: policy::Policy): non = {
+    show("runs under policy '" + pol.label + "'\n");
+    var rows: vec[ops::Op] = ops::catalogue();
+    loop(op in rows) {
+        show(report::outcome_line(engine::run(op, pol)));
+    }
+    show("\n");
+    return;
+};
+
+// A degraded source beats no answer: walk the chain and take the first value
+// anything produces. Unknown names are skipped rather than fatal, because a
+// chain is configuration and configuration drifts.
+pro[] print_chain(names: vec[str], pol: policy::Policy): non = {
+    var found: opt[int] = engine::first_value(names, pol);
+    show("  chain -> ");
+    when(found) {
+        on(value) { show(std::fmt::int_to_str(value)); }
+        * { show("no source answered"); }
+    }
+    show("  after " + std::fmt::int_to_str(engine::chain_cost(names, pol)) + "ms\n");
+    return;
+};
+
+fun[] main(): int = {
+    var normal: policy::Policy = standard();
+    var squeezed: policy::Policy = tight();
+    var noisy: policy::Policy = jittery();
+    var broken: policy::Policy = upside_down();
+
+    show("retry policy engine\n\n");
+
+    show("backoff curves, ms before attempts 2..5\n");
+    show(report::schedule_text(normal, faults::refused()));
+    show(report::schedule_text(squeezed, faults::refused()));
+    show(report::schedule_text(noisy, faults::refused()));
+    show("  a throttled peer dictates its own floor of "
+    + std::fmt::int_to_str(faults::retry_after(faults::throttled())) + "ms:\n");
+    show(report::schedule_text(normal, faults::throttled()));
+    show("\n");
+
+    print_runs(normal);
+    print_runs(squeezed);
+
+    show("single-shot calls, no retries\n");
+    var live: ops::Op = ops::require("cold-cache") || panic "catalogue lost an operation";
+    var gone: ops::Op = ops::require("dead-replica") || panic "catalogue lost an operation";
+    var quick: int = ops::single_shot(live) || 0;
+    var dud: int = ops::single_shot(gone) || 0 - 1;
+    show(report::line("cold-cache", quick));
+    show(report::line("dead-replica", dud));
+    show("\n");
+
+    show("fallback chains under '" + normal.label + "'\n");
+    print_chain({"sealed-vault", "dead-replica", "flaky-index", "cold-cache"}, normal);
+    print_chain({"dead-replica", "sealed-vault"}, normal);
+    print_chain({"no-such-op", "cold-cache"}, normal);
+    show("\n");
+
+    show("policy validation\n");
+    var verdict: err[str] = policy::validate(broken);
+    show("  " + report::pad_right(broken.label, 15) + report::fault_text(verdict) + "\n");
+    var refused_run: engine::Outcome = engine::run(live, broken);
+    show(report::outcome_line(refused_run));
+    show("\n");
+
+    // ---- self-checks -------------------------------------------------------
+    // Every expected number below is the backoff curve applied by hand:
+    // attempts 2..5 cost 100, 200, 400 and 400ms under the standard policy.
+
+    var warm: engine::Outcome = run_named("flaky-index", normal);
+    var dead: engine::Outcome = run_named("dead-replica", normal);
+    var sealed: engine::Outcome = run_named("sealed-vault", normal);
+    var cool: engine::Outcome = run_named("throttled-api", normal);
+    var garbled: engine::Outcome = run_named("garbled-feed", normal);
+    var cold: engine::Outcome = run_named("cold-cache", normal);
+
+    // Two timeouts, so the third attempt wins after 100 + 200ms of backoff.
+    var warm_ok: bol = value_or(warm, 0) == 42 and warm.attempts == 3;
+    var warm_cost: bol = warm.waited == 300;
+
+    // Nothing ever succeeds, so all five attempts run and the whole curve is
+    // paid: 100 + 200 + 400 + 400.
+    var dead_spent: bol = failed_with(dead, engine::stop_exhausted());
+    var dead_cost: bol = dead.waited == 1100;
+
+    // A non-retryable fault must cost exactly one attempt and no waiting.
+    var sealed_fatal: bol = failed_with(sealed, engine::stop_fatal()) and sealed.attempts == 1;
+    var sealed_free: bol = sealed.waited == 0;
+
+    // The transport succeeds here; it is the decode postcondition that fails,
+    // and a checksum failure is not something a second call can fix.
+    var garbled_fatal: bol = failed_with(garbled, engine::stop_fatal()) and garbled.waited == 0;
+
+    // The peer's 250ms floor outranks the 100ms the curve wanted.
+    var cool_ok: bol = value_or(cool, 0) == 99 and cool.attempts == 2;
+    var cool_floor: bol = cool.waited == faults::retry_after(faults::throttled());
+
+    var cold_free: bol = value_or(cold, 0) == 7 and cold.attempts == 1 and cold.waited == 0;
+
+    // The tight budget cannot pay for the second retry, so the run that the
+    // standard policy recovers is abandoned one attempt early.
+    var squeezed_warm: engine::Outcome = run_named("flaky-index", squeezed);
+    var budget_stop: bol = failed_with(squeezed_warm, engine::stop_budget());
+    var budget_cost: bol = squeezed_warm.attempts == 2 and squeezed_warm.waited == 100;
+
+    // 250ms of floor is exactly the tight budget, so this one still lands.
+    var squeezed_cool: engine::Outcome = run_named("throttled-api", squeezed);
+    var budget_edge: bol = value_or(squeezed_cool, 0) == 99 and squeezed_cool.waited == 250;
+
+    // A run that fails every attempt must have paid the published schedule.
+    var schedule_kept: bol = dead.waited == engine::schedule_total(normal, faults::refused());
+
+    // Jitter must move the totals without leaving the band around the curve.
+    var noisy_dead: engine::Outcome = run_named("dead-replica", noisy);
+    var jitter_banded: bol = engine::jitter_in_band(noisy, faults::refused());
+    var jitter_moved: bol = noisy_dead.waited != dead.waited;
+    var jitter_stable: bol = noisy_dead.waited == engine::schedule_total(noisy, faults::refused());
+
+    // Chains: the first source that can answer wins, and the cost is the sum of
+    // everything tried before it plus its own.
+    var chain_value: opt[int] = engine::first_value({"sealed-vault", "dead-replica", "flaky-index"}, normal);
+    var chain_ok: bol = is_value(chain_value, 42);
+    var chain_cost: bol = engine::chain_cost({"sealed-vault", "dead-replica", "flaky-index"}, normal) == 1400;
+    var chain_empty: bol = is_absent(engine::first_value({"dead-replica"}, normal));
+    var chain_skips: bol = is_value(engine::first_value({"no-such-op", "cold-cache"}, normal), 7);
+
+    // The recoverable channel really does fail for the operations that fail,
+    // and really does not for the ones that do not.
+    var shot_fails: bol = check(ops::single_shot(gone));
+    var shot_holds: bol = .not(check(ops::single_shot(live)));
+    var unknown_op: bol = check(ops::require("no-such-op"));
+
+    // A policy is rejected before it is used, and the rejection is the verdict
+    // the run reports.
+    var policy_rejected: bol = is_faulted(policy::validate(broken));
+    var policy_accepted: bol = .not(is_faulted(policy::validate(normal)));
+    var invalid_run: bol = refused_run.stop == engine::stop_invalid() and refused_run.attempts == 0;
+
+    // The curve is monotone and capped, whatever the attempt number.
+    var capped: bol = policy::backoff(normal, 9) == normal.cap_ms;
+    var no_first_wait: bol = policy::backoff(normal, 1) == 0;
+    var worst: bol = policy::worst_case(normal) == 1100;
+
+    show("checks\n");
+    show(report::check("flaky-index recovers on try 3", warm_ok));
+    show(report::check("flaky-index pays 300ms", warm_cost));
+    show(report::check("dead-replica exhausts attempts", dead_spent));
+    show(report::check("dead-replica pays the curve", dead_cost));
+    show(report::check("sealed-vault is never retried", sealed_fatal));
+    show(report::check("sealed-vault costs nothing", sealed_free));
+    show(report::check("garbled body is fatal", garbled_fatal));
+    show(report::check("throttled-api recovers on try 2", cool_ok));
+    show(report::check("peer floor beats the curve", cool_floor));
+    show(report::check("cold-cache answers first try", cold_free));
+    show(report::check("tight budget stops the retry", budget_stop));
+    show(report::check("tight budget cost is one hop", budget_cost));
+    show(report::check("a run may spend the budget exactly", budget_edge));
+    show(report::check("run cost equals the schedule", schedule_kept));
+    show(report::check("jitter stays inside its band", jitter_banded));
+    show(report::check("jitter moves the total", jitter_moved));
+    show(report::check("jitter is reproducible", jitter_stable));
+    show(report::check("chain takes the first answer", chain_ok));
+    show(report::check("chain cost sums the attempts", chain_cost));
+    show(report::check("chain can answer nothing", chain_empty));
+    show(report::check("chain skips unknown sources", chain_skips));
+    show(report::check("single shot fails on dead source", shot_fails));
+    show(report::check("single shot holds on live source", shot_holds));
+    show(report::check("unknown operation is an error", unknown_op));
+    show(report::check("bad policy is rejected", policy_rejected));
+    show(report::check("good policy is accepted", policy_accepted));
+    show(report::check("bad policy blocks the run", invalid_run));
+    show(report::check("backoff saturates at the cap", capped));
+    show(report::check("first attempt waits nothing", no_first_wait));
+    show(report::check("worst case matches the curve", worst));
+
+    var all: bol = warm_ok and warm_cost and dead_spent and dead_cost
+    and sealed_fatal and sealed_free and garbled_fatal
+    and cool_ok and cool_floor and cold_free
+    and budget_stop and budget_cost and budget_edge
+    and schedule_kept and jitter_banded and jitter_moved and jitter_stable
+    and chain_ok and chain_cost and chain_empty and chain_skips
+    and shot_fails and shot_holds and unknown_op
+    and policy_rejected and policy_accepted and invalid_run
+    and capped and no_first_wait and worst;
+
+    when(all) {
+        case(true) {
+            show("\nall checks passed\n");
+            return 0;
+        }
+        * {
+            show("\nSOME CHECKS FAILED\n");
+            return 1;
+        }
+    }
+};

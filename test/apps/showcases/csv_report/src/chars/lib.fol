@@ -1,0 +1,137 @@
+// Byte-level string helpers.
+//
+// The std string surface is three primitives (`sub`, `byte_at`, `find`) plus
+// `replace` and `to_int`, so every scan below works on byte offsets. Spans are
+// half-open `[from, upto)` throughout.
+
+use std: pkg = {"std"};
+
+con[exp] TAB: int = 9;
+con[exp] NEWLINE: int = 10;
+con[exp] RETURN: int = 13;
+con[exp] SPACE: int = 32;
+con[exp] QUOTE: int = 34;
+con[exp] COMMA: int = 44;
+con[exp] DASH: int = 45;
+con[exp] UNDER: int = 95;
+
+// A carriage return counts as blank so a CRLF file trims down to the same
+// fields a LF file produces.
+fun[exp] is_blank(code: int): bol = {
+    return (code == SPACE) or (code == TAB) or (code == RETURN);
+};
+
+fun[exp] is_digit(code: int): bol = {
+    return (code >= 48) and (code <= 57);
+};
+
+fun[exp] is_letter(code: int): bol = {
+    return ((code >= 65) and (code <= 90)) or ((code >= 97) and (code <= 122));
+};
+
+fun[exp] is_ident(code: int): bol = {
+    return is_letter(code) or is_digit(code) or (code == UNDER) or (code == DASH);
+};
+
+// std::strn::sub takes a byte count, not an end offset.
+fun[exp] slice(text: str, from: int, upto: int): str = {
+    if (upto <= from) {
+        return "";
+    };
+    return std::strn::sub(text, from, upto - from);
+};
+
+fun[exp] tail(text: str, from: int): str = {
+    return slice(text, from, .len(text));
+};
+
+fun[exp] trimmed(text: str, from: int, upto: int): str = {
+    var start = from;
+    loop ((start < upto) and is_blank(std::strn::byte_at(text, start))) {
+        start = start + 1;
+    };
+    var stop = upto;
+    loop ((stop > start) and is_blank(std::strn::byte_at(text, stop - 1))) {
+        stop = stop - 1;
+    };
+    return slice(text, start, stop);
+};
+
+fun[exp] trim(text: str): str = {
+    return trimmed(text, 0, .len(text));
+};
+
+fun[exp] all_digits(value: str): bol = {
+    if (.len(value) == 0) {
+        return false;
+    };
+    var cursor = 0;
+    loop (cursor < .len(value)) {
+        if (.not(is_digit(std::strn::byte_at(value, cursor)))) {
+            return false;
+        };
+        cursor = cursor + 1;
+    };
+    return true;
+};
+
+fun[exp] repeat(unit: str, times: int): str = {
+    var out: str = "";
+    var made = 0;
+    loop (made < times) {
+        out = out + unit;
+        made = made + 1;
+    };
+    return out;
+};
+
+// Padding never truncates: an over-long cell pushes the column instead of
+// losing characters a reader would need to identify the row.
+fun[exp] pad_right(text: str, width: int): str = {
+    return text + repeat(" ", width - .len(text));
+};
+
+fun[exp] pad_left(text: str, width: int): str = {
+    return repeat(" ", width - .len(text)) + text;
+};
+
+// Line cursor over a newline-separated blob. A trailing newline does not open
+// an extra empty line, which is what `line_count` below relies on.
+fun[exp] next_line(blob: str, from: int): int = {
+    var hit = std::strn::find(tail(blob, from), "\n");
+    if (hit < 0) {
+        return .len(blob);
+    };
+    return from + hit + 1;
+};
+
+fun[exp] line_here(blob: str, from: int): str = {
+    var hit = std::strn::find(tail(blob, from), "\n");
+    if (hit < 0) {
+        return tail(blob, from);
+    };
+    return slice(blob, from, from + hit);
+};
+
+fun[exp] line_count(blob: str): int = {
+    var cursor = 0;
+    var total = 0;
+    loop (cursor < .len(blob)) {
+        cursor = next_line(blob, cursor);
+        total = total + 1;
+    };
+    return total;
+};
+
+fun[exp] line_nth(blob: str, index: int): str = {
+    var cursor = 0;
+    var seen = 0;
+    loop (cursor < .len(blob)) {
+        if (seen == index) {
+            return line_here(blob, cursor);
+        };
+        cursor = next_line(blob, cursor);
+        seen = seen + 1;
+    };
+    return "";
+};

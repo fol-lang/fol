@@ -1,0 +1,222 @@
+// The command line.
+//
+// A bad command line is not a separate control path: `parse` always returns
+// one `Command`, and a rejected line simply carries the complaint in
+// `problem`. That keeps every exit decision in `main`, where the status codes
+// are defined.
+
+typ[exp] Command: rec = {
+    var verb: str;
+    var id: int;
+    var priority: int;
+    var tags: str;
+    var title: str;
+    var state: int;
+    var path: str;
+    var problem: str;
+};
+
+fun[exp] default_path(): str = {
+    var chosen: str = std::os::env("TASKBOOK_FILE");
+    when(.len(chosen) == 0) {
+        case(true) { return "taskbook.tasks"; }
+        * { return chosen; }
+    }
+};
+
+fun blank(): Command = {
+    return {
+        verb = "",
+        id = 0,
+        priority = 3,
+        tags = "",
+        title = "",
+        state = -1,
+        path = default_path(),
+        problem = "",
+    };
+};
+
+fun[exp] failed(command: Command): bol = {
+    return command.problem != "";
+};
+
+fun[exp] usage(): str = {
+    return "usage: taskbook [--file <store>] <command>\n"
+    + "\n"
+    + "  add <title> [--tag a,b] [--prio 1..5]   add a task\n"
+    + "  list [--state todo|doing|done] [--tag t] show tasks, highest priority first\n"
+    + "  start <id>                               todo -> doing\n"
+    + "  finish <id>                              todo|doing -> done\n"
+    + "  reopen <id>                              done -> todo\n"
+    + "  prio <id> <1..5>                         change a task's priority\n"
+    + "  remove <id>                              delete a task\n"
+    + "  stats                                    counts per state\n"
+    + "  check                                    run the taskkit behaviour suite\n"
+    + "  demo                                     suite, then a scripted session\n"
+    + "\n"
+    + "exit: 0 ok, 1 nothing matched, 2 bad usage, 3 store unreadable,\n"
+    + "      4 no such task, 5 illegal transition, 6 rejected value\n";
+};
+
+// Every flag here takes a value, so a flag in final position is a usage error
+// rather than a silently empty setting.
+fun needs_value(flag: str): bol = {
+    return (flag == "--file") or ((flag == "--tag") or ((flag == "--prio") or (flag == "--state")));
+};
+
+fun[exp] parse(): Command = {
+    var count: int = std::os::arg_count();
+    var[mut] out: Command = blank();
+    var[mut] index: int = 0;
+    var[mut] positional: int = 0;
+
+    loop(index < count) {
+        var word: str = std::os::arg(index);
+        when(needs_value(word)) {
+            case(true) {
+                when(index + 1 >= count) {
+                    case(true) {
+                        out.problem = word + " needs a value";
+                        return out;
+                    }
+                    * { }
+                }
+                var value: str = std::os::arg(index + 1);
+                when(word) {
+                    is("--file") { out.path = value; }
+                    is("--tag") { out.tags = value; }
+                    is("--prio") {
+                        // 0 is already out of the legal 1..5 range, so a
+                        // non-numeric argument and an explicit "0" are refused
+                        // by the same check downstream.
+                        out.priority = std::strn::to_int(value, 0);
+                    }
+                    is("--state") {
+                        out.state = kit::entry::state_from_name(value);
+                        when(out.state < 0) {
+                            case(true) {
+                                out.problem = "unknown state: " + value;
+                                return out;
+                            }
+                            * { }
+                        }
+                    }
+                    * { }
+                }
+                index = index + 2;
+            }
+            * {
+                when((word == "--help") or (word == "-h")) {
+                    case(true) { out.verb = "help"; }
+                    * {
+                        when(kit::text::starts_with(word, "-")) {
+                            case(true) {
+                                out.problem = "unknown option: " + word;
+                                return out;
+                            }
+                            * {
+                                out = place(out, positional, word);
+                                positional = positional + 1;
+                            }
+                        }
+                    }
+                }
+                index = index + 1;
+            }
+        }
+    };
+
+    when(.len(out.verb) == 0) {
+        case(true) { out.verb = "demo"; }
+        * { }
+    }
+    return arity_checked(out, positional);
+};
+
+// Positional slots are verb-dependent: slot 1 is a title for `add` and an id
+// for everything that names a task.
+fun place(current: Command, slot: int, word: str): Command = {
+    var[mut] out: Command = current;
+    when(slot) {
+        is(0) { out.verb = word; }
+        is(1) {
+            when(out.verb) {
+                is("add") { out.title = word; }
+                * { out.id = std::strn::to_int(word, -1); }
+            }
+        }
+        is(2) {
+            when(out.verb) {
+                is("prio") { out.priority = std::strn::to_int(word, 0); }
+                * { }
+            }
+        }
+        * { }
+    }
+    return out;
+};
+
+fun names_a_task(verb: str): bol = {
+    return (verb == "start") or ((verb == "finish") or ((verb == "reopen")
+    or ((verb == "remove") or (verb == "prio"))));
+};
+
+fun[exp] wanted_positionals(verb: str): int = {
+    when(verb) {
+        is("add") { return 2; }
+        is("prio") { return 3; }
+        is("list") { return 1; }
+        is("stats") { return 1; }
+        is("check") { return 1; }
+        is("demo") { return 1; }
+        is("help") { return 1; }
+        * {
+            when(names_a_task(verb)) {
+                case(true) { return 2; }
+                * { return -1; }
+            }
+        }
+    }
+};
+
+fun arity_checked(current: Command, positional: int): Command = {
+    var[mut] out: Command = current;
+    var wanted: int = wanted_positionals(out.verb);
+    when(wanted < 0) {
+        case(true) {
+            out.problem = "unknown command: " + out.verb;
+            return out;
+        }
+        * { }
+    }
+    // `demo` is what a bare invocation means and `help` arrives as `--help`,
+    // so neither needs a positional word. Every count reported to the user
+    // excludes the verb itself.
+    var[mut] required: int = wanted;
+    when((out.verb == "demo") or (out.verb == "help")) {
+        case(true) { required = 0; }
+        * { }
+    }
+    when(positional < required) {
+        case(true) {
+            out.problem = out.verb + " needs "
+            + std::fmt::int_to_str(wanted - 1) + " argument(s)";
+            return out;
+        }
+        * { }
+    }
+    when(positional > wanted) {
+        case(true) {
+            out.problem = out.verb + " takes at most "
+            + std::fmt::int_to_str(wanted - 1) + " argument(s)";
+            return out;
+        }
+        * { }
+    }
+    when(names_a_task(out.verb) and (out.id < 1)) {
+        case(true) { out.problem = out.verb + " needs a positive task id"; }
+        * { }
+    }
+    return out;
+};

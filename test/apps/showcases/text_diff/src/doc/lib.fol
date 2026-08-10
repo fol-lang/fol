@@ -1,0 +1,146 @@
+// The two element types the diff is instantiated for, and the fixtures.
+//
+// `Line` and `Word` both conform to `lcs::keyed`, so the same generic core
+// serves both. Their keys differ from their content on purpose: a line's
+// identity is its text, not the number it happens to carry, and a word's key is
+// case-folded so that a capitalised sentence opener still matches itself.
+//
+// The documents are returned by constructor routines rather than held in
+// globals because each caller needs its own copy: a reader closure takes its
+// vector by move, and a `vec[T]` cannot be rebuilt from a borrow.
+
+use std: pkg = {"std"};
+use lcs: loc = {"../lcs"};
+
+typ[exp] Line()(lcs::keyed): rec = {
+    number: int,
+    text: str,
+};
+
+fun[exp] (Line)key(): str = {
+    return self.text;
+};
+
+typ[exp] Word()(lcs::keyed): rec = {
+    text: str,
+};
+
+fun[exp] (Word)key(): str = {
+    return fold(self.text);
+};
+
+// ASCII case folding. Comparing words case-insensitively is what makes a
+// re-flowed sentence diff into "one word moved" rather than "everything after
+// the first change is new".
+fun[exp] fold(text: str): str = {
+    var out: str = "";
+    var index: int = 0;
+    loop (index < .len(text)) {
+        var code: int = std::strn::byte_at(text, index);
+        when((code >= 65) and (code <= 90)) {
+            case(true) { out = out + std::strn::from_byte(code + 32); }
+            * { out = out + std::strn::from_byte(code); }
+        }
+        index = index + 1;
+    }
+    return out;
+};
+
+// The accessor closures the generic core reads through. The vector moves into
+// the closure, which is why every caller asks for a fresh document.
+fun[exp] line_reader(lines: vec[Line]): {fun (index: int): Line} = {
+    return fun(index: int)[lines[mov]]: Line = {
+        return lines[index];
+    };
+};
+
+fun[exp] word_reader(words: vec[Word]): {fun (index: int): Word} = {
+    return fun(index: int)[words[mov]]: Word = {
+        return words[index];
+    };
+};
+
+// Release notes, before the 1.5.0 entry was written.
+fun[exp] before(): vec[Line] = {
+    return {
+        { number = 1, text = "# release notes" },
+        { number = 2, text = "" },
+        { number = 3, text = "## 1.4.0" },
+        { number = 4, text = "- cache warms on boot" },
+        { number = 5, text = "- retries use jitter" },
+        { number = 6, text = "- legacy shim kept" },
+        { number = 7, text = "" },
+        { number = 8, text = "## 1.3.0" },
+        { number = 9, text = "- initial import" },
+        { number = 10, text = "- docs skeleton" },
+        { number = 11, text = "" },
+        { number = 12, text = "fin." },
+    };
+};
+
+// The same file after the release: a new section on top, one bullet reworded,
+// one bullet dropped, and a footer appended.
+fun[exp] after(): vec[Line] = {
+    return {
+        { number = 1, text = "# release notes" },
+        { number = 2, text = "" },
+        { number = 3, text = "## 1.5.0" },
+        { number = 4, text = "- audit log is durable" },
+        { number = 5, text = "" },
+        { number = 6, text = "## 1.4.0" },
+        { number = 7, text = "- cache warms on boot" },
+        { number = 8, text = "- retries use jitter and backoff" },
+        { number = 9, text = "" },
+        { number = 10, text = "## 1.3.0" },
+        { number = 11, text = "- initial import" },
+        { number = 12, text = "- docs skeleton" },
+        { number = 13, text = "" },
+        { number = 14, text = "fin." },
+        { number = 15, text = "" },
+        { number = 16, text = "(c) 2026" },
+    };
+};
+
+fun[exp] before_lines(): int = {
+    return 12;
+};
+
+fun[exp] after_lines(): int = {
+    return 16;
+};
+
+// One reworded sentence, pre-split. A splitter would need to build a vector
+// whose length is only known once the text has been scanned, which FOL cannot
+// express, so the word lists are literal.
+fun[exp] old_words(): vec[Word] = {
+    return {
+        { text = "The" },
+        { text = "cache" },
+        { text = "warms" },
+        { text = "slowly" },
+        { text = "on" },
+        { text = "cold" },
+        { text = "boot" },
+    };
+};
+
+fun[exp] new_words(): vec[Word] = {
+    return {
+        { text = "the" },
+        { text = "cache" },
+        { text = "warms" },
+        { text = "quickly" },
+        { text = "on" },
+        { text = "every" },
+        { text = "warm" },
+        { text = "boot" },
+    };
+};
+
+fun[exp] old_word_count(): int = {
+    return 7;
+};
+
+fun[exp] new_word_count(): int = {
+    return 8;
+};

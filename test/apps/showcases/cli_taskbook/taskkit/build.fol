@@ -1,0 +1,43 @@
+// taskkit — the library half of the taskbook workspace.
+//
+// Two artifacts come out of one source tree: a linkable static library, and a
+// build module so a dependent package can pull the sources into its own
+// artifact. Both are exported by name so `taskbook` can ask for them.
+//
+// A `graph.add_test` bundle belongs here too, and is deliberately absent: a
+// test bundle needs its own `fun[] main`, and `fol code run <workspace path>`
+// compiles every `.fol` file under the path, so the second entry routine makes
+// the whole workspace unrunnable through the path form. The behaviour suite
+// lives in `taskbook/src/checks` instead.
+//
+// Every comment sits at file root on purpose. A `//` between two statements
+// inside the build routine body makes build evaluation fail with F1001.
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "taskkit",
+        version = "0.1.0",
+        kind = "lib",
+        description = "Task workflow over a line-oriented store",
+        license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+
+    var kit = graph.add_static_lib({
+        name = "taskkit",
+        root = "src/lib.fol",
+        fol_model = "memo",
+        target = target,
+        optimize = optimize,
+    });
+    var api = graph.add_module({ name = "taskkit_api", root = "src/lib.fol" });
+
+    graph.install(kit);
+    build.export_module({ name = "api", module = api });
+    build.export_artifact({ name = "taskkit", artifact = kit });
+    return;
+};

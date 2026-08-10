@@ -1,0 +1,61 @@
+// text_diff -- a line-oriented diff over a generic longest-common-subsequence.
+//
+// The tool diffs two revisions of a release-notes file, prints the edit script
+// it derived, renders it as unified hunks, then runs the same generic core over
+// words to show a rewritten sentence at token granularity. It finishes by
+// re-deriving every stage and checking it against values worked out by hand.
+
+use std: pkg = {"std"};
+use lcs: loc = {"lcs"};
+use doc: loc = {"doc"};
+use hunk: loc = {"hunk"};
+use checks: loc = {"checks"};
+
+con CONTEXT: int = 2;
+
+fun banner(title: str): non = {
+    std::io::echo_str("");
+    std::io::echo_str(title);
+    return;
+};
+
+fun[] main(): int = {
+    std::io::echo_str("text_diff :: release notes, 12 lines -> 16 lines");
+
+    // The readers consume their documents, so each stage asks for a fresh one.
+    var cells: str = lcs::match_grid(
+    doc::line_reader(doc::before()),
+    doc::before_lines(),
+    doc::line_reader(doc::after()),
+    doc::after_lines(),
+    );
+    var dp: str = lcs::dp_table(cells, doc::before_lines(), doc::after_lines());
+    var shared: int = lcs::common(dp, doc::before_lines(), doc::after_lines());
+    var edits: str = lcs::edit_script(cells, dp, doc::before_lines(), doc::after_lines());
+
+    banner("edit script");
+    std::io::echo_str("  " + edits);
+    std::io::echo_str("  common lines: " + std::fmt::int_to_str(shared)
+    + " of " + std::fmt::int_to_str(doc::before_lines()));
+
+    banner("unified diff, context " + std::fmt::int_to_str(CONTEXT));
+    var hunks: int = hunk::render(edits, doc::before(), doc::after(), CONTEXT);
+    std::io::echo_str("");
+    std::io::echo_str("  " + std::fmt::int_to_str(hunks) + " hunk(s)");
+
+    // Second instantiation of the same generic core, at `doc::Word`.
+    banner("word diff of one rewritten sentence");
+    var word_cells: str = lcs::match_grid(
+    doc::word_reader(doc::old_words()),
+    doc::old_word_count(),
+    doc::word_reader(doc::new_words()),
+    doc::new_word_count(),
+    );
+    var word_dp: str = lcs::dp_table(word_cells, doc::old_word_count(), doc::new_word_count());
+    var word_edits: str = lcs::edit_script(word_cells, word_dp, doc::old_word_count(), doc::new_word_count());
+    std::io::echo_str("  " + word_edits);
+    std::io::echo_str("  " + hunk::inline_words(word_edits, doc::old_words(), doc::new_words()));
+
+    banner("self-checks");
+    return checks::run_all();
+};

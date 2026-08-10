@@ -1,0 +1,150 @@
+// One task, and the on-disk line that carries it.
+//
+// Wire form: `id|state|priority|tags|title`. The title is the remainder after
+// the fourth separator, so it may itself contain `|`; nothing else may. A
+// newline anywhere in a task would split it into two records on the next read,
+// which is why `problem_with` rejects one before it ever reaches the store.
+
+typ[exp] State: ent = {
+    var TODO: int = 0;
+    var DOING: int = 1;
+    var DONE: int = 2;
+};
+
+typ[exp] Task: rec = {
+    var id: int;
+    var state: int;
+    var priority: int;
+    var tags: str;
+    var title: str;
+};
+
+fun[exp] broken(): Task = {
+    return { id = -1, state = 0, priority = 0, tags = "", title = "" };
+};
+
+fun[exp] is_broken(item: Task): bol = {
+    return item.id < 1;
+};
+
+fun[exp] state_name(state: int): str = {
+    when(state) {
+        is(0) { return "todo"; }
+        is(1) { return "doing"; }
+        is(2) { return "done"; }
+        * { return "?"; }
+    }
+};
+
+// -1 for an unknown name, so callers can tell "no filter" (-1 by convention)
+// from a typo only by checking the raw word first.
+fun[exp] state_from_name(name: str): int = {
+    when(name) {
+        is("todo") { return State.TODO; }
+        is("doing") { return State.DOING; }
+        is("done") { return State.DONE; }
+        * { return -1; }
+    }
+};
+
+// The legal edges of the workflow. Re-entering the state you are already in is
+// not a transition, and pulling work back from `doing` to `todo` is not one
+// either: `remove` is the honest way to abandon started work.
+fun[exp] can_move(from: int, to: int): bol = {
+    when(from == to) {
+        case(true) { return false; }
+        * { }
+    }
+    when(from) {
+        is(0) { return (to == State.DOING) or (to == State.DONE); }
+        is(1) { return to == State.DONE; }
+        is(2) { return to == State.TODO; }
+        * { return false; }
+    }
+};
+
+// "" when the task is storable, otherwise the complaint to show the user.
+fun[exp] problem_with(item: Task): str = {
+    when(.len(text::trim(item.title)) == 0) {
+        case(true) { return "title is empty"; }
+        * { }
+    }
+    when(text::holds_byte(item.title, text::Byte.NEWLINE)) {
+        case(true) { return "title contains a newline"; }
+        * { }
+    }
+    when(text::holds_byte(item.tags, text::Byte.NEWLINE)) {
+        case(true) { return "tags contain a newline"; }
+        * { }
+    }
+    when(text::holds_byte(item.tags, text::Byte.PIPE)) {
+        case(true) { return "tags contain '|'"; }
+        * { }
+    }
+    when((item.priority < 1) or (item.priority > 5)) {
+        case(true) { return "priority must be 1..5"; }
+        * { }
+    }
+    return "";
+};
+
+fun[exp] encode(item: Task): str = {
+    return std::fmt::int_to_str(item.id) + "|"
+    + std::fmt::int_to_str(item.state) + "|"
+    + std::fmt::int_to_str(item.priority) + "|"
+    + item.tags + "|"
+    + item.title;
+};
+
+// A line the writer never produced is not a crash; it is one broken task the
+// caller can count and report.
+fun[exp] decode(line: str): Task = {
+    var body: str = text::trim(line);
+    when(.len(body) == 0) {
+        case(true) { return broken(); }
+        * { }
+    }
+    var cut0: int = text::nth_byte(body, text::Byte.PIPE, 0);
+    var cut1: int = text::nth_byte(body, text::Byte.PIPE, 1);
+    var cut2: int = text::nth_byte(body, text::Byte.PIPE, 2);
+    var cut3: int = text::nth_byte(body, text::Byte.PIPE, 3);
+    when(cut3 < 0) {
+        case(true) { return broken(); }
+        * { }
+    }
+
+    var id: int = std::strn::to_int(std::strn::sub(body, 0, cut0), -1);
+    var state: int = std::strn::to_int(std::strn::sub(body, cut0 + 1, cut1 - cut0 - 1), -1);
+    var priority: int = std::strn::to_int(std::strn::sub(body, cut1 + 1, cut2 - cut1 - 1), -1);
+    var tags: str = std::strn::sub(body, cut2 + 1, cut3 - cut2 - 1);
+    var title: str = std::strn::sub(body, cut3 + 1, .len(body) - cut3 - 1);
+
+    var candidate: Task = {
+        id = id,
+        state = state,
+        priority = priority,
+        tags = tags,
+        title = title,
+    };
+    when((id < 1) or (state < 0) or (state > 2)) {
+        case(true) { return broken(); }
+        * { }
+    }
+    when(problem_with(candidate) != "") {
+        case(true) { return broken(); }
+        * { }
+    }
+    return candidate;
+};
+
+fun[exp] has_tag(item: Task, tag: str): bol = {
+    return text::token_member(item.tags, tag);
+};
+
+// Sort key: high priority first, then oldest id first. Priorities are 1..5 and
+// ids are unique, so keys are unique too — which is what lets the ordering be
+// produced by repeatedly asking for the smallest key above the last one,
+// without a mutable "already emitted" array.
+fun[exp] sort_key(item: Task): int = {
+    return ((5 - item.priority) * 1000000) + item.id;
+};

@@ -1,0 +1,211 @@
+// Rendering and aggregation.
+//
+// Every query re-walks the blob rather than caching rows: containers here are
+// fixed at construction, so there is nowhere to accumulate a growing row set.
+// The file is small and the walk is linear, so the cost buys simplicity.
+
+use std: pkg = {"std"};
+use chars: loc = {"../chars"};
+use model: loc = {"../model"};
+use parse: loc = {"../parse"};
+
+// Wide enough for the row table below, which is the widest thing printed.
+con[exp] WIDTH: int = 82;
+
+fun[exp] rule(): str = {
+    return chars::repeat("-", WIDTH);
+};
+
+fun[exp] head(title: str): str = {
+    return "\n" + title + "\n" + rule();
+};
+
+// Row 0 of the blob is the header line, so every data walk starts at 1.
+fun[exp] data_start(): int = {
+    return 1;
+};
+
+fun[exp] is_data(line: str): bol = {
+    return .len(chars::trim(line)) > 0;
+};
+
+fun[exp] data_count(blob: str): int = {
+    var index = data_start();
+    var total = 0;
+    loop (index < chars::line_count(blob)) {
+        if (is_data(chars::line_nth(blob, index))) {
+            total = total + 1;
+        };
+        index = index + 1;
+    };
+    return total;
+};
+
+fun[exp] clean_count(blob: str): int = {
+    var index = data_start();
+    var total = 0;
+    loop (index < chars::line_count(blob)) {
+        var line: str = chars::line_nth(blob, index);
+        if (is_data(line) and parse::is_clean(line)) {
+            total = total + 1;
+        };
+        index = index + 1;
+    };
+    return total;
+};
+
+fun[exp] bad_count(blob: str): int = {
+    return data_count(blob) - clean_count(blob);
+};
+
+fun[exp] total_units(blob: str): int = {
+    var index = data_start();
+    var total = 0;
+    loop (index < chars::line_count(blob)) {
+        var line: str = chars::line_nth(blob, index);
+        if (is_data(line) and parse::is_clean(line)) {
+            var row: model::Row = parse::parse_row(line) || panic "clean row failed to parse";
+            total = total + row.units;
+        };
+        index = index + 1;
+    };
+    return total;
+};
+
+// Order value, not unit price: a report that summed unit prices would be
+// meaningless the moment two rows had different quantities.
+fun[exp] total_revenue(blob: str): int = {
+    var index = data_start();
+    var total = 0;
+    loop (index < chars::line_count(blob)) {
+        var line: str = chars::line_nth(blob, index);
+        if (is_data(line) and parse::is_clean(line)) {
+            var row: model::Row = parse::parse_row(line) || panic "clean row failed to parse";
+            total = total + row.revenue();
+        };
+        index = index + 1;
+    };
+    return total;
+};
+
+fun[exp] region_units(blob: str, region: str): int = {
+    var index = data_start();
+    var total = 0;
+    loop (index < chars::line_count(blob)) {
+        var line: str = chars::line_nth(blob, index);
+        if (is_data(line) and parse::is_clean(line)) {
+            var row: model::Row = parse::parse_row(line) || panic "clean row failed to parse";
+            if (row.region == region) {
+                total = total + row.units;
+            };
+        };
+        index = index + 1;
+    };
+    return total;
+};
+
+// How many rows carry a fault in `column`. Column `model::COLUMNS` is the
+// row-shape bucket.
+fun[exp] column_bad(blob: str, column: int): int = {
+    var index = data_start();
+    var total = 0;
+    loop (index < chars::line_count(blob)) {
+        var line: str = chars::line_nth(blob, index);
+        if (is_data(line) and model::has_bit(parse::row_faults(line), column)) {
+            total = total + 1;
+        };
+        index = index + 1;
+    };
+    return total;
+};
+
+fun[exp] table_header(): str = {
+    return chars::pad_left("#", 4) + "  " + chars::pad_right("ORDER", 10)
+    + chars::pad_right("REGION", 8) + chars::pad_right("CUSTOMER", 22)
+    + chars::pad_left("UNITS", 6) + chars::pad_left("PRICE", 10)
+    + chars::pad_left("VALUE", 11) + "  SHIPPED";
+};
+
+fun clean_line(number: int, row: model::Row): str = {
+    return chars::pad_left(std::fmt::int_to_str(number), 4) + "  "
+    + chars::pad_right(row.id, 10) + chars::pad_right(row.region, 8)
+    + chars::pad_right(row.customer, 22)
+    + chars::pad_left(std::fmt::int_to_str(row.units), 6)
+    + chars::pad_left(model::money(row.cents), 10)
+    + chars::pad_left(model::money(row.revenue()), 11)
+    + "  " + row.ship.show();
+};
+
+fun[exp] table(blob: str): str = {
+    var out: str = table_header() + "\n" + rule() + "\n";
+    var index = data_start();
+    var number = 0;
+    loop (index < chars::line_count(blob)) {
+        var line: str = chars::line_nth(blob, index);
+        if (is_data(line)) {
+            number = number + 1;
+            if (parse::is_clean(line)) {
+                var row: model::Row = parse::parse_row(line) || panic "clean row failed to parse";
+                out = out + clean_line(number, row) + "\n";
+            } else {
+                out = out + chars::pad_left(std::fmt::int_to_str(number), 4)
+                + "  " + chars::pad_right("REJECTED", 10) + "\n";
+            };
+        };
+        index = index + 1;
+    };
+    return out;
+};
+
+// The rejects, each with every reason it earned. This is the half of the
+// report a person actually acts on, so it never collapses to a count.
+fun[exp] faults(blob: str): str = {
+    var out: str = "";
+    var index = data_start();
+    var number = 0;
+    loop (index < chars::line_count(blob)) {
+        var line: str = chars::line_nth(blob, index);
+        if (is_data(line)) {
+            number = number + 1;
+            if (.not(parse::is_clean(line))) {
+                out = out + chars::pad_left(std::fmt::int_to_str(number), 4) + "  "
+                + parse::row_reasons(line) + "\n";
+            };
+        };
+        index = index + 1;
+    };
+    if (.len(out) == 0) {
+        return "  every row parsed cleanly\n";
+    };
+    return out;
+};
+
+fun[exp] tally(blob: str): str = {
+    var out: str = chars::pad_right("COLUMN", 14) + chars::pad_left("BAD ROWS", 10) + "\n";
+    var column = 0;
+    loop (column <= model::COLUMNS) {
+        out = out + chars::pad_right(model::column_name(column), 14)
+        + chars::pad_left(std::fmt::int_to_str(column_bad(blob, column)), 10) + "\n";
+        column = column + 1;
+    };
+    return out;
+};
+
+fun[exp] totals(blob: str): str = {
+    var out: str = "  rows read      " + std::fmt::int_to_str(data_count(blob)) + "\n";
+    out = out + "  rows accepted  " + std::fmt::int_to_str(clean_count(blob)) + "\n";
+    out = out + "  rows rejected  " + std::fmt::int_to_str(bad_count(blob)) + "\n";
+    out = out + "  units shipped  " + std::fmt::int_to_str(total_units(blob)) + "\n";
+    out = out + "  order value    " + model::money(total_revenue(blob)) + "\n";
+    return out;
+};
+
+fun[exp] by_region(blob: str): str = {
+    var out: str = "";
+    var names: vec[str] = model::regions();
+    loop (name in names) {
+        out = out + "  " + chars::pad_right(name, 10)
+        + chars::pad_left(std::fmt::int_to_str(region_units(blob, name)), 6) + " units\n";
+    };
+    return out;
+};

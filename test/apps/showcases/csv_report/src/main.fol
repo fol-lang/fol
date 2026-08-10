@@ -1,0 +1,164 @@
+// csv-report -- read a delimited shipment export, judge every row, and print
+// the report an operations desk needs: the accepted rows, the rejected rows
+// with the reason each one earned, a per-column count of bad rows, and the
+// totals that only the accepted rows are allowed to contribute to.
+//
+// The sample export below is deliberately dirty. It carries quoted fields with
+// embedded commas, a doubled-quote escape, a truncated price, two impossible
+// calendar dates, a short row, and a quote that is never closed -- the faults a
+// real export actually shows up with.
+
+use std: pkg = {"std"};
+use chars: loc = {"chars"};
+use model: loc = {"model"};
+use parse: loc = {"parse"};
+use report: loc = {"report"};
+
+con DATA: str = "id,region,customer,units,unit_price,shipped_on\nSO-1001,north,\"Acme, Inc.\",12,19.99,2024-01-15\nSO-1002,south,Bolt Works,3,120.00,2024-02-29\nSO-1003,east,Cinder Ltd,0,15.50,2024-03-01\nSO-1004,west,Delta Yard,7,15.5,2023-02-29\nSO-1005,north,\"Echo \"\"Fast\"\" Freight\",4,8.25,2024-04-31\nSO-1006,middle,Foxtrot Co,9,3.00,2024-05-20\nSO-1007,south,Gulf Supply,5,42.10\nSO-1008,\"east\",Hotel Group,6,7.00,2024-06-30\nSO 1009,west,India Metals,2,5.00,2024-07-04\n\"SO-1010,north,Juliet,1,1.00,2024-08-08\nSO-1011,north,Kilo Logistics,10,\"1234.50\",2024-09-01\nSO-1012,east,,2,4.00,2024-10-31\n";
+
+// The same two rows the ERP writes when it is asked for a Windows export.
+// A CRLF file must land on exactly the same numbers as the LF one.
+con CRLF: str = "id,region,customer,units,unit_price,shipped_on\r\nSO-2001,north,Acme Inc,2,10.00,2024-01-15\r\nSO-2002,south,Bolt Works,3,5.00,2024-13-01\r\n";
+
+fun[] main(): int = {
+    std::io::echo_str("csv-report  ::  shipment export, week 32");
+
+    std::io::echo_str(report::head("ROWS"));
+    std::io::write(report::table(DATA));
+
+    std::io::echo_str(report::head("REJECTED ROWS"));
+    std::io::write(report::faults(DATA));
+
+    std::io::echo_str(report::head("BAD ROWS PER COLUMN"));
+    std::io::write(report::tally(DATA));
+
+    std::io::echo_str(report::head("TOTALS"));
+    std::io::write(report::totals(DATA));
+
+    std::io::echo_str(report::head("UNITS BY REGION"));
+    std::io::write(report::by_region(DATA));
+
+    std::io::echo_str(report::head("SELF CHECK"));
+    var broken = self_check();
+    if (broken > 0) {
+        std::io::echo_str("\n" + std::fmt::int_to_str(broken) + " check(s) failed");
+        return 1;
+    };
+    std::io::echo_str("\nall checks passed");
+    return 0;
+};
+
+fun[] expect_int(label: str, actual: int, wanted: int): int = {
+    if (actual == wanted) {
+        std::io::echo_str("  ok    " + label + " = " + std::fmt::int_to_str(actual));
+        return 0;
+    };
+    std::io::echo_str("  FAIL  " + label + " = " + std::fmt::int_to_str(actual)
+    + ", expected " + std::fmt::int_to_str(wanted));
+    return 1;
+};
+
+fun[] expect_str(label: str, actual: str, wanted: str): int = {
+    if (actual == wanted) {
+        std::io::echo_str("  ok    " + label + " = '" + actual + "'");
+        return 0;
+    };
+    std::io::echo_str("  FAIL  " + label + " = '" + actual + "', expected '" + wanted + "'");
+    return 1;
+};
+
+fun[] expect_bool(label: str, actual: bol, wanted: bol): int = {
+    if (actual == wanted) {
+        std::io::echo_str("  ok    " + label);
+        return 0;
+    };
+    std::io::echo_str("  FAIL  " + label);
+    return 1;
+};
+
+// The three answers a reader would check by hand, plus the field-splitter and
+// calendar edge cases that are easy to get subtly wrong and hard to spot in a
+// printed table.
+fun[] self_check(): int = {
+    var broken = 0;
+
+    broken = broken + expect_int("rows read", report::data_count(DATA), 12);
+    broken = broken + expect_int("rows accepted", report::clean_count(DATA), 4);
+    broken = broken + expect_int("rows rejected", report::bad_count(DATA), 8);
+    broken = broken + expect_int("units shipped", report::total_units(DATA), 31);
+    broken = broken + expect_int("order value in cents", report::total_revenue(DATA), 1298688);
+    broken = broken + expect_str("order value rendered", model::money(report::total_revenue(DATA)), "12986.88");
+
+    broken = broken + expect_int("bad id", report::column_bad(DATA, model::Column.ID), 1);
+    broken = broken + expect_int("bad region", report::column_bad(DATA, model::Column.REGION), 1);
+    broken = broken + expect_int("bad customer", report::column_bad(DATA, model::Column.CUSTOMER), 1);
+    broken = broken + expect_int("bad units", report::column_bad(DATA, model::Column.UNITS), 1);
+    broken = broken + expect_int("bad price", report::column_bad(DATA, model::Column.PRICE), 1);
+    broken = broken + expect_int("bad shipped_on", report::column_bad(DATA, model::Column.SHIPPED), 3);
+    broken = broken + expect_int("bad row shape", report::column_bad(DATA, model::COLUMNS), 2);
+
+    broken = broken + expect_int("north units", report::region_units(DATA, "north"), 22);
+    broken = broken + expect_int("south units", report::region_units(DATA, "south"), 3);
+    broken = broken + expect_int("east units", report::region_units(DATA, "east"), 6);
+    broken = broken + expect_int("west units", report::region_units(DATA, "west"), 0);
+
+    // A comma inside a quoted field must not split it, and "" must collapse to
+    // one quote -- the two places a naive splitter goes wrong.
+    var first: str = chars::line_nth(DATA, 1);
+    broken = broken + expect_int("quoted row field count", parse::field_count(first), 6);
+    broken = broken + expect_str("quoted field keeps its comma",
+    parse::field_or_empty(first, model::Column.CUSTOMER), "Acme, Inc.");
+
+    var escaped: str = chars::line_nth(DATA, 5);
+    broken = broken + expect_str("doubled quote unescapes",
+    parse::field_or_empty(escaped, model::Column.CUSTOMER), "Echo \"Fast\" Freight");
+
+    var unterminated: str = chars::line_nth(DATA, 10);
+    broken = broken + expect_int("unterminated quote is unreadable",
+    parse::field_count(unterminated), 0 - 1);
+    broken = broken + expect_int("unterminated quote blames the row, not a column",
+    parse::row_faults(unterminated), model::structure_bit());
+
+    var short_row: str = chars::line_nth(DATA, 7);
+    broken = broken + expect_int("short row field count", parse::field_count(short_row), 5);
+
+    // Leap years: divisible by four, except centuries, except every fourth
+    // century.
+    broken = broken + expect_bool("2024 is a leap year", parse::leap(2024), true);
+    broken = broken + expect_bool("2023 is not a leap year", parse::leap(2023), false);
+    broken = broken + expect_bool("1900 is not a leap year", parse::leap(1900), false);
+    broken = broken + expect_bool("2000 is a leap year", parse::leap(2000), true);
+    broken = broken + expect_int("february 2024 has 29 days", parse::days_in_month(2024, 2), 29);
+    broken = broken + expect_int("february 2023 has 28 days", parse::days_in_month(2023, 2), 28);
+    broken = broken + expect_int("april has 30 days", parse::days_in_month(2024, 4), 30);
+    broken = broken + expect_bool("2024-02-29 is a real date",
+    parse::failed(parse::date_fault("2024-02-29")), false);
+    broken = broken + expect_bool("2023-02-29 is not a real date",
+    parse::failed(parse::date_fault("2023-02-29")), true);
+    broken = broken + expect_bool("2024-04-31 is not a real date",
+    parse::failed(parse::date_fault("2024-04-31")), true);
+
+    // A Windows export must not turn every row into a reject just because the
+    // line ends in CRLF: the trailing return is blank space, not data.
+    broken = broken + expect_int("crlf rows read", report::data_count(CRLF), 2);
+    broken = broken + expect_int("crlf rows accepted", report::clean_count(CRLF), 1);
+    broken = broken + expect_int("crlf units shipped", report::total_units(CRLF), 2);
+    broken = broken + expect_int("crlf order value in cents", report::total_revenue(CRLF), 2000);
+    broken = broken + expect_int("crlf bad shipped_on",
+    report::column_bad(CRLF, model::Column.SHIPPED), 1);
+
+    // Money is exact because it never leaves the integers.
+    broken = broken + expect_int("19.99 is 1999 cents", cents_of("19.99"), 1999);
+    broken = broken + expect_int("120.00 is 12000 cents", cents_of("120.00"), 12000);
+    broken = broken + expect_int("1234.50 is 123450 cents", cents_of("1234.50"), 123450);
+    broken = broken + expect_bool("15.5 is a truncated amount",
+    parse::failed(parse::money_fault("15.5")), true);
+
+    return broken;
+};
+
+// `parse_money` is a recoverable call, so the failure has to be answered right
+// here; -1 is not a reachable cent count, which makes it a safe sentinel.
+fun[] cents_of(value: str): int = {
+    return parse::parse_money(value) || 0 - 1;
+};

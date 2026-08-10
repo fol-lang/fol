@@ -1,0 +1,167 @@
+// Backoff curves and the rules that stop a retry loop.
+//
+// The engine never sleeps: `delay_for` returns the number of milliseconds an
+// attempt *would* wait, and the engine accumulates them. That keeps the whole
+// program deterministic, which is the only way the printed schedule can be
+// asserted against hand-computed numbers.
+
+use faults: loc = {"../faults"};
+
+typ[exp] Policy: rec = {
+    label: str,
+    max_attempts: int,
+    base_ms: int,
+    factor: int,
+    cap_ms: int,
+    budget_ms: int,
+    jitter_pct: int,
+    seed: int,
+};
+
+// Backoff before attempt `attempt`, ignoring jitter and peer hints.
+//
+// Attempt 1 is the original call, so it waits nothing. The growth is computed
+// by repeated multiplication that stops the moment it reaches `cap_ms` rather
+// than by raising `factor` to a power and clamping afterwards: with a factor of
+// 2 and a max_attempts of 40 the unclamped power overflows long before the
+// clamp gets a chance to run.
+fun[exp] backoff(pol: Policy, attempt: int): int = {
+    when(attempt <= 1) {
+        case(true) { return 0; }
+        * { }
+    }
+    var[mut] delay: int = pol.base_ms;
+    var[mut] step: int = 2;
+    loop(step < attempt) {
+        when(delay >= pol.cap_ms) {
+            case(true) { return pol.cap_ms; }
+            * { }
+        }
+        delay = delay * pol.factor;
+        step = step + 1;
+    }
+    when(delay > pol.cap_ms) {
+        case(true) { return pol.cap_ms; }
+        * { return delay; }
+    }
+};
+
+// Deterministic spread in [0, 65520]. A real client would draw from a random
+// source; a reproducible mix keeps the printed schedule diffable while still
+// exercising the jitter arithmetic.
+fun[exp] spread(seed: int, attempt: int): int = {
+    var mixed: int = (seed * 1103 + attempt * 5417) % 65521;
+    when(mixed < 0) {
+        case(true) { return 0 - mixed; }
+        * { return mixed; }
+    }
+};
+
+// Equal jitter: keep the base delay and swing it by at most `jitter_pct`
+// either way. Spreading around the curve rather than truncating it is what
+// stops a fleet of clients from re-colliding on every retry round.
+fun[exp] jittered(pol: Policy, delay: int, attempt: int): int = {
+    var span: int = delay * pol.jitter_pct / 100;
+    when(span <= 0) {
+        case(true) { return delay; }
+        * { }
+    }
+    var offset: int = spread(pol.seed, attempt) % (span * 2 + 1);
+    return delay - span + offset;
+};
+
+// The delay actually used before `attempt`, after the peer's own cool-down has
+// had its say. A server that says "wait 250ms" outranks a curve that wanted
+// 100ms; it never shortens a longer curve.
+fun[exp] delay_for(pol: Policy, attempt: int, code: int): int = {
+    var curve: int = jittered(pol, backoff(pol, attempt), attempt);
+    var floor: int = faults::retry_after(code);
+    when(curve < floor) {
+        case(true) { return floor; }
+        * { return curve; }
+    }
+};
+
+// Whether a delay is one this policy could legitimately have produced: inside
+// the jitter band around its own curve, or exactly the peer's floor when the
+// whole band sits below it. Checking the band rather than an exact number is
+// the only assertion that survives a change of seed.
+fun[exp] within_band(pol: Policy, attempt: int, code: int, delay: int): bol = {
+    var curve: int = backoff(pol, attempt);
+    var span: int = curve * pol.jitter_pct / 100;
+    var floor: int = faults::retry_after(code);
+    var[mut] low: int = curve - span;
+    var high: int = curve + span;
+    when(high < floor) {
+        case(true) { return delay == floor; }
+        * { }
+    }
+    when(low < floor) {
+        case(true) { low = floor; }
+        * { }
+    }
+    return delay >= low and delay <= high;
+};
+
+// Whether another attempt is allowed at all: the fault must be transient, the
+// attempt count must be left, and the wait must still fit the budget.
+fun[exp] admits(pol: Policy, code: int, attempt: int, waited: int): bol = {
+    when(faults::retryable(code)) {
+        case(true) { }
+        * { return false; }
+    }
+    when(attempt >= pol.max_attempts) {
+        case(true) { return false; }
+        * { }
+    }
+    return waited + delay_for(pol, attempt + 1, code) <= pol.budget_ms;
+};
+
+// Worst-case wall time a policy can burn, used to sanity-check a policy before
+// it is handed to the engine.
+fun[exp] worst_case(pol: Policy): int = {
+    var[mut] total: int = 0;
+    var[mut] attempt: int = 1;
+    loop(attempt <= pol.max_attempts) {
+        total = total + backoff(pol, attempt);
+        attempt = attempt + 1;
+    }
+    return total;
+};
+
+// A storable verdict on the policy itself. nil means the policy is usable.
+// Misconfigured policies are common enough -- a factor of 0 collapses the curve
+// to a busy loop, a budget below the first backoff means the retry can never
+// fire -- that catching them before the first call is worth its own routine.
+fun[exp] validate(pol: Policy): err[str] = {
+    when(pol.max_attempts < 1) {
+        case(true) { return "max_attempts must be at least 1"; }
+        * { }
+    }
+    when(pol.base_ms < 0) {
+        case(true) { return "base_ms cannot be negative"; }
+        * { }
+    }
+    when(pol.factor < 1) {
+        case(true) { return "factor below 1 shrinks the backoff curve"; }
+        * { }
+    }
+    when(pol.cap_ms < pol.base_ms) {
+        case(true) { return "cap_ms is below base_ms, so the curve never grows"; }
+        * { }
+    }
+    when(pol.jitter_pct < 0) {
+        case(true) { return "jitter_pct cannot be negative"; }
+        * { }
+    }
+    when(pol.max_attempts > 1) {
+        case(true) {
+            when(pol.budget_ms < backoff(pol, 2)) {
+                case(true) { return "budget_ms cannot pay for even one retry"; }
+                * { }
+            }
+        }
+        * { }
+    }
+    return nil;
+};

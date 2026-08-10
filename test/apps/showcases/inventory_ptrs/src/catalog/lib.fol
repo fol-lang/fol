@@ -1,0 +1,75 @@
+use std: pkg = {"std"};
+
+// Catalog cards are the shared half of the warehouse.
+//
+// A SKU is named from many bins at once, so each bin holds a
+// `ptr[shared, Sku]` rather than its own copy: two bins that disagree about a
+// unit price after a repricing is a real inventory bug, and one allocation
+// makes that state unrepresentable.
+
+typ[exp] Sku()(clone): rec = {
+    code: str,
+    unit_price: int,
+    // Distance from the published original. Receiving refuses a card whose
+    // generation is nonzero, so a field-by-field copy is the *wrong* default
+    // for this type: it would forge an original.
+    generation: int,
+};
+
+// The clone override is the whole reason `Sku` claims `clone` explicitly:
+// `[cln]card` must stamp the duplicate, and structural cloning cannot.
+fun[exp] (Sku[bor])clone(): Sku = {
+    return {
+        code = self.code,
+        unit_price = self.unit_price,
+        generation = self.generation + 1,
+    };
+};
+
+// One shared allocation per published SKU. `Card` is a thin record so a bin
+// can name the allocation without the pointer type leaking into every
+// signature.
+typ[exp] Card: rec = {
+    cell: ptr[shared, Sku],
+};
+
+fun[exp] publish(code: str, unit_price: int): Card = {
+    var body: Sku = { code = code, unit_price = unit_price, generation = 0 };
+    return { cell = [ref]body };
+};
+
+// A second handle onto the same allocation. Shared pointers are clone-safe, so
+// binding one bumps the reference count instead of copying the SKU.
+fun[exp] alias(card: Card): Card = {
+    return { cell = card.cell };
+};
+
+fun[exp] card_code(card: Card): str = {
+    return ([drf](card.cell)).code;
+};
+
+fun[exp] card_price(card: Card): int = {
+    return ([drf](card.cell)).unit_price;
+};
+
+fun[exp] card_generation(card: Card): int = {
+    return ([drf](card.cell)).generation;
+};
+
+// Reads the SKU out of the shared allocation. Deref on a shared pointer is a
+// read, so the card stays valid for every other holder.
+fun[exp] snapshot(card: Card): Sku = {
+    return [drf](card.cell);
+};
+
+// The audited duplication path. `[cln]` routes through the override above, so
+// the returned SKU is one generation further from the original and the
+// borrowed source is untouched.
+fun[exp] duplicate(source[bor]: Sku): Sku = {
+    return [cln]source;
+};
+
+fun[exp] describe(item[bor]: Sku): str = {
+    return item.code + " @" + std::fmt::int_to_str(item.unit_price)
+    + " g" + std::fmt::int_to_str(item.generation);
+};

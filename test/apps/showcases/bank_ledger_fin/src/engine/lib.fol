@@ -1,0 +1,260 @@
+// The posting engine.
+//
+// Settling a batch is where accounting rules and resource ownership meet: a
+// leg may only be written while its account's journal slot is held, and the
+// device has fewer slots than the bank has accounts. Every routine here is
+// arranged so that validation happens *before* a slot is acquired -- holding a
+// scarce resource across a decision that can still reject the batch is exactly
+// the bug `fin` is meant to make visible.
+
+fun[exp] chart(): vec[model::Account] = {
+    return {
+        { code = "1000", name = "Vault cash",        normal = 1, opening = 5000000 },
+        { code = "1100", name = "Customer loans",    normal = 1, opening = 1200000 },
+        { code = "2000", name = "Customer deposits", normal = 2, opening = 5800000 },
+        { code = "2100", name = "Settlement float",  normal = 2, opening = 0 },
+        { code = "4000", name = "Fee income",        normal = 2, opening = 400000 }
+    };
+};
+
+fun[exp] find_account(code: str): opt[model::Account] = {
+    var rows: vec[model::Account] = chart();
+    loop(row in rows) {
+        if(.eq(row.code, code)) {
+            return row;
+        }
+    }
+    return nil;
+};
+
+fun[exp] known_code(code: str): bol = {
+    var found: opt[model::Account] = find_account(code);
+    when(found) {
+        on(row) { return true; }
+        * { return false; }
+    }
+};
+
+// A cash withdrawal at the counter, plus the fee it earns.
+fun[exp] batch_counter(): vec[model::Posting] = {
+    return {
+        { seq = 1, code = "2000", side = 1, amount = 250000, memo = "counter withdrawal 4471" },
+        { seq = 2, code = "1000", side = 2, amount = 250000, memo = "counter withdrawal 4471" },
+        { seq = 3, code = "2000", side = 1, amount = 350,    memo = "withdrawal fee 4471" },
+        { seq = 4, code = "4000", side = 2, amount = 350,    memo = "withdrawal fee 4471" }
+    };
+};
+
+// An overnight sweep that touches every account in the chart at once, which is
+// what makes it interesting: five accounts, four slots.
+fun[exp] batch_sweep(): vec[model::Posting] = {
+    return {
+        { seq = 1, code = "1000", side = 1, amount = 100000, memo = "overnight sweep in" },
+        { seq = 2, code = "1100", side = 1, amount = 100000, memo = "overnight sweep in" },
+        { seq = 3, code = "2000", side = 2, amount = 100000, memo = "overnight sweep out" },
+        { seq = 4, code = "2100", side = 2, amount = 50000,  memo = "overnight sweep out" },
+        { seq = 5, code = "4000", side = 2, amount = 50000,  memo = "overnight sweep fee" }
+    };
+};
+
+// Two legs that do not agree: the credit is short by 100 cents.
+fun[exp] batch_torn(): vec[model::Posting] = {
+    return {
+        { seq = 1, code = "1100", side = 1, amount = 90000, memo = "loan drawdown 88" },
+        { seq = 2, code = "2000", side = 2, amount = 89900, memo = "loan drawdown 88" }
+    };
+};
+
+// A transfer aimed at an account that was closed last quarter.
+fun[exp] batch_orphan(): vec[model::Posting] = {
+    return {
+        { seq = 1, code = "2000", side = 1, amount = 12000, memo = "transfer to 9999" },
+        { seq = 2, code = "9999", side = 2, amount = 12000, memo = "transfer to 9999" }
+    };
+};
+
+// True when leg `index` is the first one in the batch naming its account. The
+// scan is quadratic, but a batch is a handful of legs and this is the only
+// shape that decides slot ownership without building a set the engine would
+// then have to keep in step with the batch.
+fun[exp] first_use(legs: vec[model::Posting], index: int): bol = {
+    var code: str = legs[index].code;
+    var[mut] earlier: int = 0;
+    loop(.lt(earlier, index)) {
+        if(.eq(legs[earlier].code, code)) {
+            return false;
+        }
+        earlier = earlier + 1;
+    }
+    return true;
+};
+
+// How many journal slots the batch will need: one per distinct account.
+fun[exp] slots_needed(legs: vec[model::Posting]): int = {
+    var[mut] distinct: int = 0;
+    var[mut] index: int = 0;
+    loop(.lt(index, .len(legs))) {
+        if(first_use(legs, index)) {
+            distinct = distinct + 1;
+        }
+        index = index + 1;
+    }
+    return distinct;
+};
+
+// Everything that must hold before the engine will touch the device.
+fun[exp] validate_batch(legs: vec[model::Posting]): err[str] = {
+    if(.eq(.len(legs), 0)) {
+        return "batch is empty";
+    }
+    loop(leg in legs) {
+        var fault: err[str] = model::fault_of(leg);
+        when(fault) {
+            on(reason) { return reason; }
+            * { }
+        }
+        if(.not(known_code(leg.code))) {
+            return "leg " + std::fmt::int_to_str(leg.seq) + ": account " + leg.code + " is not in the chart";
+        }
+    }
+    var off: int = model::drift(legs);
+    if(.not(.eq(off, 0))) {
+        return "batch does not balance, out by " + std::fmt::int_to_str(off) + " cents";
+    }
+    return nil;
+};
+
+// Settle one batch.
+//
+// `dfr` releases the journal lock on every exit; `edf` prints the rollback that
+// only an error path performs. Each account's slot is acquired inside its own
+// block, so it is finalized the moment that account's first leg is written --
+// the engine never holds two slots for the same account and never carries a
+// slot past the leg that needed it.
+fun[exp] settle(batch: int, legs: vec[model::Posting]): model::Receipt / str = {
+    edf[batch[cpy]] {
+        std::io::echo_str("    [edf] batch " + std::fmt::int_to_str(batch) + " rolled back, nothing posted");
+    };
+    dfr[batch[cpy]] {
+        std::io::echo_str("    [dfr] batch " + std::fmt::int_to_str(batch) + " journal unlocked");
+    };
+
+    var fault: err[str] = validate_batch(legs);
+    when(fault) {
+        on(reason) { report reason; }
+        * { }
+    }
+
+    var needed: int = slots_needed(legs);
+    if(.gt(needed, slot::capacity())) {
+        report "batch needs " + std::fmt::int_to_str(needed) + " journal slots, device offers "
+        + std::fmt::int_to_str(slot::capacity());
+    }
+
+    var[mut] used: int = 0;
+    var[mut] index: int = 0;
+    loop(.lt(index, .len(legs))) {
+        var leg: model::Posting = legs[index];
+        if(first_use(legs, index)) {
+            {
+                var held: slot::Slot = slot::acquire(used, leg.code);
+                std::io::echo_str("      write " + leg.side_text() + " " + leg.code
+                + " " + render::money(leg.amount) + "  " + leg.memo);
+            };
+            used = used + 1;
+        }
+        if(.not(first_use(legs, index))) {
+            std::io::echo_str("      write " + leg.side_text() + " " + leg.code
+            + " " + render::money(leg.amount) + "  " + leg.memo + "  (slot already returned)");
+        }
+        index = index + 1;
+    }
+
+    return {
+        batch = batch,
+        legs = .len(legs),
+        slots_used = used,
+        moved = model::gross_debits(legs)
+    };
+};
+
+// A single leg written straight to the device, used for same-day corrections.
+//
+// The slot is already held when the device answers, so it has to go back before
+// the error unwinds rather than at the end of a rollback: `[fin]held` releases
+// it the moment the write attempt is over, and scope exit does not release it a
+// second time.
+//
+// Both exits are taken *after* that release, on purpose. Deciding the outcome
+// first and unwinding afterwards is the only arrangement the current compiler
+// finalizes exactly once -- a `[fin]` inside a branch that then leaves the
+// routine releases twice, and a `[fin]` reached by only some paths lets the
+// others leak. Neither miscompilation is visible without a printing finalizer.
+fun[exp] write_correction(leg: model::Posting, device_ready: bol): int / str = {
+    edf[leg[bor]] {
+        std::io::echo_str("    [edf] correction " + std::fmt::int_to_str(leg.seq) + " reversed");
+    };
+    dfr[leg[bor]] {
+        std::io::echo_str("    [dfr] correction " + std::fmt::int_to_str(leg.seq) + " lock released");
+    };
+
+    var held: slot::Slot = slot::acquire(3, leg.code);
+    if(device_ready) {
+        std::io::echo_str("      wrote correction " + leg.side_text() + " " + leg.code
+        + " " + render::money(leg.amount));
+    }
+    if(.not(device_ready)) {
+        std::io::echo_str("      device refused leg " + std::fmt::int_to_str(leg.seq));
+    }
+    [fin]held;
+    if(.not(device_ready)) {
+        report "correction " + std::fmt::int_to_str(leg.seq) + ": journal device refused the write";
+    }
+    return leg.amount;
+};
+
+// Filing hands the slot away with the paperwork. `archive` owns the ticket, so
+// the slot inside it is released there and this scope releases nothing.
+pro[exp] file_leg(batch: int, leg: model::Posting): non = {
+    var ticket: slot::Ticket = {
+        batch = batch,
+        leg = leg.seq,
+        slot = slot::acquire(1, leg.code)
+    };
+    slot::archive([mov]ticket);
+    std::io::echo_str("      ticket is gone; this scope has no slot left to release");
+    return;
+};
+
+// Debit-positive movement recorded against one account by a batch.
+fun[exp] movement(legs: vec[model::Posting], code: str): int = {
+    var[mut] total: int = 0;
+    loop(leg in legs) {
+        if(.eq(leg.code, code)) {
+            total = total + leg.signed();
+        }
+    }
+    return total;
+};
+
+// The balance a clerk reads: opening plus the batch's movement, sign-corrected
+// for the account's normal side.
+fun[exp] balance(account: model::Account, legs: vec[model::Posting]): int = {
+    return account.opening + account.present(movement(legs, account.code));
+};
+
+// The books are only trustworthy when debit-normal and credit-normal totals
+// still meet after a batch. Debit-normal balances count positive.
+fun[exp] sheet_drift(legs: vec[model::Posting]): int = {
+    var rows: vec[model::Account] = chart();
+    var[mut] total: int = 0;
+    loop(row in rows) {
+        if(row.is_debit_normal()) {
+            total = total + balance(row, legs);
+        }
+        if(.not(row.is_debit_normal())) {
+            total = total - balance(row, legs);
+        }
+    }
+    return total;
+};

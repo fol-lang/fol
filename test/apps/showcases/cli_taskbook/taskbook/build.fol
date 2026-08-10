@@ -1,0 +1,38 @@
+// taskbook — the runnable half of the workspace.
+//
+// It depends on the sibling `taskkit` package by path. `taskkit` has a
+// build.fol of its own, which makes it a formal package root, so the book says
+// its sources should be reached with a `pkg` import — but `pkg` only searches
+// the package store and never a declared `loc` dependency, so main.fol reaches
+// into `../../taskkit/src` with `loc` instead.
+//
+// Comments stay at file root: a `//` between two statements inside the build
+// routine body makes build evaluation fail with F1001.
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "taskbook",
+        version = "0.1.0",
+        kind = "exe",
+        description = "Command-line task tracker over a plain-text store",
+        license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    build.add_dep({ alias = "taskkit", source = "loc", target = "../taskkit" });
+
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+
+    var app = graph.add_exe({
+        name = "taskbook",
+        root = "src/main.fol",
+        fol_model = "memo",
+        target = target,
+        optimize = optimize,
+    });
+
+    graph.install(app);
+    graph.add_run(app);
+    return;
+};

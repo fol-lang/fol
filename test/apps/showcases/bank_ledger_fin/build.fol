@@ -1,0 +1,27 @@
+// A comment placed between statements inside build() breaks build evaluation,
+// so everything worth saying about this graph is said here: one hosted exe,
+// std bundled because the finalizer trace has to reach stdout.
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "bank_ledger_fin",
+        version = "0.1.0",
+        kind = "exe",
+        description = "double-entry settlement engine whose journal slots are finalized exactly once",
+        license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+    var app = graph.add_exe({
+        name = "bank_ledger_fin",
+        root = "src/main.fol",
+        fol_model = "memo",
+        target = target,
+        optimize = optimize,
+    });
+    graph.install(app);
+    graph.add_run(app);
+    return;
+};

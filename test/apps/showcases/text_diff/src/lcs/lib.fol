@@ -1,0 +1,226 @@
+// The generic longest-common-subsequence core.
+//
+// Everything that depends on the element type is confined to `match_grid`: it
+// reads the two sequences once and reduces them to an equality matrix. The
+// dynamic program and the edit script that follow are pure index arithmetic, so
+// they are written once and serve lines and words alike.
+//
+// Both matrices are strings. FOL containers are fixed at construction -- there
+// is no append and no `costs[i] = x` -- so a table whose size is only known at
+// run time cannot be a `vec[int]`. A string can be grown by concatenation,
+// which is the one accumulator the language offers, so each cell is stored as a
+// zero-padded decimal of width WIDTH and read back with `strn::sub`.
+//
+// Names fold case- and underscore-insensitively, so a constant may not share a
+// spelling with a routine or a parameter: WIDTH, `pairs` and `costs` are named
+// the way they are to stay clear of `cell`, `match_grid` and `dp_table`.
+
+use std: pkg = {"std"};
+
+// Anything the LCS can compare. One routine is enough: two elements are equal
+// exactly when their keys are, which keeps the standard usable for records
+// whose identity is only part of their content.
+std[exp] keyed: pro = {
+    fun key(): str;
+};
+
+// Edit-script opcodes, and the two marks the equality matrix is written with.
+//
+// These are routines rather than `con` bindings for two reasons. A
+// one-character literal with no expected type infers as `chr` and then refuses
+// to compare against a `str`, so the type has to be pinned somewhere; and a
+// module-level `con NAME: str = "="` type-checks but makes the backend emit a
+// Rust `char` where a string is expected, which fails to compile. A routine
+// return type pins the type and lowers correctly.
+fun[exp] op_keep(): str = {
+    return "=";
+};
+
+fun[exp] op_drop(): str = {
+    return "-";
+};
+
+fun[exp] op_add(): str = {
+    return "+";
+};
+
+fun[exp] hit(): str = {
+    return "1";
+};
+
+fun[exp] miss(): str = {
+    return "0";
+};
+
+// Three decimal digits per cell caps either side at 999 elements.
+con WIDTH: int = 3;
+
+// The only element-typed routine in the package. `left` and `right` are
+// accessor closures rather than `vec[T]` values: an indexed read out of a
+// `vec[T]` is rejected while T is still a type parameter, even under a `clone`
+// bound and an explicit `[cln]`, so the read has to happen inside a closure
+// built at the concrete element type.
+fun[exp] match_grid(T: keyed)(left: {fun (index: int): T}, rows: int, right: {fun (index: int): T}, cols: int): str = {
+    var out: str = "";
+    var row: int = 0;
+    loop (row < rows) {
+        // Bound to `str` immediately. A local of the parameter type T that
+        // stays live across a branch inside a loop makes the backend emit Rust
+        // that does not compile.
+        var left_key: str = left(row).key();
+        var col: int = 0;
+        loop (col < cols) {
+            var right_key: str = right(col).key();
+            when(.eq(left_key, right_key)) {
+                case(true) { out = out + hit(); }
+                * { out = out + miss(); }
+            }
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+    return out;
+};
+
+fun[exp] matches(pairs: str, cols: int, row: int, col: int): bol = {
+    return .eq(std::strn::sub(pairs, row * cols + col, 1), hit());
+};
+
+fun cell_text(value: int): str = {
+    var text: str = std::fmt::int_to_str(value);
+    loop (.len(text) < WIDTH) {
+        text = miss() + text;
+    }
+    return text;
+};
+
+// Cell (row, col) of a table with `cols` columns of real data, i.e. one that
+// carries the empty-prefix row and column as well.
+fun[exp] cell(costs: str, cols: int, row: int, col: int): int = {
+    var offset: int = (row * (cols + 1) + col) * WIDTH;
+    return std::strn::to_int(std::strn::sub(costs, offset, WIDTH), 0);
+};
+
+// Prefix-form dynamic program: cell (i, j) is the LCS length of the first i
+// elements of the left sequence and the first j of the right. Filling it in
+// reading order means every cell it depends on -- (i-1, j-1), (i-1, j) and
+// (i, j-1) -- has already been appended, so the half-built table can be read
+// back as it grows.
+fun[exp] dp_table(pairs: str, rows: int, cols: int): str = {
+    var out: str = "";
+    var seed: int = 0;
+    loop (seed <= cols) {
+        out = out + cell_text(0);
+        seed = seed + 1;
+    }
+    var row: int = 1;
+    loop (row <= rows) {
+        out = out + cell_text(0);
+        var col: int = 1;
+        loop (col <= cols) {
+            when(matches(pairs, cols, row - 1, col - 1)) {
+                case(true) {
+                    out = out + cell_text(cell(out, cols, row - 1, col - 1) + 1);
+                }
+                * {
+                    var drop_left: int = cell(out, cols, row - 1, col);
+                    var drop_right: int = cell(out, cols, row, col - 1);
+                    when(drop_left < drop_right) {
+                        case(true) { out = out + cell_text(drop_right); }
+                        * { out = out + cell_text(drop_left); }
+                    }
+                }
+            }
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+    return out;
+};
+
+fun[exp] common(costs: str, rows: int, cols: int): int = {
+    return cell(costs, cols, rows, cols);
+};
+
+// Walks the table back from the bottom-right corner, prepending one opcode per
+// step. On a tie the insertion is taken first; because the walk runs backwards
+// that puts the deletions ahead of the insertions in the finished script, which
+// is the order a unified diff is expected to print them in.
+fun[exp] edit_script(pairs: str, costs: str, rows: int, cols: int): str = {
+    var out: str = "";
+    var row: int = rows;
+    var col: int = cols;
+    loop ((row > 0) or (col > 0)) {
+        var paired: bol = false;
+        when((row > 0) and (col > 0)) {
+            case(true) { paired = matches(pairs, cols, row - 1, col - 1); }
+            * { }
+        }
+        when(paired) {
+            case(true) {
+                out = op_keep() + out;
+                row = row - 1;
+                col = col - 1;
+            }
+            * {
+                var take_right: bol = false;
+                when(row == 0) {
+                    case(true) { take_right = true; }
+                    * {
+                        when(col == 0) {
+                            case(true) { take_right = false; }
+                            * {
+                                take_right = cell(costs, cols, row, col - 1)
+                                >= cell(costs, cols, row - 1, col);
+                            }
+                        }
+                    }
+                }
+                when(take_right) {
+                    case(true) { out = op_add() + out; col = col - 1; }
+                    * { out = op_drop() + out; row = row - 1; }
+                }
+            }
+        }
+    }
+    return out;
+};
+
+fun[exp] op_at(steps: str, index: int): str = {
+    return std::strn::sub(steps, index, 1);
+};
+
+// How many opcodes in `steps[0 .. stop)` consume an element of the left side.
+fun[exp] left_cursor(steps: str, stop: int): int = {
+    var seen: int = 0;
+    var index: int = 0;
+    loop (index < stop) {
+        when(.eq(op_at(steps, index), op_add())) {
+            case(true) { }
+            * { seen = seen + 1; }
+        }
+        index = index + 1;
+    }
+    return seen;
+};
+
+fun[exp] right_cursor(steps: str, stop: int): int = {
+    var seen: int = 0;
+    var index: int = 0;
+    loop (index < stop) {
+        when(.eq(op_at(steps, index), op_drop())) {
+            case(true) { }
+            * { seen = seen + 1; }
+        }
+        index = index + 1;
+    }
+    return seen;
+};
+
+fun[exp] left_span(steps: str, start: int, stop: int): int = {
+    return left_cursor(steps, stop) - left_cursor(steps, start);
+};
+
+fun[exp] right_span(steps: str, start: int, stop: int): int = {
+    return right_cursor(steps, stop) - right_cursor(steps, start);
+};

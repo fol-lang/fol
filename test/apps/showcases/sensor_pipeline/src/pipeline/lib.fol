@@ -1,0 +1,183 @@
+// The orchestration stage: it opens the three streams, starts one sampler per
+// sensor, folds every reading into a `mux[Aggregate]`, multiplexes the fault and
+// heartbeat streams under a single `select`, and hands back one finished value.
+//
+// Keeping the orchestration here rather than in `main` is what lets a caller
+// drive the whole pipeline as one routine and compare the answer with a
+// sequential fold of the same sensor table.
+
+use std: pkg = {"std"};
+use sensors: loc = {"../sensors"};
+use window: loc = {"../window"};
+use sampler: loc = {"../sampler"};
+
+// Fold one reading into the guarded aggregate.
+//
+// The critical section is a read-modify-write of the whole record: the guarded
+// fields are copied out, `merge` runs on the copy, and the result is written
+// back before `[end]guard` releases the lock. Copying through a local is what
+// keeps the fold logic in `window` instead of duplicating it here.
+fun[exp] absorb(state: mux[window::Aggregate], reading: sensors::Reading): int = {
+    var[mut, bor] guard: window::Aggregate = ([bor]state).lock();
+    var current: window::Aggregate = {
+        count = guard.count,
+        sum = guard.sum,
+        sumsq = guard.sumsq,
+        low = guard.low,
+        high = guard.high,
+        checksum = guard.checksum,
+        faults = guard.faults,
+        signalled = guard.signalled,
+        beats = guard.beats,
+    };
+    var next: window::Aggregate = window::merge(current, reading);
+    guard.count = next.count;
+    guard.sum = next.sum;
+    guard.sumsq = next.sumsq;
+    guard.low = next.low;
+    guard.high = next.high;
+    guard.checksum = next.checksum;
+    guard.faults = next.faults;
+    var seen: int = guard.count;
+    [end]guard;
+    return seen;
+};
+
+// Read the finished aggregate back out through the guard-VALUE surface.
+fun[exp] snapshot(state: mux[window::Aggregate]): window::Aggregate = {
+    var[mut, bor] guard: window::Aggregate = ([bor]state).lock();
+    var copy: window::Aggregate = {
+        count = guard.count,
+        sum = guard.sum,
+        sumsq = guard.sumsq,
+        low = guard.low,
+        high = guard.high,
+        checksum = guard.checksum,
+        faults = guard.faults,
+        signalled = guard.signalled,
+        beats = guard.beats,
+    };
+    [end]guard;
+    return copy;
+};
+
+// Drain exactly `expected` readings through a first-class `chn[rx, Reading]`
+// receiver endpoint.
+//
+// The bound is not laziness. `execute` still holds the channel binding, and a
+// channel binding carries a sender, so an unbounded `for (r in inbox[rx])`
+// would wait forever for a sender that never drops. The sample count is a pure
+// function of the sensor table, so counting is the honest termination rule.
+fun[exp] collect(
+    inbox: chn[rx, sensors::Reading],
+    expected: int,
+    state: mux[window::Aggregate],
+): int = {
+    var[mut] taken: int = 0;
+    var[mut] seen: int = 0;
+    loop (taken < expected) {
+        var got: opt[sensors::Reading] = inbox[rx];
+        when (got) {
+            on (reading) {
+                seen = absorb(state, reading);
+            }
+            * {
+                // Every sampler is gone early: stop rather than block.
+                taken = expected;
+            }
+        }
+        taken = taken + 1;
+    }
+    return seen;
+};
+
+fun[exp] run(): window::Aggregate = {
+    var blank: window::Aggregate = window::empty();
+    return execute([mov]blank);
+};
+
+// The aggregate arrives as a `mux[Aggregate]` handle so the same guarded value
+// can be reached from the collector and from the final snapshot.
+fun[exp] execute(state: mux[window::Aggregate]): window::Aggregate = {
+    var readings: chn[sensors::Reading];
+    var faults: chn[int];
+    var beats: chn[int];
+
+    var count: int = sensors::sensor_count();
+    var[mut] index: int = 0;
+    loop (index < count) {
+        [spn]sampler::run_sensor(readings[tx], faults[tx], index);
+        // One heartbeat per sampler that actually started, sent from this
+        // thread so the count is settled before the select loop runs.
+        var announced: err[int] = 1 | beats[tx];
+        index = index + 1;
+    }
+
+    var collected: int = collect(readings[rx], sensors::total_samples(), state);
+
+    // `alarm` is a first-class receiver endpoint; `beats` is still a whole
+    // channel. A `select` arm only needs the receive side, so it accepts both.
+    // The `*` arm makes the select non-blocking, which is what lets the loop
+    // stop once both queues are empty instead of waiting on senders that the
+    // samplers have already dropped.
+    var alarm: chn[rx, int] = faults[rx];
+    var[mut] signalled: int = 0;
+    var[mut] started: int = 0;
+    var[mut] draining: bol = true;
+    loop (draining) {
+        select {
+            when alarm as code {
+                signalled = signalled + 1;
+            }
+            when beats as token {
+                started = started + token;
+            }
+            * {
+                draining = false;
+            }
+        };
+    }
+
+    var totals: window::Aggregate = snapshot(state);
+    return {
+        count = totals.count,
+        sum = totals.sum,
+        sumsq = totals.sumsq,
+        low = totals.low,
+        high = totals.high,
+        checksum = totals.checksum,
+        faults = totals.faults,
+        signalled = signalled,
+        beats = started,
+    };
+};
+
+// Pure, so it is safe to run on its own OS thread.
+fun[exp] compose(
+    count: int,
+    centre: int,
+    spread: int,
+    variance: int,
+    faults: int,
+    checksum: int,
+): str = {
+    return "samples=" + std::fmt::int_to_str(count)
+    + " mean=" + std::fmt::int_to_str(centre)
+    + " spread=" + std::fmt::int_to_str(spread)
+    + " var=" + std::fmt::int_to_str(variance)
+    + " faults=" + std::fmt::int_to_str(faults)
+    + " checksum=" + std::fmt::int_to_str(checksum);
+};
+
+// The one-shot result of the run. The eventual crosses a routine signature, so
+// its parent-scope lifetime `L` is spelled on both sides.
+fun[exp] describe(L: lif)(
+    count: int,
+    centre: int,
+    spread: int,
+    variance: int,
+    faults: int,
+    checksum: int,
+): evt[L, str] = {
+    return compose(count, centre, spread, variance, faults, checksum) | async;
+};

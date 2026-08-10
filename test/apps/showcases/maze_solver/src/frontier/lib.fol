@@ -1,0 +1,64 @@
+use std: pkg = {"std"};
+use codec: loc = {"../codec"};
+
+// A bag of pending cell ids.
+//
+// Breadth-first and depth-first search differ in exactly one respect: which end
+// of the pending set they take from. Rather than write the traversal twice,
+// both searches share this record and pick `take_front` (queue, FIFO) or
+// `take_back` (stack, LIFO). Mixing the two on one bag is not meaningful --
+// `take_front` advances a read cursor while `take_back` truncates -- so a bag
+// belongs to one search.
+
+typ[exp] Bag: rec = {
+    slots: str,
+    head: int,
+};
+
+// Every entry occupies this many characters in `slots`.
+fun[exp] entry_width(): int = {
+    return 3;
+};
+
+fun[exp] empty(): Bag = {
+    return { slots = "", head = 0 };
+};
+
+fun[exp] (Bag[bor]) waiting(): int = {
+    return .len(self.slots) / entry_width() - self.head;
+};
+
+pro[exp] (Bag[mut, bor]) push(cell: int): non = {
+    self.slots = self.slots + codec::pad(cell, entry_width());
+    return;
+};
+
+// FIFO. The consumed prefix is left in place and skipped by the cursor; a maze
+// small enough to hold in a string is small enough not to care.
+pro[exp] (Bag[mut, bor]) take_front(): int = {
+    var cell: int = codec::slot(self.slots, self.head, entry_width());
+    self.head = self.head + 1;
+    return cell;
+};
+
+// LIFO. Truncating the tail keeps `head` at zero, so `waiting` reads correctly
+// for both disciplines.
+pro[exp] (Bag[mut, bor]) take_back(): int = {
+    var last: int = .len(self.slots) / entry_width() - 1;
+    var cell: int = codec::slot(self.slots, last, entry_width());
+    self.slots = std::strn::sub(self.slots, 0, last * entry_width());
+    return cell;
+};
+
+// Peak occupancy is the interesting difference between the two searches: a
+// queue holds a whole frontier, a stack holds one branch.
+fun[exp] (Bag[bor]) render(): str = {
+    ~var out: str = "";
+    ~var index: int = self.head;
+    var total: int = .len(self.slots) / entry_width();
+    loop(index < total) {
+        out = out + std::fmt::int_to_str(codec::slot(self.slots, index, entry_width())) + " ";
+        index = index + 1;
+    };
+    return out;
+};

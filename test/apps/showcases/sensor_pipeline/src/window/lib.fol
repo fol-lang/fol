@@ -1,0 +1,116 @@
+// The aggregate and its statistics.
+//
+// `merge` is the single definition of the fold. The concurrent pipeline calls
+// it under a mutex guard and `sequential` calls it on one thread; because there
+// is only one implementation, the two can be compared field by field and any
+// difference is a concurrency bug rather than a modelling difference.
+
+use sensors: loc = {"../sensors"};
+
+typ[exp] Aggregate: rec = {
+    count: int,
+    sum: int,
+    sumsq: int,
+    low: int,
+    high: int,
+    checksum: int,
+    faults: int,
+    signalled: int,
+    beats: int,
+};
+
+// Sentinels sit outside the calibrated range on both sides so the first merge
+// always replaces them and `merge` needs no "is this the first sample" branch.
+fun[exp] sentinel_low(): int = {
+    return 1000000;
+};
+
+fun[exp] sentinel_high(): int = {
+    return 0 - 1000000;
+};
+
+fun[exp] empty(): Aggregate = {
+    return {
+        count = 0,
+        sum = 0,
+        sumsq = 0,
+        low = sentinel_low(),
+        high = sentinel_high(),
+        checksum = 0,
+        faults = 0,
+        signalled = 0,
+        beats = 0,
+    };
+};
+
+// Every field here is order-independent: count/sum/sumsq are additive,
+// low/high are lattice meets, and the checksum weights a sample by its own
+// coordinates instead of by arrival position.
+//
+// `signalled` and `beats` are counted on the channel side, not from readings,
+// so the fold carries them through untouched.
+fun[exp] merge(agg: Aggregate, reading: sensors::Reading): Aggregate = {
+    var[mut] low: int = agg.low;
+    var[mut] high: int = agg.high;
+    if (reading.value < low) {
+        low = reading.value;
+    }
+    if (reading.value > high) {
+        high = reading.value;
+    }
+    var[mut] faults: int = agg.faults;
+    if (reading.fault != 0) {
+        faults = faults + 1;
+    }
+    return {
+        count = agg.count + 1,
+        sum = agg.sum + reading.value,
+        sumsq = agg.sumsq + (reading.value * reading.value),
+        low = low,
+        high = high,
+        checksum = agg.checksum + ((reading.sensor + 1) * (reading.tick + 1)),
+        faults = faults,
+        signalled = agg.signalled,
+        beats = agg.beats,
+    };
+};
+
+fun[exp] mean(agg: Aggregate): int = {
+    if (agg.count == 0) {
+        return 0;
+    }
+    return agg.sum / agg.count;
+};
+
+// Population variance via the sum-of-squares identity. Integer division
+// truncates twice here, so the answer is a floor and not a rounding; it is
+// still exact enough to spot a dropped sample, which is all it is used for.
+fun[exp] variance(agg: Aggregate): int = {
+    if (agg.count == 0) {
+        return 0;
+    }
+    var centre: int = mean(agg);
+    return (agg.sumsq / agg.count) - (centre * centre);
+};
+
+fun[exp] spread(agg: Aggregate): int = {
+    if (agg.count == 0) {
+        return 0;
+    }
+    return agg.high - agg.low;
+};
+
+// The oracle: the same fold, one thread, in index order.
+fun[exp] sequential(): Aggregate = {
+    var[mut] agg: Aggregate = empty();
+    var[mut] index: int = 0;
+    loop (index < sensors::sensor_count()) {
+        var[mut] tick: int = 0;
+        loop (tick < sensors::ticks()) {
+            agg = merge(agg, sensors::sample(index, tick));
+            tick = tick + 1;
+        }
+        index = index + 1;
+    }
+    return agg;
+};

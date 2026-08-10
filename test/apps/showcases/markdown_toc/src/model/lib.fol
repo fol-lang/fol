@@ -1,0 +1,46 @@
+// The vocabulary the rest of the tool is written in.
+//
+// A `Heading` is deliberately flat and immutable: every stage of the pipeline
+// hands back a fresh record rather than mutating the one it was given, so a
+// transformation step can be applied twice without the second application
+// seeing the first one's leftovers.
+//
+// `Step` and `Keep` are routine *types*. They are what makes the pipeline
+// composable: a stage is an ordinary value that can be built by a factory,
+// stored in a record, passed as an argument and called later.
+
+// `anchor` holds the *base* anchor. Duplicate resolution belongs to whoever
+// renders a whole document, because it needs to see the headings that came
+// before this one.
+typ[exp] Heading: rec = {
+    level: int,
+    text: str,
+    anchor: str,
+    line: int,
+};
+
+typ[exp] Step: {fun (item: Heading): Heading};
+
+typ[exp] Keep: {fun (item: Heading): bol};
+
+fun[exp] blank(): Heading = {
+    return { level = 0, text = "", anchor = "", line = 0 };
+};
+
+fun[exp] retitled(item: Heading, text: str): Heading = {
+    return { level = item.level, text = text, anchor = item.anchor, line = item.line };
+};
+
+fun[exp] anchored(item: Heading, anchor: str): Heading = {
+    return { level = item.level, text = item.text, anchor = anchor, line = item.line };
+};
+
+// Levels are clamped at 1: a step that demotes everything must not be able to
+// produce a heading that sorts above the document title.
+fun[exp] releveled(item: Heading, level: int): Heading = {
+    var floored: int = level;
+    if (floored < 1) {
+        return { level = 1, text = item.text, anchor = item.anchor, line = item.line };
+    }
+    return { level = floored, text = item.text, anchor = item.anchor, line = item.line };
+};

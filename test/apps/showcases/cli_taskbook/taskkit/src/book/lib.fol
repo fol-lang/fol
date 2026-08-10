@@ -1,0 +1,308 @@
+// The whole document: a task store held as one newline separated string.
+//
+// Every mutation returns a *new* document instead of editing one in place.
+// That is not a style choice — there is no growable container to hold the rows
+// in, so the text itself is the data structure.
+//
+// A store holds three kinds of line: task rows, `#` lines, and blanks. Only
+// task rows are addressable. `#` lines are copied through every mutation
+// untouched, because one of them is the id counter and the rest are the user's
+// own notes.
+
+typ[exp] Summary: rec = {
+    var todo: int;
+    var doing: int;
+    var done: int;
+    var damaged: int;
+    var total: int;
+};
+
+fun[exp] counter_tag(): str = {
+    return "#next ";
+};
+
+fun[exp] is_blank_line(line: str): bol = {
+    return .len(text::trim(line)) == 0;
+};
+
+fun[exp] is_note_line(line: str): bol = {
+    return text::starts_with(text::trim(line), "#");
+};
+
+fun[exp] is_task_line(line: str): bol = {
+    return (not is_blank_line(line)) and (not is_note_line(line));
+};
+
+fun[exp] count(doc: str): int = {
+    var lines: int = text::line_count(doc);
+    var[mut] index: int = 0;
+    var[mut] rows: int = 0;
+    loop(index < lines) {
+        when(is_task_line(text::line_at(doc, index))) {
+            case(true) { rows = rows + 1; }
+            * { }
+        }
+        index = index + 1;
+    };
+    return rows;
+};
+
+// The `wanted`-th task row, still as text. "" past the end.
+fun[exp] raw_at(doc: str, wanted: int): str = {
+    var lines: int = text::line_count(doc);
+    var[mut] index: int = 0;
+    var[mut] rows: int = 0;
+    loop(index < lines) {
+        var line: str = text::line_at(doc, index);
+        when(is_task_line(line)) {
+            case(true) {
+                when(rows == wanted) {
+                    case(true) { return line; }
+                    * { rows = rows + 1; }
+                }
+            }
+            * { }
+        }
+        index = index + 1;
+    };
+    return "";
+};
+
+// Out of range yields a damaged task rather than a fault, so callers may walk
+// past the end safely.
+fun[exp] row_at(doc: str, wanted: int): entry::Task = {
+    return entry::decode(raw_at(doc, wanted));
+};
+
+fun[exp] find(doc: str, id: int): entry::Task = {
+    var rows: int = count(doc);
+    var[mut] index: int = 0;
+    loop(index < rows) {
+        var item: entry::Task = row_at(doc, index);
+        when(item.id == id) {
+            case(true) { return item; }
+            * { }
+        }
+        index = index + 1;
+    };
+    return entry::broken();
+};
+
+fun[exp] holds(doc: str, id: int): bol = {
+    return find(doc, id).id == id;
+};
+
+// The persisted high-water mark, or 0 when the store has never been written by
+// this tool.
+fun[exp] counter(doc: str): int = {
+    var lines: int = text::line_count(doc);
+    var tag: str = counter_tag();
+    var[mut] index: int = 0;
+    loop(index < lines) {
+        var line: str = text::trim(text::line_at(doc, index));
+        when(text::starts_with(line, tag)) {
+            case(true) {
+                return std::strn::to_int(text::trim(std::strn::sub(line, .len(tag), .len(line) - .len(tag))), 0);
+            }
+            * { }
+        }
+        index = index + 1;
+    };
+    return 0;
+};
+
+// Rewrite the store with a fresh counter line in front. Blank lines are
+// dropped (they carry nothing); every other line, including the user's own
+// notes, is copied byte for byte.
+fun[exp] with_counter(doc: str, value: int): str = {
+    var lines: int = text::line_count(doc);
+    var tag: str = counter_tag();
+    var[mut] out: str = tag + std::fmt::int_to_str(value) + "\n";
+    var[mut] index: int = 0;
+    loop(index < lines) {
+        var line: str = text::line_at(doc, index);
+        var stale: bol = text::starts_with(text::trim(line), tag);
+        when(is_blank_line(line) or stale) {
+            case(true) { }
+            * { out = out + line + "\n"; }
+        }
+        index = index + 1;
+    };
+    return out;
+};
+
+// Ids are handed out above every id the store has ever used, and are never
+// recycled. Deriving the next id from the live rows alone would hand a deleted
+// task's id to a new one, so a shell history holding `taskbook done 7` would
+// silently finish the wrong work.
+fun[exp] next_id(doc: str): int = {
+    var rows: int = count(doc);
+    var[mut] index: int = 0;
+    var[mut] top: int = 0;
+    loop(index < rows) {
+        var item: entry::Task = row_at(doc, index);
+        when(item.id > top) {
+            case(true) { top = item.id; }
+            * { }
+        }
+        index = index + 1;
+    };
+    var live: int = top + 1;
+    var remembered: int = counter(doc);
+    when(remembered > live) {
+        case(true) { return remembered; }
+        * { return live; }
+    }
+};
+
+fun[exp] render_row(item: entry::Task): str = {
+    return entry::encode(item) + "\n";
+};
+
+fun[exp] add(doc: str, item: entry::Task): str = {
+    return with_counter(doc + render_row(item), item.id + 1);
+};
+
+// Replace the row carrying `item.id`. A document without that id comes back
+// unchanged, so callers that care check `holds` first.
+fun[exp] edit(doc: str, item: entry::Task): str = {
+    var lines: int = text::line_count(doc);
+    var[mut] index: int = 0;
+    var[mut] out: str = "";
+    loop(index < lines) {
+        var line: str = text::line_at(doc, index);
+        var hit: bol = is_task_line(line) and (entry::decode(line).id == item.id);
+        when(hit) {
+            case(true) { out = out + render_row(item); }
+            * {
+                when(is_blank_line(line)) {
+                    case(true) { }
+                    * { out = out + line + "\n"; }
+                }
+            }
+        }
+        index = index + 1;
+    };
+    return out;
+};
+
+fun[exp] drop(doc: str, id: int): str = {
+    var lines: int = text::line_count(doc);
+    var[mut] index: int = 0;
+    var[mut] out: str = "";
+    loop(index < lines) {
+        var line: str = text::line_at(doc, index);
+        var hit: bol = is_task_line(line) and (entry::decode(line).id == id);
+        when(hit or is_blank_line(line)) {
+            case(true) { }
+            * { out = out + line + "\n"; }
+        }
+        index = index + 1;
+    };
+    return out;
+};
+
+// A view, not a store: `state` of -1 means any state, `tag` of "" means any
+// tag, and rows that do not decode are left out.
+fun[exp] filter(doc: str, state: int, tag: str): str = {
+    var rows: int = count(doc);
+    var[mut] index: int = 0;
+    var[mut] out: str = "";
+    loop(index < rows) {
+        var item: entry::Task = row_at(doc, index);
+        var live: bol = not entry::is_broken(item);
+        var state_ok: bol = (state < 0) or (item.state == state);
+        var tag_ok: bol = (.len(tag) == 0) or entry::has_tag(item, tag);
+        when(live and (state_ok and tag_ok)) {
+            case(true) { out = out + render_row(item); }
+            * { }
+        }
+        index = index + 1;
+    };
+    return out;
+};
+
+// Ordering by strictly increasing sort key. Keys are unique (priority is
+// bounded and ids are never recycled), so each pass picks exactly one row and
+// the walk needs no mutable "already emitted" set — which the container
+// surface could not supply anyway.
+fun[exp] sorted(doc: str): str = {
+    var live: str = filter(doc, -1, "");
+    var rows: int = count(live);
+    var[mut] emitted: int = 0;
+    var[mut] floor: int = -1;
+    var[mut] out: str = "";
+    loop(emitted < rows) {
+        var[mut] best: int = 0;
+        var[mut] found: bol = false;
+        var[mut] index: int = 0;
+        loop(index < rows) {
+            var key: int = entry::sort_key(row_at(live, index));
+            when(key > floor) {
+                case(true) {
+                    when(found) {
+                        case(true) {
+                            when(key < best) {
+                                case(true) { best = key; }
+                                * { }
+                            }
+                        }
+                        * {
+                            best = key;
+                            found = true;
+                        }
+                    }
+                }
+                * { }
+            }
+            index = index + 1;
+        };
+        when(not found) {
+            case(true) { break; }
+            * { }
+        }
+        index = 0;
+        loop(index < rows) {
+            var item: entry::Task = row_at(live, index);
+            when(entry::sort_key(item) == best) {
+                case(true) { out = out + render_row(item); }
+                * { }
+            }
+            index = index + 1;
+        };
+        floor = best;
+        emitted = emitted + 1;
+    };
+    return out;
+};
+
+fun[exp] survey(doc: str): Summary = {
+    var rows: int = count(doc);
+    var[mut] index: int = 0;
+    var[mut] todo: int = 0;
+    var[mut] doing: int = 0;
+    var[mut] done: int = 0;
+    var[mut] bad: int = 0;
+    loop(index < rows) {
+        var item: entry::Task = row_at(doc, index);
+        when(entry::is_broken(item)) {
+            case(true) { bad = bad + 1; }
+            * {
+                when(item.state) {
+                    is(0) { todo = todo + 1; }
+                    is(1) { doing = doing + 1; }
+                    is(2) { done = done + 1; }
+                    * { }
+                }
+            }
+        }
+        index = index + 1;
+    };
+    return {
+        todo = todo,
+        doing = doing,
+        done = done,
+        damaged = bad,
+        total = todo + doing + done,
+    };
+};

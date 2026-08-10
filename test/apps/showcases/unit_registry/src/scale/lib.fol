@@ -1,0 +1,130 @@
+// The `unit` standard and every scale that conforms to it.
+//
+// The standard requires six routines, and that is the whole point of this
+// package: a generic routine constrained by `unit` may call any of them on the
+// same value, and each conformer supplies its own. Nothing else in the package
+// ever names a concrete unit type -- the conversion layer only knows `unit`.
+//
+// `to_base` / `from_base` are a pair rather than a single scale factor because
+// temperature scales are affine. Celsius has a factor of 1 and an offset of
+// 273.15; Fahrenheit has both. A registry built on a bare multiplier would
+// silently produce nonsense for those two, so the contract is stated as the
+// two directions of a bijection instead.
+
+use dim: loc = {"../dim"};
+
+std[exp] unit: pro = {
+    fun symbol(): str;
+    fun label(): str;
+    fun family(): int;
+    fun digits(): int;
+    fun to_base(value: flt): flt;
+    fun from_base(value: flt): flt;
+};
+
+// `places` is display precision, carried by the unit value rather than fixed by
+// the type: the same metre may be printed to 2 places on a report and 6 in a
+// round-trip audit.
+
+typ[exp] Meter()(unit, copy): rec = {
+    places: int,
+};
+
+typ[exp] Foot()(unit, copy): rec = {
+    places: int,
+};
+
+typ[exp] Inch()(unit, copy): rec = {
+    places: int,
+};
+
+typ[exp] Kilogram()(unit, copy): rec = {
+    places: int,
+};
+
+typ[exp] Pound()(unit, copy): rec = {
+    places: int,
+};
+
+typ[exp] Minute()(unit, copy): rec = {
+    places: int,
+};
+
+typ[exp] Kelvin()(unit, copy): rec = {
+    places: int,
+};
+
+typ[exp] Celsius()(unit, copy): rec = {
+    places: int,
+};
+
+typ[exp] Fahrenheit()(unit, copy): rec = {
+    places: int,
+};
+
+fun[exp] (Meter)symbol(): str = { return "m"; };
+fun[exp] (Meter)label(): str = { return "metre"; };
+fun[exp] (Meter)family(): int = { var code: int = dim::Dimension.LENGTH; return code; };
+fun[exp] (Meter)digits(): int = { return self.places; };
+fun[exp] (Meter)to_base(value: flt): flt = { return value; };
+fun[exp] (Meter)from_base(value: flt): flt = { return value; };
+
+// The international foot has been exactly 0.3048 m since 1959; using the
+// defined value rather than 1/3.28 keeps metre -> foot -> metre exact.
+fun[exp] (Foot)symbol(): str = { return "ft"; };
+fun[exp] (Foot)label(): str = { return "foot"; };
+fun[exp] (Foot)family(): int = { var code: int = dim::Dimension.LENGTH; return code; };
+fun[exp] (Foot)digits(): int = { return self.places; };
+fun[exp] (Foot)to_base(value: flt): flt = { return value * 0.3048; };
+fun[exp] (Foot)from_base(value: flt): flt = { return value / 0.3048; };
+
+fun[exp] (Inch)symbol(): str = { return "in"; };
+fun[exp] (Inch)label(): str = { return "inch"; };
+fun[exp] (Inch)family(): int = { var code: int = dim::Dimension.LENGTH; return code; };
+fun[exp] (Inch)digits(): int = { return self.places; };
+fun[exp] (Inch)to_base(value: flt): flt = { return value * 0.0254; };
+fun[exp] (Inch)from_base(value: flt): flt = { return value / 0.0254; };
+
+fun[exp] (Kilogram)symbol(): str = { return "kg"; };
+fun[exp] (Kilogram)label(): str = { return "kilogram"; };
+fun[exp] (Kilogram)family(): int = { var code: int = dim::Dimension.MASS; return code; };
+fun[exp] (Kilogram)digits(): int = { return self.places; };
+fun[exp] (Kilogram)to_base(value: flt): flt = { return value; };
+fun[exp] (Kilogram)from_base(value: flt): flt = { return value; };
+
+fun[exp] (Pound)symbol(): str = { return "lb"; };
+fun[exp] (Pound)label(): str = { return "pound"; };
+fun[exp] (Pound)family(): int = { var code: int = dim::Dimension.MASS; return code; };
+fun[exp] (Pound)digits(): int = { return self.places; };
+fun[exp] (Pound)to_base(value: flt): flt = { return value * 0.45359237; };
+fun[exp] (Pound)from_base(value: flt): flt = { return value / 0.45359237; };
+
+fun[exp] (Minute)symbol(): str = { return "min"; };
+fun[exp] (Minute)label(): str = { return "minute"; };
+fun[exp] (Minute)family(): int = { var code: int = dim::Dimension.DURATION; return code; };
+fun[exp] (Minute)digits(): int = { return self.places; };
+fun[exp] (Minute)to_base(value: flt): flt = { return value * 60.0; };
+fun[exp] (Minute)from_base(value: flt): flt = { return value / 60.0; };
+
+fun[exp] (Kelvin)symbol(): str = { return "K"; };
+fun[exp] (Kelvin)label(): str = { return "kelvin"; };
+fun[exp] (Kelvin)family(): int = { var code: int = dim::Dimension.TEMPERATURE; return code; };
+fun[exp] (Kelvin)digits(): int = { return self.places; };
+fun[exp] (Kelvin)to_base(value: flt): flt = { return value; };
+fun[exp] (Kelvin)from_base(value: flt): flt = { return value; };
+
+fun[exp] (Celsius)symbol(): str = { return "degC"; };
+fun[exp] (Celsius)label(): str = { return "celsius"; };
+fun[exp] (Celsius)family(): int = { var code: int = dim::Dimension.TEMPERATURE; return code; };
+fun[exp] (Celsius)digits(): int = { return self.places; };
+fun[exp] (Celsius)to_base(value: flt): flt = { return value + 273.15; };
+fun[exp] (Celsius)from_base(value: flt): flt = { return value - 273.15; };
+
+// 459.67 is the Rankine offset of the Fahrenheit zero; folding it in before the
+// 5/9 scaling avoids one subtraction and keeps -40 exactly shared with Celsius.
+fun[exp] (Fahrenheit)symbol(): str = { return "degF"; };
+fun[exp] (Fahrenheit)label(): str = { return "fahrenheit"; };
+fun[exp] (Fahrenheit)family(): int = { var code: int = dim::Dimension.TEMPERATURE; return code; };
+fun[exp] (Fahrenheit)digits(): int = { return self.places; };
+fun[exp] (Fahrenheit)to_base(value: flt): flt = { return (value + 459.67) * 5.0 / 9.0; };
+fun[exp] (Fahrenheit)from_base(value: flt): flt = { return value * 9.0 / 5.0 - 459.67; };

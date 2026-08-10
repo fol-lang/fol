@@ -1,0 +1,262 @@
+use catalog: loc = {"../catalog"};
+
+// The warehouse layout: a tree of zones held together by shared pointers, with
+// the parent direction expressed as a weak edge.
+//
+// Ownership runs downwards. A zone strongly owns its sub-zones, so a whole
+// aisle is freed by dropping the one handle above it. The dock edge runs the
+// other way: every zone can name the receiving dock, and that edge is
+// `ptr[weak, Zone]` on purpose. A strong dock edge would be a cycle — dock is
+// reachable from the tree and the tree is reachable from dock — and V3 has no
+// cycle collector, so the whole layout would leak the moment the yard handle
+// went out of scope. `report::sweep_frees_layout` is the runtime proof that it
+// does not.
+//
+// Construction is leaves-first because `[ref]value` allocates and snapshots:
+// a zone can only name sub-zones that already exist. The dock therefore has to
+// be allocated before anything that observes it, which is why it carries no
+// sub-zones of its own. The mirror shape — a zone that owns its children while
+// those children observe it back — cannot be built at all: closing that loop
+// needs a write through a `ptr[shared, Zone]`, and shared pointers are
+// read-only.
+
+typ[exp] Bin: rec = {
+    slot: str,
+    // The bin does not own the SKU, it points at the published card. Two bins
+    // holding the same card observe the same price.
+    card: catalog::Card,
+    units: int,
+};
+
+typ[exp] Zone: rec = {
+    name: str,
+    bins: vec[Bin],
+    kids: vec[ptr[shared, Zone]],
+    dock: opt ptr[weak, Zone],
+};
+
+// The yard keeps the only strong handles that outlive construction: drop this
+// record and every allocation below it must go.
+typ[exp] Yard: rec = {
+    dock: ptr[shared, Zone],
+    root: ptr[shared, Zone],
+};
+
+fun[exp] zone_name(cell: ptr[shared, Zone]): str = {
+    return ([drf]cell).name;
+};
+
+fun[exp] kid_count(cell: ptr[shared, Zone]): int = {
+    return .len(([drf]cell).kids);
+};
+
+fun[exp] kid_at(cell: ptr[shared, Zone], index: int): ptr[shared, Zone] = {
+    return ([drf]cell).kids[index];
+};
+
+fun[exp] bin_count(cell: ptr[shared, Zone]): int = {
+    return .len(([drf]cell).bins);
+};
+
+fun[exp] bin_at(cell: ptr[shared, Zone], index: int): Bin = {
+    return ([drf]cell).bins[index];
+};
+
+// Follows the weak back-edge. `nil` here means either "this zone predates the
+// dock" (only the dock itself) or "the dock allocation is already gone", and
+// the two are deliberately not distinguished by the caller: both mean the
+// zone cannot route a putaway.
+fun[exp] dock_name(cell: ptr[shared, Zone]): str = {
+    var slot: opt ptr[weak, Zone] = ([drf]cell).dock;
+    when(slot) {
+        on(observer) { return revive_name(observer); }
+        * { return "<none>"; }
+    }
+};
+
+// Upgrading is the only way to read through a weak handle, and it is fallible
+// by construction: `<collected>` means the dock allocation is already gone.
+fun[exp] revive_name(observer: ptr[weak, Zone]): str = {
+    var revived: opt[ptr[shared, Zone]] = [upg]observer;
+    when(revived) {
+        on(alive) { return ([drf]alive).name; }
+        * { return "<collected>"; }
+    }
+};
+
+// Depth-first search returning the rendered route, so a miss and a hit are one
+// `opt[str]` rather than a sentinel index.
+fun[exp] route_to(cell: ptr[shared, Zone], target: str, fuel: int): opt[str] = {
+    var here: str = zone_name(cell);
+    when(here == target) {
+        * { return here; }
+    };
+    when(fuel == 0) {
+        * { return nil; }
+    };
+    ~var index: int = 0;
+    var count: int = kid_count(cell);
+    loop(index < count) {
+        var below: opt[str] = route_to(kid_at(cell, index), target, fuel - 1);
+        when(below) {
+            on(rest) { return here + "/" + rest; }
+            * { }
+        };
+        index = index + 1;
+    };
+    return nil;
+};
+
+fun[exp] total_units(cell: ptr[shared, Zone], fuel: int): int = {
+    when(fuel == 0) {
+        * { return 0; }
+    };
+    ~var total: int = 0;
+    ~var index: int = 0;
+    var bins: int = bin_count(cell);
+    loop(index < bins) {
+        total = total + bin_at(cell, index).units;
+        index = index + 1;
+    };
+    ~var kid: int = 0;
+    var kids: int = kid_count(cell);
+    loop(kid < kids) {
+        total = total + total_units(kid_at(cell, kid), fuel - 1);
+        kid = kid + 1;
+    };
+    return total;
+};
+
+// Stock value uses the shared card's price, so a single published repricing
+// would move every bin at once. That is the point of sharing the allocation.
+fun[exp] stock_value(cell: ptr[shared, Zone], fuel: int): int = {
+    when(fuel == 0) {
+        * { return 0; }
+    };
+    ~var total: int = 0;
+    ~var index: int = 0;
+    var bins: int = bin_count(cell);
+    loop(index < bins) {
+        var bin: Bin = bin_at(cell, index);
+        total = total + bin.units * catalog::card_price(bin.card);
+        index = index + 1;
+    };
+    ~var kid: int = 0;
+    var kids: int = kid_count(cell);
+    loop(kid < kids) {
+        total = total + stock_value(kid_at(cell, kid), fuel - 1);
+        kid = kid + 1;
+    };
+    return total;
+};
+
+// How many bins in the subtree name this SKU code. FOL exposes no reader for
+// the runtime reference count, so this is the count derived from the graph:
+// every hit is one live `ptr[shared, Sku]` handle stored in a bin.
+fun[exp] holders_of(cell: ptr[shared, Zone], code: str, fuel: int): int = {
+    when(fuel == 0) {
+        * { return 0; }
+    };
+    ~var total: int = 0;
+    ~var index: int = 0;
+    var bins: int = bin_count(cell);
+    loop(index < bins) {
+        when(catalog::card_code(bin_at(cell, index).card) == code) {
+            * { total = total + 1; }
+        };
+        index = index + 1;
+    };
+    ~var kid: int = 0;
+    var kids: int = kid_count(cell);
+    loop(kid < kids) {
+        total = total + holders_of(kid_at(cell, kid), code, fuel - 1);
+        kid = kid + 1;
+    };
+    return total;
+};
+
+fun[exp] zone_count(cell: ptr[shared, Zone], fuel: int): int = {
+    when(fuel == 0) {
+        * { return 0; }
+    };
+    ~var total: int = 1;
+    ~var kid: int = 0;
+    var kids: int = kid_count(cell);
+    loop(kid < kids) {
+        total = total + zone_count(kid_at(cell, kid), fuel - 1);
+        kid = kid + 1;
+    };
+    return total;
+};
+
+// Builds the sample yard. Every `[ref]` here is one allocation; the order is
+// dock, then leaves, then racks, then aisles, then root.
+fun[exp] sample(bolt: catalog::Card, nut: catalog::Card, belt: catalog::Card): Yard = {
+    var dock_body: Zone = {
+        name = "dock",
+        bins = {},
+        kids = {},
+        dock = nil,
+    };
+    var dock: ptr[shared, Zone] = [ref]dock_body;
+    var watch: ptr[weak, Zone] = [weak]dock;
+
+    // `bolt` is stocked in two different racks. Both bins hold a handle onto
+    // the same catalog allocation, not two copies of the SKU.
+    var rack_a1_body: Zone = {
+        name = "rack-a1",
+        bins = {
+            { slot = "A1-01", card = catalog::alias(bolt), units = 120 },
+            { slot = "A1-02", card = catalog::alias(nut), units = 400 },
+        },
+        kids = {},
+        dock = watch,
+    };
+    var rack_a1: ptr[shared, Zone] = [ref]rack_a1_body;
+
+    var rack_a2_body: Zone = {
+        name = "rack-a2",
+        bins = {
+            { slot = "A2-01", card = catalog::alias(bolt), units = 80 },
+        },
+        kids = {},
+        dock = watch,
+    };
+    var rack_a2: ptr[shared, Zone] = [ref]rack_a2_body;
+
+    var rack_b1_body: Zone = {
+        name = "rack-b1",
+        bins = {
+            { slot = "B1-01", card = catalog::alias(belt), units = 12 },
+        },
+        kids = {},
+        dock = watch,
+    };
+    var rack_b1: ptr[shared, Zone] = [ref]rack_b1_body;
+
+    var aisle_a_body: Zone = {
+        name = "aisle-a",
+        bins = {},
+        kids = { rack_a1, rack_a2 },
+        dock = watch,
+    };
+    var aisle_a: ptr[shared, Zone] = [ref]aisle_a_body;
+
+    var aisle_b_body: Zone = {
+        name = "aisle-b",
+        bins = {},
+        kids = { rack_b1 },
+        dock = watch,
+    };
+    var aisle_b: ptr[shared, Zone] = [ref]aisle_b_body;
+
+    var root_body: Zone = {
+        name = "yard",
+        bins = {},
+        kids = { aisle_a, aisle_b },
+        dock = watch,
+    };
+    var root: ptr[shared, Zone] = [ref]root_body;
+
+    return { dock = dock, root = root };
+};

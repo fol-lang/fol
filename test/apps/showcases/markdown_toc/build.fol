@@ -1,0 +1,29 @@
+// Build description for the markdown-toc package.
+//
+// Comments only appear above the routine on purpose -- a `//` comment between
+// statements inside the `build()` body makes build evaluation fail with F1001.
+
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "markdown_toc",
+        version = "0.1.0",
+        kind = "exe",
+        description = "table-of-contents builder for markdown documents",
+        license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+    var app = graph.add_exe({
+        name = "markdown_toc",
+        root = "src/main.fol",
+        fol_model = "memo",
+        target = target,
+        optimize = optimize,
+    });
+    graph.install(app);
+    graph.add_run(app);
+    return;
+};

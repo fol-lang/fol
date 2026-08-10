@@ -1,0 +1,424 @@
+// The reader proper: split a line into fields, then judge each field.
+//
+// The dialect is RFC-4180 shaped:
+//
+//     row    := field (',' field)*
+//     field  := bare | '"' quoted '"'
+//     quoted := any byte, with '""' standing for one '"'
+//
+// Every field validator exists twice on purpose. `*_fault` yields a storable
+// `err[str]`, which is what the tally and the fault listing need; `parse_*`
+// yields `T / str`, which forces a caller that wants the value to decide what
+// to do about the failure first. Nothing is ever dropped: a row that cannot be
+// read still comes back with a reason attached.
+
+use std: pkg = {"std"};
+use chars: loc = {"../chars"};
+use model: loc = {"../model"};
+
+// One field starting at `from`. `from` may sit one past the end of the line,
+// which is how the trailing empty field of "a,b," is produced.
+fun[exp] read_field(line: str, from: int): model::Field = {
+    var limit = .len(line);
+    if (from >= limit) {
+        var empty: model::Field = { ok = true, body = "", next = limit + 1 };
+        return empty;
+    };
+    if (std::strn::byte_at(line, from) == chars::QUOTE) {
+        return read_quoted(line, from, limit);
+    };
+    var stop = from;
+    loop ((stop < limit) and (std::strn::byte_at(line, stop) != chars::COMMA)) {
+        stop = stop + 1;
+    };
+    var plain: model::Field = {
+        ok = true,
+        body = chars::trimmed(line, from, stop),
+        next = stop + 1
+    };
+    return plain;
+};
+
+// A quoted field ends at the first lone quote; a doubled quote is one literal
+// quote and keeps the field open.
+fun read_quoted(line: str, from: int, limit: int): model::Field = {
+    var cursor = from + 1;
+    var closed = 0 - 1;
+    loop (cursor < limit) {
+        if (std::strn::byte_at(line, cursor) == chars::QUOTE) {
+            if (((cursor + 1) < limit) and (std::strn::byte_at(line, cursor + 1) == chars::QUOTE)) {
+                cursor = cursor + 2;
+            } else {
+                closed = cursor;
+                break;
+            };
+        } else {
+            cursor = cursor + 1;
+        };
+    };
+    if (closed < 0) {
+        var unterminated: model::Field = { ok = false, body = "", next = limit + 1 };
+        return unterminated;
+    };
+
+    var after = closed + 1;
+    loop ((after < limit) and chars::is_blank(std::strn::byte_at(line, after))) {
+        after = after + 1;
+    };
+    // Text between the closing quote and the comma belongs to no field, so the
+    // row is unreadable rather than quietly re-joined.
+    if ((after < limit) and (std::strn::byte_at(line, after) != chars::COMMA)) {
+        var trailing: model::Field = { ok = false, body = "", next = limit + 1 };
+        return trailing;
+    };
+    var built: model::Field = {
+        ok = true,
+        body = std::strn::replace(chars::slice(line, from + 1, closed), "\"\"", "\""),
+        next = after + 1
+    };
+    return built;
+};
+
+// How many fields the line holds, or -1 when its quoting is broken.
+fun[exp] field_count(line: str): int = {
+    var limit = .len(line);
+    var cursor = 0;
+    var total = 0;
+    loop (cursor <= limit) {
+        var field: model::Field = read_field(line, cursor);
+        if (.not(field.ok)) {
+            return 0 - 1;
+        };
+        total = total + 1;
+        cursor = field.next;
+    };
+    return total;
+};
+
+// Absent is a real answer here: a short row has no sixth field, and that is
+// different from a sixth field that happens to be empty.
+fun[exp] field_at(line: str, index: int): opt[str] = {
+    var limit = .len(line);
+    var cursor = 0;
+    var seen = 0;
+    loop (cursor <= limit) {
+        var field: model::Field = read_field(line, cursor);
+        if (.not(field.ok)) {
+            return nil;
+        };
+        if (seen == index) {
+            return field.body;
+        };
+        cursor = field.next;
+        seen = seen + 1;
+    };
+    return nil;
+};
+
+fun[exp] field_or_empty(line: str, index: int): str = {
+    var found: opt[str] = field_at(line, index);
+    when(found) {
+        on(value) { return value; }
+        * { return ""; }
+    }
+};
+
+fun[exp] failed(shell: err[str]): bol = {
+    when(shell) {
+        on(reason) { return true; }
+        * { return false; }
+    }
+};
+
+fun[exp] reason_or(shell: err[str], fallback: str): str = {
+    when(shell) {
+        on(reason) { return reason; }
+        * { return fallback; }
+    }
+};
+
+fun[exp] id_fault(value: str): err[str] = {
+    if (.len(value) == 0) {
+        return "order id is empty";
+    };
+    var cursor = 0;
+    loop (cursor < .len(value)) {
+        if (.not(chars::is_ident(std::strn::byte_at(value, cursor)))) {
+            return "order id '" + value + "' may only hold letters, digits, '-' and '_'";
+        };
+        cursor = cursor + 1;
+    };
+    return nil;
+};
+
+fun[exp] region_fault(value: str): err[str] = {
+    if (model::known_region(value)) {
+        return nil;
+    };
+    if (.len(value) == 0) {
+        return "region is empty";
+    };
+    return "region '" + value + "' is not one of north/south/east/west";
+};
+
+// The export pads customer names to the column width used by the ERP, so 24
+// bytes is a real ceiling rather than an arbitrary one.
+fun[exp] customer_fault(value: str): err[str] = {
+    if (.len(value) == 0) {
+        return "customer is empty";
+    };
+    if (.len(value) > 24) {
+        return "customer name is longer than 24 characters";
+    };
+    return nil;
+};
+
+// `to_int` answers with its fallback for garbage as well as for a real zero,
+// so the digits are checked before the conversion rather than after it.
+fun[exp] count_fault(value: str): err[str] = {
+    if (.len(value) == 0) {
+        return "units is empty";
+    };
+    if (.not(chars::all_digits(value))) {
+        return "units '" + value + "' is not a whole number";
+    };
+    if (std::strn::to_int(value, 0) <= 0) {
+        return "units must be greater than zero";
+    };
+    return nil;
+};
+
+fun[exp] parse_count(value: str): int / str = {
+    var fault: err[str] = count_fault(value);
+    when(fault) {
+        on(reason) { report reason; }
+        * { }
+    };
+    return std::strn::to_int(value, 0);
+};
+
+// Either the amount has no decimal point at all, or it has exactly two digits
+// after it; "15.5" is a truncated export, not 15.50.
+fun[exp] money_fault(value: str): err[str] = {
+    if (.len(value) == 0) {
+        return "unit price is empty";
+    };
+    var dot = std::strn::find(value, ".");
+    if (dot < 0) {
+        if (.not(chars::all_digits(value))) {
+            return "unit price '" + value + "' is not a number";
+        };
+        return nil;
+    };
+    var whole = chars::slice(value, 0, dot);
+    var frac = chars::tail(value, dot + 1);
+    if (.not(chars::all_digits(whole))) {
+        return "unit price '" + value + "' has a bad whole part";
+    };
+    if (.len(frac) != 2) {
+        return "unit price '" + value + "' needs exactly two decimals";
+    };
+    if (.not(chars::all_digits(frac))) {
+        return "unit price '" + value + "' has a bad decimal part";
+    };
+    return nil;
+};
+
+// "19.99" becomes 1999.
+fun[exp] parse_money(value: str): int / str = {
+    var fault: err[str] = money_fault(value);
+    when(fault) {
+        on(reason) { report reason; }
+        * { }
+    };
+    var dot = std::strn::find(value, ".");
+    if (dot < 0) {
+        return std::strn::to_int(value, 0) * 100;
+    };
+    var whole = std::strn::to_int(chars::slice(value, 0, dot), 0);
+    var frac = std::strn::to_int(chars::tail(value, dot + 1), 0);
+    return (whole * 100) + frac;
+};
+
+fun[exp] leap(year: int): bol = {
+    if ((year % 4) != 0) {
+        return false;
+    };
+    if ((year % 100) != 0) {
+        return true;
+    };
+    return (year % 400) == 0;
+};
+
+fun[exp] days_in_month(year: int, month: int): int = {
+    when(month) {
+        is(2) { if (leap(year)) { return 29; }; return 28; }
+        is(4) { return 30; }
+        is(6) { return 30; }
+        is(9) { return 30; }
+        is(11) { return 30; }
+        * { return 31; }
+    }
+};
+
+// ISO-8601 calendar dates, split on the two dashes and then range-checked
+// against the real length of the month.
+fun[exp] date_fault(value: str): err[str] = {
+    if (.len(value) == 0) {
+        return "shipped_on is empty";
+    };
+    var first = std::strn::find(value, "-");
+    if (first < 0) {
+        return "shipped_on '" + value + "' must look like YYYY-MM-DD";
+    };
+    var rest = chars::tail(value, first + 1);
+    var second = std::strn::find(rest, "-");
+    if (second < 0) {
+        return "shipped_on '" + value + "' must look like YYYY-MM-DD";
+    };
+
+    var year_text = chars::slice(value, 0, first);
+    var month_text = chars::slice(rest, 0, second);
+    var day_text = chars::tail(rest, second + 1);
+    if (.len(year_text) != 4) {
+        return "shipped_on '" + value + "' needs a four digit year";
+    };
+    if (.len(month_text) != 2) {
+        return "shipped_on '" + value + "' needs a two digit month";
+    };
+    if (.len(day_text) != 2) {
+        return "shipped_on '" + value + "' needs a two digit day";
+    };
+    if (.not(chars::all_digits(year_text))) {
+        return "shipped_on '" + value + "' holds a non-digit";
+    };
+    if (.not(chars::all_digits(month_text))) {
+        return "shipped_on '" + value + "' holds a non-digit";
+    };
+    if (.not(chars::all_digits(day_text))) {
+        return "shipped_on '" + value + "' holds a non-digit";
+    };
+
+    var month = std::strn::to_int(month_text, 0);
+    var day = std::strn::to_int(day_text, 0);
+    if ((month < 1) or (month > 12)) {
+        return "shipped_on '" + value + "' has a month outside 01-12";
+    };
+    if (day < 1) {
+        return "shipped_on '" + value + "' has a day below 01";
+    };
+    if (day > days_in_month(std::strn::to_int(year_text, 0), month)) {
+        return "shipped_on '" + value + "' names a day past the end of that month";
+    };
+    return nil;
+};
+
+fun[exp] parse_date(value: str): model::Date / str = {
+    var fault: err[str] = date_fault(value);
+    when(fault) {
+        on(reason) { report reason; }
+        * { }
+    };
+    var first = std::strn::find(value, "-");
+    var rest = chars::tail(value, first + 1);
+    var second = std::strn::find(rest, "-");
+    var built: model::Date = {
+        year = std::strn::to_int(chars::slice(value, 0, first), 0),
+        month = std::strn::to_int(chars::slice(rest, 0, second), 0),
+        day = std::strn::to_int(chars::tail(rest, second + 1), 0)
+    };
+    return built;
+};
+
+// The fault of one column of one row, whatever that column happens to be.
+fun[exp] column_fault(line: str, column: int): err[str] = {
+    var value: str = field_or_empty(line, column);
+    when(column) {
+        is(model::Column.ID) { return id_fault(value); }
+        is(model::Column.REGION) { return region_fault(value); }
+        is(model::Column.CUSTOMER) { return customer_fault(value); }
+        is(model::Column.UNITS) { return count_fault(value); }
+        is(model::Column.PRICE) { return money_fault(value); }
+        is(model::Column.SHIPPED) { return date_fault(value); }
+        * { return nil; }
+    }
+};
+
+// Every fault the row carries, one bit per column. A row whose quoting is
+// broken stops here: no field boundary after the bad quote is knowable, so
+// blaming individual columns would be an invention.
+fun[exp] row_faults(line: str): int = {
+    var count = field_count(line);
+    if (count < 0) {
+        return model::structure_bit();
+    };
+    var mask = 0;
+    if (count != model::COLUMNS) {
+        mask = model::structure_bit();
+    };
+    var column = 0;
+    loop (column < model::COLUMNS) {
+        if (failed(column_fault(line, column))) {
+            mask = mask + model::bit(column);
+        };
+        column = column + 1;
+    };
+    return mask;
+};
+
+fun[exp] is_clean(line: str): bol = {
+    return row_faults(line) == 0;
+};
+
+// Human wording for everything the row got wrong, in column order.
+fun[exp] row_reasons(line: str): str = {
+    var count = field_count(line);
+    if (count < 0) {
+        return "row has a quoted field that is never closed";
+    };
+    var out: str = "";
+    if (count != model::COLUMNS) {
+        out = "row has " + std::fmt::int_to_str(count) + " fields, expected "
+        + std::fmt::int_to_str(model::COLUMNS);
+    };
+    var column = 0;
+    loop (column < model::COLUMNS) {
+        out = join(out, reason_or(column_fault(line, column), ""));
+        column = column + 1;
+    };
+    if (.len(out) == 0) {
+        return "no fault";
+    };
+    return out;
+};
+
+fun join(left: str, right: str): str = {
+    if (.len(right) == 0) {
+        return left;
+    };
+    if (.len(left) == 0) {
+        return right;
+    };
+    return left + "; " + right;
+};
+
+// The whole row, once it is known to be clean. The `panic` arms are
+// unreachable by construction: `is_clean` already ran every one of these
+// validators.
+fun[exp] parse_row(line: str): model::Row / str = {
+    if (.not(is_clean(line))) {
+        report row_reasons(line);
+    };
+    var units = parse_count(field_or_empty(line, model::Column.UNITS)) || panic "clean row failed on units";
+    var cents = parse_money(field_or_empty(line, model::Column.PRICE)) || panic "clean row failed on unit price";
+    var ship = parse_date(field_or_empty(line, model::Column.SHIPPED)) || panic "clean row failed on shipped_on";
+    var built: model::Row = {
+        id = field_or_empty(line, model::Column.ID),
+        region = field_or_empty(line, model::Column.REGION),
+        customer = field_or_empty(line, model::Column.CUSTOMER),
+        units = units,
+        cents = cents,
+        ship = ship
+    };
+    return built;
+};

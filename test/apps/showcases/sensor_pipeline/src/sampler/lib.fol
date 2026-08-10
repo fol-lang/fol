@@ -1,0 +1,59 @@
+// The producer stage. One task per sensor.
+//
+// A sampler owns no shared state at all: it is handed two first-class
+// `chn[tx, T]` sender endpoints and walks its own tick range, so it cannot
+// receive from either stream and cannot see any other sampler's work. Both
+// endpoints drop when the routine returns.
+
+use sensors: loc = {"../sensors"};
+
+// Hand one reading to the collector. A send yields a must-handle `err[T]` whose
+// present branch owns the payload nobody will ever receive, so a `false` answer
+// means the collector is already gone.
+fun[exp] emit(out: chn[tx, sensors::Reading], reading: sensors::Reading): bol = {
+    var[mut] accepted: bol = true;
+    var sent: err[sensors::Reading] = reading | out;
+    when (sent) {
+        on (unsent) {
+            accepted = false;
+        }
+        * {
+            accepted = true;
+        }
+    }
+    return accepted;
+};
+
+// Walk one sensor's ticks and publish each sample.
+//
+// The fault is sent BEFORE the reading, and that ordering is load-bearing.
+// Sends from one thread are ordered, so a collector that has received all
+// `sensor_count() * ticks()` readings is guaranteed to have every fault already
+// queued behind it. Without that, draining the fault stream would need a second
+// join point to avoid an off-by-a-race count.
+//
+// Returns the number of faults this sensor raised, which a bare spawn discards;
+// it exists so the routine is still meaningful when called synchronously.
+fun[exp] run_sensor(
+    out: chn[tx, sensors::Reading],
+    faults: chn[tx, int],
+    index: int,
+): int = {
+    var[mut] tick: int = 0;
+    var[mut] flagged: int = 0;
+    var limit: int = sensors::ticks();
+    loop (tick < limit) {
+        var reading: sensors::Reading = sensors::sample(index, tick);
+        if (reading.fault != 0) {
+            var raised: err[int] = reading.fault | faults;
+            flagged = flagged + 1;
+        }
+        var accepted: bol = emit(out, reading);
+        if (accepted == false) {
+            // Nobody is collecting any more; abandon the rest of the sweep.
+            tick = limit;
+        }
+        tick = tick + 1;
+    }
+    return flagged;
+};

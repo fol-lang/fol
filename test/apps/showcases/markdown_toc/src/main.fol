@@ -1,0 +1,110 @@
+// markdown-toc -- read a markdown document, print its table of contents.
+//
+// The interesting part is not the markdown: it is that every transformation a
+// heading goes through is a routine value. Prefixing anchors, demoting levels,
+// shortening titles and filtering by depth are all built by factories, composed
+// with `chain`, stored in recipes and called by a renderer that knows nothing
+// about any of them.
+
+use std: pkg = {"std"};
+use model: loc = {"model"};
+use scan: loc = {"scan"};
+use toc: loc = {"toc"};
+use doc: loc = {"doc"};
+use checks: loc = {"checks"};
+
+fun[] banner(title: str): non = {
+    std::io::echo_str("");
+    std::io::echo_str(title);
+    return;
+};
+
+fun[] list_headings(text: str): non = {
+    var total: int = scan::count(text);
+    std::io::echo_str("  " + std::fmt::int_to_str(total) + " headings");
+    ~var index: int = 0;
+    loop (index < total) {
+        var item: model::Heading = scan::nth(text, index);
+        std::io::echo_str("  L" + std::fmt::int_to_str(item.level)
+        + "  line " + std::fmt::int_to_str(item.line)
+        + "  " + item.text);
+        index = index + 1;
+    };
+    return;
+};
+
+fun[] main(): int = {
+    var text: str = doc::sample();
+
+    banner("scan");
+    list_headings(text);
+
+    banner("contents");
+    var plain: toc::Recipe = toc::recipe("plain", toc::anchoring(""), toc::any_level());
+    std::io::write([bor]plain.render(text));
+
+    // Order inside the pipeline is meaning, not style: anchoring first means
+    // the link target is derived from the full title, and only the visible
+    // text is cut short afterwards.
+    banner("contents, level 2 and up, titles capped at 12");
+    var short_step: model::Step = toc::chain(toc::anchoring("doc-"), toc::capping(12));
+    var short: toc::Recipe = toc::recipe("short", short_step, toc::upto(2));
+    std::io::write([bor]short.render(text));
+
+    // `demoting` captures its shift with `[cpy]`, so `shift` is still readable
+    // after the stage has been built and stored.
+    banner("catalogue");
+    var shift: int = 1;
+    var book: seq[toc::Recipe] = {
+        toc::recipe("as-written", toc::anchoring(""), toc::any_level()),
+        toc::recipe("demoted", toc::chain(toc::demoting(shift), toc::anchoring("x-")), toc::any_level()),
+        toc::recipe("bulleted", toc::chain(toc::anchoring(""), toc::tagging("* ")), toc::any_level()),
+        toc::recipe("top-level", toc::anchoring(""), toc::upto(1)),
+    };
+    std::io::echo_str("  shift is still readable after capture: " + std::fmt::int_to_str(shift));
+    ~var slot: int = 0;
+    loop (slot < .len(book)) {
+        var chosen: toc::Recipe = book[slot];
+        std::io::echo_str("  " + chosen.label + " -> "
+        + std::fmt::int_to_str([bor]chosen.rendered_count(text)) + " rows");
+        slot = slot + 1;
+    };
+
+    banner("demoted rendering");
+    var demoted: toc::Recipe = book[1];
+    std::io::write([bor]demoted.render(text));
+
+    // A local closure that never escapes may borrow instead of copying. The
+    // budget stays readable for as long as this scope lasts, but frozen.
+    banner("depth budget");
+    var budget: int = 2;
+    var within: {fun (item: model::Heading): bol} = fun(item: model::Heading)[budget[bor]]: bol = {
+        return item.level <= budget;
+    };
+    ~var over: int = 0;
+    ~var probe: int = 0;
+    var total: int = scan::count(text);
+    loop (probe < total) {
+        if (.not(within(scan::nth(text, probe)))) {
+            over = over + 1;
+        }
+        probe = probe + 1;
+    };
+    std::io::echo_str("  budget " + std::fmt::int_to_str(budget)
+    + ", headings past it: " + std::fmt::int_to_str(over));
+
+    banner("shallow document");
+    var shallow: toc::Recipe = toc::recipe("shallow", toc::anchoring(""), toc::any_level());
+    std::io::write([bor]shallow.render(doc::shallow()));
+
+    banner("self-checks");
+    var failures: int = checks::run_all();
+    if (failures == 0) {
+        std::io::echo_str("");
+        std::io::echo_str("all checks passed");
+        return 0;
+    }
+    std::io::echo_str("");
+    std::io::echo_str(std::fmt::int_to_str(failures) + " check(s) failed");
+    return 1;
+};

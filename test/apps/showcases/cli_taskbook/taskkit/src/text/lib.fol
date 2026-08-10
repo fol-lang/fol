@@ -1,0 +1,186 @@
+// Byte-level text helpers.
+//
+// The store is one `str` that gets re-walked on demand rather than parsed into
+// a container: `vec[...]` has no append and `values[0] = x` is rejected, so a
+// growable in-memory table of tasks cannot be built at all.
+
+typ[exp] Byte: ent = {
+    var TAB: int = 9;
+    var NEWLINE: int = 10;
+    var RETURN: int = 13;
+    var SPACE: int = 32;
+    var COMMA: int = 44;
+    var PIPE: int = 124;
+};
+
+// Newlines are record separators here, so they are deliberately not blank:
+// trimming one would merge two tasks into a single line.
+fun[exp] is_blank(code: int): bol = {
+    return (code == Byte.SPACE) or (code == Byte.TAB) or (code == Byte.RETURN);
+};
+
+fun[exp] trim(text: str): str = {
+    var size: int = .len(text);
+    var[mut] start: int = 0;
+    var[mut] stop: int = size;
+    loop(start < stop) {
+        when(is_blank(std::strn::byte_at(text, start))) {
+            case(true) { start = start + 1; }
+            * { break; }
+        }
+    };
+    loop(stop > start) {
+        when(is_blank(std::strn::byte_at(text, stop - 1))) {
+            case(true) { stop = stop - 1; }
+            * { break; }
+        }
+    };
+    return std::strn::sub(text, start, stop - start);
+};
+
+fun[exp] starts_with(text: str, prefix: str): bol = {
+    var size: int = .len(prefix);
+    when(.len(text) < size) {
+        case(true) { return false; }
+        * { return std::strn::sub(text, 0, size) == prefix; }
+    }
+};
+
+fun[exp] holds_byte(text: str, code: int): bol = {
+    var size: int = .len(text);
+    var[mut] index: int = 0;
+    loop(index < size) {
+        when(std::strn::byte_at(text, index) == code) {
+            case(true) { return true; }
+            * { }
+        }
+        index = index + 1;
+    };
+    return false;
+};
+
+// Byte index of the `wanted`-th (zero based) occurrence of `code`, or -1.
+fun[exp] nth_byte(text: str, code: int, wanted: int): int = {
+    var size: int = .len(text);
+    var[mut] index: int = 0;
+    var[mut] seen: int = 0;
+    loop(index < size) {
+        when(std::strn::byte_at(text, index) == code) {
+            case(true) {
+                when(seen == wanted) {
+                    case(true) { return index; }
+                    * { seen = seen + 1; }
+                }
+            }
+            * { }
+        }
+        index = index + 1;
+    };
+    return -1;
+};
+
+// Lines are newline terminated; a trailing fragment without its newline still
+// counts, and an empty document has no lines at all.
+fun[exp] line_count(text: str): int = {
+    var size: int = .len(text);
+    when(size == 0) {
+        case(true) { return 0; }
+        * { }
+    }
+    var[mut] index: int = 0;
+    var[mut] lines: int = 0;
+    loop(index < size) {
+        when(std::strn::byte_at(text, index) == Byte.NEWLINE) {
+            case(true) { lines = lines + 1; }
+            * { }
+        }
+        index = index + 1;
+    };
+    when(std::strn::byte_at(text, size - 1) != Byte.NEWLINE) {
+        case(true) { lines = lines + 1; }
+        * { }
+    }
+    return lines;
+};
+
+fun[exp] line_at(text: str, wanted: int): str = {
+    var size: int = .len(text);
+    var[mut] index: int = 0;
+    var[mut] line: int = 0;
+    var[mut] start: int = 0;
+    loop(index < size) {
+        when(std::strn::byte_at(text, index) == Byte.NEWLINE) {
+            case(true) {
+                when(line == wanted) {
+                    case(true) { return std::strn::sub(text, start, index - start); }
+                    * { }
+                }
+                line = line + 1;
+                start = index + 1;
+            }
+            * { }
+        }
+        index = index + 1;
+    };
+    when(line == wanted) {
+        case(true) { return std::strn::sub(text, start, size - start); }
+        * { }
+    }
+    return "";
+};
+
+// Membership in a comma separated list, by whole token. Substring matching
+// would let the tag `home` match `homework`.
+fun[exp] token_member(list: str, token: str): bol = {
+    when(.len(token) == 0) {
+        case(true) { return false; }
+        * { }
+    }
+    var size: int = .len(list);
+    var[mut] index: int = 0;
+    var[mut] start: int = 0;
+    loop(index < size) {
+        when(std::strn::byte_at(list, index) == Byte.COMMA) {
+            case(true) {
+                when(trim(std::strn::sub(list, start, index - start)) == token) {
+                    case(true) { return true; }
+                    * { }
+                }
+                start = index + 1;
+            }
+            * { }
+        }
+        index = index + 1;
+    };
+    return trim(std::strn::sub(list, start, size - start)) == token;
+};
+
+fun[exp] pad_right(text: str, width: int): str = {
+    var[mut] out: str = text;
+    var[mut] size: int = .len(text);
+    loop(size < width) {
+        out = out + " ";
+        size = size + 1;
+    };
+    return out;
+};
+
+fun[exp] pad_left(text: str, width: int): str = {
+    var[mut] out: str = text;
+    var[mut] size: int = .len(text);
+    loop(size < width) {
+        out = " " + out;
+        size = size + 1;
+    };
+    return out;
+};
+
+fun[exp] repeat(unit: str, times: int): str = {
+    var[mut] out: str = "";
+    var[mut] done: int = 0;
+    loop(done < times) {
+        out = out + unit;
+        done = done + 1;
+    };
+    return out;
+};

@@ -1,0 +1,52 @@
+// The document the tool is demonstrated on.
+//
+// It is not a friendly sample: every line that looks like a heading but is not
+// one is here on purpose -- hashes inside a fenced block, an indented code
+// line, seven hashes, a hash with no space after it -- next to the two forms
+// that are real, ATX and setext. "Setup" appears three times so the anchor
+// de-duplicator has something to do.
+
+fun[exp] sample(): str = {
+    return "# Field Guide\n"
+    + "Intro paragraph.\n"
+    + "\n"
+    + "## Setup\n"
+    + "Install the thing.\n"
+    + "\n"
+    + "```sh\n"
+    + "# not a heading, this is a shell comment\n"
+    + "## neither is this\n"
+    + "```\n"
+    + "\n"
+    + "## Setup\n"
+    + "Repeated on purpose.\n"
+    + "\n"
+    + "### Notes & Caveats\n"
+    + "Read them.\n"
+    + "\n"
+    + "    # indented four spaces, so it is code\n"
+    + "\n"
+    + "####### seven hashes is too many\n"
+    + "#nospace after the hash\n"
+    + "\n"
+    + "Appendix\n"
+    + "========\n"
+    + "\n"
+    + "Closing Remarks\n"
+    + "---------------\n"
+    + "\n"
+    + "## Setup\n"
+    + "Third time.\n"
+    + "\n"
+    + "## Done ##\n";
+};
+
+// A second, deliberately shallow document: it starts at `##`, which is what
+// makes relative indentation observable.
+fun[exp] shallow(): str = {
+    return "## Alpha\n"
+    + "\n"
+    + "### Beta\n"
+    + "\n"
+    + "### Beta\n";
+};

@@ -1,0 +1,105 @@
+// sensor_pipeline -- four sensors sampled concurrently, calibrated, folded
+// behind a mutex, and reconciled against a single-threaded oracle.
+//
+// The interesting claim is not that the program runs, it is that the answer is
+// the same one a sequential fold would have produced. Threads race on the
+// aggregate on purpose -- a hundred read-modify-write cycles against one
+// `mux[Aggregate]` -- and every field of the result is compared against
+// `window::sequential()`. A lost update shows up as a mismatch in `count`,
+// `sum`, `sumsq` or `checksum` rather than as a crash.
+//
+// The fault count is checked twice from two independent paths: once as folded
+// out of the readings themselves, once as counted off the dedicated fault
+// channel drained by `select`.
+
+use std: pkg = {"std"};
+use sensors: loc = {"sensors"};
+use window: loc = {"window"};
+use pipeline: loc = {"pipeline"};
+
+fun[] expect(label: str, actual: int, wanted: int): int = {
+    if (actual == wanted) {
+        std::io::echo_str("ok    " + label + " = " + std::fmt::int_to_str(actual));
+        return 0;
+    }
+    std::io::echo_str("FAIL  " + label + " = " + std::fmt::int_to_str(actual)
+    + ", wanted " + std::fmt::int_to_str(wanted));
+    return 1;
+};
+
+// The sensor table, printed before the run so the numbers below have context.
+fun[] show_table(): non = {
+    var[mut] index: int = 0;
+    loop (index < sensors::sensor_count()) {
+        var spec: sensors::Spec = sensors::spec_at(index);
+        std::io::echo_str("  [" + std::fmt::int_to_str(index) + "] "
+        + sensors::label_at(index)
+        + " gain=" + std::fmt::int_to_str(spec.gain)
+        + " offset=" + std::fmt::int_to_str(spec.offset)
+        + " range=" + std::fmt::int_to_str(spec.lo)
+        + ".." + std::fmt::int_to_str(spec.hi));
+        index = index + 1;
+    }
+    return;
+};
+
+fun[] main(): int = {
+    std::io::echo_str("sensors:");
+    show_table();
+
+    var totals: window::Aggregate = pipeline::run();
+    var oracle: window::Aggregate = window::sequential();
+
+    // Composed on its own OS thread and awaited once.
+    var pending: evt[str] = pipeline::describe(
+        totals.count,
+        window::mean(totals),
+        window::spread(totals),
+        window::variance(totals),
+        totals.faults,
+        totals.checksum,
+    );
+    var line: str = pending | await;
+
+    std::io::echo_str("run:");
+    std::io::echo_str("  " + line);
+    std::io::echo_str("  low=" + std::fmt::int_to_str(totals.low)
+    + " high=" + std::fmt::int_to_str(totals.high)
+    + " signalled=" + std::fmt::int_to_str(totals.signalled)
+    + " samplers=" + std::fmt::int_to_str(totals.beats));
+
+    std::io::echo_str("checks:");
+    var[mut] failures: int = 0;
+
+    // Structural: the batch is the whole sensor table, once.
+    failures = failures + expect("samplers started", totals.beats, sensors::sensor_count());
+    failures = failures + expect("samples folded", totals.count, sensors::total_samples());
+
+    // The no-lost-update proof: concurrent fold versus sequential fold.
+    failures = failures + expect("sum matches oracle", totals.sum, oracle.sum);
+    failures = failures + expect("sumsq matches oracle", totals.sumsq, oracle.sumsq);
+    failures = failures + expect("low matches oracle", totals.low, oracle.low);
+    failures = failures + expect("high matches oracle", totals.high, oracle.high);
+    failures = failures + expect("checksum matches oracle", totals.checksum, oracle.checksum);
+    failures = failures + expect("faults match oracle", totals.faults, oracle.faults);
+
+    // The two fault paths -- folded from readings, and counted off the fault
+    // channel by `select` -- have to agree.
+    failures = failures + expect("fault channel agrees", totals.signalled, totals.faults);
+
+    // The checksum is the sum over samples of (sensor+1)*(tick+1). For a full
+    // 4x25 table that separates into (1+2+3+4) * (1+..+25) = 10 * 325, so it is
+    // an independent witness that every cell was folded exactly once.
+    failures = failures + expect("checksum is 10*325", totals.checksum, 3250);
+
+    // Absolute values, locked to this sensor table. The oracle checks above
+    // would still pass if the fold and the model drifted together; these would
+    // not, so the two kinds of check fail for different reasons.
+    failures = failures + expect("sum", totals.sum, 49057);
+    failures = failures + expect("faults", totals.faults, 14);
+    failures = failures + expect("mean", window::mean(totals), 490);
+    failures = failures + expect("spread", window::spread(totals), 431);
+    failures = failures + expect("variance", window::variance(totals), 11715);
+
+    return failures;
+};

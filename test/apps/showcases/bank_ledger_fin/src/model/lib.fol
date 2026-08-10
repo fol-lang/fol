@@ -1,0 +1,118 @@
+// Value model for the settlement engine.
+//
+// Money is whole cents in `int` so a balance is never a rounded float, and a
+// batch that balances does so exactly. Nothing here owns a resource; the
+// scarce things live in `slot`.
+
+typ[exp] Side: ent = {
+    var DEBIT: int = 1;
+    var CREDIT: int = 2;
+};
+
+fun[exp] debit_side(): int = {
+    return Side.DEBIT;
+};
+
+fun[exp] credit_side(): int = {
+    return Side.CREDIT;
+};
+
+// One leg of a settlement instruction. `seq` is the position inside its batch,
+// which is what an error message points at.
+typ[exp] Posting: rec = {
+    seq: int;
+    code: str;
+    side: int;
+    amount: int;
+    memo: str
+};
+
+// A chart row. `normal` is the side that increases the account, and it is the
+// only reason a raw debit-positive sum can be turned back into a balance a
+// clerk would recognise.
+typ[exp] Account: rec = {
+    code: str;
+    name: str;
+    normal: int;
+    opening: int
+};
+
+// What one settled batch did, once every slot it borrowed has gone back.
+typ[exp] Receipt: rec = {
+    batch: int;
+    legs: int;
+    slots_used: int;
+    moved: int
+};
+
+fun[exp] (Posting)is_debit(): bol = {
+    return .eq(self.side, debit_side());
+};
+
+// Debits positive, credits negative. A balanced batch sums to exactly zero,
+// which is the whole test.
+fun[exp] (Posting)signed(): int = {
+    if(self.is_debit()) {
+        return self.amount;
+    }
+    return 0 - self.amount;
+};
+
+fun[exp] (Posting)side_text(): str = {
+    if(self.is_debit()) {
+        return "DR";
+    }
+    return "CR";
+};
+
+fun[exp] (Account)is_debit_normal(): bol = {
+    return .eq(self.normal, debit_side());
+};
+
+fun[exp] (Account)present(raw: int): int = {
+    if(self.is_debit_normal()) {
+        return raw;
+    }
+    return 0 - raw;
+};
+
+// Structural checks a posting must survive before the engine will reserve a
+// journal slot for it. Reserving first and validating later would mean holding
+// a scarce resource across a decision that can reject the whole batch.
+fun[exp] fault_of(entry: Posting): err[str] = {
+    if(.le(entry.amount, 0)) {
+        return "leg " + std::fmt::int_to_str(entry.seq) + ": amount must be positive cents";
+    }
+    if(.not(.eq(.len(entry.code), 4))) {
+        return "leg " + std::fmt::int_to_str(entry.seq) + ": account code must be four digits";
+    }
+    if(.eq(.len(entry.memo), 0)) {
+        return "leg " + std::fmt::int_to_str(entry.seq) + ": every leg needs a memo";
+    }
+    if(.eq(entry.side, debit_side())) {
+        return nil;
+    }
+    if(.eq(entry.side, credit_side())) {
+        return nil;
+    }
+    return "leg " + std::fmt::int_to_str(entry.seq) + ": side must be DR or CR";
+};
+
+// Sum of the signed legs. Zero means the batch is internally consistent.
+fun[exp] drift(legs: vec[Posting]): int = {
+    var[mut] total: int = 0;
+    loop(leg in legs) {
+        total = total + leg.signed();
+    }
+    return total;
+};
+
+fun[exp] gross_debits(legs: vec[Posting]): int = {
+    var[mut] total: int = 0;
+    loop(leg in legs) {
+        if(leg.is_debit()) {
+            total = total + leg.amount;
+        }
+    }
+    return total;
+};

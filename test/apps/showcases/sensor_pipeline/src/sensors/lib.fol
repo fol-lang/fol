@@ -1,0 +1,106 @@
+// The device model: what a sensor is, what it reports raw, and how a raw count
+// becomes an engineering value.
+//
+// Nothing in here is concurrent, and that is deliberate. Every sample is a pure
+// function of `(index, tick)`, so the batch a thread produces does not depend on
+// when it ran. That property is what lets `main` check the concurrently folded
+// aggregate against a sequential oracle and call any difference a lost update
+// rather than a scheduling artefact.
+
+// A calibration record. It is numbers only, so it stays copy-safe and can be
+// passed around without an explicit ownership op; the human-readable name lives
+// in `label_at` instead of in the record.
+typ[exp] Spec: rec = {
+    id: int,
+    gain: int,
+    offset: int,
+    lo: int,
+    hi: int,
+};
+
+// One calibrated sample, stamped with where and when it came from. `fault` is
+// 0 for in-range, 1 for under-range, 2 for over-range.
+typ[exp] Reading: rec = {
+    sensor: int,
+    tick: int,
+    raw: int,
+    value: int,
+    fault: int,
+};
+
+fun[exp] sensor_count(): int = {
+    return 4;
+};
+
+fun[exp] ticks(): int = {
+    return 25;
+};
+
+fun[exp] total_samples(): int = {
+    return sensor_count() * ticks();
+};
+
+// Gain is per-mille and offset is in whole engineering units, which keeps the
+// whole pipeline on integers: a float aggregate would not be bit-identical
+// across a reordered fold, and the sequential oracle would stop being a proof.
+fun[exp] spec_at(index: int): Spec = {
+    if (index == 0) {
+        return { id = 0, gain = 1000, offset = 0, lo = 300, hi = 505 };
+    }
+    if (index == 1) {
+        return { id = 1, gain = 900, offset = 20, lo = 340, hi = 530 };
+    }
+    if (index == 2) {
+        return { id = 2, gain = 1100, offset = 0 - 30, lo = 430, hi = 650 };
+    }
+    return { id = 3, gain = 1000, offset = 15, lo = 490, hi = 700 };
+};
+
+fun[exp] label_at(index: int): str = {
+    if (index == 0) {
+        return "intake-temp";
+    }
+    if (index == 1) {
+        return "line-pressure";
+    }
+    if (index == 2) {
+        return "coolant-flow";
+    }
+    return "exhaust-temp";
+};
+
+// Stand-in for the register read a driver would do. Two large coprime
+// multipliers folded into a small modulus give a wobble with no visible period
+// over nine ticks, while staying exactly reproducible.
+fun[exp] raw_at(id: int, tick: int): int = {
+    var mixed: int = (id * 7919) + (tick * 104729);
+    var wobble: int = (mixed % 241) - 120;
+    return 400 + (id * 60) + wobble;
+};
+
+fun[exp] calibrate(spec: Spec, raw: int): int = {
+    return ((raw * spec.gain) / 1000) + spec.offset;
+};
+
+fun[exp] classify(spec: Spec, value: int): int = {
+    if (value < spec.lo) {
+        return 1;
+    }
+    if (value > spec.hi) {
+        return 2;
+    }
+    return 0;
+};
+
+fun[exp] sample(index: int, tick: int): Reading = {
+    var spec: Spec = spec_at(index);
+    var raw: int = raw_at(spec.id, tick);
+    var value: int = calibrate(spec, raw);
+    return {
+        sensor = spec.id,
+        tick = tick,
+        raw = raw,
+        value = value,
+        fault = classify(spec, value),
+    };
+};

@@ -1,0 +1,73 @@
+// The scarce resource.
+//
+// A journal device exposes a fixed number of write slots. A slot is a `fin`
+// type: whoever owns it at scope exit runs `finalize`, and the compiler makes
+// sure that happens exactly once per acquired slot. Every release prints a
+// line, so the trace at the end of a run is the audit that no slot leaked and
+// none was handed back twice.
+
+fun[exp] capacity(): int = {
+    return 4;
+};
+
+// Two physical devices behind one logical pool: the low half of the slot space
+// lands on the primary spindle, the high half on the mirror. The mapping is
+// arithmetic rather than a table so that adding capacity does not need a
+// second edit.
+fun[exp] device_of(id: int): str = {
+    if(.lt(id, capacity() / 2)) {
+        return "jrnl-primary";
+    }
+    return "jrnl-mirror";
+};
+
+// A reserved write slot on a journal device. `fin` means it cannot be copied,
+// so there is no way to end up with two owners believing they hold slot 2.
+typ[exp] Slot()(fin): rec = {
+    id: int;
+    device: str;
+    account: str
+};
+
+// The compiler-owned release hook. It is a `pro` because handing a device slot
+// back is an effect, and it is the only place that prints a release line, so a
+// missing line means a missing release.
+pro[exp] (Slot)finalize(): non = {
+    std::io::echo_str("      [fin] slot " + std::fmt::int_to_str(self.id)
+    + " -> " + self.device + "  (held for " + self.account + ")");
+    return;
+};
+
+fun[exp] acquire(id: int, account: str): Slot = {
+    std::io::echo_str("      [acq] slot " + std::fmt::int_to_str(id)
+    + " <- " + device_of(id) + "  (for " + account + ")");
+    return { id = id, device = device_of(id), account = account };
+};
+
+// A slot travelling with the paperwork that justifies it. The `fin` field is
+// finalized through its owner, so moving the ticket moves the release duty.
+typ[exp] Ticket: rec = {
+    batch: int;
+    leg: int;
+    slot: Slot
+};
+
+// Takes the ticket by value: the archive is now the owner, so the slot is
+// released here at this scope's exit and the caller must not release it again.
+pro[exp] archive(filed: Ticket): non = {
+    std::io::echo_str("      [arc] ticket batch " + std::fmt::int_to_str(filed.batch)
+    + " leg " + std::fmt::int_to_str(filed.leg) + " filed");
+    return;
+};
+
+// Reserve the whole device in one go. The vector owns the slots, and a
+// container hands its elements out one by one at scope exit, so the caller
+// gets the same exactly-once guarantee separate bindings would give.
+fun[exp] reserve_device(account: str): vec[Slot] = {
+    return {
+        acquire(0, account),
+        acquire(1, account),
+        acquire(2, account),
+        acquire(3, account)
+    };
+};

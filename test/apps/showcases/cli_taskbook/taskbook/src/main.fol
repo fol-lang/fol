@@ -1,0 +1,274 @@
+use std: pkg = {"std"};
+use kit: loc = {"../../taskkit/src"};
+use args: loc = {"args"};
+use view: loc = {"view"};
+use checks: loc = {"checks"};
+
+// taskbook — a command-line task tracker over a plain-text store.
+//
+// The library decides what a task workflow means; this file decides what the
+// shell sees. Exit statuses are the interface, so they live here and nowhere
+// else:
+//
+//   0  the command did what it said
+//   1  the command was legal but matched nothing
+//   2  the command line was wrong
+//   3  the store could not be read or written
+//   4  no task carries that id
+//   5  the workflow forbids that transition
+//   6  a value was refused (empty title, priority out of range, ...)
+//
+// `kit` is reached with `loc` pointing into taskkit's `src` directory. This
+// package declares taskkit properly as a `loc` dependency in build.fol, but a
+// `pkg` import only ever searches the package store, never a declared `loc`
+// dependency, so the alias cannot be spelled the way the book suggests.
+
+typ Exit: ent = {
+    var OK: int = 0;
+    var EMPTY: int = 1;
+    var USAGE: int = 2;
+    var STORE: int = 3;
+    var MISSING: int = 4;
+    var ILLEGAL: int = 5;
+    var REFUSED: int = 6;
+};
+
+fun[] main(): int = {
+    var command: args::Command = args::parse();
+    when(args::failed(command)) {
+        case(true) { return complain("taskbook: " + command.problem + "\n" + args::usage(), Exit.USAGE); }
+        * { }
+    }
+
+    when(command.verb) {
+        is("help") {
+            std::io::write(args::usage());
+            return Exit.OK;
+        }
+        is("demo") { return demo(); }
+        is("check") { return selfcheck(); }
+        is("list") { return list(command); }
+        is("stats") { return stats(command); }
+        is("add") { return add(command); }
+        is("remove") { return remove(command); }
+        is("prio") { return reprioritise(command); }
+        * { return transition(command); }
+    }
+};
+
+// A missing store is an empty book, not a failure: `taskbook add` on a fresh
+// machine has to work. Only a write that fails is an I/O error.
+fun load(path: str): str = {
+    return std::fs::read_file(path);
+};
+
+fun save(path: str, doc: str): int = {
+    return std::fs::write_file(path, doc);
+};
+
+fun complain(message: str, status: int): int = {
+    std::io::write_err(message);
+    return status;
+};
+
+// One place turns a library verdict into a shell status, so the mapping cannot
+// drift between subcommands.
+fun status_for(verdict: int): int = {
+    when(verdict) {
+        is(0) { return Exit.OK; }
+        is(1) { return Exit.MISSING; }
+        is(2) { return Exit.ILLEGAL; }
+        * { return Exit.REFUSED; }
+    }
+};
+
+fun commit(command: args::Command, change: kit::Change, verb: str): int = {
+    when(change.verdict == kit::Verdict.OK) {
+        case(true) { }
+        * { return complain("taskbook: " + change.detail + "\n", status_for(change.verdict)); }
+    }
+    when(save(command.path, change.doc) != 0) {
+        case(true) { return complain("taskbook: cannot write " + command.path + "\n", Exit.STORE); }
+        * { }
+    }
+    std::io::write(view::confirmation(verb, kit::book::find(change.doc, change.id)));
+    return Exit.OK;
+};
+
+fun add(command: args::Command): int = {
+    var doc: str = load(command.path);
+    return commit(command, kit::add(doc, command.title, command.tags, command.priority), "added");
+};
+
+fun remove(command: args::Command): int = {
+    var doc: str = load(command.path);
+    var gone: kit::entry::Task = kit::book::find(doc, command.id);
+    var change: kit::Change = kit::drop(doc, command.id);
+    when(change.verdict == kit::Verdict.OK) {
+        case(true) { }
+        * { return complain("taskbook: " + change.detail + "\n", status_for(change.verdict)); }
+    }
+    when(save(command.path, change.doc) != 0) {
+        case(true) { return complain("taskbook: cannot write " + command.path + "\n", Exit.STORE); }
+        * { }
+    }
+    std::io::write(view::confirmation("removed", gone));
+    return Exit.OK;
+};
+
+fun reprioritise(command: args::Command): int = {
+    var doc: str = load(command.path);
+    return commit(command, kit::set_priority(doc, command.id, command.priority), "reprioritised");
+};
+
+fun target_state(verb: str): int = {
+    when(verb) {
+        is("start") { return kit::entry::State.DOING; }
+        is("finish") { return kit::entry::State.DONE; }
+        * { return kit::entry::State.TODO; }
+    }
+};
+
+fun transition(command: args::Command): int = {
+    var doc: str = load(command.path);
+    return commit(command, kit::move_to(doc, command.id, target_state(command.verb)), command.verb + "ed");
+};
+
+// An empty listing is reported through the status, the way `grep` does it, so
+// `taskbook list --tag urgent || echo clear` works.
+fun list(command: args::Command): int = {
+    var doc: str = load(command.path);
+    var shown: str = kit::view(doc, command.state, command.tags);
+    when(kit::book::count(shown) == 0) {
+        case(true) {
+            std::io::write_err("taskbook: no matching tasks\n");
+            return Exit.EMPTY;
+        }
+        * { }
+    }
+    std::io::write(view::table(shown));
+    return Exit.OK;
+};
+
+fun stats(command: args::Command): int = {
+    var doc: str = load(command.path);
+    std::io::write(view::summary(kit::book::survey(doc)));
+    return Exit.OK;
+};
+
+fun judge(name: str, ok: bol): int = {
+    when(ok) {
+        case(true) {
+            std::io::write("  ok    " + name + "\n");
+            return 0;
+        }
+        * {
+            std::io::write("  FAIL  " + name + "\n");
+            return 1;
+        }
+    }
+};
+
+fun demo_path(): str = {
+    var root: str = std::os::env("TMPDIR");
+    when(.len(root) == 0) {
+        case(true) { return "/tmp/taskbook-demo.tasks"; }
+        * { return root + "/taskbook-demo.tasks"; }
+    }
+};
+
+// The library's own behaviour suite. Pure: it never touches a file, so a
+// failure here is a workflow bug and never an environment one.
+fun selfcheck(): int = {
+    var failures: int = checks::run_all();
+    when(failures == 0) {
+        case(true) { return Exit.OK; }
+        * { return 1; }
+    }
+};
+
+// A bare `taskbook` runs the suite and then a scripted session end to end,
+// checking every answer against the value the workflow is supposed to produce.
+// `check` proves the logic; `demo` proves the logic survives a round trip
+// through a real file.
+fun demo(): int = {
+    var suite: int = selfcheck();
+    when(suite != Exit.OK) {
+        case(true) { return suite; }
+        * { }
+    }
+
+    var path: str = demo_path();
+    var[mut] failures: int = 0;
+    std::io::write("\ntaskbook demo, store at " + path + "\n\n");
+
+    var[mut] doc: str = "";
+    var first: kit::Change = kit::add(doc, "buy milk", "home,errand", 3);
+    doc = first.doc;
+    var second: kit::Change = kit::add(doc, "ship release", "work,urgent", 5);
+    doc = second.doc;
+    var third: kit::Change = kit::add(doc, "archive photos", "home", 1);
+    doc = third.doc;
+    failures = failures + judge("three tasks added", kit::book::count(doc) == 3);
+    failures = failures + judge("ids handed out in order", third.id == 3);
+
+    when(save(path, doc) != 0) {
+        case(true) { return complain("taskbook: cannot write " + path + "\n", Exit.STORE); }
+        * { }
+    }
+    var reread: str = load(path);
+    failures = failures + judge("store survives a write/read round trip", reread == doc);
+    doc = reread;
+
+    std::io::write("\nlisting, highest priority first:\n");
+    std::io::write(view::table(kit::view(doc, -1, "")));
+    failures = failures + judge("urgent work sorts first", kit::book::row_at(kit::view(doc, -1, ""), 0).id == 2);
+
+    var started: kit::Change = kit::move_to(doc, 1, kit::entry::State.DOING);
+    doc = started.doc;
+    failures = failures + judge("todo -> doing accepted", started.verdict == kit::Verdict.OK);
+    var back: kit::Change = kit::move_to(doc, 1, kit::entry::State.TODO);
+    failures = failures + judge("doing -> todo refused", back.verdict == kit::Verdict.ILLEGAL_MOVE);
+    failures = failures + judge("refusal leaves the store alone", kit::book::find(back.doc, 1).state == 1);
+
+    var ghost: kit::Change = kit::move_to(doc, 99, kit::entry::State.DONE);
+    failures = failures + judge("unknown id reported separately", ghost.verdict == kit::Verdict.NO_SUCH_TASK);
+
+    var bad: kit::Change = kit::add(doc, "two\nlines", "", 3);
+    failures = failures + judge("a newline in a title is refused", bad.verdict == kit::Verdict.REJECTED);
+
+    var removed: kit::Change = kit::drop(doc, 3);
+    doc = removed.doc;
+    failures = failures + judge("removal drops one row", kit::book::count(doc) == 2);
+    failures = failures + judge("the removed id is not handed out again", kit::book::next_id(doc) == 4);
+
+    std::io::write("\nonly what is tagged home:\n");
+    var home: str = kit::view(doc, -1, "home");
+    std::io::write(view::table(home));
+    failures = failures + judge("tag filter keeps one task", kit::book::count(home) == 1);
+    failures = failures + judge("`home` does not match `homework`",
+    kit::book::count(kit::view(doc, -1, "homework")) == 0);
+
+    std::io::write("\nstate of the book:\n");
+    var totals: kit::book::Summary = kit::book::survey(doc);
+    std::io::write(view::summary(totals));
+    failures = failures + judge("one task in flight", totals.doing == 1);
+    failures = failures + judge("two tasks in total", totals.total == 2);
+
+    when(save(path, doc) != 0) {
+        case(true) { return complain("taskbook: cannot write " + path + "\n", Exit.STORE); }
+        * { }
+    }
+
+    std::io::write("\n");
+    when(failures == 0) {
+        case(true) {
+            std::io::write("demo: all checks passed\n");
+            return Exit.OK;
+        }
+        * {
+            std::io::write_err("demo: " + std::fmt::int_to_str(failures) + " check(s) failed\n");
+            return 1;
+        }
+    }
+};

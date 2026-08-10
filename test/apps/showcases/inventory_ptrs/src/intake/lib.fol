@@ -1,0 +1,106 @@
+use std: pkg = {"std"};
+use catalog: loc = {"../catalog"};
+
+// Receiving: the unique half of the warehouse.
+//
+// An arriving pallet has exactly one owner at every instant — the dock, then
+// the scale, then the putaway crew — and `ptr[Pallet]` is that fact in the type
+// system. Every handoff below is an explicit `[mov]`, and the compiler rejects
+// a second use of the moved binding, which is precisely the double-putaway bug
+// a warehouse cares about.
+//
+// The pallet is a unique pointer rather than a plain record because the
+// re-weigh step writes through the allocation: `[drf]owned = corrected` mutates
+// in place, so the ticket the crew is holding and the record the scale updated
+// are the same object.
+
+typ[exp] Pallet: rec = {
+    ticket: str,
+    // The card this pallet delivers against, shared with the catalog.
+    card: catalog::Card,
+    units: int,
+    gross_g: int,
+    tare_g: int,
+};
+
+typ[exp] Receipt: rec = {
+    ticket: str,
+    code: str,
+    units: int,
+    net_g: int,
+    accepted: bol,
+};
+
+fun[exp] receive(ticket: str, card: catalog::Card, units: int, gross_g: int, tare_g: int): ptr[Pallet] = {
+    var body: Pallet = {
+        ticket = ticket,
+        card = card,
+        units = units,
+        gross_g = gross_g,
+        tare_g = tare_g,
+    };
+    return [ref]body;
+};
+
+// Borrowed reads: the scale looks at the pallet without taking it, so the
+// borrow can be handed out repeatedly and the owner keeps the pallet.
+fun[exp] gross(crate[bor]: ptr[Pallet]): int = {
+    return ([drf]crate).gross_g;
+};
+
+fun[exp] net(crate[bor]: ptr[Pallet]): int = {
+    var body: Pallet = [drf]crate;
+    return body.gross_g - body.tare_g;
+};
+
+fun[exp] ticket(crate[bor]: ptr[Pallet]): str = {
+    return ([drf]crate).ticket;
+};
+
+// The certified scale disagrees with the shipper's declared weight, so the
+// pallet is taken by value, corrected in place, and handed back. The move in
+// and the move out are what make "the scale has it right now" observable.
+//
+// `corrected` is a named binding rather than a literal written straight into
+// the assignment: a record literal on the right of a deref-assign has no
+// expected type in lowering and is rejected.
+fun[exp] reweigh(crate: ptr[Pallet], gross_g: int): ptr[Pallet] = {
+    var[mut] owned: ptr[Pallet] = [mov]crate;
+    var was: Pallet = [drf]owned;
+    var corrected: Pallet = {
+        ticket = was.ticket,
+        card = was.card,
+        units = was.units,
+        gross_g = gross_g,
+        tare_g = was.tare_g,
+    };
+    [drf]owned = corrected;
+    return [mov]owned;
+};
+
+// Terminal step: consumes the pallet. After this call the caller's binding is
+// gone, which is the whole reason the pipeline is spelled with unique pointers.
+fun[exp] stow(crate: ptr[Pallet]): Receipt = {
+    var body: Pallet = [drf]crate;
+    var net_g: int = body.gross_g - body.tare_g;
+    // A pallet whose net weight cannot cover its declared unit count is
+    // short-shipped; accepting it would poison the stock value.
+    var accepted: bol = net_g > 0;
+    return {
+        ticket = body.ticket,
+        code = catalog::card_code(body.card),
+        units = body.units,
+        net_g = net_g,
+        accepted = accepted,
+    };
+};
+
+fun[exp] render(receipt: Receipt): str = {
+    ~var mark: str = "reject";
+    when(receipt.accepted) {
+        * { mark = "accept"; }
+    };
+    return "  " + mark + " " + receipt.ticket + " " + receipt.code
+    + " x" + std::fmt::int_to_str(receipt.units)
+    + " net=" + std::fmt::int_to_str(receipt.net_g) + "g";
+};

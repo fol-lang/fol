@@ -1,0 +1,26 @@
+// The run target is installed so the self-check transcript is the acceptance
+// signal: a wrong pointer answer changes a printed line, not just an exit code.
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "inventory_ptrs",
+        version = "0.1.0",
+        kind = "exe",
+        description = "warehouse inventory modelled with unique, shared and weak pointers",
+        license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+    var app = graph.add_exe({
+        name = "inventory-ptrs",
+        root = "src/main.fol",
+        fol_model = "memo",
+        target = target,
+        optimize = optimize,
+    });
+    graph.install(app);
+    graph.add_run(app);
+    return;
+};

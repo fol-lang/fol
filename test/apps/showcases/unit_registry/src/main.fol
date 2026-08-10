@@ -1,0 +1,87 @@
+// unit-registry -- convert between physical units through one conformance
+// standard.
+//
+// Nine scales conform to `scale::unit`. Every routine that does real work is
+// generic over that standard and calls several of its requirements on the same
+// value, so adding a tenth scale means writing one type and six short routines
+// and nothing else in the package changes.
+//
+// The tool prints the registry, a conversion table, two ladders, the affine
+// facts it recovers from the contract, and then runs its self-checks.
+
+use std: pkg = {"std"};
+use dim: loc = {"dim"};
+use scale: loc = {"scale"};
+use bridge: loc = {"bridge"};
+use sheet: loc = {"sheet"};
+use checks: loc = {"checks"};
+
+fun[] main(): int = {
+    var metre: scale::Meter = { places = 3 };
+    var foot: scale::Foot = { places = 3 };
+    var inch: scale::Inch = { places = 2 };
+    var kilo: scale::Kilogram = { places = 3 };
+    var pound: scale::Pound = { places = 3 };
+    var minute: scale::Minute = { places = 1 };
+    var kelvin: scale::Kelvin = { places = 2 };
+    var celsius: scale::Celsius = { places = 2 };
+    var fahrenheit: scale::Fahrenheit = { places = 2 };
+
+    std::io::echo_str(sheet::rule("registry"));
+    std::io::echo_str(sheet::card(metre));
+    std::io::echo_str(sheet::card(foot));
+    std::io::echo_str(sheet::card(inch));
+    std::io::echo_str(sheet::card(kilo));
+    std::io::echo_str(sheet::card(pound));
+    std::io::echo_str(sheet::card(minute));
+    std::io::echo_str(sheet::card(kelvin));
+    std::io::echo_str(sheet::card(celsius));
+    std::io::echo_str(sheet::card(fahrenheit));
+
+    std::io::echo_str(sheet::rule("conversions"));
+    std::io::echo_str(sheet::row("1 m to ft", bridge::convert(1.0, metre, foot)));
+    std::io::echo_str(sheet::row("100 in to m", bridge::convert(100.0, inch, metre)));
+    std::io::echo_str(sheet::row("70 kg to lb", bridge::convert(70.0, kilo, pound)));
+    std::io::echo_str(sheet::row("90 min to min", bridge::convert(90.0, minute, minute)));
+    std::io::echo_str(sheet::row("37 degC to degF", bridge::convert(37.0, celsius, fahrenheit)));
+    std::io::echo_str(sheet::row("451 degF to degC", bridge::convert(451.0, fahrenheit, celsius)));
+
+    // Both refusals come out of the same generic routine as the successes.
+    std::io::echo_str(sheet::rule("refused"));
+    std::io::echo_str(sheet::row("1 m to kg", bridge::convert(1.0, metre, kilo)));
+    std::io::echo_str(sheet::row("-300 degC to K", bridge::convert(0.0 - 300.0, celsius, kelvin)));
+
+    std::io::echo_str(sheet::rule("ladder: metres to feet"));
+    sheet::ladder(metre, foot, 0.5, 0.5, 5);
+
+    std::io::echo_str(sheet::rule("ladder: celsius to fahrenheit"));
+    sheet::ladder(celsius, fahrenheit, 0.0 - 40.0, 20.0, 5);
+
+    // Three hops through an intermediate unit, compared against one hop.
+    std::io::echo_str(sheet::rule("composition"));
+    var hopped: bridge::Reading = bridge::chain(2.5, metre, inch, foot);
+    std::io::echo_str(sheet::row("2.5 m via in to ft", hopped));
+    var drift: flt = bridge::chain_drift(2.5, metre, inch, foot);
+    std::io::echo_str("  drift against direct : " + std::fmt::float_to_str(drift, 12));
+
+    // The one crossing point that exists between two affine scales.
+    var meet: bridge::Reading = bridge::crossing(celsius, fahrenheit);
+    std::io::echo_str(sheet::row("degC == degF at", meet));
+    var no_meet: bridge::Reading = bridge::crossing(metre, metre);
+    std::io::echo_str(sheet::row("m == m at", no_meet));
+
+    std::io::echo_str(sheet::rule("ordering"));
+    var order: int = bridge::compare(1.0, metre, 3.0, foot);
+    std::io::echo_str("  1 m vs 3 ft          : " + std::fmt::int_to_str(order));
+    var thermal: int = bridge::compare(100.0, celsius, 212.0, fahrenheit);
+    std::io::echo_str("  100 degC vs 212 degF : " + std::fmt::int_to_str(thermal));
+    std::io::echo_str("  base of temperature  : " + dim::base_symbol(kelvin.family()));
+
+    std::io::echo_str(sheet::rule("self-check"));
+    var bad: int = checks::run_all();
+    when(bad) {
+        is(0) { std::io::echo_str("  all checks passed"); }
+        * { std::io::echo_str("  failures: " + std::fmt::int_to_str(bad)); }
+    }
+    return 0;
+};

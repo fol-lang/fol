@@ -1,0 +1,211 @@
+// The retry driver.
+//
+// One run is a loop over attempts. Every exit is named: the engine records why
+// it stopped, not just that it did, because "gave up after five tries" and
+// "refused to try at all because the credentials were rejected" are different
+// operational facts even though both end with no value.
+//
+// No wall-clock sleeping happens. `waited` is the simulated cost of the delays
+// the policy asked for, which is what makes the schedule assertable.
+
+use faults: loc = {"../faults"};
+use policy: loc = {"../policy"};
+use ops: loc = {"../ops"};
+
+typ[exp] Stop: ent = {
+    con SUCCESS: int = 0;
+    con EXHAUSTED: int = 1;
+    con FATAL: int = 2;
+    con BUDGET: int = 3;
+    con INVALID: int = 4;
+};
+
+fun[exp] stop_success(): int = { var value: int = Stop.SUCCESS; return value; };
+fun[exp] stop_exhausted(): int = { var value: int = Stop.EXHAUSTED; return value; };
+fun[exp] stop_fatal(): int = { var value: int = Stop.FATAL; return value; };
+fun[exp] stop_budget(): int = { var value: int = Stop.BUDGET; return value; };
+fun[exp] stop_invalid(): int = { var value: int = Stop.INVALID; return value; };
+
+// The parameter is `code`, not `stop`: lexical lookup folds case, so a
+// parameter named `stop` hides the `Stop` type and every `Stop.X` below stops
+// resolving.
+fun[exp] stop_text(code: int): str = {
+    when(code) {
+        is(Stop.SUCCESS) { return "succeeded"; }
+        is(Stop.EXHAUSTED) { return "out of attempts"; }
+        is(Stop.FATAL) { return "fault is not retryable"; }
+        is(Stop.BUDGET) { return "out of time budget"; }
+        is(Stop.INVALID) { return "policy rejected"; }
+        * { return "unknown"; }
+    }
+};
+
+typ[exp] Outcome: rec = {
+    label: str,
+    attempts: int,
+    waited: int,
+    value: opt[int],
+    fault: err[str],
+    stop: int,
+};
+
+// Why the loop refused to continue. Order matters: a non-retryable fault is a
+// harder fact than a spent attempt count, and both outrank the budget, because
+// the budget is only consulted once the fault is known to be worth retrying.
+fun halt_reason(pol: policy::Policy, code: int, attempt: int): int = {
+    when(faults::retryable(code)) {
+        case(true) { }
+        * { return stop_fatal(); }
+    }
+    when(attempt >= pol.max_attempts) {
+        case(true) { return stop_exhausted(); }
+        * { return stop_budget(); }
+    }
+};
+
+fun failed(op: ops::Op, attempt: int, waited: int, stop: int): Outcome = {
+    return {
+        label = op.name,
+        attempts = attempt,
+        waited = waited,
+        value = nil,
+        fault = ops::diagnose(op, attempt),
+        stop = stop,
+    };
+};
+
+fun[exp] run(op: ops::Op, pol: policy::Policy): Outcome = {
+    // A misconfigured policy is caught before the first call, so a bad budget
+    // shows up as one clear verdict instead of a run that mysteriously never
+    // retries.
+    var setup: err[str] = policy::validate(pol);
+    when(setup) {
+        on(reason) {
+            return {
+                label = op.name,
+                attempts = 0,
+                waited = 0,
+                value = nil,
+                fault = reason,
+                stop = stop_invalid(),
+            };
+        }
+        * { }
+    }
+
+    var[mut] attempt: int = 1;
+    var[mut] waited: int = 0;
+    loop(attempt <= pol.max_attempts) {
+        var code: int = ops::effective_code(op, attempt);
+        when(code == faults::none()) {
+            case(true) {
+                // The value comes off the recoverable channel; `|| 0` cannot
+                // fire here, because `effective_code` already said this attempt
+                // is clean.
+                var value: int = ops::decoded(op, attempt) || 0;
+                return {
+                    label = op.name,
+                    attempts = attempt,
+                    waited = waited,
+                    value = value,
+                    fault = nil,
+                    stop = stop_success(),
+                };
+            }
+            * { }
+        }
+        when(policy::admits(pol, code, attempt, waited)) {
+            case(true) {
+                waited = waited + policy::delay_for(pol, attempt + 1, code);
+                attempt = attempt + 1;
+            }
+            * {
+                return failed(op, attempt, waited, halt_reason(pol, code, attempt));
+            }
+        }
+    }
+    return failed(op, pol.max_attempts, waited, stop_exhausted());
+};
+
+// Total delay a policy would impose on a run that fails every attempt. Adding
+// the curve up independently of any run is what lets the report assert that a
+// run's `waited` really is the schedule and not some accumulated drift.
+fun[exp] schedule_total(pol: policy::Policy, code: int): int = {
+    var[mut] total: int = 0;
+    var[mut] attempt: int = 2;
+    loop(attempt <= pol.max_attempts) {
+        total = total + policy::delay_for(pol, attempt, code);
+        attempt = attempt + 1;
+    }
+    return total;
+};
+
+// Whether every delay the policy would hand out stays inside the jitter band
+// around its own backoff curve. A jitter bug that pushed a delay outside the
+// band -- or collapsed it to a constant -- would show up here and nowhere else,
+// because the individual numbers are meant to look arbitrary.
+fun[exp] jitter_in_band(pol: policy::Policy, code: int): bol = {
+    var[mut] attempt: int = 2;
+    loop(attempt <= pol.max_attempts) {
+        when(policy::within_band(pol, attempt, code, policy::delay_for(pol, attempt, code))) {
+            case(true) { }
+            * { return false; }
+        }
+        attempt = attempt + 1;
+    }
+    return true;
+};
+
+// A chain entry that names an operation nobody has heard of. Configuration
+// drifts, so an unknown source is reported and stepped over rather than being
+// allowed to sink the whole chain.
+fun unknown(name: str): Outcome = {
+    return {
+        label = name,
+        attempts = 0,
+        waited = 0,
+        value = nil,
+        fault = "no such operation: " + name,
+        stop = stop_invalid(),
+    };
+};
+
+// The `on(op)` arm calls straight through instead of binding the outcome to a
+// local: a `var` declared inside an `on(...)` arm makes the typechecker lose
+// the binding and abort with an internal T1099.
+fun[exp] run_named(name: str, pol: policy::Policy): Outcome = {
+    var found: opt[ops::Op] = ops::find(name);
+    when(found) {
+        on(op) { return run(op, pol); }
+        * { return unknown(name); }
+    }
+};
+
+// Try each named operation in order and take the first value any of them
+// yields. This is the fallback-chain shape: a degraded source beats no answer.
+fun[exp] first_value(names: vec[str], pol: policy::Policy): opt[int] = {
+    loop(name in names) {
+        var outcome: Outcome = run_named(name, pol);
+        when(outcome.value) {
+            on(value) { return value; }
+            * { }
+        }
+    }
+    return nil;
+};
+
+// Total simulated milliseconds a whole fallback chain burns before it produces
+// an answer. Sources that failed still cost their retries -- that is the price
+// of the fallback, and the reason chain order matters.
+fun[exp] chain_cost(names: vec[str], pol: policy::Policy): int = {
+    var[mut] total: int = 0;
+    loop(name in names) {
+        var outcome: Outcome = run_named(name, pol);
+        total = total + outcome.waited;
+        when(outcome.value) {
+            on(value) { return total; }
+            * { }
+        }
+    }
+    return total;
+};

@@ -1,0 +1,82 @@
+// Presentation. Everything printed by the tool is built here.
+//
+// The rendering routines that touch units are generic too, because a report
+// that only worked on the units known when it was written would defeat the
+// purpose of the standard.
+
+use std: pkg = {"std"};
+use dim: loc = {"../dim"};
+use scale: loc = {"../scale"};
+use bridge: loc = {"../bridge"};
+
+fun[exp] repeat(text: str, times: int): str = {
+    var[mut] out: str = "";
+    var[mut] step: int = 0;
+    loop (step < times) {
+        out = out + text;
+        step = step + 1;
+    }
+    return out;
+};
+
+fun[exp] pad_right(text: str, width: int): str = {
+    var gap: int = width - .len(text);
+    when(gap > 0) {
+        case(true) { return text + repeat(" ", gap); }
+        * { return text; }
+    }
+};
+
+fun[exp] rule(title: str): str = {
+    return "-- " + title + " " + repeat("-", 46 - .len(title));
+};
+
+// A reading prints at the precision its own unit asked for, so a kilogram row
+// and a pound row in the same table can disagree about how many decimals matter.
+fun[exp] show(item: bridge::Reading): str = {
+    when(item.fault) {
+        is(0) { return std::fmt::float_to_str(item.value, item.places) + " " + item.symbol; }
+        * { return "--  (" + dim::fault_text(item.fault) + ")"; }
+    }
+};
+
+fun[exp] row(label: str, item: bridge::Reading): str = {
+    return "  " + pad_right(label, 22) + show(item);
+};
+
+// Two requirements on the generic value, plus the derived affine facts that the
+// standard makes recoverable without any per-unit table.
+fun[exp] card(U: scale::unit)(item: U): str = {
+    var factor: str = std::fmt::float_to_str(bridge::factor_of([cpy]item), 8);
+    var offset: str = std::fmt::float_to_str(bridge::offset_of([cpy]item), 4);
+    var[mut] kind: str = "linear";
+    when(bridge::is_affine([cpy]item)) {
+        case(true) { kind = "affine"; }
+        * { }
+    }
+    return "  " + pad_right(bridge::describe([cpy]item), 36)
+    + pad_right("x" + factor, 16)
+    + pad_right("+" + offset, 14) + kind;
+};
+
+// Walks a fixed number of steps in the source unit and prints the destination
+// reading for each. Both units stay generic all the way through.
+fun[exp] ladder(A: scale::unit, B: scale::unit)(from: A, into: B, start: flt, step: flt, count: int): non = {
+    var[mut] taken: int = 0;
+    var[mut] value: flt = start;
+    loop (taken < count) {
+        var reading: bridge::Reading = bridge::convert(value, [cpy]from, [cpy]into);
+        var left: str = std::fmt::float_to_str(value, from.digits()) + " " + from.symbol();
+        std::io::echo_str(row(left, reading));
+        value = value + step;
+        taken = taken + 1;
+    }
+    return;
+};
+
+fun[exp] verdict(passed: bol): str = {
+    when(passed) {
+        case(true) { return "ok   "; }
+        * { return "FAIL "; }
+    }
+};

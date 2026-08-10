@@ -1,0 +1,61 @@
+// Turning a store into the lines a person reads.
+//
+// This file declares no imports of its own. An import alias belongs to the
+// whole package rather than to one file, so `std` and `kit` are taken from the
+// single declaration in main.fol.
+
+// A fixed-width table, because the common use of `taskbook list` is piping it
+// into `grep` and reading column three.
+fun[exp] header(): str = {
+    return "  ID  PRI  STATE  TAGS            TITLE\n"
+    + "  " + kit::text::repeat("-", 58) + "\n";
+};
+
+fun[exp] row(item: kit::entry::Task): str = {
+    return "  " + kit::text::pad_left(std::fmt::int_to_str(item.id), 2)
+    + "  " + kit::text::pad_left(std::fmt::int_to_str(item.priority), 3)
+    + "  " + kit::text::pad_right(kit::entry::state_name(item.state), 5)
+    + "  " + kit::text::pad_right(short(item.tags, 14), 14)
+    + "  " + item.title + "\n";
+};
+
+// Tags are the only unbounded column that is not the title, and an overlong
+// tag list would push every title out of alignment.
+fun[exp] short(text: str, width: int): str = {
+    when(.len(text) <= width) {
+        case(true) { return text; }
+        * { return std::strn::sub(text, 0, width - 1) + "~"; }
+    }
+};
+
+fun[exp] table(doc: str): str = {
+    var rows: int = kit::book::count(doc);
+    var[mut] out: str = header();
+    var[mut] index: int = 0;
+    loop(index < rows) {
+        out = out + row(kit::book::row_at(doc, index));
+        index = index + 1;
+    };
+    return out;
+};
+
+fun[exp] summary(totals: kit::book::Summary): str = {
+    var[mut] out: str = "  todo   " + std::fmt::int_to_str(totals.todo) + "\n"
+    + "  doing  " + std::fmt::int_to_str(totals.doing) + "\n"
+    + "  done   " + std::fmt::int_to_str(totals.done) + "\n"
+    + "  total  " + std::fmt::int_to_str(totals.total) + "\n";
+    // Unreadable rows are only mentioned when there are some: a healthy store
+    // should not train the user to ignore a line.
+    when(totals.damaged > 0) {
+        case(true) {
+            out = out + "  unreadable rows: " + std::fmt::int_to_str(totals.damaged) + "\n";
+        }
+        * { }
+    }
+    return out;
+};
+
+fun[exp] confirmation(verb: str, item: kit::entry::Task): str = {
+    return verb + " #" + std::fmt::int_to_str(item.id)
+    + " (" + kit::entry::state_name(item.state) + ") " + item.title + "\n";
+};

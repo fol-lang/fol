@@ -1,0 +1,157 @@
+// Conversion written entirely against the `unit` standard.
+//
+// No routine here mentions a concrete scale. Every one of them takes one or
+// more constrained type parameters and calls several requirements on the same
+// value: that is what makes the registry extensible -- a new unit type only has
+// to conform, and all of this works on it unchanged.
+
+use std: pkg = {"std"};
+use dim: loc = {"../dim"};
+use scale: loc = {"../scale"};
+
+// The outcome of one conversion. A refused conversion still returns a Reading
+// so the caller can print the reason next to the row it belongs to.
+typ[exp] Reading: rec = {
+    value: flt,
+    symbol: str,
+    places: int,
+    fault: int,
+};
+
+fun[exp] magnitude(value: flt): flt = {
+    when(value < 0.0) {
+        case(true) { return 0.0 - value; }
+        * { return value; }
+    }
+};
+
+fun[exp] close_enough(left: flt, right: flt, tolerance: flt): bol = {
+    return magnitude(left - right) < tolerance;
+};
+
+// Four requirements on one generic value.
+fun[exp] describe(U: scale::unit)(item: U): str = {
+    var places: str = std::fmt::int_to_str(item.digits());
+    return item.symbol() + "  " + item.label()
+    + " [" + dim::name_of(item.family()) + "]"
+    + " ~" + places + "dp";
+};
+
+fun[exp] same_dimension(A: scale::unit, B: scale::unit)(from: A, into: B): bol = {
+    return from.family() == into.family();
+};
+
+// The multiplicative part of a possibly-affine scale, recovered from the
+// contract rather than stored: to_base(1) - to_base(0) cancels the offset.
+fun[exp] factor_of(U: scale::unit)(item: U): flt = {
+    return item.to_base(1.0) - item.to_base(0.0);
+};
+
+fun[exp] offset_of(U: scale::unit)(item: U): flt = {
+    return item.to_base(0.0);
+};
+
+// A scale is affine when its zero is not the base zero. Detecting it this way
+// means the registry never has to be told which units are temperatures.
+fun[exp] is_affine(U: scale::unit)(item: U): bol = {
+    return magnitude(offset_of([cpy]item)) > 0.000000001;
+};
+
+// The whole conversion, guarded twice: dimensions must agree, and a thermal
+// result below 0 K is physically impossible and reported as such.
+fun[exp] convert(A: scale::unit, B: scale::unit)(value: flt, from: A, into: B): Reading = {
+    when(same_dimension([cpy]from, [cpy]into)) {
+        case(false) {
+            return {
+                value = 0.0,
+                symbol = into.symbol(),
+                places = into.digits(),
+                fault = dim::Fault.MISMATCH,
+            };
+        }
+        * { }
+    }
+    var base: flt = from.to_base(value);
+    when(dim::is_thermal(from.family()) and base < 0.0) {
+        case(true) {
+            return {
+                value = 0.0,
+                symbol = into.symbol(),
+                places = into.digits(),
+                fault = dim::Fault.BELOW_ZERO,
+            };
+        }
+        * { }
+    }
+    return {
+        value = into.from_base(base),
+        symbol = into.symbol(),
+        places = into.digits(),
+        fault = dim::Fault.NONE,
+    };
+};
+
+// Three constrained parameters. Converting through an intermediate unit must
+// agree with the direct conversion; `chain_drift` is what proves it does.
+fun[exp] chain(A: scale::unit, B: scale::unit, C: scale::unit)(value: flt, from: A, via: B, into: C): Reading = {
+    var middle: Reading = convert(value, [cpy]from, [cpy]via);
+    when(middle.fault) {
+        is(0) { return convert(middle.value, [cpy]via, [cpy]into); }
+        * { return middle; }
+    }
+};
+
+fun[exp] chain_drift(A: scale::unit, B: scale::unit, C: scale::unit)(value: flt, from: A, via: B, into: C): flt = {
+    var direct: Reading = convert(value, [cpy]from, [cpy]into);
+    var hopped: Reading = chain(value, [cpy]from, [cpy]via, [cpy]into);
+    return magnitude(direct.value - hopped.value);
+};
+
+// How much a value loses by going out to the base unit and back. Non-zero only
+// where the factor is not exactly representable in binary floating point.
+fun[exp] round_trip_error(U: scale::unit)(item: U, value: flt): flt = {
+    return magnitude(item.from_base(item.to_base(value)) - value);
+};
+
+// Ordering across two different units of the same dimension: -1, 0 or 1.
+// Comparing in base units is the only way this can be correct for affine scales.
+fun[exp] compare(A: scale::unit, B: scale::unit)(left: flt, from: A, right: flt, into: B): int = {
+    when(same_dimension([cpy]from, [cpy]into)) {
+        case(false) { return 0 - 2; }
+        * { }
+    }
+    var lhs: flt = from.to_base(left);
+    var rhs: flt = into.to_base(right);
+    when(close_enough(lhs, rhs, 0.000000001)) {
+        case(true) { return 0; }
+        * { }
+    }
+    when(lhs < rhs) {
+        case(true) { return 0 - 1; }
+        * { return 1; }
+    }
+};
+
+// The value at which two scales of one dimension read the same number.
+// Only affine pairs have one: -40 is the famous Celsius/Fahrenheit crossing.
+// Solves fa*x + oa == fb*x + ob for x.
+fun[exp] crossing(A: scale::unit, B: scale::unit)(from: A, into: B): Reading = {
+    var slope: flt = factor_of([cpy]from) - factor_of([cpy]into);
+    when(same_dimension([cpy]from, [cpy]into) and magnitude(slope) > 0.000000001) {
+        case(true) {
+            return {
+                value = (offset_of([cpy]into) - offset_of([cpy]from)) / slope,
+                symbol = from.symbol(),
+                places = from.digits(),
+                fault = dim::Fault.NONE,
+            };
+        }
+        * { }
+    }
+    return {
+        value = 0.0,
+        symbol = from.symbol(),
+        places = from.digits(),
+        fault = dim::Fault.MISMATCH,
+    };
+};

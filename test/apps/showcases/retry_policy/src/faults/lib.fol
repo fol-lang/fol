@@ -1,0 +1,66 @@
+// The fault taxonomy the policy engine reasons about.
+//
+// A retry engine is only as good as its classifier: retrying a fault the server
+// will never stop returning burns the whole budget for nothing, and giving up
+// on a transient one loses work that a second call would have completed. So the
+// split between retryable and fatal lives here, next to the codes, rather than
+// being re-derived at each call site.
+//
+// THROTTLED is the odd one out. It is retryable, but the peer has also told us
+// how long to wait, and that floor overrides whatever the backoff curve would
+// have picked. `retry_after` carries that hint; every other code answers 0.
+
+typ[exp] Kind: ent = {
+    con NONE: int = 0;
+    con TIMEOUT: int = 1;
+    con REFUSED: int = 2;
+    con THROTTLED: int = 3;
+    con UNAUTHORIZED: int = 4;
+    con CORRUPT: int = 5;
+};
+
+fun[exp] none(): int = { var value: int = Kind.NONE; return value; };
+fun[exp] timeout(): int = { var value: int = Kind.TIMEOUT; return value; };
+fun[exp] refused(): int = { var value: int = Kind.REFUSED; return value; };
+fun[exp] throttled(): int = { var value: int = Kind.THROTTLED; return value; };
+fun[exp] unauthorized(): int = { var value: int = Kind.UNAUTHORIZED; return value; };
+fun[exp] corrupt(): int = { var value: int = Kind.CORRUPT; return value; };
+
+// Only faults the peer might stop producing are worth a second call.
+fun[exp] retryable(code: int): bol = {
+    when(code) {
+        is(Kind.TIMEOUT) { return true; }
+        is(Kind.REFUSED) { return true; }
+        is(Kind.THROTTLED) { return true; }
+        * { return false; }
+    }
+};
+
+// Server-supplied cool-down, in milliseconds. Only THROTTLED carries one.
+fun[exp] retry_after(code: int): int = {
+    when(code) {
+        is(Kind.THROTTLED) { return 250; }
+        * { return 0; }
+    }
+};
+
+fun[exp] text(code: int): str = {
+    when(code) {
+        is(Kind.NONE) { return "no fault"; }
+        is(Kind.TIMEOUT) { return "request timed out"; }
+        is(Kind.REFUSED) { return "connection refused"; }
+        is(Kind.THROTTLED) { return "throttled by the peer"; }
+        is(Kind.UNAUTHORIZED) { return "credentials rejected"; }
+        is(Kind.CORRUPT) { return "response failed its checksum"; }
+        * { return "unclassified fault"; }
+    }
+};
+
+// The storable form of a classification: nil means the call was clean. Callers
+// drive it with `when ... on ... *` instead of comparing against a sentinel.
+fun[exp] shell(code: int): err[str] = {
+    when(code == Kind.NONE) {
+        case(true) { return nil; }
+        * { return text(code); }
+    }
+};

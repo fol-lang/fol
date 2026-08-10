@@ -1,0 +1,192 @@
+// bank-ledger-fin: settle a day's batches against a journal device that has
+// fewer write slots than the bank has accounts.
+//
+// The point of the program is the trace. Every `[acq]` line is a slot leaving
+// the device and every `[fin]` line is that same slot going back, printed by
+// the compiler-run finalizer and by nothing else. The two counts must match,
+// and no slot id may appear twice in a row of `[fin]` lines for the same
+// acquisition -- that is what "finalized exactly once" looks like from outside.
+//
+// The self-checks at the bottom compare the engine's arithmetic against
+// hand-computed answers and set the exit status.
+
+use std: pkg = {"std"};
+use model: loc = {"model"};
+use slot: loc = {"slot"};
+use engine: loc = {"engine"};
+use render: loc = {"render"};
+
+pro[] show(text: str): non = {
+    std::io::echo_str(text);
+    return;
+};
+
+pro[] banner(title: str): non = {
+    show("");
+    show(title);
+    show(render::rule());
+    return;
+};
+
+// Returns 1 when the check fails, so main can just add them up.
+fun[] check_int(label: str, got: int, want: int): int = {
+    show(render::verdict(label, got, want));
+    if(.eq(got, want)) {
+        return 0;
+    }
+    return 1;
+};
+
+fun[] check_text(label: str, got: str, want: str): int = {
+    show(render::verdict_text(label, got, want));
+    if(.eq(got, want)) {
+        return 0;
+    }
+    return 1;
+};
+
+fun[] check_flag(label: str, got: bol, want: bol): int = {
+    if(.eq(got, want)) {
+        return check_int(label, 1, 1);
+    }
+    return check_int(label, 0, 1);
+};
+
+// The reason a validator gave, or "accepted" when it gave none. Flattening the
+// shell here keeps every assertion in main a plain string comparison.
+fun[] reason_of(fault: err[str]): str = {
+    when(fault) {
+        on(text) { return text; }
+        * { return "accepted"; }
+    }
+};
+
+pro[] print_sheet(title: str, legs: vec[model::Posting]): non = {
+    show(title);
+    show(render::header());
+    var rows: vec[model::Account] = engine::chart();
+    loop(row in rows) {
+        show(render::account_line(row, legs));
+    }
+    return;
+};
+
+// Counts the deferred blocks that actually ran, which is the one part of the
+// cleanup story a program can assert on itself: the finalizer trace is printed,
+// but a `dfr` body can write to a mutable loan of a local the caller still owns.
+fun[] scoped_cleanups(rounds: int): int = {
+    var[mut] ran: int = 0;
+    var[mut] round: int = 0;
+    loop(.lt(round, rounds)) {
+        {
+            var held: slot::Slot = slot::acquire(round, "2100");
+            dfr[ran[mut, bor]] { ran = ran + 1; };
+            show("      round " + std::fmt::int_to_str(round) + " holds slot "
+            + std::fmt::int_to_str(held.id));
+        };
+        round = round + 1;
+    }
+    return ran;
+};
+
+fun[] main(): int = {
+    show("bank_ledger_fin  ::  daily close on the settlement journal");
+    show("device offers " + std::fmt::int_to_str(slot::capacity())
+    + " write slots, split across " + slot::device_of(0) + " and " + slot::device_of(3));
+
+    var counter_legs: vec[model::Posting] = engine::batch_counter();
+    var sweep_legs: vec[model::Posting] = engine::batch_sweep();
+    var torn_legs: vec[model::Posting] = engine::batch_torn();
+    var orphan_legs: vec[model::Posting] = engine::batch_orphan();
+
+    banner("BATCH 7  counter withdrawal and its fee");
+    var counter: model::Receipt = engine::settle(7, counter_legs)
+    || panic "a balanced batch inside device capacity must settle";
+    show("    " + render::receipt_line(counter));
+
+    banner("BATCH 8  overnight sweep, five accounts against four slots");
+    var sweep_rejected: bol = check(engine::settle(8, sweep_legs));
+
+    banner("BATCH 9  torn drawdown, the credit leg is short");
+    var torn_rejected: bol = check(engine::settle(9, torn_legs));
+
+    banner("BATCH 10  transfer to a closed account");
+    var orphan_rejected: bol = check(engine::settle(10, orphan_legs));
+
+    banner("SAME-DAY CORRECTION  device ready");
+    var fixed: int = engine::write_correction(counter_legs[2], true) || 0;
+
+    banner("SAME-DAY CORRECTION  device refuses, slot goes back early");
+    var refused: bol = check(engine::write_correction(counter_legs[2], false));
+
+    banner("FILING  the slot travels with the ticket");
+    engine::file_leg(7, counter_legs[0]);
+
+    banner("DEVICE DRAIN  every slot reserved at once");
+    {
+        var whole: vec[slot::Slot] = slot::reserve_device("1000");
+        show("      holding " + std::fmt::int_to_str(.len(whole)) + " slots");
+    };
+
+    banner("SCOPED ROUNDS  one slot per round, released at round end");
+    var cleanups: int = scoped_cleanups(3);
+
+    banner("BOOKS AFTER BATCH 7");
+    print_sheet("", counter_legs);
+
+    banner("SELF CHECKS");
+    var[mut] bad: int = 0;
+    bad = bad + check_int("batch 7 legs", counter.legs, 4);
+    bad = bad + check_int("batch 7 distinct accounts", counter.slots_used, 3);
+    bad = bad + check_int("batch 7 gross debits (cents)", counter.moved, 250350);
+    bad = bad + check_int("batch 7 drift (cents)", model::drift(counter_legs), 0);
+    bad = bad + check_int("sweep needs slots", engine::slots_needed(sweep_legs), 5);
+    bad = bad + check_int("device capacity", slot::capacity(), 4);
+    bad = bad + check_flag("sweep rejected", sweep_rejected, true);
+    bad = bad + check_flag("torn batch rejected", torn_rejected, true);
+    bad = bad + check_flag("orphan batch rejected", orphan_rejected, true);
+    bad = bad + check_flag("refused correction reported", refused, true);
+    bad = bad + check_int("accepted correction amount", fixed, 350);
+    bad = bad + check_int("dfr bodies that ran", cleanups, 3);
+
+    bad = bad + check_text("torn batch reason",
+    reason_of(engine::validate_batch(torn_legs)),
+    "batch does not balance, out by 100 cents");
+    bad = bad + check_text("orphan batch reason",
+    reason_of(engine::validate_batch(orphan_legs)),
+    "leg 2: account 9999 is not in the chart");
+    bad = bad + check_text("counter batch accepted",
+    reason_of(engine::validate_batch(counter_legs)), "accepted");
+    bad = bad + check_text("empty batch reason",
+    reason_of(engine::validate_batch({})), "batch is empty");
+
+    // 5 000 000 vault cash less the 250 000 paid out at the counter.
+    bad = bad + check_text("vault cash after batch 7",
+    render::money(engine::balance(engine::chart()[0], counter_legs)), "47500.00");
+    // Deposits are credit-normal: the 250 350 debited leaves 5 549 650.
+    bad = bad + check_text("customer deposits after batch 7",
+    render::money(engine::balance(engine::chart()[2], counter_legs)), "55496.50");
+    bad = bad + check_int("sheet still balances after batch 7", engine::sheet_drift(counter_legs), 0);
+    bad = bad + check_int("sheet balanced before any batch", engine::sheet_drift({}), 0);
+
+    banner("SLOT TRACE SUMMARY");
+    // A finalizer cannot report back into the program -- there is no shared
+    // mutable state it could touch -- so the release side of the audit lives in
+    // the transcript. Acquisitions are countable from here: 3 for batch 7, one
+    // accepted correction, one refused correction, one filed ticket, a full
+    // device drain, and 3 scoped rounds.
+    var acquired: int = counter.slots_used + 1 + 1 + 1 + slot::capacity() + 3;
+    bad = bad + check_int("slots acquired this run", acquired, 13);
+    show("");
+    show("count the lines above: " + std::fmt::int_to_str(acquired)
+    + " [acq] and " + std::fmt::int_to_str(acquired) + " [fin], one release per acquisition,");
+    show("no slot released twice and none left held.");
+
+    show("");
+    if(.eq(bad, 0)) {
+        show("all checks passed");
+        return 0;
+    }
+    show(std::fmt::int_to_str(bad) + " check(s) FAILED");
+    return 1;
+};

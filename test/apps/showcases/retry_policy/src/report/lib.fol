@@ -1,0 +1,72 @@
+// Rendering.
+//
+// Every shell reaches the page through `when ... on ... *`: an absent value and
+// a stored reason are printed as themselves rather than being flattened into a
+// sentinel first. That is deliberate -- a report that prints -1 for "no answer"
+// is the report that eventually gets summed.
+
+use std: pkg = {"std"};
+use policy: loc = {"../policy"};
+use engine: loc = {"../engine"};
+
+fun[exp] pad_left(value: int, width: int): str = {
+    var[mut] text: str = std::fmt::int_to_str(value);
+    loop(.len(text) < width) {
+        text = " " + text;
+    }
+    return text;
+};
+
+fun[exp] pad_right(text: str, width: int): str = {
+    var[mut] padded: str = text;
+    loop(.len(padded) < width) {
+        padded = padded + " ";
+    }
+    return padded;
+};
+
+fun[exp] line(label: str, value: int): str = {
+    return "  " + pad_right(label, 22) + pad_left(value, 6) + "\n";
+};
+
+fun[exp] check(label: str, ok: bol): str = {
+    when(ok) {
+        case(true) { return "  " + pad_right(label, 36) + "ok\n"; }
+        * { return "  " + pad_right(label, 36) + "FAIL\n"; }
+    }
+};
+
+fun[exp] value_text(value: opt[int]): str = {
+    when(value) {
+        on(found) { return std::fmt::int_to_str(found); }
+        * { return "-"; }
+    }
+};
+
+fun[exp] fault_text(fault: err[str]): str = {
+    when(fault) {
+        on(reason) { return reason; }
+        * { return "-"; }
+    }
+};
+
+fun[exp] outcome_line(outcome: engine::Outcome): str = {
+    var head: str = "  " + pad_right(outcome.label, 15);
+    var tries: str = pad_left(outcome.attempts, 3) + " try";
+    var cost: str = pad_left(outcome.waited, 7) + "ms";
+    var got: str = "  value " + pad_right(value_text(outcome.value), 5);
+    var why: str = pad_right(engine::stop_text(outcome.stop), 24);
+    return head + tries + cost + got + why + fault_text(outcome.fault) + "\n";
+};
+
+// The delay curve a policy would hand out, attempt 2 onwards. Attempt 1 is
+// omitted because it is the original call and always waits nothing.
+fun[exp] schedule_text(pol: policy::Policy, code: int): str = {
+    var[mut] text: str = "  " + pad_right(pol.label, 15);
+    var[mut] attempt: int = 2;
+    loop(attempt <= pol.max_attempts) {
+        text = text + pad_left(policy::delay_for(pol, attempt, code), 6);
+        attempt = attempt + 1;
+    }
+    return text + "\n";
+};

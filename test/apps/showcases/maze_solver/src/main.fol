@@ -1,0 +1,157 @@
+use std: pkg = {"std"};
+use grid: loc = {"grid"};
+use solve: loc = {"solve"};
+
+// Grid pathfinding driver.
+//
+// Every maze is solved twice, once breadth-first and once depth-first, from the
+// same shared traversal. The interesting output is not the path itself but the
+// comparison: the two orders always agree on whether the goal is reachable, and
+// the breadth-first answer is never longer than the depth-first one.
+
+// Checks report by returning their failure count rather than by mutating a
+// tally. Module-level bindings are immutable (O1001), and threading a counter
+// through every routine would be worse than summing at the call site.
+fun[] expect_int(name: str, actual: int, expected: int): int = {
+    var got: str = std::fmt::int_to_str(actual);
+    var want: str = std::fmt::int_to_str(expected);
+    when(.eq(actual, expected)) {
+        case(true) {
+            std::io::echo_str("  ok   " + name + " = " + got);
+            return 0;
+        }
+        * {
+            std::io::echo_str("  FAIL " + name + " = " + got + ", expected " + want);
+            return 1;
+        }
+    }
+};
+
+fun[] claim(name: str, holds: bol): int = {
+    when(holds) {
+        case(true) {
+            std::io::echo_str("  ok   " + name);
+            return 0;
+        }
+        * {
+            std::io::echo_str("  FAIL " + name);
+            return 1;
+        }
+    }
+};
+
+pro[] draw(maze: grid::Maze, marks: str): non = {
+    ~var row: int = 0;
+    loop(row < maze.height) {
+        std::io::echo_str("    " + [bor]maze.render_row(row, marks));
+        row = row + 1;
+    };
+    return;
+};
+
+// Prints one traversal and hands back the reconstructed route so the caller can
+// compare the two orders.
+fun[] announce(maze: grid::Maze, trace: solve::Trace, start: int, goal: int): solve::Route = {
+    var found: solve::Route = solve::route(maze, trace, start, goal);
+    var cost: str = std::fmt::int_to_str(trace.expanded);
+    var peak: str = std::fmt::int_to_str(trace.peak);
+    var seen: str = std::fmt::int_to_str(solve::reached_cells(trace));
+    var head: str = "  " + trace.label + ": expanded " + cost;
+    std::io::echo_str(head + ", peak frontier " + peak + ", reached " + seen + " cells");
+    when(found.ok) {
+        case(true) {
+            std::io::echo_str("    moves " + std::fmt::int_to_str(found.moves));
+            std::io::echo_str("    " + found.trail);
+            draw(maze, found.marks);
+        }
+        * { std::io::echo_str("    no route: " + found.trail); }
+    };
+    return found;
+};
+
+// Solves one maze both ways, prints both, and returns how many checks failed.
+// Both expected move counts are pinned: the traversals are deterministic, so a
+// change in either one is a real change in behaviour rather than noise.
+fun[] solve_both(maze: grid::Maze, want_wide: int, want_deep: int, want_routes: int): int = {
+    var start: int = [bor]maze.locate(grid::start_byte());
+    var goal: int = [bor]maze.locate(grid::goal_byte());
+    var open: int = open_tally(maze);
+
+    std::io::echo_str("");
+    std::io::echo_str("== " + maze.name + " ==");
+    draw(maze, "");
+    var origin: str = "  start cell " + std::fmt::int_to_str(start);
+    var target: str = ", goal cell " + std::fmt::int_to_str(goal);
+    std::io::echo_str(origin + target + ", open cells " + std::fmt::int_to_str(open));
+
+    var wide: solve::Trace = solve::traverse(maze, start, goal, true);
+    var deep: solve::Trace = solve::traverse(maze, start, goal, false);
+    var wide_route: solve::Route = announce(maze, wide, start, goal);
+    var deep_route: solve::Route = announce(maze, deep, start, goal);
+
+    var wide_walks: bol = solve::route_is_walkable(maze, wide, start, goal);
+    var deep_walks: bol = solve::route_is_walkable(maze, deep, start, goal);
+    var routes: int = solve::shortest_route_count(maze, wide, start, goal);
+
+    ~var bad: int = 0;
+    bad = bad + claim("both orders agree on reachability", .eq(wide.reached, deep.reached));
+    bad = bad + claim("breadth-first route is walkable", wide_walks);
+    bad = bad + claim("depth-first route is walkable", deep_walks);
+    bad = bad + expect_int("shortest moves", wide_route.moves, want_wide);
+    bad = bad + expect_int("depth-first moves", deep_route.moves, want_deep);
+
+    // Ordering, not equality: depth-first is allowed to be worse and only worse.
+    var ordered: bol = .le(wide_route.moves, deep_route.moves);
+    bad = bad + claim("breadth-first is no longer than depth-first", ordered);
+
+    // A search can never touch more cells than the maze has floor tiles.
+    var bounded: bol = .le(solve::reached_cells(wide), open);
+    bad = bad + claim("reached cells fit inside the open area", bounded);
+
+    bad = bad + expect_int("distinct shortest routes", routes, want_routes);
+    return bad;
+};
+
+// Open cells counted straight off the tiles, used as an upper bound on what any
+// search can reach.
+fun[] open_tally(maze: grid::Maze): int = {
+    ~var cell: int = 0;
+    ~var total: int = 0;
+    loop(cell < [bor]maze.cell_count()) {
+        when([bor]maze.passable(cell)) {
+            case(true) { total = total + 1; }
+            * { }
+        };
+        cell = cell + 1;
+    };
+    return total;
+};
+
+fun[] main(): int = {
+    var tiles: map[int, str] = grid::legend();
+    var moves: map[int, str] = grid::step_names();
+    var glyphs: str = "legend: '#' " + tiles[35] + ", '.' " + tiles[46] + ", 'S' " + tiles[83];
+    var order: str = "step order: " + moves[0] + ", " + moves[1] + ", " + moves[2];
+
+    std::io::echo_str("maze solver: breadth-first vs depth-first on a 4-connected grid");
+    std::io::echo_str(glyphs + ", 'E' " + tiles[69] + ", '*' " + tiles[42]);
+    std::io::echo_str(order + ", " + moves[3]);
+
+    ~var bad: int = 0;
+    bad = bad + solve_both(grid::detour(), 6, 10, 1);
+    bad = bad + solve_both(grid::open_room(), 7, 7, 35);
+    bad = bad + solve_both(grid::serpentine(), 28, 28, 1);
+    bad = bad + solve_both(grid::sealed(), 0 - 1, 0 - 1, 0);
+
+    std::io::echo_str("");
+    when(.eq(bad, 0)) {
+        case(true) {
+            std::io::echo_str("all checks passed");
+            return 0;
+        }
+        * {
+            std::io::echo_str(std::fmt::int_to_str(bad) + " check(s) failed");
+            return 1;
+        }
+    }
+};

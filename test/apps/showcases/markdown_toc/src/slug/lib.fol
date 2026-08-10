@@ -1,0 +1,61 @@
+// Turning heading text into a link anchor.
+//
+// The rule is our own and is stated once here so that tests can hold it to
+// account: ASCII letters and digits are kept and lowercased, `-` and `_` are
+// kept as they are, and every other run of bytes -- spaces, punctuation,
+// anything non-ASCII -- collapses into a single `-`. Leading and trailing
+// separators are dropped.
+//
+// Collapsing runs rather than mapping byte-for-byte is what keeps
+// "Notes & Caveats" from becoming "notes---caveats".
+
+use std: pkg = {"std"};
+
+fun[exp] lowered(code: int): int = {
+    if ((code >= 65) and (code <= 90)) {
+        return code + 32;
+    }
+    return code;
+};
+
+fun[exp] is_kept(code: int): bol = {
+    var digit: bol = (code >= 48) and (code <= 57);
+    var letter: bol = (code >= 97) and (code <= 122);
+    return digit or letter or (code == 45) or (code == 95);
+};
+
+fun[exp] slugify(text: str): str = {
+    var limit: int = .len(text);
+    ~var out: str = "";
+    ~var index: int = 0;
+    ~var owed: bol = false;
+    loop (index < limit) {
+        var code: int = lowered(std::strn::byte_at(text, index));
+        if (is_kept(code)) {
+            // The separator is only emitted once a kept byte actually follows,
+            // which drops trailing runs without a second pass.
+            if (owed and (.len(out) > 0)) {
+                out = out + "-";
+            }
+            owed = false;
+            out = out + std::strn::from_byte(code);
+        } else {
+            owed = true;
+        }
+        index = index + 1;
+    };
+    if (.len(out) == 0) {
+        return "section";
+    }
+    return out;
+};
+
+// Two headings with the same words produce the same slug, so the second one
+// and every one after it get a numeric suffix. `seen` is how many identical
+// anchors were already emitted above this one.
+fun[exp] disambiguate(base: str, seen: int): str = {
+    if (seen <= 0) {
+        return base;
+    }
+    return base + "-" + std::fmt::int_to_str(seen);
+};

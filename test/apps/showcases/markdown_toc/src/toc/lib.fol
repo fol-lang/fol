@@ -1,0 +1,189 @@
+// The pipeline and the renderer.
+//
+// A transformation stage is a value of type `model::Step`, not a named routine
+// the renderer knows about. Stages are built by factories that capture their
+// configuration explicitly -- `[cpy]` when the caller still needs the value,
+// `[cln]` for a heap value, `[mov]` for one the builder is done with -- and
+// composed with `chain`, which moves both halves into the environment of the
+// composite because a routine value is move-only.
+//
+// A `Recipe` stores a stage and a filter side by side. That is the "stored
+// closure" half of the design: once a recipe is in the catalogue nobody can
+// tell whether its stage was a factory product or a composition.
+
+use std: pkg = {"std"};
+use model: loc = {"../model"};
+use scan: loc = {"../scan"};
+use slug: loc = {"../slug"};
+
+// Leaves every field alone: the stage of a recipe that only filters.
+fun[exp] keep_as_is(): model::Step = {
+    return fun(item: model::Heading)[]: model::Heading = {
+        return item;
+    };
+};
+
+// `[cln]` clones the prefix into the environment, so the anchor namespace is
+// fixed when the stage is built rather than when it runs.
+fun[exp] anchoring(prefix: str): model::Step = {
+    return fun(item: model::Heading)[prefix[cln]]: model::Heading = {
+        return model::anchored(item, prefix + slug::slugify(item.text));
+    };
+};
+
+// `[cpy]` duplicates the shift, leaving the caller's binding live.
+fun[exp] demoting(by: int): model::Step = {
+    return fun(item: model::Heading)[by[cpy]]: model::Heading = {
+        return model::releveled(item, item.level + by);
+    };
+};
+
+// Long headings make an unreadable contents list. The ellipsis is spelled with
+// three dots so the output stays byte-oriented like the rest of the tool.
+fun[exp] capping(width: int): model::Step = {
+    return fun(item: model::Heading)[width[cpy]]: model::Heading = {
+        if (.len(item.text) <= width) {
+            return item;
+        }
+        return model::retitled(item, std::strn::sub(item.text, 0, width) + "...");
+    };
+};
+
+// `[mov]` transfers a label the builder will never read again.
+fun[exp] tagging(tag: str): model::Step = {
+    return fun(item: model::Heading)[tag[mov]]: model::Heading = {
+        return model::retitled(item, tag + item.text);
+    };
+};
+
+// Composition. Both halves are moved: a routine value is not clone-safe, so
+// the composite takes sole ownership of the stages it wraps.
+fun[exp] chain(first: model::Step, then: model::Step): model::Step = {
+    return fun(item: model::Heading)[first[mov], then[mov]]: model::Heading = {
+        return then(first(item));
+    };
+};
+
+fun[exp] any_level(): model::Keep = {
+    return fun(item: model::Heading)[]: bol = {
+        return item.level > 0;
+    };
+};
+
+fun[exp] upto(deepest: int): model::Keep = {
+    return fun(item: model::Heading)[deepest[cpy]]: bol = {
+        return (item.level > 0) and (item.level <= deepest);
+    };
+};
+
+typ[exp] Recipe: rec = {
+    label: str,
+    step: model::Step,
+    keep: model::Keep,
+};
+
+fun[exp] recipe(label: str, step: model::Step, keep: model::Keep): Recipe = {
+    return { label = label, step = step, keep = keep };
+};
+
+fun[exp] indent(depth: int): str = {
+    ~var out: str = "";
+    ~var left: int = depth;
+    loop (left > 0) {
+        out = out + "  ";
+        left = left - 1;
+    };
+    return out;
+};
+
+// The shallowest heading this recipe lets through, so a document that starts
+// at `##` is not rendered with a wasted level of indentation.
+fun[exp] (Recipe[bor])base_level(doc: str): int = {
+    var total: int = scan::count(doc);
+    ~var best: int = 0;
+    ~var index: int = 0;
+    loop (index < total) {
+        var step: model::Step = self.step;
+        var keep: model::Keep = self.keep;
+        var item: model::Heading = step(scan::nth(doc, index));
+        if (keep(item)) {
+            if ((best == 0) or (item.level < best)) {
+                best = item.level;
+            }
+        }
+        index = index + 1;
+    };
+    if (best == 0) {
+        return 1;
+    }
+    return best;
+};
+
+// How many *rendered* headings above `ordinal` already claimed `anchor`.
+//
+// The rescan is quadratic, which is the price of immutable containers: there
+// is no set to remember anchors in and no vector to append them to. It is also
+// the only honest place for the count, since dedup depends on the filter --
+// a heading that never reaches the contents list must not consume a suffix.
+fun[exp] (Recipe[bor])claims_before(doc: str, ordinal: int, anchor: str): int = {
+    ~var seen: int = 0;
+    ~var index: int = 0;
+    loop (index < ordinal) {
+        var step: model::Step = self.step;
+        var keep: model::Keep = self.keep;
+        var earlier: model::Heading = step(scan::nth(doc, index));
+        if (keep(earlier) and (earlier.anchor == anchor)) {
+            seen = seen + 1;
+        }
+        index = index + 1;
+    };
+    return seen;
+};
+
+fun[exp] row(item: model::Heading, anchor: str, base: int): str = {
+    return indent(item.level - base) + "- [" + item.text + "](#" + anchor + ")\n";
+};
+
+fun[exp] (Recipe[bor])render(doc: str): str = {
+    var total: int = scan::count(doc);
+    var base: int = [bor]self.base_level(doc);
+    ~var out: str = "";
+    ~var index: int = 0;
+    loop (index < total) {
+        var step: model::Step = self.step;
+        var keep: model::Keep = self.keep;
+        var item: model::Heading = step(scan::nth(doc, index));
+        if (keep(item)) {
+            var seen: int = [bor]self.claims_before(doc, index, item.anchor);
+            out = out + row(item, slug::disambiguate(item.anchor, seen), base);
+        }
+        index = index + 1;
+    };
+    return out;
+};
+
+fun[exp] (Recipe[bor])rendered_count(doc: str): int = {
+    var total: int = scan::count(doc);
+    ~var kept: int = 0;
+    ~var index: int = 0;
+    loop (index < total) {
+        var step: model::Step = self.step;
+        var keep: model::Keep = self.keep;
+        var item: model::Heading = step(scan::nth(doc, index));
+        if (keep(item)) {
+            kept = kept + 1;
+        }
+        index = index + 1;
+    };
+    return kept;
+};
+
+// The anchor a rendered heading finally gets, suffix included. Kept separate
+// from `render` so callers can assert on one entry without parsing markdown
+// back out of the output.
+fun[exp] (Recipe[bor])anchor_at(doc: str, ordinal: int): str = {
+    var step: model::Step = self.step;
+    var item: model::Heading = step(scan::nth(doc, ordinal));
+    var seen: int = [bor]self.claims_before(doc, ordinal, item.anchor);
+    return slug::disambiguate(item.anchor, seen);
+};

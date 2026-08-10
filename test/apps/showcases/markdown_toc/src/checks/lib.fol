@@ -1,0 +1,142 @@
+// Self-checks.
+//
+// Each check states an expected value that was worked out by hand from the
+// sample document, so a regression in the scanner or the slug rule shows up as
+// a FAIL line rather than as output nobody reads.
+
+use std: pkg = {"std"};
+use model: loc = {"../model"};
+use scan: loc = {"../scan"};
+use slug: loc = {"../slug"};
+use toc: loc = {"../toc"};
+use doc: loc = {"../doc"};
+
+fun[exp] expect_int(label: str, actual: int, expected: int): int = {
+    if (actual == expected) {
+        std::io::echo_str("  ok    " + label);
+        return 0;
+    }
+    std::io::echo_str("  FAIL  " + label
+    + ": got " + std::fmt::int_to_str(actual)
+    + ", want " + std::fmt::int_to_str(expected));
+    return 1;
+};
+
+fun[exp] expect_str(label: str, actual: str, expected: str): int = {
+    if (actual == expected) {
+        std::io::echo_str("  ok    " + label);
+        return 0;
+    }
+    std::io::echo_str("  FAIL  " + label + ": got \"" + actual + "\", want \"" + expected + "\"");
+    return 1;
+};
+
+// The scanner has to reject four look-alikes and accept both real forms.
+fun structure(): int = {
+    var text: str = doc::sample();
+    ~var bad: int = 0;
+    bad = bad + expect_int("eight headings survive the decoys", scan::count(text), 8);
+    bad = bad + expect_str("first is the title", scan::nth(text, 0).text, "Field Guide");
+    bad = bad + expect_int("title is level 1", scan::nth(text, 0).level, 1);
+    bad = bad + expect_str("fenced hashes are not headings", scan::nth(text, 2).text, "Setup");
+    bad = bad + expect_str("ampersand heading is read whole", scan::nth(text, 3).text, "Notes & Caveats");
+    bad = bad + expect_int("setext '=' underline means level 1", scan::nth(text, 4).level, 1);
+    bad = bad + expect_str("setext title is the line above", scan::nth(text, 4).text, "Appendix");
+    bad = bad + expect_int("setext '-' underline means level 2", scan::nth(text, 5).level, 2);
+    bad = bad + expect_str("closing ATX hashes are dropped", scan::nth(text, 7).text, "Done");
+    bad = bad + expect_int("line numbers survive the fence", scan::nth(text, 1).line, 4);
+    return bad;
+};
+
+fun anchors(): int = {
+    ~var bad: int = 0;
+    bad = bad + expect_str("punctuation collapses once", slug::slugify("Notes & Caveats"), "notes-caveats");
+    bad = bad + expect_str("case folds, comma drops", slug::slugify("Hello, World"), "hello-world");
+    bad = bad + expect_str("edges are trimmed", slug::slugify("  spaced out  "), "spaced-out");
+    bad = bad + expect_str("underscores are kept", slug::slugify("max_conn v2"), "max_conn-v2");
+    bad = bad + expect_str("an empty slug falls back", slug::slugify("!!!"), "section");
+    bad = bad + expect_str("first claim keeps the bare anchor", slug::disambiguate("setup", 0), "setup");
+    bad = bad + expect_str("later claims are numbered", slug::disambiguate("setup", 2), "setup-2");
+    return bad;
+};
+
+// Three headings named "Setup" must end up with three distinct anchors, in
+// document order.
+fun duplicates(): int = {
+    var text: str = doc::sample();
+    var plain: toc::Recipe = toc::recipe("plain", toc::anchoring(""), toc::any_level());
+    ~var bad: int = 0;
+    bad = bad + expect_str("first Setup", [bor]plain.anchor_at(text, 1), "setup");
+    bad = bad + expect_str("second Setup", [bor]plain.anchor_at(text, 2), "setup-1");
+    bad = bad + expect_str("third Setup", [bor]plain.anchor_at(text, 6), "setup-2");
+    bad = bad + expect_str("unique heading is untouched", [bor]plain.anchor_at(text, 3), "notes-caveats");
+    return bad;
+};
+
+// A filtered recipe must not burn a numeric suffix on a heading that never
+// reaches the contents list.
+fun filtered_duplicates(): int = {
+    var text: str = doc::sample();
+    var deep: toc::Recipe = toc::recipe("deep-only", toc::anchoring(""), toc::upto(1));
+    ~var bad: int = 0;
+    bad = bad + expect_int("only level-1 headings render", [bor]deep.rendered_count(text), 2);
+    bad = bad + expect_str("filtered-out twins do not claim", [bor]deep.anchor_at(text, 4), "appendix");
+    return bad;
+};
+
+fun pipeline(): int = {
+    var text: str = doc::sample();
+    var cut: model::Step = toc::chain(toc::anchoring(""), toc::capping(5));
+    var capped: toc::Recipe = toc::recipe("capped", cut, toc::any_level());
+    ~var bad: int = 0;
+    // Anchoring runs first, so the anchor is derived from the full title even
+    // though the rendered text is cut short.
+    bad = bad + expect_str("anchor is taken before the cut", [bor]capped.anchor_at(text, 3), "notes-caveats");
+
+    var lift: int = 2;
+    var demoted: toc::Recipe = toc::recipe("demoted", toc::demoting(lift), toc::any_level());
+    // A stage keeps working after it has been stored in a recipe, and `[cpy]`
+    // means the shift it captured is still readable out here.
+    bad = bad + expect_int("stored stage shifted the whole document", [bor]demoted.base_level(text), 3);
+    bad = bad + expect_int("[cpy] capture left the source live", lift, 2);
+
+    var moved: model::Heading = scan::nth(text, 0);
+    var step: model::Step = toc::demoting(lift);
+    bad = bad + expect_int("demoting shifts a level", step(moved).level, 3);
+
+    var floor: model::Step = toc::demoting(0 - 9);
+    bad = bad + expect_int("levels are clamped at 1", floor(moved).level, 1);
+
+    var tagger: model::Step = toc::tagging(">> ");
+    bad = bad + expect_str("[mov] capture reaches the call", tagger(moved).text, ">> Field Guide");
+
+    var shorten: model::Step = toc::capping(5);
+    bad = bad + expect_str("capping adds an ellipsis", shorten(moved).text, "Field...");
+
+    var idle: model::Step = toc::keep_as_is();
+    bad = bad + expect_str("the identity stage is a no-op", idle(moved).text, "Field Guide");
+    return bad;
+};
+
+// Indentation is relative to the shallowest heading that survives the filter,
+// so a document that never uses `#` still starts flush left.
+fun rendering(): int = {
+    var text: str = doc::shallow();
+    var plain: toc::Recipe = toc::recipe("plain", toc::anchoring(""), toc::any_level());
+    var expected: str = "- [Alpha](#alpha)\n  - [Beta](#beta)\n  - [Beta](#beta-1)\n";
+    ~var bad: int = 0;
+    bad = bad + expect_int("shallow document has three headings", scan::count(text), 3);
+    bad = bad + expect_str("relative indentation", [bor]plain.render(text), expected);
+    return bad;
+};
+
+fun[exp] run_all(): int = {
+    ~var bad: int = 0;
+    bad = bad + structure();
+    bad = bad + anchors();
+    bad = bad + duplicates();
+    bad = bad + filtered_duplicates();
+    bad = bad + pipeline();
+    bad = bad + rendering();
+    return bad;
+};

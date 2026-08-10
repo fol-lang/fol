@@ -1,0 +1,226 @@
+use std: pkg = {"std"};
+
+// The maze itself: a rectangle of ASCII rows plus the derived dimensions.
+//
+// Cells are addressed by a single id, `row * width + col`, because every table
+// in `codec` is indexed by one integer. Keeping the id flat is what lets the
+// visited bitmap, the came-from table and the distance table share an index.
+
+typ[exp] Maze: rec = {
+    name: str,
+    rows: vec[str],
+    width: int,
+    height: int,
+};
+
+// Tile bytes. `std::strn::byte_at` hands back an `int` and there is no `chr`
+// to `int` conversion, so tiles are compared as codes; the glyphs are named
+// once here rather than spelled as bare numbers at every comparison.
+fun[exp] wall_byte(): int = {
+    return 35;
+};
+
+fun[exp] open_byte(): int = {
+    return 46;
+};
+
+fun[exp] start_byte(): int = {
+    return 83;
+};
+
+fun[exp] goal_byte(): int = {
+    return 69;
+};
+
+fun[exp] path_byte(): int = {
+    return 42;
+};
+
+// Tile vocabulary. A map is the honest shape here: the key set is fixed and
+// known at build time, which is exactly the case FOL maps support.
+fun[exp] legend(): map[int, str] = {
+    return {
+        {35, "wall"},
+        {46, "open"},
+        {83, "start"},
+        {69, "goal"},
+        {42, "path"},
+    };
+};
+
+// Neighbour offsets in a fixed order: up, right, down, left. Two static arrays
+// rather than one array of pairs, because `arr` holds a single element type.
+fun[exp] step_rows(): arr[int, 4] = {
+    return {0 - 1, 0, 1, 0};
+};
+
+fun[exp] step_cols(): arr[int, 4] = {
+    return {0, 1, 0, 0 - 1};
+};
+
+fun[exp] step_names(): map[int, str] = {
+    return {
+        {0, "up"},
+        {1, "right"},
+        {2, "down"},
+        {3, "left"},
+    };
+};
+
+fun[exp] (Maze[bor]) cell_count(): int = {
+    return self.width * self.height;
+};
+
+fun[exp] (Maze[bor]) row_of(cell: int): int = {
+    return cell / self.width;
+};
+
+fun[exp] (Maze[bor]) col_of(cell: int): int = {
+    return cell % self.width;
+};
+
+fun[exp] (Maze[bor]) byte_at(cell: int): int = {
+    var line: str = self.rows[cell / self.width];
+    return std::strn::byte_at(line, cell % self.width);
+};
+
+fun[exp] (Maze[bor]) passable(cell: int): bol = {
+    return .not(.eq([bor]self.byte_at(cell), wall_byte()));
+};
+
+// First cell carrying `target`, or -1. Linear because a maze this size does not
+// justify an index, and because building one would need a growable map.
+fun[exp] (Maze[bor]) locate(target: int): int = {
+    ~var cell: int = 0;
+    var total: int = [bor]self.cell_count();
+    loop(cell < total) {
+        when(.eq([bor]self.byte_at(cell), target)) {
+            case(true) { return cell; }
+            * { }
+        };
+        cell = cell + 1;
+    };
+    return 0 - 1;
+};
+
+// The cell one step from `cell` in direction `dir`, or -1 when that step leaves
+// the grid or lands in a wall. Column arithmetic is checked explicitly: a flat
+// id would happily wrap from the right edge of one row to the left edge of the
+// next.
+fun[exp] (Maze[bor]) neighbour(cell: int, dir: int): int = {
+    var deltas_row: arr[int, 4] = step_rows();
+    var deltas_col: arr[int, 4] = step_cols();
+    var row: int = cell / self.width + deltas_row[dir];
+    var col: int = cell % self.width + deltas_col[dir];
+    when((row < 0) or (col < 0)) {
+        case(true) { return 0 - 1; }
+        * { }
+    };
+    when((row >= self.height) or (col >= self.width)) {
+        case(true) { return 0 - 1; }
+        * { }
+    };
+    var next: int = row * self.width + col;
+    when([bor]self.passable(next)) {
+        case(true) { return next; }
+        * { return 0 - 1; }
+    }
+};
+
+// One rendered row with the cells flagged in `marks` overprinted. Rows come
+// back one at a time so the caller owns the indentation and the separator.
+fun[exp] (Maze[bor]) render_row(row: int, marks: str): str = {
+    ~var out: str = "";
+    ~var col: int = 0;
+    loop(col < self.width) {
+        var cell: int = row * self.width + col;
+        var glyph: int = [bor]self.byte_at(cell);
+        var overprint: bol = .eq(glyph, open_byte()) and codec_flag(marks, cell);
+        when(overprint) {
+            case(true) { out = out + std::strn::from_byte(path_byte()); }
+            * { out = out + std::strn::from_byte(glyph); }
+        };
+        col = col + 1;
+    };
+    return out;
+};
+
+// Local bitmap read. `grid` deliberately does not import `codec`: the renderer
+// is the only place it would need it, and one inline read is cheaper than a
+// dependency edge from the data model to the search scratchpad.
+fun[hid] codec_flag(bits: str, index: int): bol = {
+    when(.len(bits) <= index) {
+        case(true) { return false; }
+        * { }
+    };
+    return .eq(std::strn::byte_at(bits, index), 49);
+};
+
+// A room with no interior walls. Every monotone staircase from S to E is a
+// shortest path, so this is the maze that makes "several equal-cost solutions"
+// concrete.
+fun[exp] open_room(): Maze = {
+    return {
+        name = "open room",
+        rows = {
+            "S....",
+            ".....",
+            ".....",
+            "....E",
+        },
+        width = 5,
+        height = 4,
+    };
+};
+
+// Two disjoint routes between the same pair of cells: the top row is six steps,
+// the loop around the bottom is ten. The step order pushes "down" after
+// "right", and a stack pops what was pushed last, so depth-first commits to the
+// long way round. This is the maze that separates the two algorithms.
+fun[exp] detour(): Maze = {
+    return {
+        name = "detour",
+        rows = {
+            "S.....E",
+            ".#####.",
+            ".......",
+        },
+        width = 7,
+        height = 3,
+    };
+};
+
+// A single snake with no choice point anywhere: every open cell has at most two
+// open neighbours. With no branching there is nothing for the two orders to
+// disagree about, so this is the control case -- identical routes, identical
+// expansion counts.
+fun[exp] serpentine(): Maze = {
+    return {
+        name = "serpentine",
+        rows = {
+            "S...#....",
+            "###.#.##.",
+            "....#.#..",
+            ".####.#.#",
+            "......#.E",
+        },
+        width = 9,
+        height = 5,
+    };
+};
+
+// The goal is sealed behind a full wall column. Reachable region and goal are
+// disjoint, which is the case both searches must report as unreachable rather
+// than looping.
+fun[exp] sealed(): Maze = {
+    return {
+        name = "sealed",
+        rows = {
+            "S...#...",
+            "....#...",
+            "....#..E",
+        },
+        width = 8,
+        height = 3,
+    };
+};

@@ -1,0 +1,122 @@
+use std: pkg = {"std"};
+use text: loc = {"text"};
+use entry: loc = {"entry"};
+use book: loc = {"book"};
+
+// taskkit — the task-tracking half of `taskbook`.
+//
+// Everything here is a pure function from one document string to another.
+// Reading files, printing and exit codes belong to the executable; keeping
+// them out means the whole workflow can be exercised by the test bundle
+// without touching a filesystem.
+//
+// The three `use` lines above are the package's only ones. An import alias is
+// visible in every file of the package and declaring one twice is a hard
+// error, so `text`, `entry` and `book` all read `std` from here.
+
+// Outcome of a workflow request. The caller turns this into an exit status; it
+// is an int rather than an entry field so `main` can hand it straight to the
+// shell.
+typ[exp] Verdict: ent = {
+    var OK: int = 0;
+    var NO_SUCH_TASK: int = 1;
+    var ILLEGAL_MOVE: int = 2;
+    var REJECTED: int = 3;
+};
+
+typ[exp] Change: rec = {
+    var doc: str;
+    var verdict: int;
+    var detail: str;
+    var id: int;
+};
+
+fun refusal(doc: str, verdict: int, detail: str): Change = {
+    return { doc = doc, verdict = verdict, detail = detail, id = 0 };
+};
+
+// Append a task, assigning it the next free id. The store is validated on the
+// way in, never on the way out: a document that was accepted once stays
+// readable even if a later build tightens the rules.
+fun[exp] add(doc: str, title: str, tags: str, priority: int): Change = {
+    var fresh: entry::Task = {
+        id = book::next_id(doc),
+        state = entry::State.TODO,
+        priority = priority,
+        tags = text::trim(tags),
+        title = text::trim(title),
+    };
+    var problem: str = entry::problem_with(fresh);
+    when(problem != "") {
+        case(true) { return refusal(doc, Verdict.REJECTED, problem); }
+        * { }
+    }
+    return {
+        doc = book::add(doc, fresh),
+        verdict = Verdict.OK,
+        detail = "",
+        id = fresh.id,
+    };
+};
+
+// Move one task along the workflow. Both failure modes are distinct on
+// purpose: "there is no task 9" and "task 9 is already done" want different
+// exit statuses from a script.
+fun[exp] move_to(doc: str, id: int, target: int): Change = {
+    var current: entry::Task = book::find(doc, id);
+    when(entry::is_broken(current)) {
+        case(true) { return refusal(doc, Verdict.NO_SUCH_TASK, "no task with id " + std::fmt::int_to_str(id)); }
+        * { }
+    }
+    when(entry::can_move(current.state, target)) {
+        case(true) { }
+        * {
+            return refusal(doc, Verdict.ILLEGAL_MOVE, "cannot move "
+            + entry::state_name(current.state) + " -> " + entry::state_name(target));
+        }
+    }
+    var moved: entry::Task = {
+        id = current.id,
+        state = target,
+        priority = current.priority,
+        tags = current.tags,
+        title = current.title,
+    };
+    return { doc = book::edit(doc, moved), verdict = Verdict.OK, detail = "", id = id };
+};
+
+fun[exp] drop(doc: str, id: int): Change = {
+    when(book::holds(doc, id)) {
+        case(true) { }
+        * { return refusal(doc, Verdict.NO_SUCH_TASK, "no task with id " + std::fmt::int_to_str(id)); }
+    }
+    return { doc = book::drop(doc, id), verdict = Verdict.OK, detail = "", id = id };
+};
+
+fun[exp] set_priority(doc: str, id: int, priority: int): Change = {
+    var current: entry::Task = book::find(doc, id);
+    when(entry::is_broken(current)) {
+        case(true) { return refusal(doc, Verdict.NO_SUCH_TASK, "no task with id " + std::fmt::int_to_str(id)); }
+        * { }
+    }
+    var raised: entry::Task = {
+        id = current.id,
+        state = current.state,
+        priority = priority,
+        tags = current.tags,
+        title = current.title,
+    };
+    var problem: str = entry::problem_with(raised);
+    when(problem != "") {
+        case(true) { return refusal(doc, Verdict.REJECTED, problem); }
+        * { }
+    }
+    return { doc = book::edit(doc, raised), verdict = Verdict.OK, detail = "", id = id };
+};
+
+// The listing a caller wants: filtered, then ordered. Kept as one call so the
+// executable cannot accidentally sort before filtering and pay for ordering
+// rows it is about to throw away.
+fun[exp] view(doc: str, state: int, tag: str): str = {
+    return book::sorted(book::filter(doc, state, tag));
+};

@@ -1,0 +1,254 @@
+use std: pkg = {"std"};
+use codec: loc = {"../codec"};
+use frontier: loc = {"../frontier"};
+use grid: loc = {"../grid"};
+
+// One completed traversal.
+//
+// `chain` holds the came-from table: for every cell that was reached, the cell
+// the search arrived from. `depth` holds the length of that recorded chain.
+// For the breadth-first order `depth` is the true shortest distance; for the
+// depth-first order it is the length of the branch that happened to get there
+// first, which is what makes the two comparable at all.
+
+typ[exp] Trace: rec = {
+    label: str,
+    reached: bol,
+    expanded: int,
+    peak: int,
+    seen: str,
+    chain: str,
+    depth: str,
+};
+
+fun[exp] cell_width(): int = {
+    return 3;
+};
+
+// Shared traversal. `breadth` selects the end of the bag to take from, and that
+// single choice is the whole difference between the two algorithms.
+//
+// Cells are flagged the moment they are pushed, not when they are popped, so a
+// cell is never queued twice. That is required for the breadth-first order to
+// stay linear, and for the depth-first order it means the recorded chain is the
+// first branch that touched the cell rather than the deepest one.
+fun[exp] traverse(maze: grid::Maze, start: int, goal: int, breadth: bol): Trace = {
+    var total: int = [bor]maze.cell_count();
+    ~var seen: str = codec::fill("0", total);
+    ~var chain: str = codec::fill("999", total);
+    ~var depth: str = codec::fill("999", total);
+    ~var bag: frontier::Bag = frontier::empty();
+    ~var expanded: int = 0;
+    ~var peak: int = 0;
+    ~var reached: bol = false;
+
+    seen = codec::raise(seen, start);
+    depth = codec::store(depth, start, cell_width(), 0);
+    [mut, bor]bag.push(start);
+
+    loop([bor]bag.waiting() > 0) {
+        var pending: int = [bor]bag.waiting();
+        when(pending > peak) {
+            case(true) { peak = pending; }
+            * { }
+        };
+
+        ~var cell: int = 0;
+        when(breadth) {
+            case(true) { cell = [mut, bor]bag.take_front(); }
+            * { cell = [mut, bor]bag.take_back(); }
+        };
+        expanded = expanded + 1;
+
+        when(.eq(cell, goal)) {
+            case(true) {
+                reached = true;
+                break;
+            }
+            * { }
+        };
+
+        ~var dir: int = 0;
+        loop(dir < 4) {
+            var next: int = [bor]maze.neighbour(cell, dir);
+            var fresh: bol = (next >= 0) and .not(codec::flagged(seen, next));
+            when(fresh) {
+                case(true) {
+                    seen = codec::raise(seen, next);
+                    chain = codec::store(chain, next, cell_width(), cell);
+                    depth = codec::store(depth, next, cell_width(), codec::slot(depth, cell, cell_width()) + 1);
+                    [mut, bor]bag.push(next);
+                }
+                * { }
+            };
+            dir = dir + 1;
+        };
+    };
+
+    return {
+        label = pick_label(breadth),
+        reached = reached,
+        expanded = expanded,
+        peak = peak,
+        seen = seen,
+        chain = chain,
+        depth = depth,
+    };
+};
+
+fun[hid] pick_label(breadth: bol): str = {
+    when(breadth) {
+        case(true) { return "breadth-first"; }
+        * { return "depth-first"; }
+    }
+};
+
+// The reconstructed answer. `marks` is a bitmap the renderer overprints, and
+// `trail` is the same route spelled as coordinates.
+typ[exp] Route: rec = {
+    ok: bol,
+    moves: int,
+    marks: str,
+    trail: str,
+};
+
+fun[hid] coord(maze: grid::Maze, cell: int): str = {
+    var row: str = std::fmt::int_to_str([bor]maze.row_of(cell));
+    var col: str = std::fmt::int_to_str([bor]maze.col_of(cell));
+    return "(" + row + "," + col + ")";
+};
+
+// Walks the came-from table backwards from the goal. The fuel bound is not
+// defensive decoration: a malformed chain would otherwise spin forever, and the
+// chain is written by two different disciplines.
+fun[exp] route(maze: grid::Maze, trace: Trace, start: int, goal: int): Route = {
+    var total: int = [bor]maze.cell_count();
+    ~var marks: str = codec::fill("0", total);
+
+    when(trace.reached) {
+        case(false) { return { ok = false, moves = 0 - 1, marks = marks, trail = "unreachable" }; }
+        * { }
+    };
+
+    ~var cell: int = goal;
+    ~var moves: int = 0;
+    ~var trail: str = "";
+    ~var fuel: int = total + 1;
+
+    loop(.not(.eq(cell, start))) {
+        when(fuel <= 0) {
+            case(true) { return { ok = false, moves = 0 - 1, marks = marks, trail = "chain overrun" }; }
+            * { }
+        };
+        marks = codec::raise(marks, cell);
+        trail = " -> " + coord(maze, cell) + trail;
+        cell = codec::slot(trace.chain, cell, cell_width());
+        moves = moves + 1;
+        fuel = fuel - 1;
+    };
+
+    marks = codec::raise(marks, start);
+    return { ok = true, moves = moves, marks = marks, trail = coord(maze, start) + trail };
+};
+
+// Re-derives that a route is real: every marked cell must be passable and every
+// consecutive pair must be four-connected. This is the check that would catch a
+// came-from table corrupted by a bad write, which no type in FOL can rule out
+// because the table is a string.
+fun[exp] route_is_walkable(maze: grid::Maze, trace: Trace, start: int, goal: int): bol = {
+    when(trace.reached) {
+        case(false) { return true; }
+        * { }
+    };
+    ~var cell: int = goal;
+    ~var fuel: int = [bor]maze.cell_count() + 1;
+    loop(.not(.eq(cell, start))) {
+        when(fuel <= 0) {
+            case(true) { return false; }
+            * { }
+        };
+        when([bor]maze.passable(cell)) {
+            case(false) { return false; }
+            * { }
+        };
+        var parent: int = codec::slot(trace.chain, cell, cell_width());
+        when(parent >= codec::absent()) {
+            case(true) { return false; }
+            * { }
+        };
+        var gap: int = step_gap(maze, parent, cell);
+        when(.eq(gap, 1)) {
+            case(false) { return false; }
+            * { }
+        };
+        cell = parent;
+        fuel = fuel - 1;
+    };
+    return [bor]maze.passable(start);
+};
+
+// Manhattan distance between two cells; exactly 1 for a legal single step.
+fun[hid] step_gap(maze: grid::Maze, left: int, right: int): int = {
+    var row_gap: int = absolute([bor]maze.row_of(left) - [bor]maze.row_of(right));
+    var col_gap: int = absolute([bor]maze.col_of(left) - [bor]maze.col_of(right));
+    return row_gap + col_gap;
+};
+
+fun[hid] absolute(value: int): int = {
+    when(value < 0) {
+        case(true) { return 0 - value; }
+        * { return value; }
+    }
+};
+
+fun[exp] reached_cells(trace: Trace): int = {
+    return codec::popcount(trace.seen);
+};
+
+// How many distinct shortest routes lead from start to goal.
+//
+// Layered dynamic programming over the breadth-first distance table: a cell at
+// distance d inherits the summed count of every neighbour at distance d-1. That
+// is only sound for a table that really holds shortest distances, so this is
+// documented as breadth-first only and asserted by the caller.
+fun[exp] shortest_route_count(maze: grid::Maze, trace: Trace, start: int, goal: int): int = {
+    var tally_width: int = 6;
+    var total: int = [bor]maze.cell_count();
+
+    when(trace.reached) {
+        case(false) { return 0; }
+        * { }
+    };
+
+    ~var tally: str = codec::fill("000000", total);
+    tally = codec::store(tally, start, tally_width, 1);
+
+    var target: int = codec::slot(trace.depth, goal, cell_width());
+    ~var layer: int = 1;
+    loop(layer <= target) {
+        ~var cell: int = 0;
+        loop(cell < total) {
+            when(.eq(codec::slot(trace.depth, cell, cell_width()), layer)) {
+                case(true) {
+                    ~var inbound: int = 0;
+                    ~var dir: int = 0;
+                    loop(dir < 4) {
+                        var prior: int = [bor]maze.neighbour(cell, dir);
+                        var feeds: bol = (prior >= 0) and .eq(codec::slot(trace.depth, prior, cell_width()), layer - 1);
+                        when(feeds) {
+                            case(true) { inbound = inbound + codec::slot(tally, prior, tally_width); }
+                            * { }
+                        };
+                        dir = dir + 1;
+                    };
+                    tally = codec::store(tally, cell, tally_width, inbound);
+                }
+                * { }
+            };
+            cell = cell + 1;
+        };
+        layer = layer + 1;
+    };
+
+    return codec::slot(tally, goal, tally_width);
+};

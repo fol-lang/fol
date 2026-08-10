@@ -1,0 +1,147 @@
+// The fallible operations the engine drives.
+//
+// These stand in for network calls. Each one is a pure function of (operation,
+// attempt number) so a run is reproducible, but from the engine's side they
+// behave exactly like effects: they either hand back a payload or travel the
+// recoverable error channel.
+//
+// Shape note, and the one place the language pushed back hard. `expr ||
+// fallback` handles a `/ str` failure but gives the fallback no way to *see*
+// the reported message, and `check(expr)` only answers bol. So a caller that
+// wants both the value and the reason cannot get them out of one evaluation of
+// the recoverable call. `effective_code` is therefore the single source of
+// truth: `transport` and `decoded` are defined in terms of it, and the engine
+// asks it for the reason while `||` supplies the value. Deriving one from the
+// other is what keeps the two answers from drifting apart.
+
+use faults: loc = {"../faults"};
+
+typ[exp] Behaviour: ent = {
+    con STEADY: int = 0;
+    con WARMING: int = 1;
+    con COOLING: int = 2;
+    con BROKEN: int = 3;
+    con FORBIDDEN: int = 4;
+    con GARBLED: int = 5;
+};
+
+typ[exp] Op: rec = {
+    name: str,
+    behaviour: int,
+    warmup: int,
+    payload: int,
+};
+
+// Which transport-level fault, if any, attempt `attempt` on `op` produces.
+//
+// WARMING and COOLING are the shapes a retry policy exists for: they fail a
+// fixed number of times and then succeed forever. They differ only in the fault
+// they raise, and therefore in whether the peer dictates the next delay.
+// BROKEN never succeeds, so it is the shape that proves the policy gives up.
+fun[exp] transport_code(op: Op, attempt: int): int = {
+    when(op.behaviour) {
+        is(Behaviour.WARMING) {
+            when(attempt <= op.warmup) {
+                case(true) { return faults::timeout(); }
+                * { return faults::none(); }
+            }
+        }
+        is(Behaviour.COOLING) {
+            when(attempt <= op.warmup) {
+                case(true) { return faults::throttled(); }
+                * { return faults::none(); }
+            }
+        }
+        is(Behaviour.BROKEN) { return faults::refused(); }
+        is(Behaviour.FORBIDDEN) { return faults::unauthorized(); }
+        * { return faults::none(); }
+    }
+};
+
+// What the whole stack produces, transport plus decoding. A transport that
+// succeeds can still deliver a body that fails its checksum, and the engine has
+// to treat that as the operation's real answer -- otherwise it would keep
+// retrying a peer that is answering perfectly well with garbage.
+fun[exp] effective_code(op: Op, attempt: int): int = {
+    var code: int = transport_code(op, attempt);
+    when(code == faults::none()) {
+        case(true) {
+            when(op.payload <= 0) {
+                case(true) { return faults::corrupt(); }
+                * { return faults::none(); }
+            }
+        }
+        * { return code; }
+    }
+};
+
+// Layer 1: the raw effect. Reports on the recoverable channel, so the caller
+// has to handle it at the call site.
+fun[exp] transport(op: Op, attempt: int): int / str = {
+    var fault: err[str] = faults::shell(transport_code(op, attempt));
+    when(fault) {
+        on(reason) { report op.name + ": " + reason; }
+        * { return op.payload; }
+    }
+};
+
+// Layer 2: decode the transport payload. This layer both forwards the lower
+// failure and can raise one of its own. `|| report` is the forwarding form --
+// it is what turns a handled failure back into a propagated one.
+fun[exp] decoded(op: Op, attempt: int): int / str = {
+    var raw: int = transport(op, attempt) || report "decode aborted: " + op.name;
+    when(raw <= 0) {
+        case(true) { report op.name + ": " + faults::text(faults::corrupt()); }
+        * { return raw; }
+    }
+};
+
+// Layer 3: what a caller with no appetite for retries would use. Still on the
+// recoverable channel, so the failure keeps travelling outward.
+fun[exp] single_shot(op: Op): int / str = {
+    var value: int = decoded(op, 1) || report "single shot failed: " + op.name;
+    return value;
+};
+
+// The storable form of the stack's verdict, for callers that want to inspect
+// the reason rather than react to it immediately.
+fun[exp] diagnose(op: Op, attempt: int): err[str] = {
+    var fault: err[str] = faults::shell(effective_code(op, attempt));
+    when(fault) {
+        on(reason) { return op.name + ": " + reason; }
+        * { return nil; }
+    }
+};
+
+fun[exp] catalogue(): vec[Op] = {
+    return {
+        { name = "cold-cache", behaviour = 0, warmup = 0, payload = 7 },
+        { name = "flaky-index", behaviour = 1, warmup = 2, payload = 42 },
+        { name = "throttled-api", behaviour = 2, warmup = 1, payload = 99 },
+        { name = "dead-replica", behaviour = 3, warmup = 0, payload = 11 },
+        { name = "sealed-vault", behaviour = 4, warmup = 0, payload = 13 },
+        { name = "garbled-feed", behaviour = 5, warmup = 0, payload = 0 }
+    };
+};
+
+fun[exp] find(name: str): opt[Op] = {
+    var rows: vec[Op] = catalogue();
+    loop(row in rows) {
+        when(row.name == name) {
+            case(true) { return row; }
+            * { }
+        }
+    }
+    return nil;
+};
+
+// A named lookup that cannot be ignored: an unknown operation is a programming
+// mistake, not an absent value, so it travels the error channel instead of the
+// `opt` shell.
+fun[exp] require(name: str): Op / str = {
+    var found: opt[Op] = find(name);
+    when(found) {
+        on(row) { return row; }
+        * { report "no such operation: " + name; }
+    }
+};

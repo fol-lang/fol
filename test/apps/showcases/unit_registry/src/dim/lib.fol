@@ -1,0 +1,58 @@
+// Dimensions and conversion faults.
+//
+// A conversion is only meaningful between two units of the same dimension, so
+// the dimension code is what every guard in the package tests. It lives in its
+// own module because both the unit definitions and the conversion routines
+// need it, and neither should depend on the other.
+
+typ[exp] Dimension: ent = {
+    con LENGTH: int = 0;
+    con MASS: int = 1;
+    con DURATION: int = 2;
+    con TEMPERATURE: int = 3;
+};
+
+// A refused conversion still produces a Reading, so the reason travels with it
+// rather than being thrown away at the boundary.
+typ[exp] Fault: ent = {
+    con NONE: int = 0;
+    con MISMATCH: int = 1;
+    con BELOW_ZERO: int = 2;
+};
+
+fun[exp] name_of(code: int): str = {
+    when(code) {
+        is(Dimension.LENGTH) { return "length"; }
+        is(Dimension.MASS) { return "mass"; }
+        is(Dimension.DURATION) { return "duration"; }
+        is(Dimension.TEMPERATURE) { return "temperature"; }
+        * { return "unknown"; }
+    }
+};
+
+// The SI unit each dimension reduces to. Every conforming unit converts through
+// exactly this one, which is what makes any two units of a dimension composable.
+fun[exp] base_symbol(code: int): str = {
+    when(code) {
+        is(Dimension.LENGTH) { return "m"; }
+        is(Dimension.MASS) { return "kg"; }
+        is(Dimension.DURATION) { return "s"; }
+        is(Dimension.TEMPERATURE) { return "K"; }
+        * { return "?"; }
+    }
+};
+
+fun[exp] fault_text(code: int): str = {
+    when(code) {
+        is(Fault.NONE) { return "ok"; }
+        is(Fault.MISMATCH) { return "dimension mismatch"; }
+        is(Fault.BELOW_ZERO) { return "below absolute zero"; }
+        * { return "unknown fault"; }
+    }
+};
+
+// Temperature is the odd one out everywhere in this package: its scales have
+// offsets, an absolute floor, and no meaningful ratio between two readings.
+fun[exp] is_thermal(code: int): bol = {
+    return code == Dimension.TEMPERATURE;
+};

@@ -1,0 +1,120 @@
+// The shapes a shipment file is made of.
+//
+// A row of the file is six columns wide. `Column` names the positions once so
+// the parser, the table and the tally cannot drift apart: a column is added by
+// editing this one `ent` and the loops that walk `0 .. COLUMNS` pick it up.
+
+use std: pkg = {"std"};
+
+typ[exp] Column: ent = {
+    con ID: int = 0;
+    con REGION: int = 1;
+    con CUSTOMER: int = 2;
+    con UNITS: int = 3;
+    con PRICE: int = 4;
+    con SHIPPED: int = 5;
+};
+
+con[exp] COLUMNS: int = 6;
+
+// `COLUMNS` itself is the label for the row-shape bucket, which is why the
+// default arm names it rather than reporting an unknown column.
+fun[exp] column_name(index: int): str = {
+    when(index) {
+        is(Column.ID) { return "id"; }
+        is(Column.REGION) { return "region"; }
+        is(Column.CUSTOMER) { return "customer"; }
+        is(Column.UNITS) { return "units"; }
+        is(Column.PRICE) { return "unit_price"; }
+        is(Column.SHIPPED) { return "shipped_on"; }
+        * { return "row shape"; }
+    }
+};
+
+// Faults travel as a bit per column, so one bad row can name every field it
+// got wrong instead of only the first. Bit `COLUMNS` is reserved for a row
+// whose shape is wrong: bad quoting, or the wrong number of fields.
+fun[exp] bit(index: int): int = {
+    var value = 1;
+    var made = 0;
+    loop (made < index) {
+        value = value * 2;
+        made = made + 1;
+    };
+    return value;
+};
+
+fun[exp] structure_bit(): int = {
+    return bit(COLUMNS);
+};
+
+fun[exp] has_bit(mask: int, index: int): bol = {
+    return ((mask / bit(index)) % 2) == 1;
+};
+
+// One field lifted out of a row. `next` is the offset the following field
+// starts at; `ok` is false when the field opened a quote it never closed, in
+// which case nothing after it on the line can be trusted.
+typ[exp] Field: rec = {
+    ok: bol;
+    body: str;
+    next: int
+};
+
+typ[exp] Date: rec = {
+    year: int;
+    month: int;
+    day: int
+};
+
+// Money is carried as whole cents so no float ever reaches a total.
+typ[exp] Row: rec = {
+    id: str;
+    region: str;
+    customer: str;
+    units: int;
+    cents: int;
+    ship: Date
+};
+
+fun[exp] (Row)revenue(): int = {
+    return self.units * self.cents;
+};
+
+fun[exp] pad2(value: int): str = {
+    if (value < 10) {
+        return "0" + std::fmt::int_to_str(value);
+    };
+    return std::fmt::int_to_str(value);
+};
+
+fun[exp] (Date)show(): str = {
+    return std::fmt::int_to_str(self.year) + "-" + pad2(self.month) + "-" + pad2(self.day);
+};
+
+// Cents to a decimal amount: 138149 becomes "1381.49".
+fun[exp] money(cents: int): str = {
+    var sign: str = "";
+    var value = cents;
+    if (cents < 0) {
+        sign = "-";
+        value = 0 - cents;
+    };
+    return sign + std::fmt::int_to_str(value / 100) + "." + pad2(value % 100);
+};
+
+// The sales regions the warehouse actually ships from. Anything else is a
+// typo in the export, not a new region.
+fun[exp] regions(): vec[str] = {
+    return { "north", "south", "east", "west" };
+};
+
+fun[exp] known_region(name: str): bol = {
+    var known: vec[str] = regions();
+    loop (one in known) {
+        if (one == name) {
+            return true;
+        };
+    };
+    return false;
+};

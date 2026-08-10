@@ -1,0 +1,116 @@
+// Self-checks: every stage of the pipeline against a value worked out by hand.
+//
+// The checks re-derive the diff from fresh documents instead of being handed
+// the results main printed, so a wrong answer cannot pass by agreeing with
+// itself.
+
+use std: pkg = {"std"};
+use lcs: loc = {"../lcs"};
+use doc: loc = {"../doc"};
+use hunk: loc = {"../hunk"};
+
+con CONTEXT: int = 2;
+
+fun[exp] expect(name: str, ok: bol): int = {
+    when(ok) {
+        case(true) { std::io::echo_str("  ok   " + name); return 0; }
+        * { std::io::echo_str("  FAIL " + name); return 1; }
+    }
+};
+
+fun line_grid(): str = {
+    return lcs::match_grid(
+    doc::line_reader(doc::before()),
+    doc::before_lines(),
+    doc::line_reader(doc::after()),
+    doc::after_lines(),
+    );
+};
+
+fun word_grid(): str = {
+    return lcs::match_grid(
+    doc::word_reader(doc::old_words()),
+    doc::old_word_count(),
+    doc::word_reader(doc::new_words()),
+    doc::new_word_count(),
+    );
+};
+
+fun[exp] run_all(): int = {
+    var bad: int = 0;
+
+    // case folding is what lets "The" match "the"
+    bad = bad + expect("fold upper", .eq(doc::fold("The"), "the"));
+    bad = bad + expect("fold punctuation", .eq(doc::fold("(C) 2026"), "(c) 2026"));
+
+    var cells: str = line_grid();
+    bad = bad + expect("grid size", .eq(.len(cells), 12 * 16));
+    bad = bad + expect("grid title match", lcs::matches(cells, 16, 0, 0));
+    bad = bad + expect("grid section moved", lcs::matches(cells, 16, 2, 5));
+    // "- retries use jitter" is not the same line as "- retries use jitter and backoff"
+    bad = bad + expect("grid reworded bullet", .not(lcs::matches(cells, 16, 4, 7)));
+
+    var dp: str = lcs::dp_table(cells, doc::before_lines(), doc::after_lines());
+    bad = bad + expect("table size", .eq(.len(dp), 13 * 17 * 3));
+    bad = bad + expect("table empty prefix", .eq(lcs::cell(dp, 16, 0, 9), 0));
+    bad = bad + expect("common lines", .eq(lcs::common(dp, 12, 16), 10));
+
+    // Eleven of twelve old lines survive, but only ten of them can be matched
+    // in order: the reworded bullet forces the drop of its neighbour too.
+    var edits: str = lcs::edit_script(cells, dp, 12, 16);
+    bad = bad + expect("script", .eq(edits, "=+++===--+======++"));
+    // One opcode per element on each side, minus the matched pairs that a
+    // single keep covers for both.
+    bad = bad + expect("script length", .eq(.len(edits), 12 + 16 - 10));
+
+    var marks: str = hunk::mask(edits, CONTEXT);
+    bad = bad + expect("mask", .eq(marks, "111111111111001111"));
+    bad = bad + expect("run end", .eq(hunk::run_end(marks, 0), 12));
+    bad = bad + expect("hunk count", .eq(hunk::hunk_count(edits, CONTEXT), 2));
+    bad = bad + expect("first header", .eq(hunk::header(edits, 0, 12), "@@ -1,8 +1,10 @@"));
+    bad = bad + expect("second header", .eq(hunk::header(edits, 14, 18), "@@ -11,2 +13,4 @@"));
+
+    // A cursor at the end of the script must account for every line on each side.
+    bad = bad + expect("left cursor total", .eq(lcs::left_cursor(edits, 18), 12));
+    bad = bad + expect("right cursor total", .eq(lcs::right_cursor(edits, 18), 16));
+
+    // The same generic core, instantiated for a second element type.
+    var word_cells: str = word_grid();
+    var word_dp: str = lcs::dp_table(word_cells, doc::old_word_count(), doc::new_word_count());
+    var word_edits: str = lcs::edit_script(word_cells, word_dp, 7, 8);
+    bad = bad + expect("word common", .eq(lcs::common(word_dp, 7, 8), 5));
+    bad = bad + expect("word script", .eq(word_edits, "===-+=-++="));
+    bad = bad + expect("word inline", .eq(
+    hunk::inline_words(word_edits, doc::old_words(), doc::new_words()),
+    "The cache warms [-slowly-] {+quickly+} on [-cold-] {+every+} {+warm+} boot ",
+    ));
+
+    // A document diffed against itself has to be all keeps and no hunks.
+    var flat: str = lcs::match_grid(
+    doc::line_reader(doc::before()),
+    doc::before_lines(),
+    doc::line_reader(doc::before()),
+    doc::before_lines(),
+    );
+    var flat_dp: str = lcs::dp_table(flat, 12, 12);
+    var flat_edits: str = lcs::edit_script(flat, flat_dp, 12, 12);
+    bad = bad + expect("identity common", .eq(lcs::common(flat_dp, 12, 12), 12));
+    bad = bad + expect("identity script", .eq(flat_edits, "============"));
+    bad = bad + expect("identity hunks", .eq(hunk::hunk_count(flat_edits, CONTEXT), 0));
+
+    // An empty left side is pure insertion, and vice versa.
+    var fresh: str = lcs::match_grid(
+    doc::line_reader(doc::before()),
+    0,
+    doc::line_reader(doc::after()),
+    doc::after_lines(),
+    );
+    var fresh_dp: str = lcs::dp_table(fresh, 0, 16);
+    bad = bad + expect("empty left common", .eq(lcs::common(fresh_dp, 0, 16), 0));
+    bad = bad + expect("empty left script", .eq(lcs::edit_script(fresh, fresh_dp, 0, 16), "++++++++++++++++"));
+
+    when(bad) {
+        case(0) { std::io::echo_str("all checks passed"); return 0; }
+        * { std::io::echo_str("checks failed"); return 1; }
+    }
+};
