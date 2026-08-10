@@ -3460,6 +3460,7 @@ fn test_every_path_spelling_of_one_file_compiles_the_same() {
     fs::remove_dir_all(&temp_root).ok();
 }
 
+#[test]
 fn test_entry_arguments_reject_missing_and_unparseable_values() {
     use std::fs;
 

@@ -105,7 +105,8 @@ fn test_when_matching_forms_stay_nested_in_expression_positions() {
         "Matching expressions in initializers should stay under their declaration value"
     );
 
-    let routine_declarations = parse_program_declarations("test/parser/simple_when_matching_expr.fol");
+    let routine_declarations =
+        parse_program_declarations("test/parser/simple_when_matching_expr.fol");
     let body = routine_declarations
         .iter()
         .find_map(|node| {

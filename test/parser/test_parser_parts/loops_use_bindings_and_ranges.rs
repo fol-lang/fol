@@ -32,7 +32,6 @@ fn test_top_level_for_typed_binder_requires_matching_iteration_name() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -58,8 +57,14 @@ fn test_while_and_loop_support_flow_bodies() {
 
     let bodies = collect_loop_bodies(ast);
     assert_eq!(bodies.len(), 2);
-    assert!(matches!(bodies[0].as_slice(), [AstNode::Literal(Literal::Integer(1))]));
-    assert!(matches!(bodies[1].as_slice(), [AstNode::Literal(Literal::Integer(2))]));
+    assert!(matches!(
+        bodies[0].as_slice(),
+        [AstNode::Literal(Literal::Integer(1))]
+    ));
+    assert!(matches!(
+        bodies[1].as_slice(),
+        [AstNode::Literal(Literal::Integer(2))]
+    ));
 }
 
 #[test]
@@ -76,7 +81,9 @@ fn test_for_and_each_support_flow_bodies() {
     let bodies = collect_loop_bodies(ast);
     assert_eq!(bodies.len(), 2);
     assert!(matches!(bodies[0].as_slice(), [AstNode::Identifier { name, .. }] if name == "item"));
-    assert!(matches!(bodies[1].as_slice(), [AstNode::Identifier { name, .. }] if name == "current"));
+    assert!(
+        matches!(bodies[1].as_slice(), [AstNode::Identifier { name, .. }] if name == "current")
+    );
 }
 
 #[test]
@@ -94,7 +101,10 @@ fn test_use_declaration_parsing() {
         AstNode::Program { declarations } => program_root_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::UseDecl { name, path_type, .. } = node {
+                if let AstNode::UseDecl {
+                    name, path_type, ..
+                } = node
+                {
                     Some((
                         name.clone(),
                         path_type.clone(),
@@ -133,13 +143,15 @@ fn test_use_declaration_supports_multiple_names_and_paths() {
             let imports: Vec<_> = program_root_nodes(&declarations)
                 .into_iter()
                 .filter_map(|node| {
-                    if let AstNode::UseDecl { name, path_type, .. } = node {
+                    if let AstNode::UseDecl {
+                        name, path_type, ..
+                    } = node
+                    {
                         Some((
                             name.clone(),
                             path_type.clone(),
-                            use_decl_path_text(node).expect(
-                                "Use declarations should reconstruct a path from segments",
-                            ),
+                            use_decl_path_text(node)
+                                .expect("Use declarations should reconstruct a path from segments"),
                         ))
                     } else {
                         None
@@ -208,7 +220,13 @@ fn test_use_declaration_accepts_empty_option_brackets() {
         AstNode::Program { declarations } => program_root_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::UseDecl { name, options, path_type, .. } = node {
+                if let AstNode::UseDecl {
+                    name,
+                    options,
+                    path_type,
+                    ..
+                } = node
+                {
                     Some((
                         name.clone(),
                         options.clone(),
@@ -251,7 +269,10 @@ fn test_use_declaration_allows_omitted_colon_before_path_type() {
         AstNode::Program { declarations } => program_root_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::UseDecl { name, path_type, .. } = node {
+                if let AstNode::UseDecl {
+                    name, path_type, ..
+                } = node
+                {
                     Some((
                         name.clone(),
                         path_type.clone(),
@@ -289,7 +310,10 @@ fn test_use_declaration_unwraps_quoted_paths() {
         AstNode::Program { declarations } => program_root_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::UseDecl { name, path_type, .. } = node {
+                if let AstNode::UseDecl {
+                    name, path_type, ..
+                } = node
+                {
                     Some((
                         name.clone(),
                         path_type.clone(),
@@ -327,7 +351,10 @@ fn test_use_declaration_supports_qualified_and_bracketed_types() {
         AstNode::Program { declarations } => program_root_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::UseDecl { name, path_type, .. } = node {
+                if let AstNode::UseDecl {
+                    name, path_type, ..
+                } = node
+                {
                     Some((
                         name.clone(),
                         path_type.clone(),
@@ -368,7 +395,6 @@ fn test_unknown_use_option_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -397,7 +423,6 @@ fn test_use_declaration_missing_bracket_close_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -512,7 +537,6 @@ fn test_var_type_hint_missing_bracket_close_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -542,22 +566,27 @@ fn test_boolean_keyword_literals_parse_in_var_and_return() {
 
     let (has_true_var, has_false_return) = match ast {
         AstNode::Program { declarations } => {
-            let has_true_var = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::VarDecl { name, value: Some(value), .. }
-                    if name == "flag"
-                        && matches!(value.as_ref(), AstNode::Literal(Literal::Boolean(true)))
-                )
-            });
+            let has_true_var = only_root_routine_body_nodes(&declarations).into_iter().any(
+                |node| {
+                    matches!(
+                        node,
+                        AstNode::VarDecl { name, value: Some(value), .. }
+                        if name == "flag"
+                            && matches!(value.as_ref(), AstNode::Literal(Literal::Boolean(true)))
+                    )
+                },
+            );
 
-            let has_false_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::Return { value: Some(value), .. }
-                    if matches!(value.as_ref(), AstNode::Literal(Literal::Boolean(false)))
-                )
-            });
+            let has_false_return =
+                only_root_routine_body_nodes(&declarations)
+                    .into_iter()
+                    .any(|node| {
+                        matches!(
+                            node,
+                            AstNode::Return { value: Some(value), .. }
+                            if matches!(value.as_ref(), AstNode::Literal(Literal::Boolean(false)))
+                        )
+                    });
 
             (has_true_var, has_false_return)
         }
@@ -590,7 +619,10 @@ fn test_return_expression_precedence_mul_before_add() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value), .. } = node {
+                if let AstNode::Return {
+                    value: Some(value), ..
+                } = node
+                {
                     Some(value.as_ref().clone())
                 } else {
                     None
@@ -634,7 +666,10 @@ fn test_return_expression_parentheses_override_precedence() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value), .. } = node {
+                if let AstNode::Return {
+                    value: Some(value), ..
+                } = node
+                {
                     Some(value.as_ref().clone())
                 } else {
                     None
@@ -693,22 +728,25 @@ fn test_range_expressions_parse_in_assignment_and_return() {
                 )
             });
 
-            let has_range_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::Return { value: Some(value), .. }
-                    if matches!(
-                        value.as_ref(),
-                        AstNode::Range {
-                            start: Some(start),
-                            end: Some(end),
-                            inclusive: true
-                        }
-                        if matches!(start.as_ref(), AstNode::BinaryOp { .. })
-                            && matches!(end.as_ref(), AstNode::BinaryOp { .. })
-                    )
-                )
-            });
+            let has_range_return =
+                only_root_routine_body_nodes(&declarations)
+                    .into_iter()
+                    .any(|node| {
+                        matches!(
+                            node,
+                            AstNode::Return { value: Some(value), .. }
+                            if matches!(
+                                value.as_ref(),
+                                AstNode::Range {
+                                    start: Some(start),
+                                    end: Some(end),
+                                    inclusive: true
+                                }
+                                if matches!(start.as_ref(), AstNode::BinaryOp { .. })
+                                    && matches!(end.as_ref(), AstNode::BinaryOp { .. })
+                            )
+                        )
+                    });
 
             assert!(
                 has_range_assignment,
@@ -736,7 +774,6 @@ fn test_range_expression_missing_rhs_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -782,21 +819,23 @@ fn test_open_start_range_expressions_parse_in_assignment_and_return() {
                 )
             });
 
-            let has_open_start_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::Return { value: Some(value), .. }
-                    if matches!(
-                        value.as_ref(),
-                        AstNode::Range {
-                            start: None,
-                            end: Some(end),
-                            inclusive: true
-                        }
-                        if matches!(end.as_ref(), AstNode::BinaryOp { .. })
+            let has_open_start_return = only_root_routine_body_nodes(&declarations)
+                .into_iter()
+                .any(|node| {
+                    matches!(
+                        node,
+                        AstNode::Return { value: Some(value), .. }
+                        if matches!(
+                            value.as_ref(),
+                            AstNode::Range {
+                                start: None,
+                                end: Some(end),
+                                inclusive: true
+                            }
+                            if matches!(end.as_ref(), AstNode::BinaryOp { .. })
+                        )
                     )
-                )
-            });
+                });
 
             assert!(
                 has_open_start_assignment,
@@ -825,7 +864,6 @@ fn test_open_start_range_expression_missing_rhs_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -871,21 +909,24 @@ fn test_open_end_range_expressions_parse_in_assignment_and_return() {
                 )
             });
 
-            let has_open_end_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::Return { value: Some(value), .. }
-                    if matches!(
-                        value.as_ref(),
-                        AstNode::Range {
-                            start: Some(start),
-                            end: None,
-                            inclusive: true
-                        }
-                        if matches!(start.as_ref(), AstNode::BinaryOp { .. })
-                    )
-                )
-            });
+            let has_open_end_return =
+                only_root_routine_body_nodes(&declarations)
+                    .into_iter()
+                    .any(|node| {
+                        matches!(
+                            node,
+                            AstNode::Return { value: Some(value), .. }
+                            if matches!(
+                                value.as_ref(),
+                                AstNode::Range {
+                                    start: Some(start),
+                                    end: None,
+                                    inclusive: true
+                                }
+                                if matches!(start.as_ref(), AstNode::BinaryOp { .. })
+                            )
+                        )
+                    });
 
             assert!(
                 has_open_end_assignment,

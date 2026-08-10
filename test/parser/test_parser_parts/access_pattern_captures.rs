@@ -64,9 +64,8 @@ fn test_pattern_access_wildcard_expression_parsing() {
 
 #[test]
 fn test_availability_access_capture_expression_parsing() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_availability_capture.fol")
-            .expect("Should read availability capture fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_availability_capture.fol")
+        .expect("Should read availability capture fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();

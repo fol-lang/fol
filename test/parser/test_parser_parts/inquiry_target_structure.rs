@@ -2,9 +2,8 @@ use super::*;
 
 #[test]
 fn test_self_and_this_inquiry_targets_lower_structurally() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_inquiry_target_self_this.fol")
-            .expect("Should read self/this inquiry target fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_inquiry_target_self_this.fol")
+        .expect("Should read self/this inquiry target fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -14,8 +13,9 @@ fn test_self_and_this_inquiry_targets_lower_structurally() {
 
     match ast {
         AstNode::Program { declarations } => {
-            let Some(AstNode::FunDecl { inquiries, .. }) =
-                declarations.iter().find(|node| matches!(node, AstNode::FunDecl { .. }))
+            let Some(AstNode::FunDecl { inquiries, .. }) = declarations
+                .iter()
+                .find(|node| matches!(node, AstNode::FunDecl { .. }))
             else {
                 panic!("Expected a function declaration");
             };
@@ -52,8 +52,9 @@ fn test_named_and_quoted_inquiry_targets_lower_structurally() {
 
     match ast {
         AstNode::Program { declarations } => {
-            let Some(AstNode::FunDecl { inquiries, .. }) =
-                declarations.iter().find(|node| matches!(node, AstNode::FunDecl { .. }))
+            let Some(AstNode::FunDecl { inquiries, .. }) = declarations
+                .iter()
+                .find(|node| matches!(node, AstNode::FunDecl { .. }))
             else {
                 panic!("Expected a function declaration");
             };
@@ -78,9 +79,8 @@ fn test_named_and_quoted_inquiry_targets_lower_structurally() {
 
 #[test]
 fn test_qualified_inquiry_targets_lower_structurally() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_inquiry_target_qualified.fol")
-            .expect("Should read qualified inquiry target fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_inquiry_target_qualified.fol")
+        .expect("Should read qualified inquiry target fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -90,8 +90,9 @@ fn test_qualified_inquiry_targets_lower_structurally() {
 
     match ast {
         AstNode::Program { declarations } => {
-            let Some(AstNode::FunDecl { inquiries, .. }) =
-                declarations.iter().find(|node| matches!(node, AstNode::FunDecl { .. }))
+            let Some(AstNode::FunDecl { inquiries, .. }) = declarations
+                .iter()
+                .find(|node| matches!(node, AstNode::FunDecl { .. }))
             else {
                 panic!("Expected a function declaration");
             };
@@ -131,9 +132,9 @@ fn test_named_and_quoted_duplicate_inquiry_targets_are_rejected() {
 
         errors
             .first()
-            
             .expect("First parser error should be ParseError")
-            .message.clone()
+            .message
+            .clone()
     };
 
     assert!(
@@ -158,9 +159,9 @@ fn test_named_and_quoted_canonical_duplicate_inquiry_targets_are_rejected() {
 
         errors
             .first()
-            
             .expect("First parser error should be ParseError")
-            .message.clone()
+            .message
+            .clone()
     };
 
     assert!(
@@ -184,9 +185,9 @@ fn test_qualified_duplicate_inquiry_targets_are_rejected() {
 
         errors
             .first()
-            
             .expect("First parser error should be ParseError")
-            .message.clone()
+            .message
+            .clone()
     };
 
     assert!(
@@ -211,9 +212,9 @@ fn test_qualified_canonical_duplicate_inquiry_targets_are_rejected() {
 
         errors
             .first()
-            
             .expect("First parser error should be ParseError")
-            .message.clone()
+            .message
+            .clone()
     };
 
     assert!(
@@ -236,8 +237,9 @@ fn test_semicolon_separated_inquiry_targets_keep_structural_variants() {
 
     match ast {
         AstNode::Program { declarations } => {
-            let Some(AstNode::FunDecl { inquiries, .. }) =
-                declarations.iter().find(|node| matches!(node, AstNode::FunDecl { .. }))
+            let Some(AstNode::FunDecl { inquiries, .. }) = declarations
+                .iter()
+                .find(|node| matches!(node, AstNode::FunDecl { .. }))
             else {
                 panic!("Expected a function declaration");
             };
@@ -288,8 +290,9 @@ fn test_named_routine_inquiries_keep_named_quoted_and_qualified_targets() {
 
         match ast {
             AstNode::Program { declarations } => {
-                let Some(AstNode::FunDecl { inquiries, .. }) =
-                    declarations.iter().find(|node| matches!(node, AstNode::FunDecl { .. }))
+                let Some(AstNode::FunDecl { inquiries, .. }) = declarations
+                    .iter()
+                    .find(|node| matches!(node, AstNode::FunDecl { .. }))
                 else {
                     panic!("Expected a function declaration");
                 };
@@ -303,18 +306,16 @@ fn test_named_routine_inquiries_keep_named_quoted_and_qualified_targets() {
                     | (InquiryTarget::Quoted(expected_name), InquiryTarget::Quoted(name)) => {
                         name == expected_name
                     }
-                    (
-                        InquiryTarget::Qualified(expected_path),
-                        InquiryTarget::Qualified(path),
-                    ) => path.segments == expected_path.segments,
+                    (InquiryTarget::Qualified(expected_path), InquiryTarget::Qualified(path)) => {
+                        path.segments == expected_path.segments
+                    }
                     _ => false,
                 };
 
                 assert!(
                     matches_expected,
                     "Expected first inquiry target {:?} for fixture {}",
-                    expected,
-                    path
+                    expected, path
                 );
             }
             _ => panic!("Expected program node"),
@@ -338,7 +339,8 @@ fn test_flow_bodied_routines_keep_structural_inquiry_targets() {
             InquiryTarget::SelfValue,
         ),
     ] {
-        let mut file_stream = FileStream::from_file(path).expect("Should read flow inquiry fixture");
+        let mut file_stream =
+            FileStream::from_file(path).expect("Should read flow inquiry fixture");
         let mut lexer = Elements::init(&mut file_stream);
         let mut parser = AstParser::new();
         let ast = parser
@@ -358,7 +360,10 @@ fn test_flow_bodied_routines_keep_structural_inquiry_targets() {
                     panic!("Expected an inquiry clause");
                 };
 
-                assert_eq!(target, &expected, "Unexpected inquiry target for fixture {path}");
+                assert_eq!(
+                    target, &expected,
+                    "Unexpected inquiry target for fixture {path}"
+                );
             }
             _ => panic!("Expected program node"),
         }
@@ -381,7 +386,8 @@ fn test_alternative_headers_keep_structural_inquiry_targets() {
             InquiryTarget::SelfValue,
         ),
     ] {
-        let mut file_stream = FileStream::from_file(path).expect("Should read alt-header inquiry fixture");
+        let mut file_stream =
+            FileStream::from_file(path).expect("Should read alt-header inquiry fixture");
         let mut lexer = Elements::init(&mut file_stream);
         let mut parser = AstParser::new();
         let ast = parser
@@ -401,7 +407,10 @@ fn test_alternative_headers_keep_structural_inquiry_targets() {
                     panic!("Expected an inquiry clause");
                 };
 
-                assert_eq!(target, &expected, "Unexpected inquiry target for fixture {path}");
+                assert_eq!(
+                    target, &expected,
+                    "Unexpected inquiry target for fixture {path}"
+                );
             }
             _ => panic!("Expected program node"),
         }
@@ -414,7 +423,8 @@ fn test_anonymous_and_shorthand_routines_keep_structural_inquiry_targets() {
         "test/parser/simple_fun_anonymous_flow_inquiry_expr.fol",
         "test/parser/simple_fun_shorthand_anonymous_flow_inquiry_expr.fol",
     ] {
-        let mut file_stream = FileStream::from_file(path).expect("Should read anonymous inquiry fixture");
+        let mut file_stream =
+            FileStream::from_file(path).expect("Should read anonymous inquiry fixture");
         let mut lexer = Elements::init(&mut file_stream);
         let mut parser = AstParser::new();
         let ast = parser
@@ -425,7 +435,9 @@ fn test_anonymous_and_shorthand_routines_keep_structural_inquiry_targets() {
             AstNode::Program { declarations } => {
                 let inquiry_target = declarations.iter().find_map(|node| match node {
                     AstNode::FunDecl { body, .. } => body.iter().find_map(|stmt| match stmt {
-                        AstNode::VarDecl { value: Some(value), .. } => match value.as_ref() {
+                        AstNode::VarDecl {
+                            value: Some(value), ..
+                        } => match value.as_ref() {
                             AstNode::AnonymousFun { inquiries, .. }
                             | AstNode::AnonymousLog { inquiries, .. }
                             | AstNode::AnonymousPro { inquiries, .. } => inquiries.first(),
@@ -455,7 +467,8 @@ fn test_pipe_lambdas_keep_structural_inquiry_targets() {
         "test/parser/simple_pipe_lambda_expr_inquiry.fol",
         "test/parser/simple_fun_pipe_lambda_flow_inquiry_expr.fol",
     ] {
-        let mut file_stream = FileStream::from_file(path).expect("Should read pipe inquiry fixture");
+        let mut file_stream =
+            FileStream::from_file(path).expect("Should read pipe inquiry fixture");
         let mut lexer = Elements::init(&mut file_stream);
         let mut parser = AstParser::new();
         let ast = parser
@@ -466,11 +479,15 @@ fn test_pipe_lambdas_keep_structural_inquiry_targets() {
             AstNode::Program { declarations } => {
                 let inquiry_target = declarations.iter().find_map(|node| match node {
                     AstNode::FunDecl { body, .. } => body.iter().find_map(|stmt| match stmt {
-                        AstNode::VarDecl { value: Some(value), .. } => match value.as_ref() {
+                        AstNode::VarDecl {
+                            value: Some(value), ..
+                        } => match value.as_ref() {
                             AstNode::AnonymousFun { inquiries, .. } => inquiries.first(),
                             _ => None,
                         },
-                        AstNode::Return { value: Some(value), .. } => match value.as_ref() {
+                        AstNode::Return {
+                            value: Some(value), ..
+                        } => match value.as_ref() {
                             AstNode::AnonymousFun { inquiries, .. } => inquiries.first(),
                             _ => None,
                         },

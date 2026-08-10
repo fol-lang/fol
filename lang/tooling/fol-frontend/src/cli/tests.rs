@@ -590,30 +590,68 @@ fn profile_flags_normalize_to_frontend_profile_selection() {
 }
 
 #[test]
+fn subcommand_position_profile_flags_land_on_the_subcommand_args() {
+    let cli = parse_clean(&["fol", "code", "build", "--release"]);
+
+    assert_eq!(
+        cli.command,
+        Some(FrontendCommand::Code(CodeCommand {
+            output: default_output_args(),
+            profile: default_profile_args(),
+            command: CodeSubcommand::Build(BuildCommand {
+                profile: FrontendProfileArgs {
+                    profile: None,
+                    debug: false,
+                    release: true,
+                },
+                ..BuildCommand::default()
+            }),
+        }))
+    );
+}
+
+#[test]
+fn conflicting_profile_flags_are_rejected_in_every_position() {
+    let cases: [&[&str]; 8] = [
+        &["fol", "--debug", "--release", "code", "build"],
+        &["fol", "--release", "--profile", "debug", "code", "build"],
+        &["fol", "code", "--debug", "--release", "build"],
+        &["fol", "code", "build", "--debug", "--release"],
+        &["fol", "code", "run", "--debug", "--release"],
+        &["fol", "code", "check", "--debug", "--release"],
+        &["fol", "code", "test", "--debug", "--release"],
+        &["fol", "code", "emit", "rust", "--debug", "--release"],
+    ];
+
+    for args in cases {
+        let error = try_parse_clean(args).expect_err(&format!("{args:?} should be rejected"));
+        match error.kind {
+            ParseErrorKind::Conflict(message) => assert!(
+                message.contains("mutually exclusive"),
+                "{args:?} should report the profile conflict, got: {message}"
+            ),
+            other => panic!("{args:?} should be a conflict error, got {other:?}"),
+        }
+    }
+}
+
+#[test]
 fn cli_env_values_feed_output_and_profile_defaults() {
     let _env = EnvironmentGuard::set(&[("FOL_OUTPUT", "plain"), ("FOL_PROFILE", "release")]);
 
     let cli = FrontendCli::parse_from(["fol", "code", "build"].iter().map(|s| s.to_string()));
 
     assert_eq!(cli.output, OutputMode::Plain);
+    // The environment seeds the root only; group and subcommand stay sparse so
+    // an explicit flag in either position still outranks it.
+    assert_eq!(cli.profile, Some(FrontendProfile::Release));
+    assert_eq!(cli.selected_profile(), FrontendProfile::Release);
     assert_eq!(
         cli.command,
         Some(FrontendCommand::Code(CodeCommand {
             output: default_output_args(),
-            profile: FrontendProfileArgs {
-                profile: Some(FrontendProfile::Release),
-                debug: false,
-                release: false,
-            },
-            command: CodeSubcommand::Build(BuildCommand {
-                output: default_output_args(),
-                profile: FrontendProfileArgs {
-                    profile: Some(FrontendProfile::Release),
-                    debug: false,
-                    release: false,
-                },
-                ..BuildCommand::default()
-            }),
+            profile: default_profile_args(),
+            command: CodeSubcommand::Build(BuildCommand::default()),
         }))
     );
 }
@@ -648,15 +686,7 @@ fn explicit_flags_override_env_values() {
                 debug: false,
                 release: false,
             },
-            command: CodeSubcommand::Build(BuildCommand {
-                output: default_output_args(),
-                profile: FrontendProfileArgs {
-                    profile: Some(FrontendProfile::Release),
-                    debug: false,
-                    release: false,
-                },
-                ..BuildCommand::default()
-            }),
+            command: CodeSubcommand::Build(BuildCommand::default()),
         }))
     );
 }

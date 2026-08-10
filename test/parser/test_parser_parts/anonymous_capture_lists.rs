@@ -2,8 +2,9 @@ use super::*;
 
 #[test]
 fn test_anonymous_routine_capture_lists_parsing() {
-    let mut file_stream = FileStream::from_file("test/parser/simple_anonymous_routine_captures.fol")
-        .expect("Should read anonymous routine captures fixture");
+    let mut file_stream =
+        FileStream::from_file("test/parser/simple_anonymous_routine_captures.fol")
+            .expect("Should read anonymous routine captures fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();

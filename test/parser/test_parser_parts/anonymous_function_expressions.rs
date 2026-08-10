@@ -37,9 +37,8 @@ fn test_anonymous_function_expression_parsing() {
 
 #[test]
 fn test_anonymous_function_immediate_invocation_parsing() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_anonymous_invoke_expr.fol")
-            .expect("Should read anonymous invoke fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_anonymous_invoke_expr.fol")
+        .expect("Should read anonymous invoke fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -107,9 +106,8 @@ fn test_anonymous_procedure_expression_parsing() {
 
 #[test]
 fn test_anonymous_procedure_immediate_invocation_parsing() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_pro_anonymous_invoke_expr.fol")
-            .expect("Should read anonymous procedure invoke fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_pro_anonymous_invoke_expr.fol")
+        .expect("Should read anonymous procedure invoke fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -238,9 +236,8 @@ fn test_anonymous_logical_expression() {
 
 #[test]
 fn test_anonymous_logical_immediate_invocation_parsing() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_log_anonymous_invoke_expr.fol")
-            .expect("Should read anonymous logical invoke fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_log_anonymous_invoke_expr.fol")
+        .expect("Should read anonymous logical invoke fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();

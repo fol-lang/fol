@@ -2,9 +2,8 @@ use super::*;
 
 #[test]
 fn test_simple_rolling_expression_parses_in_return_position() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_rolling_expr.fol")
-            .expect("Should read rolling expression fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_rolling_expr.fol")
+        .expect("Should read rolling expression fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -16,7 +15,9 @@ fn test_simple_rolling_expression_parses_in_return_position() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
+                AstNode::Return {
+                    value: Some(value), ..
+                } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -37,9 +38,8 @@ fn test_simple_rolling_expression_parses_in_return_position() {
 
 #[test]
 fn test_parenthesized_multi_binding_rolling_expression_parses() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_rolling_multi_binding.fol")
-            .expect("Should read multi-binding rolling expression fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_rolling_multi_binding.fol")
+        .expect("Should read multi-binding rolling expression fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -51,7 +51,9 @@ fn test_parenthesized_multi_binding_rolling_expression_parses() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
+                AstNode::Return {
+                    value: Some(value), ..
+                } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -86,7 +88,9 @@ fn test_parenthesized_semicolon_multi_binding_rolling_expression_parses() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
+                AstNode::Return {
+                    value: Some(value), ..
+                } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -121,7 +125,9 @@ fn test_bare_multi_binding_rolling_expression_parses() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
+                AstNode::Return {
+                    value: Some(value), ..
+                } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -156,7 +162,9 @@ fn test_bare_semicolon_multi_binding_rolling_expression_parses() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
+                AstNode::Return {
+                    value: Some(value), ..
+                } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -177,9 +185,8 @@ fn test_bare_semicolon_multi_binding_rolling_expression_parses() {
 
 #[test]
 fn test_rolling_expression_supports_optional_filter() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_rolling_filtered.fol")
-            .expect("Should read filtered rolling expression fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_rolling_filtered.fol")
+        .expect("Should read filtered rolling expression fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -191,7 +198,9 @@ fn test_rolling_expression_supports_optional_filter() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
+                AstNode::Return {
+                    value: Some(value), ..
+                } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -212,9 +221,8 @@ fn test_rolling_expression_supports_optional_filter() {
 
 #[test]
 fn test_rolling_expression_supports_when_filter() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_rolling_when_filtered.fol")
-            .expect("Should read when-filtered rolling expression fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_rolling_when_filtered.fol")
+        .expect("Should read when-filtered rolling expression fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -226,7 +234,9 @@ fn test_rolling_expression_supports_when_filter() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
+                AstNode::Return {
+                    value: Some(value), ..
+                } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -247,9 +257,8 @@ fn test_rolling_expression_supports_when_filter() {
 
 #[test]
 fn test_rolling_expression_requires_in_keyword() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_rolling_missing_in.fol")
-            .expect("Should read malformed rolling expression fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_rolling_missing_in.fol")
+        .expect("Should read malformed rolling expression fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -259,7 +268,6 @@ fn test_rolling_expression_requires_in_keyword() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -285,7 +293,6 @@ fn test_rolling_expression_rejects_duplicate_binders() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -296,7 +303,8 @@ fn test_rolling_expression_rejects_duplicate_binders() {
         parse_error.message
     );
     assert!(
-        parse_error.primary_location().unwrap().line > 0 && parse_error.primary_location().unwrap().column > 0,
+        parse_error.primary_location().unwrap().line > 0
+            && parse_error.primary_location().unwrap().column > 0,
         "Duplicate rolling binders should carry a concrete source location"
     );
 }
@@ -315,7 +323,6 @@ fn test_rolling_expression_rejects_canonical_duplicate_binders() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -334,9 +341,8 @@ fn test_rolling_expression_rejects_canonical_duplicate_binders() {
 
 #[test]
 fn test_rolling_expression_supports_silent_binders() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_rolling_silent_binder.fol")
-            .expect("Should read silent rolling binder fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_rolling_silent_binder.fol")
+        .expect("Should read silent rolling binder fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -348,7 +354,9 @@ fn test_rolling_expression_supports_silent_binders() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
+                AstNode::Return {
+                    value: Some(value), ..
+                } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -381,7 +389,9 @@ fn test_rolling_expression_supports_typed_silent_binders() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
+                AstNode::Return {
+                    value: Some(value), ..
+                } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -402,9 +412,8 @@ fn test_rolling_expression_supports_typed_silent_binders() {
 
 #[test]
 fn test_rolling_expression_supports_quoted_binders() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_rolling_quoted_binder.fol")
-            .expect("Should read quoted rolling binder fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_rolling_quoted_binder.fol")
+        .expect("Should read quoted rolling binder fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -416,7 +425,9 @@ fn test_rolling_expression_supports_quoted_binders() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
+                AstNode::Return {
+                    value: Some(value), ..
+                } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -449,7 +460,9 @@ fn test_rolling_expression_supports_keyword_named_binders() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
+                AstNode::Return {
+                    value: Some(value), ..
+                } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -468,9 +481,8 @@ fn test_rolling_expression_supports_keyword_named_binders() {
 
 #[test]
 fn test_rolling_expression_supports_var_binders() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_rolling_var_binder.fol")
-            .expect("Should read var rolling binder fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_rolling_var_binder.fol")
+        .expect("Should read var rolling binder fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -482,7 +494,9 @@ fn test_rolling_expression_supports_var_binders() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
+                AstNode::Return {
+                    value: Some(value), ..
+                } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -515,7 +529,9 @@ fn test_rolling_expression_supports_typed_var_binders() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
+                AstNode::Return {
+                    value: Some(value), ..
+                } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -550,7 +566,9 @@ fn test_rolling_expression_supports_var_multi_bindings() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
+                AstNode::Return {
+                    value: Some(value), ..
+                } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),

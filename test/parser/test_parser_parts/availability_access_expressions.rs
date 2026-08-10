@@ -64,9 +64,10 @@ fn test_multi_pattern_availability_expression_parsing() {
 
 #[test]
 fn test_semicolon_multi_pattern_availability_expression_parsing() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_multi_pattern_availability_expr_semicolon.fol")
-            .expect("Should read semicolon multi-pattern availability fixture");
+    let mut file_stream = FileStream::from_file(
+        "test/parser/simple_fun_multi_pattern_availability_expr_semicolon.fol",
+    )
+    .expect("Should read semicolon multi-pattern availability fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -95,9 +96,10 @@ fn test_semicolon_multi_pattern_availability_expression_parsing() {
 
 #[test]
 fn test_trailing_separator_availability_expression_parsing() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_multi_pattern_availability_expr_trailing_separator.fol")
-            .expect("Should read trailing-separator availability fixture");
+    let mut file_stream = FileStream::from_file(
+        "test/parser/simple_fun_multi_pattern_availability_expr_trailing_separator.fol",
+    )
+    .expect("Should read trailing-separator availability fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -175,7 +177,10 @@ fn test_suffix_availability_expression_parsing() {
             for node in declarations {
                 if let AstNode::FunDecl { body, .. } = node {
                     for stmt in body {
-                        if let AstNode::Return { value: Some(value), .. } = stmt {
+                        if let AstNode::Return {
+                            value: Some(value), ..
+                        } = stmt
+                        {
                             if let AstNode::AvailabilityAccess { target } = value.as_ref() {
                                 if matches!(target.as_ref(), AstNode::PatternAccess { .. }) {
                                     saw_pattern = true;
@@ -189,7 +194,10 @@ fn test_suffix_availability_expression_parsing() {
                 }
             }
 
-            assert!(saw_pattern, "Expected suffix availability on pattern access");
+            assert!(
+                saw_pattern,
+                "Expected suffix availability on pattern access"
+            );
             assert!(saw_slice, "Expected suffix availability on slice access");
         }
         _ => panic!("Expected program node"),

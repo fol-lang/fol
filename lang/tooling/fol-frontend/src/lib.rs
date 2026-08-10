@@ -307,7 +307,20 @@ fn command_output_mode(cli: &FrontendCli) -> Option<OutputMode> {
 
 fn command_profile(cli: &FrontendCli) -> Option<FrontendProfile> {
     match cli.command.as_ref() {
-        Some(FrontendCommand::Code(command)) => Some(command.profile.selected_profile()),
+        Some(FrontendCommand::Code(command)) => {
+            let local = match &command.command {
+                CodeSubcommand::Build(build) => build.profile.explicit_profile(),
+                CodeSubcommand::Run(run) => run.profile.explicit_profile(),
+                CodeSubcommand::Test(test) => test.profile.explicit_profile(),
+                CodeSubcommand::Check(check) => check.profile.explicit_profile(),
+                CodeSubcommand::Emit(emit) => match &emit.command {
+                    cli::EmitSubcommand::Rust(rust) => rust.profile.explicit_profile(),
+                    cli::EmitSubcommand::Lowered(lowered) => lowered.profile.explicit_profile(),
+                },
+                CodeSubcommand::Explain(_) => None,
+            };
+            local.or_else(|| command.profile.explicit_profile())
+        }
         _ => None,
     }
 }
@@ -613,6 +626,100 @@ mod tests {
             let cli = FrontendCli::try_parse_from(args).expect("output fixture should parse");
             let config = frontend_config_from_cli(&cli, None);
             assert_eq!(config.output.mode, expected);
+        }
+    }
+
+    #[test]
+    fn frontend_config_resolves_profile_overrides_from_most_specific_scope() {
+        let _env = EnvironmentGuard::removed(FRONTEND_ENV_KEYS);
+        let cases = [
+            (vec!["fol", "code", "build"], FrontendProfile::Debug),
+            (
+                vec!["fol", "code", "build", "--release"],
+                FrontendProfile::Release,
+            ),
+            (
+                vec!["fol", "code", "build", "--profile", "release"],
+                FrontendProfile::Release,
+            ),
+            (
+                vec!["fol", "code", "--release", "build"],
+                FrontendProfile::Release,
+            ),
+            (
+                vec!["fol", "--release", "code", "build"],
+                FrontendProfile::Release,
+            ),
+            (
+                vec!["fol", "--release", "code", "--debug", "build"],
+                FrontendProfile::Debug,
+            ),
+            (
+                vec!["fol", "code", "--debug", "build", "--release"],
+                FrontendProfile::Release,
+            ),
+            (
+                vec!["fol", "code", "run", "--release"],
+                FrontendProfile::Release,
+            ),
+            (
+                vec!["fol", "code", "check", "--release"],
+                FrontendProfile::Release,
+            ),
+            (
+                vec!["fol", "code", "test", "--release"],
+                FrontendProfile::Release,
+            ),
+            (
+                vec!["fol", "code", "emit", "rust", "--release"],
+                FrontendProfile::Release,
+            ),
+            (
+                vec!["fol", "code", "emit", "lowered", "--release"],
+                FrontendProfile::Release,
+            ),
+        ];
+
+        for (args, expected) in cases {
+            let rendered = args.join(" ");
+            let cli = FrontendCli::try_parse_from(args).expect("profile fixture should parse");
+            let config = frontend_config_from_cli(&cli, None);
+            assert_eq!(
+                config.profile_override,
+                Some(expected),
+                "`{rendered}` must reach the build with {expected:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn environment_profile_is_the_weakest_layer_under_every_flag_position() {
+        let _env = EnvironmentGuard::set(&[("FOL_PROFILE", "release")]);
+        let cases = [
+            (vec!["fol", "code", "build"], FrontendProfile::Release),
+            (
+                vec!["fol", "--debug", "code", "build"],
+                FrontendProfile::Debug,
+            ),
+            (
+                vec!["fol", "code", "--debug", "build"],
+                FrontendProfile::Debug,
+            ),
+            (
+                vec!["fol", "code", "build", "--debug"],
+                FrontendProfile::Debug,
+            ),
+        ];
+
+        for (args, expected) in cases {
+            let rendered = args.join(" ");
+            let cli = FrontendCli::try_parse_from(args).expect("profile fixture should parse");
+            let config = frontend_config_from_cli(&cli, None);
+            assert_eq!(
+                config.profile_override,
+                Some(expected),
+                "`{rendered}` must reach the build with {expected:?}"
+            );
         }
     }
 

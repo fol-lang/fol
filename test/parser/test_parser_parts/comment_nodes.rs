@@ -2,8 +2,8 @@ use super::*;
 
 #[test]
 fn test_root_comments_are_preserved_as_ast_nodes() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_root_comments.fol").expect("Should read root comments fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_root_comments.fol")
+        .expect("Should read root comments fixture");
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
 

@@ -141,6 +141,49 @@ fn build_output_roots_are_profile_scoped() {
 }
 
 #[test]
+fn build_output_roots_follow_the_profile_flag_from_every_cli_position() {
+    let _env = crate::test_env::EnvironmentGuard::removed(crate::test_env::FRONTEND_ENV_KEYS);
+    let workspace = FrontendWorkspace::new(WorkspaceRoot::new(PathBuf::from("/tmp/demo")));
+    let cases = [
+        (vec!["fol", "code", "build"], "/tmp/demo/.fol/build/debug"),
+        (
+            vec!["fol", "code", "build", "--release"],
+            "/tmp/demo/.fol/build/release",
+        ),
+        (
+            vec!["fol", "code", "build", "--profile", "release"],
+            "/tmp/demo/.fol/build/release",
+        ),
+        (
+            vec!["fol", "code", "--release", "build"],
+            "/tmp/demo/.fol/build/release",
+        ),
+        (
+            vec!["fol", "--release", "code", "build"],
+            "/tmp/demo/.fol/build/release",
+        ),
+        (
+            vec!["fol", "code", "run", "--release"],
+            "/tmp/demo/.fol/build/release",
+        ),
+    ];
+
+    for (args, expected) in cases {
+        let rendered = args.join(" ");
+        let cli = crate::cli::FrontendCli::try_parse_from(args).expect("profile fixture parses");
+        let config = crate::frontend_config_from_cli(&cli, None);
+        let profile = config
+            .profile_override
+            .expect("the CLI always resolves a profile");
+        assert_eq!(
+            profile_build_root(&workspace, profile),
+            PathBuf::from(expected),
+            "`{rendered}` must emit its artifacts under {expected}"
+        );
+    }
+}
+
+#[test]
 fn backend_config_threads_frontend_machine_target_selection() {
     let default_config = FrontendConfig::default();
     let cross_config = FrontendConfig {

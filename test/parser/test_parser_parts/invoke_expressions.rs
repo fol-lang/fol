@@ -70,9 +70,8 @@ fn test_nested_invoke_expression_parsing() {
 
 #[test]
 fn test_indexed_invoke_statement_parsing() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_indexed_invoke_stmt.fol")
-            .expect("Should read indexed invoke statement fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_indexed_invoke_stmt.fol")
+        .expect("Should read indexed invoke statement fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -136,9 +135,8 @@ fn test_indexed_invoke_semicolon_arguments_parse_in_statements_and_returns() {
 
 #[test]
 fn test_grouped_invoke_statement_parsing() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_grouped_invoke_stmt.fol")
-            .expect("Should read grouped invoke statement fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_grouped_invoke_stmt.fol")
+        .expect("Should read grouped invoke statement fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();

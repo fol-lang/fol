@@ -128,7 +128,6 @@ fn test_field_assignment_target_missing_name_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -158,7 +157,6 @@ fn test_method_call_assignment_target_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -188,7 +186,6 @@ fn test_function_call_assignment_target_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -363,7 +360,10 @@ fn test_mod_assignment_and_comparison_expressions() {
             let return_ops = only_root_routine_body_nodes(&declarations)
                 .into_iter()
                 .filter_map(|node| {
-                    if let AstNode::Return { value: Some(value), .. } = node {
+                    if let AstNode::Return {
+                        value: Some(value), ..
+                    } = node
+                    {
                         if let AstNode::BinaryOp { op, .. } = value.as_ref() {
                             Some(op.clone())
                         } else {
@@ -509,7 +509,10 @@ fn test_logical_and_has_lower_precedence_than_comparison() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value), .. } = node {
+                if let AstNode::Return {
+                    value: Some(value), ..
+                } = node
+                {
                     Some(value.as_ref().clone())
                 } else {
                     None
@@ -563,7 +566,10 @@ fn test_logical_or_has_lower_precedence_than_and() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value), .. } = node {
+                if let AstNode::Return {
+                    value: Some(value), ..
+                } = node
+                {
                     Some(value.as_ref().clone())
                 } else {
                     None
@@ -617,7 +623,10 @@ fn test_logical_not_parses_as_unary_expression() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value), .. } = node {
+                if let AstNode::Return {
+                    value: Some(value), ..
+                } = node
+                {
                     Some(value.as_ref().clone())
                 } else {
                     None
@@ -656,7 +665,10 @@ fn test_logical_xor_precedence_between_or_and_and() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value), .. } = node {
+                if let AstNode::Return {
+                    value: Some(value), ..
+                } = node
+                {
                     Some(value.as_ref().clone())
                 } else {
                     None
@@ -715,7 +727,10 @@ fn test_logical_nand_lowers_to_not_of_and() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value), .. } = node {
+                if let AstNode::Return {
+                    value: Some(value), ..
+                } = node
+                {
                     Some(value.as_ref().clone())
                 } else {
                     None
@@ -760,7 +775,10 @@ fn test_logical_nor_lowers_to_not_of_or() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value), .. } = node {
+                if let AstNode::Return {
+                    value: Some(value), ..
+                } = node
+                {
                     Some(value.as_ref().clone())
                 } else {
                     None
@@ -806,7 +824,10 @@ fn test_logical_not_precedence_over_comparison_and_and() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value), .. } = node {
+                if let AstNode::Return {
+                    value: Some(value), ..
+                } = node
+                {
                     Some(value.as_ref().clone())
                 } else {
                     None
@@ -890,11 +911,16 @@ fn test_parse_error_has_location_for_illegal_token() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
-    assert!(parse_error.primary_location().unwrap().line > 0, "Line should be non-zero");
-    assert!(parse_error.primary_location().unwrap().column > 0, "Column should be non-zero");
+    assert!(
+        parse_error.primary_location().unwrap().line > 0,
+        "Line should be non-zero"
+    );
+    assert!(
+        parse_error.primary_location().unwrap().column > 0,
+        "Column should be non-zero"
+    );
     assert!(
         parse_error.primary_location().unwrap().length.unwrap_or(0) > 0,
         "Token length should be non-zero for diagnostics"
@@ -915,7 +941,6 @@ fn test_unary_plus_missing_operand_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -946,7 +971,6 @@ fn test_call_argument_unary_plus_missing_operand_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();

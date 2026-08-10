@@ -64,7 +64,10 @@ fn test_return_expression_unary_minus_precedence() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value), .. } = node {
+                if let AstNode::Return {
+                    value: Some(value), ..
+                } = node
+                {
                     Some(value.as_ref().clone())
                 } else {
                     None
@@ -108,7 +111,10 @@ fn test_return_expression_unary_plus_precedence() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value), .. } = node {
+                if let AstNode::Return {
+                    value: Some(value), ..
+                } = node
+                {
                     Some(value.as_ref().clone())
                 } else {
                     None
@@ -150,7 +156,10 @@ fn test_return_expression_chained_unary_plus_precedence() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value), .. } = node {
+                if let AstNode::Return {
+                    value: Some(value), ..
+                } = node
+                {
                     Some(value.as_ref().clone())
                 } else {
                     None
@@ -256,7 +265,10 @@ fn test_return_expression_unary_minus_parenthesized_addition() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value), .. } = node {
+                if let AstNode::Return {
+                    value: Some(value), ..
+                } = node
+                {
                     Some(value.as_ref().clone())
                 } else {
                     None
@@ -300,7 +312,10 @@ fn test_return_expression_subtraction_is_left_associative() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value), .. } = node {
+                if let AstNode::Return {
+                    value: Some(value), ..
+                } = node
+                {
                     Some(value.as_ref().clone())
                 } else {
                     None
@@ -344,7 +359,10 @@ fn test_return_expression_division_is_left_associative() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value), .. } = node {
+                if let AstNode::Return {
+                    value: Some(value), ..
+                } = node
+                {
                     Some(value.as_ref().clone())
                 } else {
                     None
@@ -389,7 +407,10 @@ fn test_return_expression_mixed_precedence_and_associativity() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value), .. } = node {
+                if let AstNode::Return {
+                    value: Some(value), ..
+                } = node
+                {
                     Some(value.as_ref().clone())
                 } else {
                     None
@@ -434,7 +455,10 @@ fn test_return_expression_division_with_grouped_rhs() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value), .. } = node {
+                if let AstNode::Return {
+                    value: Some(value), ..
+                } = node
+                {
                     Some(value.as_ref().clone())
                 } else {
                     None

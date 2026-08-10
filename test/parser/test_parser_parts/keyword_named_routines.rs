@@ -13,12 +13,12 @@ fn test_keyword_named_routines_and_calls_parse() {
 
     match ast {
         AstNode::Program { declarations } => {
-            assert!(declarations.iter().any(|node| {
-                matches!(node, AstNode::FunDecl { name, .. } if name == "get")
-            }));
-            assert!(declarations.iter().any(|node| {
-                matches!(node, AstNode::FunDecl { name, .. } if name == "log")
-            }));
+            assert!(declarations
+                .iter()
+                .any(|node| { matches!(node, AstNode::FunDecl { name, .. } if name == "get") }));
+            assert!(declarations
+                .iter()
+                .any(|node| { matches!(node, AstNode::FunDecl { name, .. } if name == "log") }));
             assert!(declarations.iter().any(|node| {
                 matches!(
                     node,

@@ -536,7 +536,7 @@ fn parse_root(args: Vec<String>) -> Result<FrontendCli, ParseError> {
         input: None,
         output: env_output_mode(),
         json: false,
-        profile: env_profile(),
+        profile: None,
         debug: false,
         release: false,
         std_root: None,
@@ -565,7 +565,7 @@ fn parse_root(args: Vec<String>) -> Result<FrontendCli, ParseError> {
     }
 
     if cursor.is_done() {
-        return Ok(cli);
+        return finish_root(cli);
     }
 
     let token = cursor.peek().unwrap().to_string();
@@ -611,6 +611,21 @@ fn parse_root(args: Vec<String>) -> Result<FrontendCli, ParseError> {
         }
     }
 
+    finish_root(cli)
+}
+
+// The environment is the weakest layer: it only fills in when no root flag
+// spoke, so `--debug` still wins over `FOL_PROFILE=release`.
+fn finish_root(mut cli: FrontendCli) -> Result<FrontendCli, ParseError> {
+    let args = FrontendProfileArgs {
+        profile: cli.profile,
+        debug: cli.debug,
+        release: cli.release,
+    };
+    check_profile_conflicts(&args)?;
+    if args.explicit_profile().is_none() {
+        cli.profile = env_profile();
+    }
     Ok(cli)
 }
 
@@ -931,7 +946,7 @@ fn parse_update_command(
 
 fn parse_code_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseError> {
     let mut output = FrontendOutputArgs::default();
-    let mut profile_args = env_profile_args();
+    let mut profile_args = FrontendProfileArgs::default();
 
     while let Some(token) = cursor.peek() {
         if token == "--help" || token == "-h" {
@@ -966,7 +981,7 @@ fn parse_code_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
     // Command-local overrides stay sparse so dispatch can resolve
     // subcommand > group > root/environment precedence exactly once.
     let sub_output = FrontendOutputArgs::default();
-    let sub_profile = env_profile_args();
+    let sub_profile = FrontendProfileArgs::default();
     let subcommand = match sub.as_str() {
         "build" | "b" | "make" => {
             CodeSubcommand::Build(parse_build_command(cursor, sub_output, sub_profile)?)
@@ -1029,6 +1044,7 @@ fn parse_build_command(
             break;
         }
     }
+    check_profile_conflicts(&cmd.profile)?;
     Ok(cmd)
 }
 
@@ -1082,6 +1098,7 @@ fn parse_run_command(
             cmd.args.push(token.to_string());
         }
     }
+    check_profile_conflicts(&cmd.profile)?;
     Ok(cmd)
 }
 
@@ -1136,6 +1153,7 @@ fn parse_test_command(
             break;
         }
     }
+    check_profile_conflicts(&cmd.profile)?;
     Ok(cmd)
 }
 
@@ -1172,6 +1190,7 @@ fn parse_check_command(
             break;
         }
     }
+    check_profile_conflicts(&cmd.profile)?;
     Ok(cmd)
 }
 
@@ -1237,6 +1256,7 @@ fn parse_emit_rust_command(cursor: &mut ArgCursor) -> Result<EmitRustCommand, Pa
             break;
         }
     }
+    check_profile_conflicts(&cmd.profile)?;
     Ok(cmd)
 }
 
@@ -1279,6 +1299,7 @@ fn parse_emit_lowered_command(cursor: &mut ArgCursor) -> Result<EmitLoweredComma
             break;
         }
     }
+    check_profile_conflicts(&cmd.profile)?;
     Ok(cmd)
 }
 
@@ -1718,13 +1739,6 @@ fn env_profile() -> Option<FrontendProfile> {
         Some("release") => Some(FrontendProfile::Release),
         Some("debug") => Some(FrontendProfile::Debug),
         _ => None,
-    }
-}
-
-fn env_profile_args() -> FrontendProfileArgs {
-    FrontendProfileArgs {
-        profile: env_profile(),
-        ..FrontendProfileArgs::default()
     }
 }
 
