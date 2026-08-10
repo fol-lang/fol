@@ -22,6 +22,13 @@ fn try_parse_clean(args: &[&str]) -> Result<FrontendCli, super::parser::ParseErr
     FrontendCli::try_parse_from(args.iter().map(|s| s.to_string()))
 }
 
+fn expect_rejected(args: &[&str]) -> super::parser::ParseError {
+    match try_parse_clean(args) {
+        Err(error) => error,
+        Ok(cli) => panic!("{args:?} should not have parsed into a command: {cli:?}"),
+    }
+}
+
 fn default_output_args() -> FrontendOutputArgs {
     FrontendOutputArgs::default()
 }
@@ -1118,6 +1125,146 @@ fn a_second_positional_after_direct_input_is_rejected() {
             );
         }
         other => panic!("expected an invalid-input error, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_stray_positional_is_rejected_by_every_subcommand() {
+    // Dropping it reported success for a target that was never looked at:
+    // `code check good.fol broken.fol` checked only good.fol and exited 0.
+    for (args, stray) in [
+        (
+            vec!["fol", "code", "check", "good.fol", "broken.fol"],
+            "broken.fol",
+        ),
+        (
+            vec!["fol", "code", "build", "good.fol", "broken.fol"],
+            "broken.fol",
+        ),
+        (vec!["fol", "code", "test", "stray"], "stray"),
+        (vec!["fol", "code", "explain", "T1003", "R1003"], "R1003"),
+        (
+            vec!["fol", "code", "emit", "rust", "good.fol", "stray"],
+            "stray",
+        ),
+        (
+            vec!["fol", "code", "emit", "lowered", "good.fol", "stray"],
+            "stray",
+        ),
+        (vec!["fol", "work", "info", "stray"], "stray"),
+        (vec!["fol", "work", "list", "stray"], "stray"),
+        (vec!["fol", "work", "deps", "stray"], "stray"),
+        (vec!["fol", "work", "status", "stray"], "stray"),
+        (vec!["fol", "work", "new", "demo", "extra"], "extra"),
+        (vec!["fol", "pack", "fetch", "stray"], "stray"),
+        (vec!["fol", "pack", "update", "stray"], "stray"),
+        (vec!["fol", "tool", "clean", "stray"], "stray"),
+        (vec!["fol", "tool", "lsp", "stray"], "stray"),
+        (vec!["fol", "tool", "format", "good.fol", "stray"], "stray"),
+        (vec!["fol", "tool", "symbols", "good.fol", "stray"], "stray"),
+        (
+            vec!["fol", "tool", "tree", "generate", "/tmp/fol-tree", "stray"],
+            "stray",
+        ),
+    ] {
+        let error = expect_rejected(&args);
+        match error.kind {
+            ParseErrorKind::InvalidInput(message) => assert!(
+                message.contains(stray),
+                "{args:?}: the error should name '{stray}': {message}"
+            ),
+            other => panic!("{args:?}: expected an invalid-input error, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn the_program_argument_separator_belongs_to_code_run_alone() {
+    // `code build` used to swallow `--` and its tail while `code check`
+    // rejected them; only the command that starts a program can forward args.
+    for args in [
+        vec!["fol", "code", "build", "ex.fol", "--", "ignored"],
+        vec!["fol", "code", "check", "ex.fol", "--", "ignored"],
+    ] {
+        let error = expect_rejected(&args);
+        match error.kind {
+            ParseErrorKind::InvalidInput(message) => assert!(
+                message.contains("fol code run"),
+                "{args:?}: the error should point at the command that forwards args: {message}"
+            ),
+            other => panic!("{args:?}: expected an invalid-input error, got {other:?}"),
+        }
+    }
+
+    let run = parse_clean(&["fol", "code", "run", "ex.fol", "--", "ignored"]);
+    assert_eq!(
+        run.command,
+        Some(FrontendCommand::Code(CodeCommand {
+            output: default_output_args(),
+            profile: default_profile_args(),
+            command: CodeSubcommand::Run(RunCommand {
+                target: DirectTargetArg {
+                    input: Some("ex.fol".to_string()),
+                },
+                args: vec!["ignored".to_string()],
+                ..RunCommand::default()
+            }),
+        }))
+    );
+}
+
+#[test]
+fn help_flags_print_usage_instead_of_running_the_command() {
+    // `tool clean --help` used to perform the clean and exit 0.
+    for (args, expected) in [
+        (vec!["fol", "code", "build", "--help"], "fol code build"),
+        (vec!["fol", "code", "check", "-h"], "fol code check"),
+        (vec!["fol", "code", "run", "--help"], "fol code run"),
+        (vec!["fol", "code", "test", "--help"], "fol code test"),
+        (
+            vec!["fol", "code", "emit", "rust", "-h"],
+            "fol code emit rust",
+        ),
+        (vec!["fol", "work", "info", "--help"], "fol work info"),
+        (vec!["fol", "work", "list", "-h"], "fol work list"),
+        (vec!["fol", "work", "init", "--help"], "fol work init"),
+        (vec!["fol", "pack", "fetch", "--help"], "fol pack fetch"),
+        (vec!["fol", "pack", "update", "-h"], "fol pack update"),
+        (vec!["fol", "tool", "clean", "--help"], "fol tool clean"),
+        (vec!["fol", "tool", "lsp", "--help"], "fol tool lsp"),
+        (vec!["fol", "tool", "format", "--help"], "fol tool format"),
+        (vec!["fol", "tool", "parse", "-h"], "fol tool parse"),
+        (
+            vec!["fol", "tool", "highlight", "--help"],
+            "fol tool highlight",
+        ),
+        (vec!["fol", "tool", "symbols", "--help"], "fol tool symbols"),
+        (vec!["fol", "tool", "rename", "--help"], "fol tool rename"),
+        (
+            vec!["fol", "tool", "complete", "--help"],
+            "fol tool complete",
+        ),
+        (
+            vec!["fol", "tool", "references", "--help"],
+            "fol tool references",
+        ),
+        (
+            vec!["fol", "tool", "completion", "--help"],
+            "fol tool completion",
+        ),
+        (
+            vec!["fol", "tool", "tree", "generate", "--help"],
+            "fol tool tree generate",
+        ),
+    ] {
+        let error = expect_rejected(&args);
+        match error.kind {
+            ParseErrorKind::Help(text) => assert!(
+                text.contains(expected),
+                "{args:?}: help should describe `{expected}`: {text}"
+            ),
+            other => panic!("{args:?}: expected help, got {other:?}"),
+        }
     }
 }
 

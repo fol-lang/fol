@@ -442,6 +442,57 @@ fn tree_help() -> String {
     )
 }
 
+fn work_subcommand_usage(sub: &str) -> String {
+    match sub {
+        "init" => "Usage: fol work init [--workspace] [--bin|--lib]".to_string(),
+        "new" => "Usage: fol work new <NAME> [--workspace] [--bin|--lib]".to_string(),
+        _ => format!("Usage: fol work {sub} [--output <MODE>] [--path <PATH>]"),
+    }
+}
+
+fn pack_subcommand_usage(sub: &str) -> String {
+    match sub {
+        "fetch" | "f" | "sync" => {
+            "Usage: fol pack fetch [--locked] [--offline] [--refresh]".to_string()
+        }
+        "update" | "u" | "upgrade" => "Usage: fol pack update".to_string(),
+        _ => "Usage: fol pack <COMMAND> [OPTIONS]".to_string(),
+    }
+}
+
+fn code_subcommand_usage(sub: &str) -> String {
+    match sub {
+        "build" | "b" | "make" => "Usage: fol code build [OPTIONS] [PATH]",
+        "run" | "r" => "Usage: fol code run [OPTIONS] [PATH] [-- PROGRAM_ARGS...]",
+        "test" | "t" => "Usage: fol code test [OPTIONS]",
+        "check" | "c" | "verify" => "Usage: fol code check [OPTIONS] [PATH]",
+        "emit" | "e" | "gen" => "Usage: fol code emit <rust|lowered> [OPTIONS] [PATH]",
+        "explain" => "Usage: fol code explain <CODE>",
+        _ => "Usage: fol code <COMMAND> [OPTIONS]",
+    }
+    .to_string()
+}
+
+fn tool_subcommand_usage(sub: &str) -> String {
+    match sub {
+        "lsp" => "Usage: fol tool lsp".to_string(),
+        "references" => {
+            "Usage: fol tool references <PATH> --line <N> --character <N> [--exclude-declaration]"
+                .to_string()
+        }
+        "rename" => {
+            "Usage: fol tool rename <PATH> --line <N> --character <N> <NEW_NAME>".to_string()
+        }
+        "complete" => "Usage: fol tool complete <PATH> --line <N> --character <N>".to_string(),
+        "tree" => "Usage: fol tool tree <COMMAND>".to_string(),
+        "clean" | "cl" | "purge" => "Usage: fol tool clean".to_string(),
+        "completion" | "completions" | "comp" => {
+            "Usage: fol tool completion <bash|zsh|fish>".to_string()
+        }
+        _ => format!("Usage: fol tool {sub} <PATH>"),
+    }
+}
+
 fn explain_help() -> String {
     let s = section;
     format!(
@@ -504,7 +555,7 @@ fn parse_root(args: Vec<String>) -> Result<FrontendCli, ParseError> {
         if token == "--version" || token == "-V" {
             return Err(ParseError::version());
         }
-        if token.starts_with("--") {
+        if is_flag(token) {
             let token = cursor.advance().unwrap().to_string();
             parse_root_flag(&mut cli, &token, &mut cursor)?;
             continue;
@@ -541,7 +592,13 @@ fn parse_root(args: Vec<String>) -> Result<FrontendCli, ParseError> {
             // is an error rather than something to drop on the floor: silently
             // ignoring it compiles a different file than the one asked for.
             while let Some(token) = cursor.peek() {
-                if token.starts_with("--") {
+                if token == "--help" || token == "-h" {
+                    return Err(ParseError::help(root_help()));
+                }
+                if token == "--version" || token == "-V" {
+                    return Err(ParseError::version());
+                }
+                if is_flag(token) {
                     let token = cursor.advance().unwrap().to_string();
                     parse_root_flag(&mut cli, &token, &mut cursor)?;
                 } else {
@@ -627,7 +684,7 @@ fn parse_work_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
         if token == "--help" || token == "-h" {
             return Err(ParseError::help(work_help()));
         }
-        if token.starts_with("--") {
+        if is_flag(token) {
             let token = cursor.advance().unwrap().to_string();
             let (key, _) = split_eq(&token);
             match key {
@@ -644,8 +701,9 @@ fn parse_work_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
 
     let sub = cursor
         .advance()
-        .ok_or_else(|| ParseError::help(work_help()))?;
-    let subcommand = match sub {
+        .ok_or_else(|| ParseError::help(work_help()))?
+        .to_string();
+    let subcommand = match sub.as_str() {
         "init" => WorkSubcommand::Init(parse_init_command(cursor)?),
         "new" => WorkSubcommand::New(parse_new_command(cursor)?),
         "info" => WorkSubcommand::Info(UnitCommand),
@@ -658,6 +716,7 @@ fn parse_work_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
             )))
         }
     };
+    reject_trailing(cursor, &format!("work {sub}"), &work_subcommand_usage(&sub))?;
 
     Ok(FrontendCommand::Work(WorkCommand {
         output,
@@ -682,11 +741,7 @@ fn parse_init_command(cursor: &mut ArgCursor) -> Result<InitCommand, ParseError>
                 cursor.advance();
                 cmd.lib = true;
             }
-            "-h" | "--help" => {
-                return Err(ParseError::help(
-                    "Usage: fol work init [--workspace] [--bin|--lib]".to_string(),
-                ))
-            }
+            "-h" | "--help" => return Err(ParseError::help(work_subcommand_usage("init"))),
             _ => {
                 return Err(ParseError::invalid(format!(
                     "unknown flag for init: {token}"
@@ -722,17 +777,14 @@ fn parse_new_command(cursor: &mut ArgCursor) -> Result<NewCommand, ParseError> {
                 cursor.advance();
                 lib = true;
             }
-            "-h" | "--help" => {
-                return Err(ParseError::help(
-                    "Usage: fol work new <NAME> [--workspace] [--bin|--lib]".to_string(),
-                ))
-            }
-            t if t.starts_with('-') => {
+            "-h" | "--help" => return Err(ParseError::help(work_subcommand_usage("new"))),
+            t if is_flag(t) => {
                 return Err(ParseError::invalid(format!("unknown flag for new: {t}")))
             }
-            _ => {
+            _ if name.is_none() => {
                 name = Some(cursor.advance().unwrap().to_string());
             }
+            _ => break,
         }
     }
     if bin && lib {
@@ -760,7 +812,7 @@ fn parse_pack_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
         if token == "--help" || token == "-h" {
             return Err(ParseError::help(pack_help()));
         }
-        if token.starts_with("--") {
+        if is_flag(token) {
             let token = cursor.advance().unwrap().to_string();
             let (key, _) = split_eq(&token);
             match key {
@@ -776,9 +828,10 @@ fn parse_pack_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
 
     let sub = cursor
         .advance()
-        .ok_or_else(|| ParseError::help(pack_help()))?;
+        .ok_or_else(|| ParseError::help(pack_help()))?
+        .to_string();
     let sub_output = FrontendOutputArgs::default();
-    let subcommand = match sub {
+    let subcommand = match sub.as_str() {
         "fetch" | "f" | "sync" => PackSubcommand::Fetch(parse_fetch_command(cursor, sub_output)?),
         "update" | "u" | "upgrade" => {
             PackSubcommand::Update(parse_update_command(cursor, sub_output)?)
@@ -789,6 +842,7 @@ fn parse_pack_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
             )))
         }
     };
+    reject_trailing(cursor, &format!("pack {sub}"), &pack_subcommand_usage(&sub))?;
 
     Ok(FrontendCommand::Pack(PackCommand {
         output,
@@ -805,7 +859,7 @@ fn parse_fetch_command(
         ..FetchCommand::default()
     };
     while let Some(token) = cursor.peek() {
-        if token.starts_with("--") {
+        if is_flag(token) {
             let token = cursor.advance().unwrap().to_string();
             let (key, _) = split_eq(&token);
             match key {
@@ -821,11 +875,7 @@ fn parse_fetch_command(
                 "--locked" => cmd.locked = true,
                 "--offline" => cmd.offline = true,
                 "--refresh" => cmd.refresh = true,
-                "-h" | "--help" => {
-                    return Err(ParseError::help(
-                        "Usage: fol pack fetch [--locked] [--offline] [--refresh]".to_string(),
-                    ))
-                }
+                "-h" | "--help" => return Err(ParseError::help(pack_subcommand_usage("fetch"))),
                 _ => {
                     return Err(ParseError::invalid(format!(
                         "unknown flag for fetch: {key}"
@@ -848,7 +898,7 @@ fn parse_update_command(
         ..UpdateCommand::default()
     };
     while let Some(token) = cursor.peek() {
-        if token.starts_with("--") {
+        if is_flag(token) {
             let token = cursor.advance().unwrap().to_string();
             let (key, _) = split_eq(&token);
             match key {
@@ -861,9 +911,7 @@ fn parse_update_command(
                     cmd.roots.package_store_root =
                         Some(cursor.take_value(&token, "package-store-root")?)
                 }
-                "-h" | "--help" => {
-                    return Err(ParseError::help("Usage: fol pack update".to_string()))
-                }
+                "-h" | "--help" => return Err(ParseError::help(pack_subcommand_usage("update"))),
                 _ => {
                     return Err(ParseError::invalid(format!(
                         "unknown flag for update: {key}"
@@ -889,7 +937,7 @@ fn parse_code_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
         if token == "--help" || token == "-h" {
             return Err(ParseError::help(code_help()));
         }
-        if token.starts_with("--") {
+        if is_flag(token) {
             let token = cursor.advance().unwrap().to_string();
             let (key, _) = split_eq(&token);
             match key {
@@ -913,12 +961,13 @@ fn parse_code_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
 
     let sub = cursor
         .advance()
-        .ok_or_else(|| ParseError::help(code_help()))?;
+        .ok_or_else(|| ParseError::help(code_help()))?
+        .to_string();
     // Command-local overrides stay sparse so dispatch can resolve
     // subcommand > group > root/environment precedence exactly once.
     let sub_output = FrontendOutputArgs::default();
     let sub_profile = env_profile_args();
-    let subcommand = match sub {
+    let subcommand = match sub.as_str() {
         "build" | "b" | "make" => {
             CodeSubcommand::Build(parse_build_command(cursor, sub_output, sub_profile)?)
         }
@@ -935,6 +984,7 @@ fn parse_code_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
             )))
         }
     };
+    reject_trailing(cursor, &format!("code {sub}"), &code_subcommand_usage(&sub))?;
 
     Ok(FrontendCommand::Code(CodeCommand {
         output,
@@ -954,10 +1004,13 @@ fn parse_build_command(
         ..BuildCommand::default()
     };
     while let Some(token) = cursor.peek() {
-        if token == "--" {
-            break;
+        if token == "-h" || token == "--help" {
+            return Err(ParseError::help(code_subcommand_usage("build")));
         }
-        if token.starts_with("--") || token.starts_with("-D") {
+        // `--` is not swallowed here: `code build` runs nothing, so there is no
+        // program to forward the tail to. It reaches parse_build_flag and is
+        // rejected there, exactly as `code check` already rejects it.
+        if is_flag(token) {
             let token = cursor.advance().unwrap().to_string();
             parse_build_flag(
                 &mut cmd.output,
@@ -970,13 +1023,10 @@ fn parse_build_command(
                 &token,
                 cursor,
             )?;
+        } else if cmd.target.input.is_none() {
+            cmd.target.input = Some(cursor.advance().unwrap().to_string());
         } else {
-            // Positional = direct target
-            if cmd.target.input.is_none() {
-                cmd.target.input = Some(cursor.advance().unwrap().to_string());
-            } else {
-                break;
-            }
+            break;
         }
     }
     Ok(cmd)
@@ -999,7 +1049,10 @@ fn parse_run_command(
             hit_separator = true;
             break;
         }
-        if token.starts_with("--") || token.starts_with("-D") {
+        if token == "-h" || token == "--help" {
+            return Err(ParseError::help(code_subcommand_usage("run")));
+        }
+        if is_flag(token) {
             let token = cursor.advance().unwrap().to_string();
             parse_build_flag(
                 &mut cmd.output,
@@ -1043,7 +1096,7 @@ fn parse_test_command(
         ..TestCommand::default()
     };
     while let Some(token) = cursor.peek() {
-        if token.starts_with("--") || token.starts_with("-D") {
+        if is_flag(token) {
             let token = cursor.advance().unwrap().to_string();
             let (key, _) = split_eq(&token);
             match key {
@@ -1076,11 +1129,7 @@ fn parse_test_command(
                     };
                     cmd.options.define.push(val);
                 }
-                "-h" | "--help" => {
-                    return Err(ParseError::help(
-                        "Usage: fol code test [OPTIONS]".to_string(),
-                    ))
-                }
+                "-h" | "--help" => return Err(ParseError::help(code_subcommand_usage("test"))),
                 _ => return Err(ParseError::invalid(format!("unknown flag for test: {key}"))),
             }
         } else {
@@ -1101,7 +1150,10 @@ fn parse_check_command(
         ..CheckCommand::default()
     };
     while let Some(token) = cursor.peek() {
-        if token.starts_with("--") || token.starts_with("-D") {
+        if token == "-h" || token == "--help" {
+            return Err(ParseError::help(code_subcommand_usage("check")));
+        }
+        if is_flag(token) {
             let token = cursor.advance().unwrap().to_string();
             parse_build_flag(
                 &mut cmd.output,
@@ -1148,7 +1200,7 @@ fn parse_emit_command(cursor: &mut ArgCursor) -> Result<EmitCommand, ParseError>
 fn parse_emit_rust_command(cursor: &mut ArgCursor) -> Result<EmitRustCommand, ParseError> {
     let mut cmd = EmitRustCommand::default();
     while let Some(token) = cursor.peek() {
-        if token.starts_with("--") {
+        if is_flag(token) {
             let token = cursor.advance().unwrap().to_string();
             let (key, _) = split_eq(&token);
             match key {
@@ -1191,7 +1243,7 @@ fn parse_emit_rust_command(cursor: &mut ArgCursor) -> Result<EmitRustCommand, Pa
 fn parse_emit_lowered_command(cursor: &mut ArgCursor) -> Result<EmitLoweredCommand, ParseError> {
     let mut cmd = EmitLoweredCommand::default();
     while let Some(token) = cursor.peek() {
-        if token.starts_with("--") {
+        if is_flag(token) {
             let token = cursor.advance().unwrap().to_string();
             let (key, _) = split_eq(&token);
             match key {
@@ -1241,7 +1293,7 @@ fn parse_tool_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
         if token == "--help" || token == "-h" {
             return Err(ParseError::help(tool_help()));
         }
-        if token.starts_with("--") {
+        if is_flag(token) {
             let token = cursor.advance().unwrap().to_string();
             let (key, _) = split_eq(&token);
             match key {
@@ -1257,17 +1309,20 @@ fn parse_tool_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
 
     let sub = cursor
         .advance()
-        .ok_or_else(|| ParseError::help(tool_help()))?;
-    let subcommand = match sub {
+        .ok_or_else(|| ParseError::help(tool_help()))?
+        .to_string();
+    let subcommand = match sub.as_str() {
         "lsp" => ToolSubcommand::Lsp(UnitCommand),
-        "format" => ToolSubcommand::Format(parse_editor_path_command(cursor)?),
-        "parse" => ToolSubcommand::Parse(parse_editor_path_command(cursor)?),
-        "highlight" => ToolSubcommand::Highlight(parse_editor_path_command(cursor)?),
-        "symbols" => ToolSubcommand::Symbols(parse_editor_path_command(cursor)?),
+        "format" => ToolSubcommand::Format(parse_editor_path_command(cursor, &sub)?),
+        "parse" => ToolSubcommand::Parse(parse_editor_path_command(cursor, &sub)?),
+        "highlight" => ToolSubcommand::Highlight(parse_editor_path_command(cursor, &sub)?),
+        "symbols" => ToolSubcommand::Symbols(parse_editor_path_command(cursor, &sub)?),
         "references" => ToolSubcommand::References(parse_editor_reference_command(cursor)?),
         "rename" => ToolSubcommand::Rename(parse_editor_rename_command(cursor)?),
         "complete" => ToolSubcommand::Complete(parse_editor_completion_command(cursor)?),
-        "semantic-tokens" => ToolSubcommand::SemanticTokens(parse_editor_path_command(cursor)?),
+        "semantic-tokens" => {
+            ToolSubcommand::SemanticTokens(parse_editor_path_command(cursor, &sub)?)
+        }
         "tree" => ToolSubcommand::Tree(parse_tree_command(cursor)?),
         "clean" | "cl" | "purge" => ToolSubcommand::Clean(UnitCommand),
         "completion" | "completions" | "comp" => {
@@ -1279,6 +1334,7 @@ fn parse_tool_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
             )))
         }
     };
+    reject_trailing(cursor, &format!("tool {sub}"), &tool_subcommand_usage(&sub))?;
 
     Ok(FrontendCommand::Tool(ToolCommand {
         output,
@@ -1286,7 +1342,13 @@ fn parse_tool_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
     }))
 }
 
-fn parse_editor_path_command(cursor: &mut ArgCursor) -> Result<EditorPathCommand, ParseError> {
+fn parse_editor_path_command(
+    cursor: &mut ArgCursor,
+    sub: &str,
+) -> Result<EditorPathCommand, ParseError> {
+    if matches!(cursor.peek(), Some("-h" | "--help")) {
+        return Err(ParseError::help(tool_subcommand_usage(sub)));
+    }
     let path = cursor
         .advance()
         .ok_or_else(|| ParseError::missing("expected a file path"))?
@@ -1303,15 +1365,26 @@ fn parse_editor_reference_command(
     let mut exclude_declaration = false;
 
     while let Some(token) = cursor.peek() {
-        if token.starts_with("--") {
+        if is_flag(token) {
             let token = cursor.advance().unwrap().to_string();
             let (key, _) = split_eq(&token);
             match key {
                 "--line" => line = Some(parse_u32(&cursor.take_value(&token, "line")?, "line")?),
-                "--character" => character = Some(parse_u32(&cursor.take_value(&token, "character")?, "character")?),
+                "--character" => {
+                    character = Some(parse_u32(
+                        &cursor.take_value(&token, "character")?,
+                        "character",
+                    )?)
+                }
                 "--exclude-declaration" => exclude_declaration = true,
-                "-h" | "--help" => return Err(ParseError::help("Usage: fol tool references <PATH> --line <N> --character <N> [--exclude-declaration]".to_string())),
-                _ => return Err(ParseError::invalid(format!("unknown flag for references: {key}"))),
+                "-h" | "--help" => {
+                    return Err(ParseError::help(tool_subcommand_usage("references")))
+                }
+                _ => {
+                    return Err(ParseError::invalid(format!(
+                        "unknown flag for references: {key}"
+                    )))
+                }
             }
         } else if path.is_none() {
             path = Some(cursor.advance().unwrap().to_string());
@@ -1337,7 +1410,7 @@ fn parse_editor_completion_command(
     let mut character: Option<u32> = None;
 
     while let Some(token) = cursor.peek() {
-        if token.starts_with("--") {
+        if is_flag(token) {
             let token = cursor.advance().unwrap().to_string();
             let (key, _) = split_eq(&token);
             match key {
@@ -1348,6 +1421,7 @@ fn parse_editor_completion_command(
                         "character",
                     )?)
                 }
+                "-h" | "--help" => return Err(ParseError::help(tool_subcommand_usage("complete"))),
                 _ => {
                     return Err(ParseError::invalid(format!(
                         "unknown flag for complete: {key}"
@@ -1375,7 +1449,7 @@ fn parse_editor_rename_command(cursor: &mut ArgCursor) -> Result<EditorRenameCom
     let mut new_name: Option<String> = None;
 
     while let Some(token) = cursor.peek() {
-        if token.starts_with("--") {
+        if is_flag(token) {
             let token = cursor.advance().unwrap().to_string();
             let (key, _) = split_eq(&token);
             match key {
@@ -1386,6 +1460,7 @@ fn parse_editor_rename_command(cursor: &mut ArgCursor) -> Result<EditorRenameCom
                         "character",
                     )?)
                 }
+                "-h" | "--help" => return Err(ParseError::help(tool_subcommand_usage("rename"))),
                 _ => {
                     return Err(ParseError::invalid(format!(
                         "unknown flag for rename: {key}"
@@ -1418,6 +1493,11 @@ fn parse_tree_command(cursor: &mut ArgCursor) -> Result<TreeCommand, ParseError>
         .ok_or_else(|| ParseError::help(tree_help()))?;
     match sub {
         "generate" => {
+            if matches!(cursor.peek(), Some("-h" | "--help")) {
+                return Err(ParseError::help(
+                    "Usage: fol tool tree generate <PATH>".to_string(),
+                ));
+            }
             let path = cursor
                 .advance()
                 .ok_or_else(|| ParseError::missing("tree generate requires a path"))?
@@ -1440,7 +1520,7 @@ fn parse_explain_command(cursor: &mut ArgCursor) -> Result<ExplainCommand, Parse
         if token == "-h" || token == "--help" {
             return Err(ParseError::help(explain_help()));
         }
-        if token.starts_with("--") {
+        if is_flag(token) {
             let token = cursor.advance().unwrap().to_string();
             let (key, _) = split_eq(&token);
             match key {
@@ -1468,6 +1548,9 @@ fn parse_explain_command(cursor: &mut ArgCursor) -> Result<ExplainCommand, Parse
 }
 
 fn parse_completion_command(cursor: &mut ArgCursor) -> Result<CompletionCommand, ParseError> {
+    if matches!(cursor.peek(), Some("-h" | "--help")) {
+        return Err(ParseError::help(tool_subcommand_usage("completion")));
+    }
     let shell = cursor
         .advance()
         .ok_or_else(|| ParseError::missing("completion requires a shell (bash, zsh, fish)"))?;
@@ -1541,6 +1624,11 @@ fn parse_build_flag(
                 "Usage: fol code <command> [OPTIONS]".to_string(),
             ))
         }
+        "--" => {
+            return Err(ParseError::invalid(
+                "`--` forwards the rest of the line to the program being run, so only `fol code run` accepts it",
+            ))
+        }
         _ => return Err(ParseError::invalid(format!("unknown flag: {key}"))),
     }
     Ok(())
@@ -1549,6 +1637,25 @@ fn parse_build_flag(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Each command parser stops at the first token it does not own. Whatever is
+/// left over was never acted on, so accepting it reports success for work that
+/// did not happen; `-h`/`--help` there is a usage request, not an argument.
+fn reject_trailing(cursor: &ArgCursor, command: &str, usage: &str) -> Result<(), ParseError> {
+    match cursor.peek() {
+        None => Ok(()),
+        Some("-h" | "--help") => Err(ParseError::help(usage.to_string())),
+        Some(token) => Err(ParseError::invalid(format!(
+            "unexpected argument '{token}' after `{command}`"
+        ))),
+    }
+}
+
+/// Anything with a leading dash is a flag, so `-h` and typos reach the flag
+/// parser instead of being mistaken for a path.
+fn is_flag(token: &str) -> bool {
+    token.starts_with('-') && token != "-"
+}
 
 fn split_eq(token: &str) -> (&str, Option<&str>) {
     if let Some(pos) = token.find('=') {
