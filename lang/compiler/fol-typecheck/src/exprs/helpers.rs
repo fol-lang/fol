@@ -430,10 +430,15 @@ pub(crate) fn type_has_nested_fin(typed: &TypedProgram, type_id: CheckedTypeId) 
                     None => return false,
                 }
             }
+            // A record field is finalizable: lowering walks the field path at
+            // scope exit and calls the field's own finalizer before the holder
+            // dies. Only a field that *itself* hides an unreachable `fin`
+            // deeper down is a problem, so recurse with this same rule.
             Some(CheckedType::Record { fields }) => {
-                return fields
-                    .values()
-                    .any(|field| type_contains_fin(typed, *field))
+                let fields = fields.clone();
+                return fields.values().any(|field| {
+                    !typed.type_resolves_to_fin(*field) && type_has_nested_fin(typed, *field)
+                });
             }
             Some(CheckedType::Entry { variants }) => {
                 return variants
@@ -478,7 +483,7 @@ pub(crate) fn reject_nested_fin_storage(
         return Ok(());
     }
     let message = format!(
-        "{subject} holds a 'fin' value nested inside '{}'; FOL finalizes only a value owned directly by a binding, parameter or 'dfr' capture, so the nested finalizer would never run — give the 'fin' value its own binding and transfer it with '[mov]'",
+        "{subject} holds a 'fin' value inside '{}'; a record field is finalized through its owner, but a container, entry variant, shell or generic argument has no scope-exit path to reach one, so the finalizer would never run — give the 'fin' value its own binding and transfer it with '[mov]'",
         describe_type(typed, type_id)
     );
     Err(match origin {

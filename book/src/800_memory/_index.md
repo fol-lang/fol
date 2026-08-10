@@ -46,6 +46,7 @@ Positive:
 - `examples/mem_fin_move_m1`
 - `examples/mem_fin_early_m1`
 - `examples/mem_fin_deferred_m1`
+- `examples/mem_fin_field_m1`
 
 Negative:
 

@@ -1092,3 +1092,41 @@ fn json_mode_keeps_stdout_parseable_when_the_program_prints() {
         "the program's output must not be discarded"
     );
 }
+
+#[test]
+fn fin_values_held_in_record_fields_are_finalized_through_their_owner() {
+    // Containment used to be rejected outright, because finalization was
+    // registered only for a value a binding named directly. A field path names
+    // it just as well, so the holder now finalizes what it owns -- and moving
+    // the holder hands that duty to the receiving routine rather than running
+    // it twice or not at all.
+    let root = write_hosted_app(
+        "v3_fin_record_field",
+        "use std: pkg = {\"std\"};\n\
+         \n\
+         typ File()(fin): rec = { descriptor: int };\n\
+         \n\
+         pro (File)finalize(): non = {\n\
+         \x20   var shown: int = std::io::echo_int(self.descriptor);\n\
+         \x20   return;\n\
+         };\n\
+         \n\
+         typ Pair: rec = { left: File, right: File, tag: int };\n\
+         \n\
+         pro[] consume(taken: Pair): non = {\n\
+         \x20   var shown: int = std::io::echo_int(taken.tag);\n\
+         \x20   return;\n\
+         };\n\
+         \n\
+         fun[] main(): int = {\n\
+         \x20   var pair: Pair = { left = { descriptor = 1 }, right = { descriptor = 2 }, tag = 9 };\n\
+         \x20   consume([mov]pair);\n\
+         \x20   var held: Pair = { left = { descriptor = 3 }, right = { descriptor = 4 }, tag = 8 };\n\
+         \x20   var shown: int = std::io::echo_int(held.tag);\n\
+         \x20   return 0;\n\
+         };\n",
+    );
+    // The moved holder is released by the callee (2, 1); main's own holder at
+    // its scope exit (4, 3). Reverse field order in both, per V3_MEM 6.2.
+    assert_successful_stdout(&root, "9\n2\n1\n8\n4\n3\n");
+}

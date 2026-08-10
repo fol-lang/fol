@@ -115,7 +115,14 @@ pub(crate) fn lower_local_binding(
         .typed_symbol(symbol_id)
         .and_then(|symbol| symbol.declared_type)
         .is_some_and(|checked_type| typed_package.program.type_resolves_to_fin(checked_type));
-    if type_table.moves_on_transfer(type_id) && !claims_fin {
+    let type_id_checked = typed_package
+        .program
+        .typed_symbol(symbol_id)
+        .and_then(|symbol| symbol.declared_type);
+    let holds_nested_fin = type_id_checked.is_some_and(|checked| {
+        !claims_fin && super::fin_paths::has_fin_field(typed_package, checked)
+    });
+    if type_table.moves_on_transfer(type_id) && !claims_fin && !holds_nested_fin {
         // A binding can be moved on one continuing branch and reinitialized
         // on another. Typecheck conservatively records the merged binding as
         // moved so later reads are rejected, but the reinitialized branch
@@ -123,6 +130,40 @@ pub(crate) fn lower_local_binding(
         // moves leave the named slot holding its default sentinel, so one
         // unconditional lexical drop is valid on both paths.
         cursor.register_lexical_drop(local_id)?;
+    }
+
+    // A record holding a `fin` field is finalized through that field at scope
+    // exit. Registering the paths here (rather than only whole `fin` locals) is
+    // what makes containment work; the holder's structural drop is suppressed
+    // below because reading the field out partially moves it.
+    let nested_fin_paths = if claims_fin {
+        Vec::new()
+    } else {
+        type_id_checked
+            .map(|checked| super::fin_paths::fin_field_paths(typed_package, checked))
+            .unwrap_or_default()
+    };
+    for (field_path, field_type) in &nested_fin_paths {
+        let (_callee_identity, callee) = super::calls::resolve_method_target(
+            typed_package,
+            checked_type_map,
+            current_identity,
+            decl_index,
+            "finalize",
+            *checked_type_map.get(field_type).ok_or_else(|| {
+                crate::LoweringError::with_kind(
+                    crate::LoweringErrorKind::InvalidInput,
+                    "a 'fin' record field has no lowered type",
+                )
+            })?,
+            None,
+        )?;
+        cursor.register_finalization(super::cursor::FinalizeEntry {
+            local: local_id,
+            symbol: symbol_id,
+            callee,
+            path: field_path.clone(),
+        })?;
     }
 
     if claims_fin {
@@ -139,6 +180,7 @@ pub(crate) fn lower_local_binding(
             local: local_id,
             symbol: symbol_id,
             callee,
+            path: Vec::new(),
         })?;
     }
 

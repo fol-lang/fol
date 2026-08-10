@@ -269,7 +269,13 @@ pub(crate) fn lower_body_sequence(
                 false,
             )?;
             lower_mutex_unlocks(cursor, deferred.mutex_guards)?;
-            lower_finalizations(typed_package, cursor, deferred.finalizations)?;
+            lower_finalizations(
+                typed_package,
+                type_table,
+                decl_index,
+                cursor,
+                deferred.finalizations,
+            )?;
             lower_lexical_drops(cursor, deferred.lexical_drops)?;
         }
     }
@@ -365,7 +371,58 @@ fn register_fin_params(
             local: param,
             symbol,
             callee,
+            path: Vec::new(),
         })?;
+    }
+
+    // A parameter that merely *holds* `fin` values finalizes them through their
+    // field paths, exactly as a local does. Ownership moved with the value, so
+    // the callee is the one that must release them.
+    let holder_params: Vec<(crate::ids::LoweredLocalId, fol_resolver::SymbolId)> = cursor
+        .routine
+        .params
+        .iter()
+        .skip(param_start)
+        .filter_map(|param| {
+            let symbol = cursor
+                .routine
+                .local_symbols
+                .iter()
+                .find_map(|(symbol, local)| (*local == *param).then_some(*symbol))?;
+            Some((*param, symbol))
+        })
+        .collect();
+    for (param, symbol) in holder_params {
+        let Some(checked) = typed_package
+            .program
+            .typed_symbol(symbol)
+            .and_then(|symbol| symbol.declared_type)
+        else {
+            continue;
+        };
+        if typed_package.program.type_resolves_to_fin(checked) {
+            continue;
+        }
+        for (field_path, field_type) in super::fin_paths::fin_field_paths(typed_package, checked) {
+            let Some(lowered_field) = checked_type_map.get(&field_type) else {
+                continue;
+            };
+            let (_callee_identity, callee) = super::calls::resolve_method_target(
+                typed_package,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                "finalize",
+                *lowered_field,
+                None,
+            )?;
+            cursor.register_finalization(super::cursor::FinalizeEntry {
+                local: param,
+                symbol,
+                callee,
+                path: field_path,
+            })?;
+        }
     }
     Ok(())
 }
@@ -377,6 +434,8 @@ fn register_fin_params(
 /// would run the finalizer on a stale value.
 fn lower_finalizations(
     typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    decl_index: &WorkspaceDeclIndex,
     cursor: &mut RoutineCursor<'_>,
     finalizations: Vec<super::cursor::FinalizeEntry>,
 ) -> Result<(), LoweringError> {
@@ -397,11 +456,40 @@ fn lower_finalizations(
         {
             continue;
         }
+        // A field path walks from the holder down to the `fin` value, reading
+        // each step into a temp; the last one is what the finalizer consumes.
+        let mut target = entry.local;
+        for field in &entry.path {
+            let base_type = cursor
+                .routine
+                .locals
+                .get(target)
+                .and_then(|local| local.type_id);
+            let field_type = base_type
+                .and_then(|base_type| {
+                    super::containers::field_access_type(type_table, decl_index, base_type, field)
+                })
+                .ok_or_else(|| {
+                    LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!("finalizer path field '.{field}' does not map to a lowered record field"),
+                    )
+                })?;
+            let step = cursor.allocate_local(field_type, None);
+            cursor.push_instr(
+                Some(step),
+                crate::LoweredInstrKind::FieldAccess {
+                    base: target,
+                    field: field.clone(),
+                },
+            )?;
+            target = step;
+        }
         cursor.push_instr(
             None,
             crate::LoweredInstrKind::Call {
                 callee: entry.callee,
-                args: vec![entry.local],
+                args: vec![target],
                 error_type: None,
             },
         )?;
@@ -504,7 +592,13 @@ fn lower_all_active_defers(
             break;
         }
         lower_mutex_unlocks(cursor, scope.mutex_guards)?;
-        lower_finalizations(typed_package, cursor, scope.finalizations)?;
+        lower_finalizations(
+            typed_package,
+            type_table,
+            decl_index,
+            cursor,
+            scope.finalizations,
+        )?;
         lower_lexical_drops(cursor, scope.lexical_drops)?;
     }
     Ok(())
@@ -537,7 +631,13 @@ fn lower_defers_until_loop_exit(
             return Ok(());
         }
         lower_mutex_unlocks(cursor, scope.mutex_guards)?;
-        lower_finalizations(typed_package, cursor, scope.finalizations)?;
+        lower_finalizations(
+            typed_package,
+            type_table,
+            decl_index,
+            cursor,
+            scope.finalizations,
+        )?;
         lower_lexical_drops(cursor, scope.lexical_drops)?;
     }
     Ok(())

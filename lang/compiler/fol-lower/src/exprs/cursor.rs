@@ -56,6 +56,12 @@ pub(crate) struct FinalizeEntry {
     pub local: LoweredLocalId,
     pub symbol: SymbolId,
     pub callee: LoweredRoutineId,
+    /// Field names from the local down to the `fin` value, empty when the local
+    /// *is* the value. A record holding a `fin` field is finalized through this
+    /// path at scope exit: the field is read out and consumed, which is why the
+    /// holder's structural lexical drop is suppressed (the partial move makes a
+    /// whole-value drop invalid).
+    pub path: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

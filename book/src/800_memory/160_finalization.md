@@ -50,18 +50,34 @@ fun[] main(): int = {
 
 ## What can own a `fin` value
 
-A finalizer runs only for a value that a binding, a parameter or a `dfr`/`edf`
-capture owns directly. A `fin` value nested inside another value — a record
-field, a `vec`/`arr`/`seq` element, a `set`/`map` member, an `opt` or `err`
-payload — has no such owner, so nothing would ever call its finalizer. The
-compiler rejects those positions instead of skipping the cleanup silently:
+A finalizer runs for a value that a binding, a parameter or a `dfr`/`edf`
+capture owns — directly, or through a record field. A record names what it
+holds, so at scope exit its owner walks the field path and runs each contained
+finalizer, deepest field first:
+
+```fol
+typ Pair: rec = { left: File, right: File };
+
+var pair: Pair = { left = { descriptor = 1 }, right = { descriptor = 2 } };
+// at scope exit: right is finalized, then left
+```
+
+Ownership still decides who finalizes. Moving the holder moves the duty with it,
+so the receiving routine releases the fields at *its* scope exit and the
+original owner does not.
+
+A `fin` value in a *container* — a `vec`/`arr`/`seq` element, a `set`/`map`
+member, an `opt` or `err` payload, an entry variant, a generic argument — has no
+such name: releasing it would need per-element cleanup at scope exit, which the
+compiler cannot express today. Those positions are rejected rather than skipping
+the cleanup silently:
 
 ```fol
 var handles: vec[File] = { { descriptor = 3 } };
-// rejected: a nested 'fin' value would never be finalized
+// rejected: a 'fin' value in a container would never be finalized
 ```
 
-Give each `fin` value its own binding and transfer it with `[mov]`.
+Give such a value its own binding and transfer it with `[mov]`.
 
 ## Early finalization
 
