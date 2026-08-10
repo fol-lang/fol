@@ -120,6 +120,21 @@ pub enum LoweredInstrKind {
         field: String,
         value: LoweredLocalId,
     },
+    /// Replace one element of a positional container in place, e.g.
+    /// `cells[i] = 7` or `holder.cells[i] = 7`. `base` is the binding's own
+    /// local (not a cloned copy) so the store is observed by later reads, and
+    /// `field` names the container when it is held in a record field.
+    ///
+    /// Only `arr[T,N]` and `vec[T]` reach here; typecheck rejects the other
+    /// families. Containers are therefore no longer immutable once built, so a
+    /// later pass must not memoize or common-subexpression an `IndexAccess`
+    /// result across one of these.
+    StoreIndex {
+        base: LoweredLocalId,
+        field: Option<String>,
+        index: LoweredLocalId,
+        value: LoweredLocalId,
+    },
     Call {
         callee: LoweredRoutineId,
         args: Vec<LoweredLocalId>,

@@ -1002,6 +1002,24 @@ fn lower_expression_observed_inner(
             elements,
         ),
         AstNode::Assignment { target, value } => {
+            // An element store needs the index lowered and the value lowered
+            // against the ELEMENT type, neither of which the identifier/field
+            // path below can express, so it branches out here.
+            if let AstNode::IndexAccess { container, index } = target.as_ref() {
+                return super::helpers::lower_index_assignment_target(
+                    typed_package,
+                    type_table,
+                    checked_type_map,
+                    current_identity,
+                    decl_index,
+                    cursor,
+                    source_unit_id,
+                    scope_id,
+                    container,
+                    index,
+                    value,
+                );
+            }
             let target_symbol = match target.as_ref() {
                 AstNode::Identifier { syntax_id, name } => Some(resolve_reference_symbol(
                     typed_package,

@@ -13,6 +13,13 @@ Current boundary:
   compiler surface
 - the `axi[...]` axiom container and `.add(...)` mutation shown later are not
   implemented; they are later design work, not current behavior
+- element assignment (`c[i] = v`) IS implemented, for `arr[...]` and `vec[...]`
+  only, on a mutable binding or on one field of a record reached through a
+  `[mut, bor]` receiver. It replaces an element; it never makes one appear, so
+  containers still cannot grow. `map` (a write would have to add a key),
+  `set[...]` (each position has its own type) and `seq[...]` (a persistent
+  linked list) each reject it with their own message, as do `fin` and move-only
+  element types, whose displaced value could not be accounted for
 - the `set[...]` tuple-member form typechecks, but only single-member sets are
   executable today; those homogeneous runtime sets support `.len(...)`,
   deterministic positional lookup, and ordinary iteration

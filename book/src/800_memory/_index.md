@@ -37,6 +37,7 @@ Positive:
 
 - `examples/mem_owner_reinitialize_m1`
 - `examples/mem_set_observation_m1`
+- `examples/mem_index_assign_m1`
 - `examples/mem_when_bool_gate_m1`
 - `examples/mem_linked_list_m1`
 - `examples/mem_tree_m1`

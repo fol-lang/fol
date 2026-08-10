@@ -43,6 +43,38 @@ fn observed_storage_reference(
     (type_id, reference)
 }
 
+/// The `&mut` a store site writes a local through. Mirrors
+/// `observed_storage_reference`, but refuses a shared loan: writing through one
+/// would emit `&mut` on a `&T` and fail in rustc rather than in FOL.
+fn mutable_storage_reference(
+    type_table: &LoweredTypeTable,
+    mut type_id: LoweredTypeId,
+    name: &str,
+) -> BackendResult<(LoweredTypeId, String)> {
+    let mut dereferences = 0usize;
+    loop {
+        match type_table.get(type_id) {
+            Some(LoweredType::Borrowed { mutable: false, .. }) => {
+                return Err(BackendError::new(
+                    BackendErrorKind::InvalidInput,
+                    "indexed assignment cannot write through a shared borrow",
+                ))
+            }
+            Some(LoweredType::Owned { inner } | LoweredType::Borrowed { inner, .. }) => {
+                type_id = *inner;
+                dereferences += 1;
+            }
+            _ => break,
+        }
+    }
+    let reference = if dereferences == 0 {
+        format!("&mut {name}")
+    } else {
+        format!("&mut {}{name}", "*".repeat(dereferences))
+    };
+    Ok((type_id, reference))
+}
+
 /// The name an operator site reads a local through. Rust has no arithmetic,
 /// comparison or cast on `&T`, so a borrowed slot is peeled down to the value
 /// it points at.
@@ -344,6 +376,68 @@ pub fn render_core_instruction_in_workspace(
         LoweredInstrKind::MutexUnlock { mutex } => {
             let guard = render_mutex_guard_name(*mutex);
             Ok(format!("drop({guard}.take());"))
+        }
+        LoweredInstrKind::StoreIndex {
+            base,
+            field,
+            index,
+            value,
+        } => {
+            let base_id = *base;
+            let base_name = render_local_name(package_identity, routine, base_id)?;
+            let base_type = routine
+                .locals
+                .get(base_id)
+                .and_then(|local| local.type_id)
+                .ok_or_else(|| {
+                    BackendError::new(
+                        BackendErrorKind::InvalidInput,
+                        "indexed assignment base does not retain a lowered type",
+                    )
+                })?;
+            // A container held in a record field is reached through the field;
+            // the base itself is the record.
+            let (container_type, container_ref) = match field {
+                Some(field) => {
+                    let (record_type, _) =
+                        observed_storage_reference(type_table, base_type, &base_name);
+                    let Some(LoweredType::Record { fields, .. }) = type_table.get(record_type)
+                    else {
+                        return Err(BackendError::new(
+                            BackendErrorKind::InvalidInput,
+                            "indexed assignment through a field requires a record base",
+                        ));
+                    };
+                    let field_type = fields.get(field).copied().ok_or_else(|| {
+                        BackendError::new(
+                            BackendErrorKind::InvalidInput,
+                            format!("indexed assignment names unknown field '{field}'"),
+                        )
+                    })?;
+                    let place = format!("{base_name}.{}", crate::escape_rust_field_ident(field));
+                    mutable_storage_reference(type_table, field_type, &place)?
+                }
+                None => mutable_storage_reference(type_table, base_type, &base_name)?,
+            };
+            let index_name = render_local_name(package_identity, routine, *index)?;
+            let value = render_transfer_expr(type_table, package_identity, routine, *value)?;
+            let call = match type_table.get(container_type) {
+                Some(LoweredType::Array { .. }) => {
+                    format!("rt::store_array({container_ref}, {index_name}.clone(), {value})")
+                }
+                Some(LoweredType::Vector { .. }) => {
+                    format!("rt::store_vec({container_ref}, {index_name}.clone(), {value})")
+                }
+                other => {
+                    return Err(BackendError::new(
+                        BackendErrorKind::InvalidInput,
+                        format!(
+                        "indexed assignment expected an array or vector local but found {other:?}"
+                    ),
+                    ))
+                }
+            };
+            Ok(format!("rt::require({call});"))
         }
         LoweredInstrKind::StoreMutexValue { mutex, value } => {
             let guard = render_mutex_guard_name(*mutex);

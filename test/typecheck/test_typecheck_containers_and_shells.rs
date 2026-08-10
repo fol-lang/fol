@@ -1003,3 +1003,129 @@ fn coercion_policy_rejects_implicit_int_float_cross_family_conversions() {
         "Expected a report coercion diagnostic, got: {errors:?}"
     );
 }
+
+#[test]
+fn indexed_element_assignment_is_accepted_for_positional_containers() {
+    for (shape, source) in [
+        (
+            "array local",
+            "fun[] main(): int = {\n\
+                 var[mut] cells: arr[int, 4] = { 0, 0, 0, 0 };\n\
+                 cells[2] = 7;\n\
+                 return cells[2];\n\
+             };\n",
+        ),
+        (
+            "vector local",
+            "fun[] main(): str = {\n\
+                 var[mut] names: vec[str] = { \"a\", \"b\" };\n\
+                 names[1] = \"beta\";\n\
+                 return names[1];\n\
+             };\n",
+        ),
+        (
+            "container in a field, through a mutable receiver",
+            "typ Machine: rec = { ram: arr[int, 4] };\n\
+             pro[exp] (Machine[mut, bor]) poke(slot: int, value: int): non = {\n\
+                 self.ram[slot] = value;\n\
+                 return;\n\
+             };\n\
+             fun[] main(): int = {\n\
+                 var[mut] m: Machine = { ram = { 0, 0, 0, 0 } };\n\
+                 m.poke(1, 9);\n\
+                 return m.ram[1];\n\
+             };\n",
+        ),
+    ] {
+        // Panics with the diagnostics if the shape does not typecheck.
+        let typed = typecheck_fixture_folder(&[("main.fol", source)]);
+        assert!(
+            typed
+                .typed_node(find_named_routine_syntax_id(&typed, "main"))
+                .is_some(),
+            "{shape} must typecheck"
+        );
+    }
+}
+
+#[test]
+fn indexed_element_assignment_rejects_the_shapes_it_cannot_honour() {
+    // Each rejection exists for its own reason, so each carries its own text —
+    // a shared message would hide which rule was hit.
+    for (shape, needle, source) in [
+        (
+            "immutable binding",
+            "immutable binding",
+            "fun[] main(): int = {\n\
+                 var[imu] cells: arr[int, 4] = { 0, 0, 0, 0 };\n\
+                 cells[0] = 1;\n\
+                 return 0;\n\
+             };\n",
+        ),
+        (
+            "map is growth, not replacement",
+            "container growth",
+            "fun[] main(): int = {\n\
+                 var[mut] ages: map[str, int] = { {\"ada\", 1} };\n\
+                 ages[\"ada\"] = 2;\n\
+                 return 0;\n\
+             };\n",
+        ),
+        (
+            "seq is a persistent list",
+            "persistent linked-list",
+            "fun[] main(): int = {\n\
+                 var[mut] items: seq[int] = { 1, 2 };\n\
+                 items[0] = 9;\n\
+                 return 0;\n\
+             };\n",
+        ),
+        (
+            "set is the tuple-member form",
+            "tuple-member form",
+            "fun[] main(): int = {\n\
+                 var[mut] members: set[int] = { 1 };\n\
+                 members[0] = 9;\n\
+                 return 0;\n\
+             };\n",
+        ),
+        (
+            "a fin element would skip its finalizer",
+            "finalized by a scope-exit walk",
+            "typ Handle()(fin): rec = { id: int };\n\
+             pro (Handle)finalize(): non = { return; };\n\
+             fun[] main(): int = {\n\
+                 var[mut] slots: arr[Handle, 2] = { { id = 1 }, { id = 2 } };\n\
+                 slots[0] = { id = 3 };\n\
+                 return 0;\n\
+             };\n",
+        ),
+        (
+            "a move-only element would be dropped",
+            "move-only element",
+            "fun[] main(): int = {\n\
+                 var seed: int = 1;\n\
+                 var[mut] links: arr[ptr[int], 2] = { [ref]seed, [ref]seed };\n\
+                 links[0] = [ref]seed;\n\
+                 return 0;\n\
+             };\n",
+        ),
+        (
+            "more than one field hop",
+            "nested indexed assignment",
+            "typ Inner: rec = { ram: arr[int, 2] };\n\
+             typ Outer: rec = { inner: Inner };\n\
+             fun[] main(): int = {\n\
+                 var[mut] o: Outer = { inner = { ram = { 0, 0 } } };\n\
+                 o.inner.ram[0] = 1;\n\
+                 return 0;\n\
+             };\n",
+        ),
+    ] {
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source)]);
+        assert!(
+            errors.iter().any(|error| error.message().contains(needle)),
+            "{shape} should be rejected with '{needle}': {errors:#?}"
+        );
+    }
+}

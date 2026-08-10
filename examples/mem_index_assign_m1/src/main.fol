@@ -1,0 +1,44 @@
+// `cells[i] = value` replaces one element of a positional container in place.
+// Only `arr[T,N]` and `vec[T]` allow it: a `map` write would have to make a key
+// appear, which is growth; `set[...]` gives each position its own type; and
+// `seq[T]` is the persistent linked list, whose contract is tail sharing.
+//
+// The container may be the binding itself, or one field of a record reached
+// through a `[mut, bor]` receiver — which is how a routine mutates state it
+// does not own, since only a receiver may take a mutable loan.
+
+use std: pkg = {"std"};
+
+typ Tape: rec = {
+    cells: arr[int, 6],
+    writes: int,
+};
+
+pro[exp] (Tape[mut, bor]) poke(slot: int, value: int): non = {
+    self.cells[slot] = value;
+    self.writes = self.writes + 1;
+    return;
+};
+
+fun[] main(): int = {
+    var[mut] tape: Tape = { cells = { 0, 0, 0, 0, 0, 0 }, writes = 0 };
+    var[mut] slot: int = 0;
+    loop (slot < 6) {
+        tape.poke(slot, slot * slot);
+        slot = slot + 1;
+    };
+    // A later write wins over an earlier one at the same slot.
+    tape.poke(2, 99);
+
+    var[mut] total: int = 0;
+    var[mut] read: int = 0;
+    loop (read < 6) {
+        total = total + tape.cells[read];
+        read = read + 1;
+    };
+
+    std::io::echo_int(tape.cells[2]);
+    std::io::echo_int(total);
+    std::io::echo_int(tape.writes);
+    return 0;
+};

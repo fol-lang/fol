@@ -47,6 +47,7 @@ pub(crate) type V3NavigationProbe = (&'static str, &'static str, usize, Option<u
 pub(crate) const V3_MEM_M1_POSITIVES: &[V3PositiveExample] = &[
     ("examples/mem_owner_reinitialize_m1", None),
     ("examples/mem_set_observation_m1", None),
+    ("examples/mem_index_assign_m1", Some("99\n150\n7\n")),
     ("examples/mem_when_bool_gate_m1", None),
     ("examples/mem_linked_list_m1", None),
     ("examples/mem_tree_m1", None),
@@ -892,6 +893,7 @@ pub(crate) const V3_FAILURE_GROUPS: &[&[V3FailureExample]] = &[
 pub(crate) const V3_NAVIGATION_PROBES: &[V3NavigationProbe] = &[
     ("examples/mem_owner_reinitialize_m1", "pointer", 4, Some(7)),
     ("examples/mem_set_observation_m1", "values", 2, Some(1)),
+    ("examples/mem_index_assign_m1", "tape", 2, Some(23)),
     ("examples/mem_when_bool_gate_m1", "gated", 2, Some(1)),
     ("examples/mem_linked_list_m1", "head", 2, Some(7)),
     ("examples/mem_tree_m1", "root", 2, Some(9)),

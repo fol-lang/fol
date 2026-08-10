@@ -207,6 +207,16 @@ pub(super) fn verify_instruction(
         | crate::LoweredInstrKind::MutexUnlock { mutex } => {
             verify_local_reference(routine, instr.id.0, "mutex", *mutex, errors);
         }
+        crate::LoweredInstrKind::StoreIndex {
+            base,
+            field: _,
+            index,
+            value,
+        } => {
+            verify_local_reference(routine, instr.id.0, "index store base", *base, errors);
+            verify_local_reference(routine, instr.id.0, "index store index", *index, errors);
+            verify_local_reference(routine, instr.id.0, "index store value", *value, errors);
+        }
         crate::LoweredInstrKind::StoreMutexValue { mutex, value } => {
             verify_local_reference(routine, instr.id.0, "mutex", *mutex, errors);
             verify_local_reference(routine, instr.id.0, "mutex value", *value, errors);

@@ -441,6 +441,97 @@ pub(crate) fn lower_assignment_target(
 
 /// Lower `<binding>.<field> = <value>` into a `StoreField` against the binding's
 /// own local. Typecheck has already verified the binding is a mutable record.
+/// Lower `container[index] = value` into a `StoreIndex`.
+///
+/// Kept apart from the identifier/field path because it needs two things that
+/// path cannot give: the index has to be lowered as its own operand, and the
+/// value has to be lowered against the ELEMENT type so a bare literal picks up
+/// the right one (a `vec[flt]` taking `1` would otherwise lower as an int).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn lower_index_assignment_target(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    current_identity: &PackageIdentity,
+    decl_index: &WorkspaceDeclIndex,
+    cursor: &mut RoutineCursor<'_>,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    container: &AstNode,
+    index: &AstNode,
+    value: &AstNode,
+) -> Result<LoweredValue, LoweringError> {
+    // The binding's OWN local, not a loaded copy -- a store into a copy would
+    // be observed by nobody. The read path takes the same shortcut.
+    let (base_node, field) = match container {
+        AstNode::FieldAccess { object, field } => (object.as_ref(), Some(field.clone())),
+        other => (other, None),
+    };
+    let Some(base) =
+        super::expressions::direct_local_identifier_value(typed_package, cursor, base_node)
+    else {
+        return Err(LoweringError::with_kind(
+            LoweringErrorKind::Unsupported,
+            "indexed assignment requires a local container binding",
+        ));
+    };
+    // Through a field, the container is the field's type, not the record's.
+    let container_type = match &field {
+        None => base.type_id,
+        Some(field) => {
+            super::containers::field_access_type(type_table, decl_index, base.type_id, field)
+                .ok_or_else(|| {
+                    LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!("indexed assignment names unknown field '{field}'"),
+                    )
+                })?
+        }
+    };
+    let element_type = super::containers::index_access_type(type_table, container_type, index)
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                "indexed assignment target does not resolve to a container element type",
+            )
+        })?;
+    let index_expected = super::containers::index_key_type(type_table, container_type);
+    let index_value = lower_expression_expected(
+        typed_package,
+        type_table,
+        checked_type_map,
+        current_identity,
+        decl_index,
+        cursor,
+        source_unit_id,
+        scope_id,
+        index_expected,
+        index,
+    )?;
+    let lowered_value = lower_expression_expected(
+        typed_package,
+        type_table,
+        checked_type_map,
+        current_identity,
+        decl_index,
+        cursor,
+        source_unit_id,
+        scope_id,
+        Some(element_type),
+        value,
+    )?;
+    cursor.push_instr(
+        None,
+        LoweredInstrKind::StoreIndex {
+            base: base.local_id,
+            field,
+            index: index_value.local_id,
+            value: lowered_value.local_id,
+        },
+    )?;
+    Ok(lowered_value)
+}
+
 fn lower_field_assignment_target(
     typed_package: &fol_typecheck::TypedPackage,
     _current_identity: &PackageIdentity,

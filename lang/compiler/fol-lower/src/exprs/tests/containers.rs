@@ -657,3 +657,87 @@ fn rejected_when_cases_keep_the_current_contract_boundary() {
         assert!(error.message().contains("use select for channels"));
     }
 }
+
+#[test]
+fn indexed_assignment_stores_into_the_bindings_own_local() {
+    // The store has to target the local the binding lives in. Lowering the
+    // container as an ordinary expression would load a COPY, and the write
+    // would then be observed by nobody -- the failure would be silent.
+    let workspace = super::lower_fixture_workspace(
+        "fun[] main(): int = {\n\
+             var[mut] cells: arr[int, 4] = { 0, 0, 0, 0 };\n\
+             cells[1] = 7;\n\
+             return cells[1];\n\
+         };\n",
+    );
+    let routine = workspace
+        .entry_package()
+        .routine_decls
+        .values()
+        .find(|routine| routine.name == "main")
+        .expect("main should lower");
+
+    let stores = routine
+        .instructions
+        .iter()
+        .filter_map(|instruction| match &instruction.kind {
+            LoweredInstrKind::StoreIndex { base, field, .. } => Some((*base, field.clone())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(stores.len(), 1, "one element write means one StoreIndex");
+    let (base, field) = &stores[0];
+    assert!(field.is_none(), "a bare container is not reached by field");
+
+    let container_local = routine
+        .locals
+        .iter_with_ids()
+        .find(|(_, local)| local.name.as_deref() == Some("cells"))
+        .map(|(local_id, _)| local_id)
+        .expect("the container binding should have a named local");
+    assert_eq!(
+        *base, container_local,
+        "StoreIndex must write the binding's own local, not a loaded copy"
+    );
+}
+
+#[test]
+fn indexed_assignment_lowers_its_value_against_the_element_type() {
+    // A bare `1` in a `vec[flt]` has to lower as a float. Without the element
+    // type as its expectation it would lower as an int and fail in rustc.
+    let workspace = super::lower_fixture_workspace(
+        "fun[] main(): int = {\n\
+             var[mut] ratios: vec[flt] = { 0.5, 1.5 };\n\
+             ratios[0] = 2.5;\n\
+             return 0;\n\
+         };\n",
+    );
+    let routine = workspace
+        .entry_package()
+        .routine_decls
+        .values()
+        .find(|routine| routine.name == "main")
+        .expect("main should lower");
+    let store = routine
+        .instructions
+        .iter()
+        .find_map(|instruction| match &instruction.kind {
+            LoweredInstrKind::StoreIndex { value, .. } => Some(*value),
+            _ => None,
+        })
+        .expect("the write should lower to a StoreIndex");
+    let value_type = routine
+        .locals
+        .get(store)
+        .and_then(|local| local.type_id)
+        .expect("the stored value keeps a lowered type");
+    assert!(
+        matches!(
+            workspace.type_table().get(value_type),
+            Some(crate::LoweredType::Builtin(
+                crate::LoweredBuiltinType::Float
+            ))
+        ),
+        "the value must take the element type, not the literal's default"
+    );
+}

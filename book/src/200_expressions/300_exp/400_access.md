@@ -8,9 +8,12 @@ Current boundary:
 - bounded forward slicing (`c[1:3]`, `c[:3]`, and `c[1:]`) is implemented for
   `vec[...]` and `seq[...]`; fixed-size array slices still need an explicit
   runtime-sized result type
-- reverse slicing (`c[::]`), availability checks (`v:[1]`), in-place
-  assignment (`c[x => Y]`), and the whole axiom (`axi`) access family are later
-  design work, not part of the current compiler surface
+- single-element assignment (`c[i] = v`) is implemented for `arr[...]` and
+  `vec[...]`; see the container chapter for which containers and bindings
+  qualify
+- reverse slicing (`c[::]`), availability checks (`v:[1]`), the bulk in-place
+  form (`c[x => Y]`), slice assignment, and the whole axiom (`axi`) access
+  family are later design work, not part of the current compiler surface
 - the sections below are marked where they cross that line
 
 There are four access expressions:

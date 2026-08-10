@@ -63,6 +63,26 @@ pub fn index_vec<T>(values: &FolVec<T>, index: FolInt) -> Result<&T, RuntimeErro
     Ok(&values.as_slice()[index])
 }
 
+/// Replace one element of a fixed array in place. Bounds behaviour is the
+/// reader's, by construction -- both go through `normalize_index`, so a bad
+/// write faults with exactly the message a bad read would.
+pub fn store_array<T, const N: usize>(
+    values: &mut FolArray<T, N>,
+    index: FolInt,
+    value: T,
+) -> Result<(), RuntimeError> {
+    let index = normalize_index(index, values.len())?;
+    values[index] = value;
+    Ok(())
+}
+
+/// Replace one element of a vector in place. See `store_array`.
+pub fn store_vec<T>(values: &mut FolVec<T>, index: FolInt, value: T) -> Result<(), RuntimeError> {
+    let index = normalize_index(index, values.len())?;
+    values.as_mut_slice()[index] = value;
+    Ok(())
+}
+
 pub fn index_seq<T>(values: &FolSeq<T>, index: FolInt) -> Result<&T, RuntimeError> {
     let index = normalize_index(index, values.len())?;
     Ok(&values.as_slice()[index])
@@ -166,7 +186,7 @@ pub fn module_name() -> &'static str {
 mod tests {
     use super::{
         index_array, index_seq, index_set, index_vec, lookup_map, render_array, render_map,
-        render_seq, render_set, render_vec, slice_seq, slice_vec, FolArray,
+        render_seq, render_set, render_vec, slice_seq, slice_vec, store_array, store_vec, FolArray,
     };
     use crate::error::RuntimeErrorKind;
     use crate::memo::{FolMap, FolSeq, FolSet, FolVec};
@@ -241,6 +261,31 @@ mod tests {
         assert_eq!(
             failure.message(),
             "index out of bounds: the len is 3 but the index is -1"
+        );
+    }
+
+    #[test]
+    fn store_helpers_replace_elements_and_fault_exactly_like_reads() {
+        let mut array: FolArray<i64, 3> = [10, 20, 30];
+        let mut vector = FolVec::from_items(vec![10, 20, 30]);
+
+        assert_eq!(store_array(&mut array, 1, 99), Ok(()));
+        assert_eq!(index_array(&array, 1), Ok(&99));
+        assert_eq!(store_vec(&mut vector, 2, 77), Ok(()));
+        assert_eq!(index_vec(&vector, 2), Ok(&77));
+
+        // A bad write must be indistinguishable from a bad read: same kind,
+        // same message, for both the past-the-end and the negative case.
+        for index in [3, -1] {
+            let write = store_array(&mut array, index, 0).expect_err("out of bounds");
+            let read = index_array(&array, index).expect_err("out of bounds");
+            assert_eq!(write.kind(), RuntimeErrorKind::InvalidInput);
+            assert_eq!(write.message(), read.message());
+        }
+        let write = store_vec(&mut vector, 3, 0).expect_err("out of bounds");
+        assert_eq!(
+            write.message(),
+            "index out of bounds: the len is 3 but the index is 3"
         );
     }
 

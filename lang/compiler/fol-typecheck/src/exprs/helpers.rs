@@ -1320,6 +1320,181 @@ pub(crate) fn ensure_assignable_target(
             }
             Ok(())
         }
+        // Element assignment into a positional container, e.g. `cells[i] = 7`.
+        // Only `arr[T,N]` and `vec[T]` are positional stores: `map` needs a key
+        // to appear, which is growth; `set[...]` is the tuple-member form, where
+        // each position has its own type; and `seq[T]` is a persistent linked
+        // list whose contract is tail sharing, not in-place mutation.
+        AstNode::IndexAccess {
+            container,
+            index: _,
+        } => {
+            // Either the binding IS the container (`cells[i]`) or it holds it in
+            // one field (`self.ram[i]`). One hop only: a free routine cannot take
+            // a `[mut, bor]` parameter, so real state lives in a record reached
+            // through its receiver, and that is the case worth supporting.
+            let (binding_name, through_field) = match strip_comments(container) {
+                AstNode::Identifier { name, .. } => (name.clone(), None),
+                AstNode::QualifiedIdentifier { path } => (path.joined(), None),
+                AstNode::FieldAccess { object, field } => match strip_comments(object) {
+                    AstNode::Identifier { name, .. } => (name.clone(), Some(field.clone())),
+                    AstNode::QualifiedIdentifier { path } => (path.joined(), Some(field.clone())),
+                    _ => {
+                        return Err(TypecheckError::new(
+                            TypecheckErrorKind::Unsupported,
+                            "nested indexed assignment targets are not supported; \
+                             index a mutable container binding, or one of its fields, directly",
+                        ))
+                    }
+                },
+                _ => {
+                    return Err(TypecheckError::new(
+                        TypecheckErrorKind::Unsupported,
+                        "nested indexed assignment targets are not supported; \
+                         index a mutable container binding directly",
+                    ))
+                }
+            };
+            if !binding_is_mutable_by_name(typed, resolved, source_unit_id, scope_id, &binding_name)
+            {
+                return Err(TypecheckError::new(
+                    TypecheckErrorKind::InvalidInput,
+                    format!(
+                        "cannot assign into an element of immutable binding '{binding_name}'; \
+                         declare it with 'var[mut]' to allow element assignment"
+                    ),
+                ));
+            }
+            let symbol = find_symbol_in_scope_chain(
+                resolved,
+                source_unit_id,
+                scope_id,
+                &binding_name,
+                SymbolKind::ValueBinding,
+            )
+            .or_else(|| {
+                find_symbol_in_scope_chain(
+                    resolved,
+                    source_unit_id,
+                    scope_id,
+                    &binding_name,
+                    SymbolKind::Parameter,
+                )
+            });
+            // A `mux[T]` binding is a managed mutex, not the container itself;
+            // its elements are reached through a guard, not through the handle.
+            if symbol
+                .and_then(|symbol| typed.typed_symbol(symbol))
+                .is_some_and(|symbol| symbol.is_mutex)
+            {
+                return Err(TypecheckError::new(
+                    TypecheckErrorKind::Unsupported,
+                    format!(
+                        "cannot assign into an element of 'mux[T]' binding '{binding_name}'; \
+                         lock it first and assign through the guard"
+                    ),
+                ));
+            }
+            let declared = symbol
+                .and_then(|symbol| typed.typed_symbol(symbol))
+                .and_then(|symbol| symbol.declared_type);
+            // A `var[mut]` binding of a shared loan is a mutable NAME for an
+            // immutable view; the loan is what decides.
+            if let Some(CheckedType::Borrowed { mutable: false, .. }) =
+                declared.and_then(|type_id| typed.type_table().get(type_id))
+            {
+                return Err(with_node_origin(
+                    resolved,
+                    target,
+                    TypecheckErrorKind::BorrowMutability,
+                    format!(
+                        "cannot assign into an element through the shared loan '{binding_name}'; \
+                         a '[bor]' view is read-only"
+                    ),
+                ));
+            }
+            let Some(binding_type) = declared.map(|type_id| apparent_type_id(typed, type_id))
+            else {
+                return Err(TypecheckError::new(
+                    TypecheckErrorKind::InvalidInput,
+                    format!("indexed assignment target '{binding_name}' does not retain a type"),
+                ));
+            };
+            let container_type = match &through_field {
+                None => binding_type?,
+                Some(field) => {
+                    let Some(CheckedType::Record { fields }) =
+                        typed.type_table().get(binding_type?)
+                    else {
+                        return Err(TypecheckError::new(
+                            TypecheckErrorKind::InvalidInput,
+                            format!(
+                                "indexed assignment through '.{field}' requires a record binding"
+                            ),
+                        ));
+                    };
+                    let Some(field_type) = fields.get(field).copied() else {
+                        return Err(TypecheckError::new(
+                            TypecheckErrorKind::InvalidInput,
+                            format!("'{binding_name}' does not expose a field named '{field}'"),
+                        ));
+                    };
+                    apparent_type_id(typed, field_type)?
+                }
+            };
+            let element_type =
+                match typed.type_table().get(container_type) {
+                    Some(CheckedType::Array { element_type, .. })
+                    | Some(CheckedType::Vector { element_type }) => *element_type,
+                    Some(CheckedType::Sequence { .. }) => {
+                        return Err(TypecheckError::new(
+                            TypecheckErrorKind::Unsupported,
+                            "'seq[T]' is the persistent linked-list family; positional in-place \
+                         writes are not part of its contract — use 'vec[T]'",
+                        ))
+                    }
+                    Some(CheckedType::Map { .. }) => return Err(TypecheckError::new(
+                        TypecheckErrorKind::Unsupported,
+                        "map elements cannot be assigned; adding or replacing a key is container \
+                         growth, which is not implemented",
+                    )),
+                    Some(CheckedType::Set { .. }) => {
+                        return Err(TypecheckError::new(
+                            TypecheckErrorKind::Unsupported,
+                            "'set[...]' is the tuple-member form, where each position has its own \
+                         type; positional assignment into a set is not defined",
+                        ))
+                    }
+                    _ => {
+                        return Err(TypecheckError::new(
+                            TypecheckErrorKind::InvalidInput,
+                            format!(
+                                "indexed assignment requires an 'arr[T,N]' or 'vec[T]' binding, \
+                             but '{binding_name}' is not one"
+                            ),
+                        ))
+                    }
+                };
+            // A container's `fin` elements are finalized by a scope-exit walk,
+            // so an element replaced in place would never have its finalizer
+            // run -- the source would read as if the resource was released.
+            if typed.type_resolves_to_fin(element_type) {
+                return Err(TypecheckError::new(
+                    TypecheckErrorKind::Unsupported,
+                    "cannot replace a 'fin' element in place; a container's 'fin' elements are \
+                     finalized by a scope-exit walk, and an overwritten element's finalizer would \
+                     never run — move the value out and rebuild the container",
+                ));
+            }
+            if super::bindings::ownership_moves_on_transfer(typed, element_type) {
+                return Err(TypecheckError::new(
+                    TypecheckErrorKind::Ownership,
+                    "cannot replace a move-only element in place; the displaced value would be \
+                     dropped without a transfer",
+                ));
+            }
+            Ok(())
+        }
         AstNode::UnaryOp {
             op: fol_parser::ast::UnaryOperator::Deref,
             operand,
