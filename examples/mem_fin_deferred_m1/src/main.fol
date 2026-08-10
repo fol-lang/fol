@@ -1,0 +1,23 @@
+// A `[mov]` capture hands a `fin` value to a delayed block's environment, but a
+// delayed block replays in-frame at scope exit, so the value never leaves the
+// routine and its finalizer still runs (V3_MEM §6.1). `main` prints 1, the
+// deferred body prints the captured descriptor (3), and the finalizer runs last
+// and prints its cleanup marker (7).
+
+use std: pkg = {"std"};
+
+typ File()(fin): rec = { descriptor: int };
+
+pro (File)finalize(): non = {
+    var cleaned: int = std::io::echo_int(7);
+    return;
+};
+
+fun[] main(): int = {
+    var handle: File = { descriptor = 3 };
+    dfr[handle[mov]] {
+        std::io::echo_int(handle.descriptor);
+    };
+    std::io::echo_int(1);
+    return 0;
+};

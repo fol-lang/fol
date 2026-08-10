@@ -2646,6 +2646,13 @@ fn apply_deferred_captures(
         match operation {
             OwnershipOption::Borrow => {}
             OwnershipOption::Move => {
+                // A delayed block does not carry the value out of the frame, so
+                // a `fin` capture is still finalized at scope exit — unless the
+                // block body itself moved it onward, which typed first and is
+                // visible here as an already-moved binding.
+                if typed.moved_binding_origin(outer_symbol).is_none() {
+                    typed.mark_binding_deferred_owned(outer_symbol);
+                }
                 if let Some(origin) = node_origin(resolved, node) {
                     typed.mark_binding_moved(outer_symbol, origin);
                 }

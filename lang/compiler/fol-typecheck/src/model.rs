@@ -285,6 +285,11 @@ pub struct TypedProgram {
     deferred_binding_uses: BTreeMap<SymbolId, Vec<DeferredBindingUse>>,
     task_borrowed_bindings: BTreeMap<SymbolId, Vec<TaskBorrow>>,
     bor_env_closures: BTreeSet<SymbolId>,
+    /// Bindings whose ownership was transferred into a `dfr`/`edf` environment
+    /// by a `[mov]` capture. The delayed block runs in-frame at scope exit, so
+    /// the value never leaves the routine: its finalizer still runs here, after
+    /// the block body, even though the binding reads as moved.
+    deferred_owned_bindings: BTreeSet<SymbolId>,
     deferred_transfer_conflict: Option<DeferredTransferConflict>,
     /// Compiler-owned capability standards (`copy`/`clone`/`fin`/`send`/`share`)
     /// claimed by each type declaration via its conformance list. Structural
@@ -681,6 +686,18 @@ impl TypedProgram {
 
     pub(crate) fn is_bor_env_closure(&self, symbol: SymbolId) -> bool {
         self.bor_env_closures.contains(&symbol)
+    }
+
+    /// Record that a `[mov]` capture handed `symbol` to a `dfr`/`edf`
+    /// environment. The block replays in-frame, so lowering keeps the
+    /// scope-exit finalizer for the binding instead of treating the move as a
+    /// transfer to another owner (V3_MEM §6.1).
+    pub(crate) fn mark_binding_deferred_owned(&mut self, symbol: SymbolId) {
+        self.deferred_owned_bindings.insert(symbol);
+    }
+
+    pub fn binding_owned_by_deferred_block(&self, symbol: SymbolId) -> bool {
+        self.deferred_owned_bindings.contains(&symbol)
     }
 
     pub(crate) fn first_task_borrow(&self, symbol: SymbolId) -> Option<&TaskBorrow> {
@@ -1106,6 +1123,7 @@ impl TypedProgram {
             deferred_binding_uses: BTreeMap::new(),
             task_borrowed_bindings: BTreeMap::new(),
             bor_env_closures: BTreeSet::new(),
+            deferred_owned_bindings: BTreeSet::new(),
             deferred_transfer_conflict: None,
             capability_claims: BTreeMap::new(),
             generic_capability_constraints: BTreeMap::new(),

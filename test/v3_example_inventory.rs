@@ -55,6 +55,7 @@ pub(crate) const V3_MEM_M1_POSITIVES: &[V3PositiveExample] = &[
     ("examples/mem_fin_finalizer_m1", Some("3\n7\n")),
     ("examples/mem_fin_move_m1", Some("88\n5\n")),
     ("examples/mem_fin_early_m1", Some("3\n7\n9\n")),
+    ("examples/mem_fin_deferred_m1", Some("1\n3\n7\n")),
 ];
 
 pub(crate) const V3_MEM_M2_POSITIVES: &[V3PositiveExample] = &[
@@ -215,6 +216,13 @@ pub(crate) const V3_MEM_M1_FAILURES: &[V3FailureExample] = &[
         "examples/fail_mem_fin_fun_finalizer_m1",
         "T1001",
         "a custom finalizer 'finalize' must be declared 'pro', not 'fun'",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_fin_nested_m1",
+        "T1002",
+        "holds a 'fin' value nested inside 'vec[File]'",
         false,
         false
     ),
@@ -899,6 +907,7 @@ pub(crate) const V3_NAVIGATION_PROBES: &[V3NavigationProbe] = &[
     ("examples/mem_fin_finalizer_m1", "handle", 2, Some(16)),
     ("examples/mem_fin_move_m1", "handle", 2, Some(19)),
     ("examples/mem_fin_early_m1", "handle", 2, Some(18)),
+    ("examples/mem_fin_deferred_m1", "handle", 3, Some(16)),
     ("examples/mem_nll_last_use_m2", "view", 2, Some(9)),
     ("examples/mem_named_lifetime_m2", "left", 2, Some(6)),
     ("examples/mem_temp_borrow_m2", "seen", 2, Some(11)),

@@ -384,10 +384,16 @@ fn lower_finalizations(
         if cursor.current_block_terminated()? {
             break;
         }
+        // A `[mov]` capture into a dfr/edf block reads as a move but keeps the
+        // value in this frame: the block's environment dies at this same scope
+        // exit, so the finalizer still runs here, after the deferred bodies.
         if typed_package
             .program
             .moved_binding_origin(entry.symbol)
             .is_some()
+            && !typed_package
+                .program
+                .binding_owned_by_deferred_block(entry.symbol)
         {
             continue;
         }

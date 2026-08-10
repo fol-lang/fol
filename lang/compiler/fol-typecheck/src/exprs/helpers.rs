@@ -401,6 +401,94 @@ pub(crate) fn type_contains_fin(typed: &TypedProgram, type_id: CheckedTypeId) ->
     contains(typed, type_id, &mut BTreeSet::new())
 }
 
+/// Whether `type_id` stores a `fin` value *inside* another value — a record
+/// field, container element, shell payload or type argument — as opposed to
+/// being the finalized value itself. Finalization is registered per directly
+/// owned binding or parameter, so a contained `fin` value has no owner that
+/// would ever call its finalizer.
+pub(crate) fn type_has_nested_fin(typed: &TypedProgram, type_id: CheckedTypeId) -> bool {
+    let mut current = type_id;
+    let mut peeled = BTreeSet::new();
+    loop {
+        if !peeled.insert(current) {
+            return false;
+        }
+        if let Some(apparent) = typed.apparent_type_override(current) {
+            current = apparent;
+            continue;
+        }
+        match typed.type_table().get(current) {
+            Some(CheckedType::Declared { symbol, args, .. }) => {
+                if args.iter().any(|arg| type_contains_fin(typed, *arg)) {
+                    return true;
+                }
+                match typed
+                    .typed_symbol(*symbol)
+                    .and_then(|symbol| symbol.declared_type)
+                {
+                    Some(declared) => current = declared,
+                    None => return false,
+                }
+            }
+            Some(CheckedType::Record { fields }) => {
+                return fields
+                    .values()
+                    .any(|field| type_contains_fin(typed, *field))
+            }
+            Some(CheckedType::Entry { variants }) => {
+                return variants
+                    .values()
+                    .flatten()
+                    .any(|variant| type_contains_fin(typed, *variant))
+            }
+            Some(CheckedType::Array { element_type, .. })
+            | Some(CheckedType::Vector { element_type })
+            | Some(CheckedType::Sequence { element_type }) => {
+                return type_contains_fin(typed, *element_type)
+            }
+            Some(CheckedType::Set { member_types }) => {
+                return member_types
+                    .iter()
+                    .any(|member| type_contains_fin(typed, *member))
+            }
+            Some(CheckedType::Map {
+                key_type,
+                value_type,
+            }) => {
+                return type_contains_fin(typed, *key_type) || type_contains_fin(typed, *value_type)
+            }
+            Some(CheckedType::Optional { inner }) | Some(CheckedType::Owned { inner }) => {
+                return type_contains_fin(typed, *inner)
+            }
+            _ => return false,
+        }
+    }
+}
+
+/// Reject a storage position that would swallow a nested `fin` value. Silently
+/// skipping a finalizer is worse than refusing the program: the source reads as
+/// if the resource is released (V3_MEM §6).
+pub(crate) fn reject_nested_fin_storage(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+    origin: Option<SyntaxOrigin>,
+    subject: &str,
+) -> Result<(), TypecheckError> {
+    if !type_has_nested_fin(typed, type_id) {
+        return Ok(());
+    }
+    let message = format!(
+        "{subject} holds a 'fin' value nested inside '{}'; FOL finalizes only a value owned directly by a binding, parameter or 'dfr' capture, so the nested finalizer would never run — give the 'fin' value its own binding and transfer it with '[mov]'",
+        describe_type(typed, type_id)
+    );
+    Err(match origin {
+        Some(origin) => {
+            TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin)
+        }
+        None => TypecheckError::new(TypecheckErrorKind::Unsupported, message),
+    })
+}
+
 pub(crate) fn observe_context(context: TypeContext) -> TypeContext {
     TypeContext {
         error_call_mode: ErrorCallMode::Observe,

@@ -1,0 +1,15 @@
+// Finalization is registered per directly owned value (V3_MEM §6.1): a binding,
+// a parameter, or a `dfr` capture. A `fin` value nested inside a container or a
+// record field has no such owner, so its finalizer would never run. Storing one
+// is rejected rather than silently skipping the cleanup.
+
+typ File()(fin): rec = { descriptor: int };
+
+pro (File)finalize(): non = {
+    return;
+};
+
+fun[] main(): int = {
+    var handles: vec[File] = { { descriptor = 3 } };
+    return 0;
+};

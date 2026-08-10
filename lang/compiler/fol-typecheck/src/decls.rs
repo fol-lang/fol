@@ -1361,6 +1361,12 @@ fn lower_named_routine_signature(
             &param.name,
         )?;
         record_symbol_type(typed, param_symbol_id, param_type)?;
+        crate::exprs::helpers::reject_nested_fin_storage(
+            typed,
+            param_type,
+            syntax_id.and_then(|id| resolved.syntax_index().origin(id).cloned()),
+            &format!("parameter '{}'", param.name),
+        )?;
         if param.is_mutex {
             if let Some(symbol) = typed.typed_symbol_mut(param_symbol_id) {
                 symbol.is_mutex = true;
@@ -1423,6 +1429,14 @@ fn lower_named_routine_signature(
         None | Some(FolType::None) => None,
         Some(ty) => Some(lower_type(typed, resolved, signature_scope, ty)?),
     };
+    if let Some(lowered_return) = lowered_return {
+        crate::exprs::helpers::reject_nested_fin_storage(
+            typed,
+            lowered_return,
+            syntax_id.and_then(|id| resolved.syntax_index().origin(id).cloned()),
+            "return type",
+        )?;
+    }
     let lowered_error = error_type
         .as_ref()
         .map(|ty| lower_type(typed, resolved, signature_scope, ty))

@@ -33,6 +33,36 @@ fun[] main(): int = {
 When a value is moved, responsibility for finalization moves with it: the new
 owner finalizes it, and the original binding does not.
 
+A `[mov]` capture into a `dfr` or `edf` block is the one move that stays in the
+frame. The delayed block replays at scope exit, so the value is finalized right
+after the block body runs:
+
+```fol
+fun[] main(): int = {
+    var handle: File = { descriptor = 3 };
+    dfr[handle[mov]] {
+        observe(handle.descriptor);
+    };
+    return 0;
+    // the deferred body runs, then handle.finalize()
+};
+```
+
+## What can own a `fin` value
+
+A finalizer runs only for a value that a binding, a parameter or a `dfr`/`edf`
+capture owns directly. A `fin` value nested inside another value — a record
+field, a `vec`/`arr`/`seq` element, a `set`/`map` member, an `opt` or `err`
+payload — has no such owner, so nothing would ever call its finalizer. The
+compiler rejects those positions instead of skipping the cleanup silently:
+
+```fol
+var handles: vec[File] = { { descriptor = 3 } };
+// rejected: a nested 'fin' value would never be finalized
+```
+
+Give each `fin` value its own binding and transfer it with `[mov]`.
+
 ## Early finalization
 
 `[fin]value` runs the finalizer immediately and invalidates the source. The
