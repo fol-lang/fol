@@ -1,5 +1,4 @@
 [workspace]
-package.version = "0.2.5"
 # Every member, so a bare `cargo build`/`cargo test` at the root covers the
 # whole workspace instead of silently skipping 16 crates' suites.
 default-members = [
@@ -43,6 +42,9 @@ members = [
     "lang/tooling/fol-self",
     "lang/tooling/fol-testkit",
 ]
+
+[workspace.package]
+version = "0.2.5"
 
 [package]
 name = "fol"

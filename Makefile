@@ -1,6 +1,6 @@
 PROJECT_NAME := $(shell awk -F'"' '/^\[package\]/{package=1; next} package && /^name = /{print $$2; exit}' Cargo.toml)
 PROJECT_CAP  := $(shell echo $(PROJECT_NAME) | tr '[:lower:]' '[:upper:]')
-CURRENT_VERSION := $(shell awk -F'"' '/^\[workspace\]/{w=1} w && /^package\.version[[:space:]]*=/{print $$2; exit}' Cargo.toml)
+CURRENT_VERSION := $(shell awk -F'"' '/^\[workspace\.package\]/{w=1} w && /^version[[:space:]]*=/{print $$2; exit}' Cargo.toml)
 LATEST_TAG   ?= $(shell git describe --tags --abbrev=0 2>/dev/null)
 TOP_DIR      := $(CURDIR)
 BUILD_DIR    := $(TOP_DIR)/target
