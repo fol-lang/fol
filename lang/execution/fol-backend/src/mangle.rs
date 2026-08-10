@@ -59,11 +59,20 @@ pub fn escape_rust_field_ident(name: &str) -> String {
 }
 
 pub fn mangle_package_module_name(identity: &PackageIdentity) -> String {
-    format!(
-        "pkg__{}__{}",
-        package_kind_tag(identity.source_kind),
-        sanitize_backend_ident(&identity.display_name)
-    )
+    let name = sanitize_backend_ident(&identity.display_name);
+    let tag = package_kind_tag(identity.source_kind);
+    // A local package is named by its directory, so two of them can share a
+    // basename -- `alpha/util` and `beta/util` both read as `util`. Every other
+    // kind is named from a registry, a URL, or the workspace itself, where the
+    // name is already unique. Their canonical roots cannot collide, so that is
+    // what keeps the two modules (and every symbol mangled through them) apart.
+    match identity.source_kind {
+        PackageSourceKind::Local => format!(
+            "pkg__{tag}__{name}__{:08x}",
+            crate::identity::fnv1a64(identity.canonical_root.as_bytes()) as u32
+        ),
+        _ => format!("pkg__{tag}__{name}"),
+    }
 }
 
 pub fn mangle_type_name(identity: &PackageIdentity, type_id: LoweredTypeId, name: &str) -> String {

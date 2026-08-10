@@ -231,6 +231,17 @@ pub(crate) fn package_identity(name: &str, kind: PackageSourceKind, root: &str) 
     }
 }
 
+/// The module name the sample workspace's local package mangles to. Local
+/// module names carry a digest of the package root, so tests name it this way
+/// rather than spelling the digest out.
+pub(crate) fn sample_local_module_name() -> String {
+    crate::mangle_package_module_name(&package_identity(
+        "shared",
+        PackageSourceKind::Local,
+        "/workspace/shared",
+    ))
+}
+
 pub(crate) fn distinct_namespaces(workspace: &LoweredWorkspace) -> BTreeSet<String> {
     workspace
         .packages()

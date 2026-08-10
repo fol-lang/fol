@@ -48,7 +48,7 @@ fn truncate_component(raw: &str) -> String {
     raw[..MAX_LEN].trim_matches('_').to_string()
 }
 
-fn fnv1a64(bytes: &[u8]) -> u64 {
+pub(crate) fn fnv1a64(bytes: &[u8]) -> u64 {
     const OFFSET: u64 = 0xcbf29ce484222325;
     const PRIME: u64 = 0x00000100000001b3;
     let mut hash = OFFSET;

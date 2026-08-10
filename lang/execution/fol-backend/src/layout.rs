@@ -148,9 +148,12 @@ fn sanitize_segment(raw: &str) -> String {
 mod tests {
     use super::{plan_generated_crate_layout, plan_namespace_layouts, plan_package_layouts};
     use crate::{
-        testing::{distinct_namespaces, sample_lowered_workspace},
+        testing::{distinct_namespaces, sample_local_module_name, sample_lowered_workspace},
         BackendSession,
     };
+    use fol_lower::LoweredWorkspace;
+    use fol_resolver::PackageSourceKind;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -174,8 +177,9 @@ mod tests {
         assert_eq!(plans[0].module_name, "pkg__entry__app");
         assert_eq!(plans[0].relative_dir, "src/packages/pkg__entry__app");
         assert_eq!(plans[1].package_identity.display_name, "shared");
-        assert_eq!(plans[1].module_name, "pkg__local__shared");
-        assert_eq!(plans[1].relative_dir, "src/packages/pkg__local__shared");
+        let local = sample_local_module_name();
+        assert_eq!(plans[1].module_name, local);
+        assert_eq!(plans[1].relative_dir, format!("src/packages/{local}"));
     }
 
     #[test]
@@ -209,18 +213,78 @@ mod tests {
         assert_eq!(
             plan.package_mod_paths,
             vec![
-                "src/packages/pkg__entry__app/mod.rs",
-                "src/packages/pkg__local__shared/mod.rs",
+                "src/packages/pkg__entry__app/mod.rs".to_string(),
+                format!("src/packages/{}/mod.rs", sample_local_module_name()),
             ]
         );
+        let local = sample_local_module_name();
         assert_eq!(
             plan.namespace_file_paths,
             vec![
-                "src/packages/pkg__entry__app/root.rs",
-                "src/packages/pkg__entry__app/math.rs",
-                "src/packages/pkg__local__shared/root.rs",
-                "src/packages/pkg__local__shared/util.rs",
+                "src/packages/pkg__entry__app/root.rs".to_string(),
+                "src/packages/pkg__entry__app/math.rs".to_string(),
+                format!("src/packages/{local}/root.rs"),
+                format!("src/packages/{local}/util.rs"),
             ]
+        );
+    }
+
+    #[test]
+    fn local_packages_sharing_a_directory_basename_get_separate_modules() {
+        // `alpha/util` and `beta/util` are both named `util`. Planning them onto
+        // one directory would have the second package's files overwrite the
+        // first's, silently dropping a whole package from the crate.
+        let workspace = sample_lowered_workspace();
+        let mut packages = BTreeMap::new();
+        let mut twin = None;
+        for package in workspace.packages() {
+            packages.insert(package.identity.clone(), package.clone());
+            if package.identity.source_kind == PackageSourceKind::Local {
+                let mut clone = package.clone();
+                clone.identity = crate::testing::package_identity(
+                    &package.identity.display_name,
+                    PackageSourceKind::Local,
+                    "/workspace/other/shared",
+                );
+                twin = Some(clone);
+            }
+        }
+        let twin = twin.expect("the sample workspace has a local package");
+        packages.insert(twin.identity.clone(), twin);
+        let session = BackendSession::new(LoweredWorkspace::new(
+            workspace.entry_package().identity.clone(),
+            packages,
+            workspace.entry_candidates().to_vec(),
+            workspace.type_table().clone(),
+            workspace.source_map().clone(),
+            workspace.recoverable_abi().clone(),
+        ));
+
+        let dirs = plan_package_layouts(&session)
+            .into_iter()
+            .map(|plan| plan.relative_dir)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            dirs.len(),
+            3,
+            "each package needs its own directory: {dirs:?}"
+        );
+
+        let files = plan_namespace_layouts(&session)
+            .into_iter()
+            .map(|plan| {
+                format!(
+                    "src/packages/{}/{}",
+                    crate::mangle_package_module_name(&plan.package_identity),
+                    plan.relative_file
+                )
+            })
+            .collect::<Vec<_>>();
+        let distinct = files.iter().collect::<BTreeSet<_>>();
+        assert_eq!(
+            distinct.len(),
+            files.len(),
+            "two packages claim one file: {files:?}"
         );
     }
 
@@ -254,8 +318,9 @@ mod tests {
         assert_eq!(namespace_files.len(), namespace_plans.len());
         assert!(namespace_files.contains("src/packages/pkg__entry__app/root.rs"));
         assert!(namespace_files.contains("src/packages/pkg__entry__app/math.rs"));
-        assert!(namespace_files.contains("src/packages/pkg__local__shared/root.rs"));
-        assert!(namespace_files.contains("src/packages/pkg__local__shared/util.rs"));
+        let local = sample_local_module_name();
+        assert!(namespace_files.contains(&format!("src/packages/{local}/root.rs")));
+        assert!(namespace_files.contains(&format!("src/packages/{local}/util.rs")));
     }
 
     #[test]

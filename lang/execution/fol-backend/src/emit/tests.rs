@@ -19,7 +19,7 @@ use crate::emit::{
 use crate::{
     testing::{
         lowered_workspace_from_entry_path, lowered_workspace_from_entry_path_with_config,
-        sample_lowered_workspace,
+        sample_local_module_name, sample_lowered_workspace,
     },
     BackendArtifact, BackendAuxiliaryRustCrate, BackendAuxiliaryRustPlan, BackendBuildProfile,
     BackendConfig, BackendFolModel, BackendMachineTarget, BackendMainEntryCall,
@@ -527,11 +527,16 @@ fn package_module_emission_keeps_package_and_namespace_module_tree() {
     assert_eq!(emitted.len(), 3);
     assert_eq!(emitted[0].path, "src/packages/mod.rs");
     assert!(emitted[0].contents.contains("pub mod pkg__entry__app;"));
-    assert!(emitted[0].contents.contains("pub mod pkg__local__shared;"));
+    assert!(emitted[0]
+        .contents
+        .contains(&format!("pub mod {};", sample_local_module_name())));
     assert_eq!(emitted[1].path, "src/packages/pkg__entry__app/mod.rs");
     assert!(emitted[1].contents.contains("pub mod root;"));
     assert!(emitted[1].contents.contains("pub mod math;"));
-    assert_eq!(emitted[2].path, "src/packages/pkg__local__shared/mod.rs");
+    assert_eq!(
+        emitted[2].path,
+        format!("src/packages/{}/mod.rs", sample_local_module_name())
+    );
     assert!(emitted[2].contents.contains("pub mod root;"));
     assert!(emitted[2].contents.contains("pub mod util;"));
 }
@@ -558,7 +563,10 @@ fn namespace_module_shell_emission_keeps_runtime_imports_and_namespace_markers()
     assert!(emitted[1]
         .contents
         .contains("NAMESPACE_NAME: &str = \"app::math\""));
-    assert_eq!(emitted[3].path, "src/packages/pkg__local__shared/util.rs");
+    assert_eq!(
+        emitted[3].path,
+        format!("src/packages/{}/util.rs", sample_local_module_name())
+    );
     assert!(emitted[3]
         .contents
         .contains("NAMESPACE_NAME: &str = \"shared::util\""));
@@ -719,7 +727,10 @@ fn generated_crate_skeleton_snapshot_stays_stable_for_foundation_backend_shape()
     assert!(snapshot.contains("== src/main.rs =="));
     assert!(snapshot.contains("== src/packages/mod.rs =="));
     assert!(snapshot.contains("== src/packages/pkg__entry__app/mod.rs =="));
-    assert!(snapshot.contains("== src/packages/pkg__local__shared/root.rs =="));
+    assert!(snapshot.contains(&format!(
+        "== src/packages/{}/root.rs ==",
+        sample_local_module_name()
+    )));
     assert!(snapshot.contains("use fol_runtime::std as rt;"));
     assert!(snapshot.contains("use fol_runtime::std as rt_model;"));
     assert!(snapshot.contains("pub mod pkg__entry__app;"));
