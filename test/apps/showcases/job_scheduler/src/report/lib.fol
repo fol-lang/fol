@@ -1,0 +1,36 @@
+// Report rendering.
+//
+// Nothing here is concurrent on purpose: the workers finish in whatever order
+// the OS scheduler picks, so the report is rebuilt from the batch in rank order
+// and only the order-independent aggregates come from the concurrent side.
+
+use std: pkg = {"std"};
+use jobs: loc = {"../jobs"};
+
+fun[exp] pad(value: int, width: int): str = {
+    var[mut] text: str = std::fmt::int_to_str(value);
+    loop (.len(text) < width) {
+        text = " " + text;
+    };
+    return text;
+};
+
+fun[exp] line(label: str, value: int): str = {
+    return label + " " + std::fmt::int_to_str(value) + "\n";
+};
+
+fun[exp] job_line(position: int, job: jobs::Job): str = {
+    var slot: str = "  #" + pad(position, 1);
+    var who: str = "  job " + pad(job.id, 2);
+    var rank: str = "  prio " + pad(job.priority, 2);
+    var size: str = "  weight " + pad(job.weight, 2);
+    var sum: str = "  checksum " + pad(jobs::expected_checksum(job), 3);
+    return slot + who + rank + size + sum + "\n";
+};
+
+fun[exp] verdict(mismatches: int, missing: int): str = {
+    when (mismatches + missing == 0) {
+        case (true) { return "verdict   OK\n"; }
+        * { return "verdict   FAILED\n"; }
+    }
+};

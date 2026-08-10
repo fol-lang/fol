@@ -1,0 +1,63 @@
+// config-parser -- a small INI/TOML-ish config reader.
+//
+// It classifies every physical line, answers section/key lookups, and reports
+// the first structural fault of a malformed document.
+
+use std: pkg = {"std"};
+use parse: loc = {"parse"};
+use emit: loc = {"emit"};
+
+con SAMPLE: str = "# fleet configuration\n\n[server]\nhost = 10.0.0.7\nport = 8080\nbanner = \"welcome, operator\"\n\n[limits]\n; soft caps only\nmax_connections = 512\nretry.backoff-ms = 250\n";
+
+con NO_BRACKET: str = "[server\nhost = 1.2.3.4\n";
+con NO_EQUALS: str = "[server]\nhost 1.2.3.4\n";
+con ORPHAN: str = "host = 1.2.3.4\n[server]\n";
+con OPEN_QUOTE: str = "[server]\nbanner = \"never closed\n";
+con ODD_KEY: str = "[server]\nho st = 1.2.3.4\n";
+
+fun[] main(): int = {
+    emit::head("structure");
+    emit::dump(SAMPLE, 0, 1);
+
+    emit::head("lookups");
+    show("server", "host");
+    show("server", "banner");
+    show("limits", "retry.backoff-ms");
+    show("limits", "host");
+
+    emit::head("validation");
+    judge("well-formed", SAMPLE);
+    judge("missing bracket", NO_BRACKET);
+    judge("missing equals", NO_EQUALS);
+    judge("orphan entry", ORPHAN);
+    judge("open quote", OPEN_QUOTE);
+    judge("space in key", ODD_KEY);
+
+    return 0;
+};
+
+// `lookup` is a recoverable call, so the result has to be handled right here;
+// `||` supplies the placeholder when the key is absent.
+pro show(section: str, key: str): non = {
+    var value = parse::lookup(SAMPLE, section, key) || "<missing>";
+    emit::pair(join(section, key), value);
+    return;
+};
+
+// `validate` hands back a storable `err[str]` shell instead: nil means clean.
+pro judge(title: str, text: str): non = {
+    var outcome: err[str] = parse::validate(text);
+    std::io::write("  ");
+    std::io::write(title);
+    std::io::write(": ");
+    when(outcome) {
+        on(message) { std::io::write(message); }
+        * { std::io::write("ok"); }
+    };
+    std::io::write("\n");
+    return;
+};
+
+fun join(section: str, key: str): str = {
+    return section + "." + key;
+};

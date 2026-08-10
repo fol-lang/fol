@@ -1,0 +1,85 @@
+// The bus itself.
+//
+// A `Sub` pairs a subscription pattern with a stored handler routine value. The
+// `Bus` owns the subscriber table and the delivery counters; publishing walks
+// the table, matches the subject, and invokes whatever routine value each
+// matching row happens to hold.
+
+use std: pkg = {"std"};
+use topic: loc = {"../topic"};
+
+typ[exp] Sub: rec = {
+    pattern: str,
+    label: str,
+    handle: {fun (payload: int): int}
+};
+
+typ[exp] Bus: rec = {
+    subs: seq[Sub],
+    published: int,
+    delivered: int,
+    alerts: int,
+    unrouted: int
+};
+
+fun[exp] new_sub(pattern: str, label: str, handle: {fun (payload: int): int}): Sub = {
+    return { pattern = pattern, label = label, handle = handle };
+};
+
+fun[exp] new_bus(subs: seq[Sub]): Bus = {
+    return {
+        subs = subs,
+        published = 0,
+        delivered = 0,
+        alerts = 0,
+        unrouted = 0,
+    };
+};
+
+// Deliver one event to every matching subscriber.
+pro[exp] (Bus[mut, bor])publish(subject: str, payload: int): non = {
+    std::io::echo_str("  publish " + subject + " payload=" + std::fmt::int_to_str(payload));
+    self.published = self.published + 1;
+    var hits: int = 0;
+    var index: int = 0;
+    loop (index < .len(self.subs)) {
+        var sub: Sub = self.subs[index];
+        if (topic::matches(sub.pattern, subject)) {
+            // `sub.handle(payload)` is rejected -- the parser reads it as a
+            // method call on `Sub` -- so the stored routine is bound to a local
+            // and invoked from there. `(sub.handle)(payload)` also works.
+            var handle: {fun (payload: int): int} = sub.handle;
+            var status: int = handle(payload);
+            self.delivered = self.delivered + 1;
+            hits = hits + 1;
+            if (status == 1) {
+                self.alerts = self.alerts + 1;
+            }
+        }
+        index = index + 1;
+    }
+    if (hits == 0) {
+        std::io::echo_str("      (no subscriber)");
+        self.unrouted = self.unrouted + 1;
+    }
+    return;
+};
+
+fun[exp] (Bus[bor])report(): str = {
+    return "published=" + std::fmt::int_to_str(self.published)
+    + " delivered=" + std::fmt::int_to_str(self.delivered)
+    + " alerts=" + std::fmt::int_to_str(self.alerts)
+    + " unrouted=" + std::fmt::int_to_str(self.unrouted);
+};
+
+// Names of the wired subscribers, for the banner printed at startup.
+pro[exp] (Bus[bor])describe(): non = {
+    var index: int = 0;
+    loop (index < .len(self.subs)) {
+        var sub: Sub = self.subs[index];
+        std::io::echo_str("  [" + std::fmt::int_to_str(index) + "] "
+        + sub.label + " <- " + sub.pattern);
+        index = index + 1;
+    }
+    return;
+};

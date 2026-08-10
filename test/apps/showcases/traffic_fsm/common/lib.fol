@@ -1,0 +1,16 @@
+// Small text helpers, kept outside `src/` so the executable exercises a real
+// `loc` import instead of only package-internal namespaces.
+
+fun[exp] repeat(glyph: str, count: int): str = {
+    var[mut] out: str = "";
+    var[mut] left: int = count;
+    loop (left > 0) {
+        out = out + glyph;
+        left = left - 1;
+    }
+    return out;
+};
+
+fun[exp] rule(title: str): str = {
+    return "-- " + title + " " + repeat("-", 24 - .len(title));
+};

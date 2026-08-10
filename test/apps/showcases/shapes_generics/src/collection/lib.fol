@@ -1,0 +1,87 @@
+// Generic containers and the running totals for a cut sheet.
+//
+// FOL rejects reading an element out of a `vec[T]` at a generic element type,
+// so the generic containers here are fixed-arity: they hold their members in
+// named slots that a generic receiver routine can project. Aggregation over a
+// real list is done at the concrete `shape::Metrics` element type instead.
+
+use std: pkg = {"std"};
+use shape: loc = {"../shape"};
+
+// Two values of independent types in one container.
+typ[exp] Pair(L, R): rec = {
+    left: L,
+    right: R,
+};
+
+// Three values of one type -- the widest generic container this package needs.
+typ[exp] Trio(T): rec = {
+    one: T,
+    two: T,
+    three: T,
+};
+
+fun[exp] (Pair[L, R])first(L, R)(): L = {
+    return self.left;
+};
+
+fun[exp] (Pair[L, R])second(L, R)(): R = {
+    return self.right;
+};
+
+// Generic receiver routine that rebuilds the container with its slots exchanged.
+fun[exp] (Pair[L, R])flip(L, R)(): Pair[R, L] = {
+    return { left = self.right, right = self.left };
+};
+
+// Higher-order over a generic container: the routine value decides how the two
+// slots collapse into one result, and its result type is inferred at the call.
+fun[exp] fold_pair(L, R, C)(pair: Pair[L, R], join: {fun (left: L, right: R): C}): C = {
+    return join(pair.left, pair.right);
+};
+
+// Higher-order over the three-slot container, applied slot by slot.
+fun[exp] map_trio(T, U)(trio: Trio[T], step: {fun (item: T): U}): Trio[U] = {
+    return {
+        one = step(trio.one),
+        two = step(trio.two),
+        three = step(trio.three),
+    };
+};
+
+// Running totals for a cut sheet. Not generic: only a plain type may expose a
+// mutating `pro (T[mut, bor])` receiver.
+typ[exp] Tally: rec = {
+    parts: int,
+    area: flt,
+    perim: flt,
+    widest: flt,
+};
+
+pro[exp] (Tally[mut, bor])add(m: shape::Metrics): non = {
+    self.parts = self.parts + 1;
+    self.area = self.area + m.area;
+    self.perim = self.perim + m.perim;
+    when(m.area > self.widest) {
+        case(true) { self.widest = m.area; }
+        * { }
+    }
+    return;
+};
+
+fun[exp] summarize(items: vec[shape::Metrics]): Tally = {
+    var[mut] total: Tally = { parts = 0, area = 0.0, perim = 0.0, widest = 0.0 };
+    for (item in items) {
+        total.add(item);
+    }
+    return total;
+};
+
+fun[exp] tally_row(total: Tally): str = {
+    var parts: str = std::fmt::int_to_str(total.parts);
+    var area: str = std::fmt::float_to_str(total.area, 2);
+    var perim: str = std::fmt::float_to_str(total.perim, 2);
+    var widest: str = std::fmt::float_to_str(total.widest, 2);
+    return "  parts " + parts + "   area " + area + "   perim " + perim
+    + "   widest " + widest;
+};

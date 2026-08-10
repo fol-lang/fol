@@ -1,0 +1,41 @@
+// Counters gathered while walking a directory tree. The walk is a pure fold:
+// every directory produces a `Tally` and the parent merges its children's
+// tallies into its own, so nothing needs a growable container.
+
+typ[exp] Tally: rec = {
+    dirs: int,
+    code: int,
+    docs: int,
+    data: int,
+    other: int,
+    bytes: int,
+    silent: int,
+};
+
+fun[exp] empty(): Tally = {
+    return {
+        dirs = 0,
+        code = 0,
+        docs = 0,
+        data = 0,
+        other = 0,
+        bytes = 0,
+        silent = 0,
+    };
+};
+
+fun[exp] merge(left: Tally, right: Tally): Tally = {
+    return {
+        dirs = left.dirs + right.dirs,
+        code = left.code + right.code,
+        docs = left.docs + right.docs,
+        data = left.data + right.data,
+        other = left.other + right.other,
+        bytes = left.bytes + right.bytes,
+        silent = left.silent + right.silent,
+    };
+};
+
+fun[exp] files(value: Tally): int = {
+    return value.code + value.docs + value.data + value.other;
+};

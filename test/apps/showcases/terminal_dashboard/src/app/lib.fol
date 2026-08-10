@@ -1,0 +1,385 @@
+use std: pkg = {"std"};
+use render: loc = {"../render"};
+use input: loc = {"../input"};
+
+// The dashboard proper: it samples the running machine through /proc, keeps a
+// rolling history, and paints one frame per tick. Sampling is deliberately
+// separated from painting so the frame is a pure function of the state.
+
+// One observation of the machine.
+typ[exp] reading: rec = {
+    var load_centi: int;
+    var mem_used_pct: int;
+    var mem_total_kb: int;
+    var runnable: int;
+};
+
+// Everything the loop carries between ticks.
+typ[exp] view: rec = {
+    var frame_no: int;
+    var history: str;
+    var peak_centi: int;
+    var total_centi: int;
+    var samples: int;
+    var paused: bol;
+    var interval: int;
+    var last_key: int;
+    var listening: bol;
+};
+
+// ---------------------------------------------------------------------------
+// /proc parsing
+// ---------------------------------------------------------------------------
+
+// Index of the first ASCII digit at or after `from`, or -1 when there is none.
+fun first_digit(text: str, from: int): int = {
+    var limit: int = .len(text);
+    var[mut] index: int = from;
+    var[mut] found: int = -1;
+    loop ((index < limit) and (found < 0)) {
+        var byte: int = std::strn::byte_at(text, index);
+        when ((byte > 47) and (byte < 58)) {
+            case (true) { found = index; }
+            * { index = index + 1; }
+        };
+    };
+    return found;
+};
+
+// The value of the digit run that starts at `from`; 0 when it starts on a
+// non-digit, which also covers a short or truncated /proc read.
+fun digits_at(text: str, from: int): int = {
+    var limit: int = .len(text);
+    var[mut] index: int = from;
+    var[mut] value: int = 0;
+    var[mut] scanning: bol = true;
+    loop ((index < limit) and scanning) {
+        var byte: int = std::strn::byte_at(text, index);
+        when ((byte > 47) and (byte < 58)) {
+            case (true) {
+                value = (value * 10) + (byte - 48);
+                index = index + 1;
+            }
+            * { scanning = false; }
+        };
+    };
+    return value;
+};
+
+// One past the digit run that starts at `from`.
+fun digits_end(text: str, from: int): int = {
+    var limit: int = .len(text);
+    var[mut] index: int = from;
+    var[mut] scanning: bol = true;
+    loop ((index < limit) and scanning) {
+        var byte: int = std::strn::byte_at(text, index);
+        when ((byte > 47) and (byte < 58)) {
+            case (true) { index = index + 1; }
+            * { scanning = false; }
+        };
+    };
+    return index;
+};
+
+// "3.22" -> 322. /proc/loadavg always prints exactly two decimals, so the
+// fraction can be read as a plain two-digit run.
+fun[exp] parse_centi(text: str, from: int): int = {
+    var start: int = first_digit(text, from);
+    when (start < 0) {
+        case (true) { return 0; }
+        * {
+            var whole: int = digits_at(text, start);
+            var dot: int = digits_end(text, start);
+            var mark: int = std::strn::byte_at(text, dot);
+            when (mark) {
+                is (46) { return (whole * 100) + digits_at(text, dot + 1); }
+                * { return whole * 100; }
+            };
+        }
+    };
+};
+
+// The kB number that follows a /proc/meminfo label such as "MemTotal:".
+fun[exp] kb_field(text: str, label: str): int = {
+    var pos: int = std::strn::find(text, label);
+    when (pos < 0) {
+        case (true) { return 0; }
+        * {
+            var start: int = first_digit(text, pos + .len(label));
+            when (start < 0) {
+                case (true) { return 0; }
+                * { return digits_at(text, start); }
+            };
+        }
+    };
+};
+
+// The runnable-process count out of loadavg's "2/1193" field: walk back from
+// the slash to the head of the digit run in front of it.
+fun[exp] runnable_procs(text: str): int = {
+    var slash: int = std::strn::find(text, "/");
+    when (slash < 1) {
+        case (true) { return 0; }
+        * {
+            var[mut] start: int = slash;
+            var[mut] scanning: bol = true;
+            loop ((start > 0) and scanning) {
+                var byte: int = std::strn::byte_at(text, start - 1);
+                when ((byte > 47) and (byte < 58)) {
+                    case (true) { start = start - 1; }
+                    * { scanning = false; }
+                };
+            };
+            return digits_at(text, start);
+        }
+    };
+};
+
+// One pass over /proc. A missing or unreadable file degrades to zeroes rather
+// than aborting the dashboard.
+fun[exp] sample(): reading = {
+    var loadavg: str = std::fs::read_file("/proc/loadavg");
+    var meminfo: str = std::fs::read_file("/proc/meminfo");
+    var total: int = kb_field(meminfo, "MemTotal:");
+    var available: int = kb_field(meminfo, "MemAvailable:");
+    var used_pct: int = percent_used(total, available);
+    var now: reading = {
+        load_centi = parse_centi(loadavg, 0),
+        mem_used_pct = used_pct,
+        mem_total_kb = total,
+        runnable = runnable_procs(loadavg),
+    };
+    return now;
+};
+
+fun[exp] percent_used(total: int, available: int): int = {
+    when (total < 1) {
+        case (true) { return 0; }
+        * { return ((total - available) * 100) / total; }
+    };
+};
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+
+fun[exp] fresh(interval: int): view = {
+    var start: view = {
+        frame_no = 0,
+        history = "",
+        peak_centi = 100,
+        total_centi = 0,
+        samples = 0,
+        paused = false,
+        interval = interval,
+        last_key = 0,
+        listening = true,
+    };
+    return start;
+};
+
+// Load has no fixed ceiling. Scaling straight against the running peak would
+// pin every reading to the top of the gauge, so the scale is the peak rounded
+// up to the next whole load unit and never below 2.00.
+fun[exp] ceiling_centi(peak_centi: int): int = {
+    var rounded: int = ((peak_centi / 100) + 1) * 100;
+    return render::clamp(rounded, 200, 100000);
+};
+
+fun[exp] level_of(load_centi: int, peak_centi: int): int = {
+    return render::clamp((load_centi * 7) / ceiling_centi(peak_centi), 0, 7);
+};
+
+// History is a string of '0'..'7' digits, oldest first, trimmed from the left
+// once it is wider than the sparkline. Strings are the only growable sequence
+// the dashboard needs, and appending a digit keeps a whole window in one value.
+fun[exp] push_level(history: str, level: int, width: int): str = {
+    var grown: str = history + std::strn::from_byte(48 + render::clamp(level, 0, 7));
+    var used: int = .len(grown);
+    when (used > width) {
+        case (true) { return std::strn::sub(grown, used - width, width); }
+        * { return grown; }
+    };
+};
+
+fun[exp] mean_centi(state: view): int = {
+    when (state.samples < 1) {
+        case (true) { return 0; }
+        * { return state.total_centi / state.samples; }
+    };
+};
+
+// ---------------------------------------------------------------------------
+// Frame
+// ---------------------------------------------------------------------------
+
+// The sparkline gets whatever width is left after the labels, within reason.
+fun[exp] spark_width(cols: int): int = {
+    return render::clamp(cols - 16, 8, 72);
+};
+
+fun[exp] row(label: str, body: str): str = {
+    return render::dim() + render::pad_right(label, 10) + render::plain() + body + "\r\n";
+};
+
+// Lines are assembled through short locals rather than one long wrapped
+// expression: `fol tool format` flattens continuation lines back to the
+// statement indent, so wrapped operands lose their hanging indent.
+fun[exp] header(state: view, elapsed_ms: int): str = {
+    var title: str = render::bold() + "  machine pulse  " + render::plain();
+    var counter: str = "frame " + std::fmt::int_to_str(state.frame_no);
+    var clock: str = std::fmt::int_to_str(elapsed_ms) + "ms";
+    var tick: str = "every " + std::fmt::int_to_str(state.interval) + "ms";
+    var meta: str = render::dim() + counter + "  " + clock + "  " + tick;
+    return title + meta + render::plain() + "\r\n\r\n";
+};
+
+fun[exp] load_row(state: view, now: reading, permille: int, bar_width: int, scale: int): str = {
+    var bar: str = render::pressure_color(permille) + render::gauge(permille, bar_width);
+    var value: str = render::pad_left(render::hundredths(now.load_centi), 7);
+    var peak: str = "  peak " + render::hundredths(state.peak_centi);
+    var mean: str = "  mean " + render::hundredths(mean_centi(state));
+    var full: str = "  scale " + render::hundredths(scale);
+    var notes: str = render::dim() + peak + mean + full + render::plain();
+    return row("load 1m", bar + render::plain() + " " + value + notes);
+};
+
+fun[exp] memory_row(now: reading, bar_width: int): str = {
+    var permille: int = render::clamp(now.mem_used_pct * 10, 0, 1000);
+    var bar: str = render::pressure_color(permille) + render::gauge(permille, bar_width);
+    var value: str = render::pad_left(std::fmt::int_to_str(now.mem_used_pct) + "%", 7);
+    var mib: str = std::fmt::int_to_str(now.mem_total_kb / 1024);
+    var notes: str = render::dim() + "  of " + mib + " MiB" + render::plain();
+    return row("memory", bar + render::plain() + " " + value + notes);
+};
+
+fun[exp] frame(state: view, now: reading, cols: int, elapsed_ms: int): str = {
+    var full_scale: int = ceiling_centi(state.peak_centi);
+    var load_permille: int = render::clamp((now.load_centi * 1000) / full_scale, 0, 1000);
+    var bar_width: int = render::clamp(cols - 34, 10, 40);
+
+    var procs: str = render::pad_left(std::fmt::int_to_str(now.runnable), 7);
+    var procs_note: str = render::dim() + "  processes ready to run" + render::plain();
+    var trail: str = render::color(36) + render::spark(state.history) + render::plain();
+    var keys: str = "  q quit   space pause   r reset   +/- speed";
+
+    var[mut] out: str = render::home() + render::clear_screen();
+    out = out + header(state, elapsed_ms);
+    out = out + load_row(state, now, load_permille, bar_width, full_scale);
+    out = out + memory_row(now, bar_width);
+    out = out + row("runnable", procs + procs_note);
+    out = out + "\r\n" + row("history", trail);
+    out = out + "\r\n" + render::dim() + keys + render::plain() + "\r\n";
+    out = out + "  " + status_line(state) + "\r\n";
+    return out;
+};
+
+fun[exp] status_line(state: view): str = {
+    var[mut] text: str = "";
+    when (state.paused) {
+        case (true) { text = render::color(33) + "PAUSED" + render::plain(); }
+        * { text = render::color(32) + "live" + render::plain(); }
+    };
+    when (state.listening) {
+        case (true) { return text + render::dim() + "   key " + input::name(state.last_key) + render::plain(); }
+        * { return text + render::dim() + "   input closed" + render::plain(); }
+    };
+};
+
+// ---------------------------------------------------------------------------
+// Loop
+// ---------------------------------------------------------------------------
+
+// Applies one command to the state. Returns the state; the caller decides
+// whether the loop keeps going by checking for the quit code separately.
+fun[exp] apply(state: view, code: int, width: int): view = {
+    var quit: int = input::key.QUIT;
+    var pause: int = input::key.PAUSE;
+    var reset: int = input::key.RESET;
+    var faster: int = input::key.FASTER;
+    var slower: int = input::key.SLOWER;
+    var closed: int = input::key.CLOSED;
+    var idle: int = input::key.IDLE;
+
+    var[mut] next: view = state;
+    when (code) {
+        is (idle) { return next; }
+        is (closed) {
+            next.listening = false;
+            return next;
+        }
+        * { next.last_key = code; }
+    };
+    when (code) {
+        is (pause) { next.paused = (state.paused == false); }
+        is (reset) {
+            next.history = "";
+            next.peak_centi = 100;
+            next.total_centi = 0;
+            next.samples = 0;
+        }
+        is (faster) { next.interval = render::clamp(state.interval - 40, 40, 2000); }
+        is (slower) { next.interval = render::clamp(state.interval + 40, 40, 2000); }
+        * { }
+    };
+    return next;
+};
+
+// Folds one observation into the rolling state.
+fun[exp] absorb(state: view, now: reading, width: int): view = {
+    var[mut] next: view = state;
+    when (now.load_centi > state.peak_centi) {
+        case (true) { next.peak_centi = now.load_centi; }
+        * { next.peak_centi = state.peak_centi; }
+    };
+    next.total_centi = state.total_centi + now.load_centi;
+    next.samples = state.samples + 1;
+    next.history = push_level(state.history, level_of(now.load_centi, next.peak_centi), width);
+    return next;
+};
+
+// Runs `budget` frames, or fewer if the user quits. Returns the number of
+// frames actually painted so the caller can report it.
+fun[exp] run(budget: int, interval: int, cols: int): int = {
+    var width: int = spark_width(cols);
+    var started: int = std::time::now_ms();
+    var[mut] state: view = fresh(interval);
+    var[mut] now: reading = sample();
+    var[mut] running: bol = true;
+
+    loop ((state.frame_no < budget) and running) {
+        when (state.paused) {
+            case (true) { }
+            * {
+                now = sample();
+                state = absorb(state, now, width);
+            }
+        };
+        state.frame_no = state.frame_no + 1;
+
+        var elapsed: int = std::time::now_ms() - started;
+        std::io::write(frame(state, now, cols, elapsed));
+
+        var code: int = wait(state.listening, state.interval);
+        state = apply(state, code, width);
+        var quit: int = input::key.QUIT;
+        when (code == quit) {
+            case (true) { running = false; }
+            * { }
+        };
+    };
+    return state.frame_no;
+};
+
+// While input is open the tick is a key poll, so a keystroke is picked up at
+// once; once the stream has closed there is nothing to poll and the tick is a
+// plain sleep. That keeps a piped run interactive and a redirected run cheap.
+fun wait(listening: bol, interval: int): int = {
+    when (listening) {
+        case (true) { return input::poll(interval); }
+        * {
+            var slept: int = std::time::sleep_ms(interval);
+            return input::key.IDLE;
+        }
+    };
+};

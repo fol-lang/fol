@@ -1,0 +1,33 @@
+// The core member owns the shared vocabulary of the workspace: the parsed log
+// Entry record and the severity ladder. It ships as a static library so the
+// executable member can link it, and it exports that artifact so sibling
+// members can reach it through a dependency handle.
+//
+// Parsing uses the hosted string intrinsics, so the bundled std tier is
+// declared here even though this member is only a library.
+//
+// NOTE: every comment in this file has to sit outside the build() body -- a
+// `//` comment between two statements inside the body makes build evaluation
+// fail with `F1001 build evaluation does not support expression node
+// 'ast_node'`.
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "pw_core",
+        version = "0.1.0",
+        kind = "lib",
+        description = "Shared log vocabulary for the plugin workspace",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+
+    var graph = build.graph();
+    var lib = graph.add_static_lib({
+        name = "pw_core",
+        root = "src/lib.fol",
+        fol_model = "memo",
+    });
+    graph.install(lib);
+
+    build.export_artifact({ name = "core_lib", artifact = lib });
+    return;
+};

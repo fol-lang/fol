@@ -1,0 +1,68 @@
+// wordcount-tool: count lines/words/bytes in a text file, search it, or write
+// a report about it.
+//
+// The exit status is the answer, the way grep's is: 0 when the search found
+// something, 1 when it did not, 2 for a bad command line, 3 when the input
+// could not be read or the report could not be written.
+
+use std: pkg = {"std"};
+use cli: loc = {"cli"};
+use scan: loc = {"scan"};
+use report: loc = {"report"};
+
+fun[] main(): int = {
+    var options: cli::Options = cli::parse();
+    when(cli::failed(options)) {
+        * { return complain("wordcount-tool: " + options.problem + "\n" + cli::usage(), 2); }
+    }
+
+    // `read_file` yields "" both for a missing file and for an empty one, so an
+    // empty read is reported as an unreadable input rather than counted as zero.
+    var text: str = std::fs::read_file(options.path);
+    when(.len(text) == 0) {
+        * { return complain("wordcount-tool: cannot read " + options.path + "\n", 3); }
+    }
+
+    when(options.mode) {
+        is("count") {
+            var counts: scan::Tally = scan::tally(text);
+            std::io::write(report::tally_line(options.path, counts));
+            return 0;
+        }
+        is("head") {
+            std::io::write(report::head(text, options.limit));
+            return 0;
+        }
+        is("find") {
+            var found: str = report::matches(text, options.pattern);
+            std::io::write(found);
+            return exit_for(.len(found));
+        }
+        * { return write_report(options, text); }
+    }
+};
+
+fun[] write_report(options: cli::Options, text: str): int = {
+    var body: str = report::full(options.path, options.pattern, text);
+    var written: int = std::fs::write_file(options.out, body);
+    when(written != 0) {
+        * { return complain("wordcount-tool: cannot write " + options.out + "\n", 3); }
+    }
+    std::io::write("wrote " + options.out + "\n");
+    return exit_for(scan::match_count(text, options.pattern));
+};
+
+// Usage and I/O failures share one shape: say what went wrong on stderr, then
+// hand the status straight back to the caller's `return`.
+fun[] complain(message: str, status: int): int = {
+    std::io::write_err(message);
+    return status;
+};
+
+// One place decides what "found nothing" means to the shell.
+fun[] exit_for(hits: int): int = {
+    when(hits > 0) {
+        * { return 0; }
+    }
+    return 1;
+};

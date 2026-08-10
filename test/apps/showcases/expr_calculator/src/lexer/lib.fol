@@ -1,0 +1,65 @@
+// The scanner.
+//
+// There is no growable container in the current surface, so tokens are not
+// collected into a list: `at(text, from)` produces exactly one token and the
+// offset to resume from. The parser pulls tokens on demand.
+
+use std: pkg = {"std"};
+use token: loc = {"../token"};
+
+con SPACE: int = 32;
+con TAB: int = 9;
+con NEWLINE: int = 10;
+
+fun[exp] is_blank(code: int): bol = {
+    return (code == SPACE) or (code == TAB) or (code == NEWLINE);
+};
+
+fun[exp] is_digit(code: int): bol = {
+    return (code >= 48) and (code <= 57);
+};
+
+fun[exp] skip_blank(text: str, from: int): int = {
+    var cursor = from;
+    loop((cursor < .len(text)) and is_blank(std::strn::byte_at(text, cursor))) {
+        cursor = cursor + 1;
+    };
+    return cursor;
+};
+
+// Lex the token that begins at or after `from`.
+fun[exp] next_token(text: str, from: int): token::Token = {
+    var head = skip_blank(text, from);
+    when(head >= .len(text)) {
+        case(true) { return token::make(token::end(), 0, head, head); }
+        * { }
+    };
+
+    var code = std::strn::byte_at(text, head);
+    when(is_digit(code)) {
+        case(true) { return lex_number(text, head); }
+        * { }
+    };
+
+    when(code) {
+        is(43) { return token::make(token::plus(), 0, head, head + 1); }
+        is(45) { return token::make(token::minus(), 0, head, head + 1); }
+        is(42) { return token::make(token::star(), 0, head, head + 1); }
+        is(47) { return token::make(token::slash(), 0, head, head + 1); }
+        is(37) { return token::make(token::percent(), 0, head, head + 1); }
+        is(40) { return token::make(token::open(), 0, head, head + 1); }
+        is(41) { return token::make(token::close(), 0, head, head + 1); }
+        * { return token::make(token::junk(), code, head, head + 1); }
+    }
+};
+
+// A run of decimal digits, accumulated without going back through `str`.
+fun lex_number(text: str, head: int): token::Token = {
+    var cursor = head;
+    var total = 0;
+    loop((cursor < .len(text)) and is_digit(std::strn::byte_at(text, cursor))) {
+        total = (total * 10) + (std::strn::byte_at(text, cursor) - 48);
+        cursor = cursor + 1;
+    };
+    return token::make(token::number(), total, head, cursor);
+};

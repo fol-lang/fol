@@ -1,0 +1,38 @@
+// Three-component float vectors, stored as fixed-size arrays so the whole
+// module stays inside the static container family.
+
+ali[exp] Triple: arr[flt, 3];
+
+fun[exp] zero(): Triple = {
+    return { 0.0, 0.0, 0.0 };
+};
+
+fun[exp] add(left: Triple, right: Triple): Triple = {
+    return { left[0] + right[0], left[1] + right[1], left[2] + right[2] };
+};
+
+fun[exp] sub(left: Triple, right: Triple): Triple = {
+    return { left[0] - right[0], left[1] - right[1], left[2] - right[2] };
+};
+
+fun[exp] scale(source: Triple, factor: flt): Triple = {
+    return { source[0] * factor, source[1] * factor, source[2] * factor };
+};
+
+fun[exp] dot(left: Triple, right: Triple): flt = {
+    return (left[0] * right[0]) + (left[1] * right[1]) + (left[2] * right[2]);
+};
+
+// Cross product, useful later for checking that the determinant agrees with
+// the scalar triple product.
+fun[exp] cross(left: Triple, right: Triple): Triple = {
+    return {
+        (left[1] * right[2]) - (left[2] * right[1]),
+        (left[2] * right[0]) - (left[0] * right[2]),
+        (left[0] * right[1]) - (left[1] * right[0]),
+    };
+};
+
+fun[exp] norm_squared(source: Triple): flt = {
+    return dot(source, source);
+};

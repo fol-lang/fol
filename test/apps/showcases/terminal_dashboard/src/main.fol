@@ -1,0 +1,85 @@
+use std: pkg = {"std"};
+use render: loc = {"render"};
+use input: loc = {"input"};
+use app: loc = {"app"};
+
+// machine pulse -- a live terminal dashboard over /proc.
+//
+//   terminal-dashboard [--frames N] [--interval MS] [--width COLS] [--help]
+//
+// It paints a fixed number of frames and then stops, so it is equally usable
+// interactively (q quits early) and in a script, where stdin is a pipe and the
+// program simply runs out its budget.
+
+// The value that follows `flag` on the command line, or `fallback`.
+fun option(flag: str, fallback: int): int = {
+    var count: int = std::os::arg_count();
+    var[mut] index: int = 0;
+    var[mut] found: int = fallback;
+    loop (index < count) {
+        var current: str = std::os::arg(index);
+        when (current == flag) {
+            case (true) {
+                when (index + 1 < count) {
+                    case (true) { found = std::strn::to_int(std::os::arg(index + 1), fallback); }
+                    * { }
+                };
+            }
+            * { }
+        };
+        index = index + 1;
+    };
+    return found;
+};
+
+fun has_flag(flag: str): bol = {
+    var count: int = std::os::arg_count();
+    var[mut] index: int = 0;
+    var[mut] seen: bol = false;
+    loop (index < count) {
+        when (std::os::arg(index) == flag) {
+            case (true) { seen = true; }
+            * { }
+        };
+        index = index + 1;
+    };
+    return seen;
+};
+
+fun usage(): int = {
+    std::io::echo_str("machine pulse -- a live /proc dashboard");
+    std::io::echo_str("");
+    std::io::echo_str("  --frames N     how many frames to paint  (default 24)");
+    std::io::echo_str("  --interval MS  milliseconds per frame    (default 150)");
+    std::io::echo_str("  --width COLS   force a terminal width    (default: detected)");
+    std::io::echo_str("  --help         this text");
+    std::io::echo_str("");
+    std::io::echo_str("keys: q quit   space pause   r reset   +/- speed");
+    return 0;
+};
+
+fun[] main(): int = {
+    when (has_flag("--help")) {
+        case (true) { return usage(); }
+        * { }
+    };
+
+    var budget: int = render::clamp(option("--frames", 24), 1, 100000);
+    var interval: int = render::clamp(option("--interval", 150), 20, 5000);
+    var detected: int = std::term::cols();
+    var cols: int = render::clamp(option("--width", detected), 40, 200);
+
+    // Raw mode is what makes a single keystroke arrive without a newline. It is
+    // a no-op on a pipe, which is exactly the non-interactive case. The undo is
+    // deferred so the terminal is handed back on every way out of main.
+    var entered: bol = std::term::raw_mode(true);
+    std::io::write(render::hide_cursor());
+    dfr {
+        std::io::write(render::show_cursor() + render::plain() + "\r\n");
+        var left: bol = std::term::raw_mode(false);
+    };
+
+    var painted: int = app::run(budget, interval, cols);
+    std::io::echo_str("painted " + std::fmt::int_to_str(painted) + " frames");
+    return 0;
+};

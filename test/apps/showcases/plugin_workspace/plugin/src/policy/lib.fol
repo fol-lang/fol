@@ -1,0 +1,39 @@
+use core: loc = {"../../../core/src/vocab"};
+use rules: loc = {"rules"};
+
+// The plugin turns a raw core::Entry into a triaged one and renders it for a
+// human reader. Everything here is pure: no I/O, no allocation beyond the
+// strings it returns.
+
+// Applies the escalation policy. The returned entry is a new value; the input
+// is left alone so a caller can still report the original severity.
+fun[exp] triage(entry: core::Entry): core::Entry = {
+    var raised: core::Entry = {
+        level = rules::escalate(entry.level, entry.source),
+        source = entry.source,
+        text = entry.text,
+    };
+    return raised;
+};
+
+// Filter predicate: keep everything at or above the requested floor. Entries
+// that failed to parse (level -1) never pass.
+fun[exp] keep(entry: core::Entry, floor: int): bol = {
+    when(.lt(entry.level, 0)) {
+        case(true) { return false; }
+        * { return .ge(entry.level, floor); }
+    }
+};
+
+// Render as `[WARN] net: link flap on eth0`.
+fun[exp] render(entry: core::Entry): str = {
+    return "[" + core::label(entry) + "] " + entry.source + ": " + entry.text;
+};
+
+// A short marker used by the summary block: `!` for escalated subsystems.
+fun[exp] marker(entry: core::Entry): str = {
+    when(rules::is_critical(entry.source)) {
+        case(true) { return "!"; }
+        * { return " "; }
+    }
+};

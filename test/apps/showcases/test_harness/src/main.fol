@@ -1,0 +1,115 @@
+// test_harness -- a miniature assertion library driven by stored routines.
+//
+// Each test is a routine value of type `{fun (): bol}`. Some are named routines
+// registered by name; the last group is built by a factory that captures its
+// inputs, so one table-driven definition produces several independent cases.
+// The runner in `suite` only ever sees `{fun (): bol}`.
+
+use std: pkg = {"std"};
+use subject: loc = {"subject"};
+use expect: loc = {"expect"};
+use report: loc = {"report"};
+use suite: loc = {"suite"};
+
+fun[] gcd_basics(): bol = {
+    return expect::int_holds("gcd(48, 18)", subject::gcd(48, 18), 6);
+};
+
+fun[] gcd_coprime(): bol = {
+    return expect::int_holds("gcd(17, 5)", subject::gcd(17, 5), 1);
+};
+
+fun[] gcd_zero_right(): bol = {
+    return expect::int_holds("gcd(9, 0)", subject::gcd(9, 0), 9);
+};
+
+fun[] clamp_inside(): bol = {
+    return expect::int_holds("clamp(5, 0, 10)", subject::clamp(5, 0, 10), 5);
+};
+
+fun[] clamp_below(): bol = {
+    return expect::int_holds("clamp(-3, 0, 10)", subject::clamp(0 - 3, 0, 10), 0);
+};
+
+fun[] slug_spaces(): bol = {
+    return expect::str_holds("slug of a title", subject::slug("hello wide world"),
+    "hello-wide-world");
+};
+
+fun[] slug_untouched(): bol = {
+    return expect::str_holds("slug leaves clean text", subject::slug("already-clean"),
+    "already-clean");
+};
+
+fun[] repeat_three(): bol = {
+    return expect::str_holds("repeat 3x", subject::repeat("ab", 3), "ababab");
+};
+
+fun[] repeat_zero(): bol = {
+    return expect::str_holds("repeat 0x is empty", subject::repeat("ab", 0), "");
+};
+
+fun[] bol_round_trip(): bol = {
+    return expect::bol_holds("clamp does not move a fit value",
+    subject::clamp(4, 0, 9) == 4, true);
+};
+
+// The harness proving its own failure path fires: `differs` passes only when
+// the comparison rejects, so a genuine mismatch is reported without failing
+// the run.
+fun[] failure_path_fires(): bol = {
+    return expect::int_rejects("gcd(48, 18) is not 7", subject::gcd(48, 18), 7);
+};
+
+// A tolerant comparison, built from a closure over the tolerance.
+fun[] near_tolerance(): bol = {
+    return expect::near("gcd(48, 18) within 2 of 5", subject::gcd(48, 18), 5, 2);
+};
+
+// A factory: the expectation is captured into the routine value's environment,
+// so one definition yields as many independent cases as we register.
+fun[] clamp_case(input: int, want: int): {fun (): bol} = {
+    return fun()[input[cpy], want[cpy]]: bol = {
+        return expect::int_holds("clamp(" + std::fmt::int_to_str(input) + ", 0, 10)",
+        subject::clamp(input, 0, 10), want);
+    };
+};
+
+fun[] main(): int = {
+    var library: suite::Suite = suite::new_suite("library", {
+        suite::entry("gcd basics", gcd_basics),
+        suite::entry("gcd coprime", gcd_coprime),
+        suite::entry("gcd with zero", gcd_zero_right),
+        suite::entry("clamp inside", clamp_inside),
+        suite::entry("clamp below", clamp_below),
+        suite::entry("slug spaces", slug_spaces),
+        suite::entry("slug untouched", slug_untouched),
+        suite::entry("repeat three", repeat_three),
+        suite::entry("repeat zero", repeat_zero),
+        suite::entry("bol round trip", bol_round_trip),
+    });
+
+    var harness: suite::Suite = suite::new_suite("harness self-checks", {
+        suite::entry("failure path fires", failure_path_fires),
+        suite::entry("tolerant comparison", near_tolerance),
+    });
+
+    var table: suite::Suite = suite::new_suite("clamp table", {
+        suite::entry("below the floor", clamp_case(0 - 8, 0)),
+        suite::entry("on the floor", clamp_case(0, 0)),
+        suite::entry("in range", clamp_case(7, 7)),
+        suite::entry("above the ceiling", clamp_case(99, 10)),
+    });
+
+    [mut, bor]library.run();
+    [mut, bor]harness.run();
+    [mut, bor]table.run();
+
+    var failed: int = ([bor]library.failed_count())
+    + ([bor]harness.failed_count())
+    + ([bor]table.failed_count());
+    var passed: int = library.passed + harness.passed + table.passed;
+    std::io::echo_str(report::summary_line("total", passed, failed));
+    // The exit status is the failure count, so a shell can branch on it.
+    return failed;
+};

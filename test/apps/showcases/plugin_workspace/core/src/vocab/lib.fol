@@ -1,0 +1,54 @@
+use levels: loc = {"levels"};
+
+// One parsed log line. Raw input looks like `WARN|net|link flap on eth0`:
+// severity name, subsystem tag, then the free-form message.
+typ[exp] Entry: rec = {
+    level: int,
+    source: str,
+    text: str,
+};
+
+// `head`/`tail` are the only string surgery this package needs. They stay
+// `hid` so they never leak into the workspace namespace; `parse` is the
+// supported entry point.
+fun[hid] head(text: str, sep: str): str = {
+    var pos: int = .str_find(text, sep);
+    when(.lt(pos, 0)) {
+        case(true) { return text; }
+        * { return .str_sub(text, 0, pos); }
+    }
+};
+
+fun[hid] tail(text: str, sep: str): str = {
+    var pos: int = .str_find(text, sep);
+    when(.lt(pos, 0)) {
+        case(true) { return ""; }
+        * { return .str_sub(text, pos + 1, .len(text) - pos - 1); }
+    }
+};
+
+fun[exp] parse(line: str): Entry = {
+    var level_text: str = head(line, "|");
+    var rest: str = tail(line, "|");
+    var entry: Entry = {
+        level = levels::from_name(level_text),
+        source = head(rest, "|"),
+        text = tail(rest, "|"),
+    };
+    return entry;
+};
+
+// A malformed line keeps its text but has no place on the severity ladder.
+fun[exp] is_valid(entry: Entry): bol = {
+    return .ge(entry.level, 0);
+};
+
+fun[exp] label(entry: Entry): str = {
+    return levels::name_of(entry.level);
+};
+
+// Convenience re-export so consumers that only have a numeric level do not
+// have to reach into the nested namespace.
+fun[exp] level_name(level: int): str = {
+    return levels::name_of(level);
+};

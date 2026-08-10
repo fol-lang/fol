@@ -1,0 +1,92 @@
+use std: pkg = {"std"};
+
+// `std::fs::dir_list` hands back one flat string with entries separated by
+// newlines, so every consumer needs a line cursor. These helpers are that
+// cursor: `count` says how many entries there are, `nth` pulls one out.
+
+fun[exp] tail(text: str, from: int): str = {
+    return std::strn::sub(text, from, .len(text) - from);
+};
+
+// Byte offset just past the line that starts at `from`, or the end of the
+// text when that line is the last one.
+fun[exp] next_start(text: str, from: int): int = {
+    var stop: int = std::strn::find(tail(text, from), "\n");
+    if (stop < 0) {
+        return .len(text);
+    };
+    return from + stop + 1;
+};
+
+fun[exp] line_at(text: str, from: int): str = {
+    var stop: int = std::strn::find(tail(text, from), "\n");
+    if (stop < 0) {
+        return tail(text, from);
+    };
+    return std::strn::sub(text, from, stop);
+};
+
+fun[exp] count(text: str): int = {
+    if (.len(text) == 0) {
+        return 0;
+    };
+    var cursor: int = 0;
+    var total: int = 0;
+    loop (cursor < .len(text)) {
+        cursor = next_start(text, cursor);
+        total = total + 1;
+    };
+    return total;
+};
+
+fun[exp] nth(text: str, index: int): str = {
+    var cursor: int = 0;
+    var seen: int = 0;
+    loop (cursor < .len(text)) {
+        if (seen == index) {
+            return line_at(text, cursor);
+        };
+        cursor = next_start(text, cursor);
+        seen = seen + 1;
+    };
+    return "";
+};
+
+// A one-character double-quoted literal is inferred as `chr`, and `str ==
+// chr` does not typecheck. Routing both sides through parameters declared
+// `str` is what makes a single-character comparison compile.
+fun[exp] eq(left: str, right: str): bol = {
+    return left == right;
+};
+
+fun[exp] sub_head(text: str, width: int): str = {
+    return std::strn::sub(text, 0, width);
+};
+
+fun[exp] char_at(text: str, index: int): str = {
+    return std::strn::sub(text, index, 1);
+};
+
+fun[exp] ends_with(text: str, mark: str): bol = {
+    if (.len(mark) > .len(text)) {
+        return false;
+    };
+    return std::strn::sub(text, .len(text) - .len(mark), .len(mark)) == mark;
+};
+
+fun[exp] repeat(unit: str, times: int): str = {
+    var out: str = "";
+    var left: int = times;
+    loop (left > 0) {
+        out = out + unit;
+        left = left - 1;
+    };
+    return out;
+};
+
+fun[exp] pad_right(value: str, width: int): str = {
+    if (.len(value) >= width) {
+        return value;
+    };
+    return value + repeat(" ", width - .len(value));
+};

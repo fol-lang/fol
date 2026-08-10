@@ -1,0 +1,35 @@
+use std: pkg = {"std"};
+use vector: loc = {"../vector"};
+use matrix: loc = {"../matrix"};
+
+var[] DECIMALS: int = 3;
+
+fun[exp] number(value: flt): str = {
+    return std::fmt::float_to_str(value, DECIMALS);
+};
+
+fun[exp] triple_line(source: vector::Triple): str = {
+    return "[ " + number(source[0]) + "  " + number(source[1]) + "  " + number(source[2]) + " ]";
+};
+
+pro[exp] print_triple(label: str, source: vector::Triple): non = {
+    std::io::echo_str(label + " " + triple_line(source));
+    return;
+};
+
+// Rows are fetched through the indexed accessor rather than by field, so the
+// printer stays a loop instead of three copies of the same line.
+pro[exp] print_matrix(label: str, source: matrix::Square3): non = {
+    std::io::echo_str(label);
+    var index: int = 0;
+    loop(index < 3) {
+        std::io::echo_str("  " + triple_line(matrix::row(source, index)));
+        index = index + 1;
+    }
+    return;
+};
+
+pro[exp] print_scalar(label: str, value: flt): non = {
+    std::io::echo_str(label + " " + number(value));
+    return;
+};

@@ -1,0 +1,70 @@
+use std: pkg = {"std"};
+use money: loc = {"../lib"};
+use statement: loc = {"statement"};
+
+// Ledger report. Reads a fixed transaction feed, keeps a running balance in
+// whole cents, and prints a statement followed by totals.
+//
+// The feed is inline so the showcase output is deterministic. Each row is
+// `date|memo|amount`.
+
+fun[hid] feed(): seq[str] = {
+    var rows: seq[str] = {
+        "2026-01-02|opening balance|1500.00",
+        "2026-01-05|groceries|-42.50",
+        "2026-01-09|salary|2100.00",
+        "2026-01-11|rent|-1250.00",
+        "2026-01-14|coffee|-3.75",
+        "2026-01-20|refund|18.99",
+    };
+    return rows;
+};
+
+// The declared run step passes `--config <rates.txt>` and sets LEDGER_MODE.
+// Reporting both makes it visible whether the step actually delivered them.
+fun[hid] mode_label(): str = {
+    var mode: str = .env_var("LEDGER_MODE");
+    when(.eq(.len(mode), 0)) {
+        case(true) { return "default"; }
+        * { return mode; }
+    }
+};
+
+fun[hid] arg_label(): str = {
+    return std::fmt::int_to_str(.arg_count());
+};
+
+fun[] main(): int = {
+    var balance: int = 0;
+    var credits: int = 0;
+    var debits: int = 0;
+    var rows: int = 0;
+
+    std::io::echo_str(statement::header());
+
+    loop(row in feed()) {
+        rows = rows + 1;
+        var date: str = statement::field(row, 0);
+        var memo: str = statement::field(row, 1);
+        var amount: int = money::parse_amount(statement::field(row, 2));
+
+        balance = balance + amount;
+        when(.lt(amount, 0)) {
+            case(true) { debits = debits - amount; }
+            * { credits = credits + amount; }
+        }
+
+        std::io::echo_str(statement::row(date, memo, amount, balance));
+    }
+
+    std::io::echo_str(statement::rule());
+    std::io::echo_str(statement::total("rows", std::fmt::int_to_str(rows)));
+    std::io::echo_str(statement::total("credits", money::format_cents(credits)));
+    std::io::echo_str(statement::total("debits", money::format_cents(debits)));
+    std::io::echo_str(statement::total("balance", money::format_cents(balance)));
+    std::io::echo_str(statement::total("settled", money::format_cents(money::settle(balance))));
+    std::io::echo_str(statement::total("run mode", mode_label()));
+    std::io::echo_str(statement::total("run args", arg_label()));
+
+    return 0;
+};

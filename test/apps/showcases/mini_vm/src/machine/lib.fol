@@ -1,0 +1,140 @@
+use std: pkg = {"std"};
+
+// The interpreter: fetch, decode, execute, repeat until HALT or the end of
+// the program.
+//
+// Two different error surfaces meet here. The stack routines use the
+// call-site form `/ str`, which can only be probed with `check(...)` or
+// defaulted with `|| fallback` -- neither of which hands back the reported
+// message. So `exec` converts immediately into a storable `err[str]` shell,
+// which callers can inspect with `when ... on ...`, and which survives being
+// stored in a record.
+
+typ[exp] Machine: rec = {
+    stack: stack::Stack;
+    pc: int;
+    steps: int;
+    halted: bol
+};
+
+// One completed step: the machine that follows it, plus a fault shell that is
+// `nil` when the step succeeded.
+typ[exp] Step: rec = {
+    machine: Machine;
+    fault: err[str]
+};
+
+fun[exp] boot(): Machine = {
+    return { stack = stack::empty(), pc = 0, steps = 0, halted = false };
+};
+
+fun[exp] advance(m: Machine, s: stack::Stack, stop: bol): Machine = {
+    return { stack = s, pc = m.pc + 1, steps = m.steps + 1, halted = stop };
+};
+
+fun[exp] fine(m: Machine): Step = {
+    return { machine = m, fault = nil };
+};
+
+fun[exp] broken(m: Machine, why: str): Step = {
+    return { machine = m, fault = why };
+};
+
+// Executes one instruction and returns the machine that follows it.
+fun[exp] exec(m: Machine, ins: isa::Instr): Step = {
+    var s: stack::Stack = m.stack;
+
+    // Guard the operand count once, so the individual cases below can assume
+    // the stack is deep enough.
+    var need: int = isa::arity(ins.op);
+    when(stack::depth_of(s) < need) {
+        case(true) { return broken(m, "stack underflow"); }
+        * { }
+    }
+
+    when(ins.op) {
+        is(0) {
+            var pushed: stack::Stack = stack::push(s, ins.arg) || return broken(m, "stack overflow");
+            return fine(advance(m, pushed, false));
+        }
+        is(5) {
+            var value: int = stack::top(s) || return broken(m, "stack underflow");
+            var pushed: stack::Stack = stack::push(s, value) || return broken(m, "stack overflow");
+            return fine(advance(m, pushed, false));
+        }
+        is(6) {
+            var rest: stack::Stack = stack::drop_top(s) || return broken(m, "stack underflow");
+            return fine(advance(m, rest, false));
+        }
+        is(7) {
+            var a: int = stack::top(s) || return broken(m, "stack underflow");
+            var b: int = stack::second(s) || return broken(m, "stack underflow");
+            var one: stack::Stack = stack::drop_top(s) || return broken(m, "stack underflow");
+            var two: stack::Stack = stack::drop_top(one) || return broken(m, "stack underflow");
+            var back: stack::Stack = stack::push(two, a) || return broken(m, "stack overflow");
+            var done: stack::Stack = stack::push(back, b) || return broken(m, "stack overflow");
+            return fine(advance(m, done, false));
+        }
+        is(8) {
+            var value: int = stack::top(s) || return broken(m, "stack underflow");
+            std::io::echo_str("  out> " + std::fmt::int_to_str(value));
+            return fine(advance(m, s, false));
+        }
+        is(9) {
+            return fine(advance(m, s, true));
+        }
+        * { }
+    }
+
+    // Everything left is a binary arithmetic op: pop two, push one.
+    var rhs: int = stack::top(s) || return broken(m, "stack underflow");
+    var lhs: int = stack::second(s) || return broken(m, "stack underflow");
+    var one: stack::Stack = stack::drop_top(s) || return broken(m, "stack underflow");
+    var rest: stack::Stack = stack::drop_top(one) || return broken(m, "stack underflow");
+
+    var[mut] value: int = 0;
+    when(ins.op) {
+        is(1) { value = lhs + rhs; }
+        is(2) { value = lhs - rhs; }
+        is(3) { value = lhs * rhs; }
+        is(4) {
+            when(rhs == 0) {
+                case(true) { return broken(m, "divide by zero"); }
+                * { }
+            }
+            value = lhs / rhs;
+        }
+        * { return broken(m, "unknown opcode " + std::fmt::int_to_str(ins.op)); }
+    }
+
+    var pushed: stack::Stack = stack::push(rest, value) || return broken(m, "stack overflow");
+    return fine(advance(m, pushed, false));
+};
+
+// Runs a whole program, tracing each step. Stops at HALT, at the end of the
+// program, or at the first faulting instruction.
+fun[exp] run(program: seq[isa::Instr], trace: bol): Step = {
+    var[mut] m: Machine = boot();
+    loop (m.halted == false and m.pc < .len(program)) {
+        var ins: isa::Instr = program[m.pc];
+        var step: Step = exec(m, ins);
+
+        when(step.fault) {
+            on(why) {
+                return broken(m, "pc " + std::fmt::int_to_str(m.pc)
+                + " (" + isa::show(ins) + "): " + why);
+            }
+            * { }
+        }
+
+        when(trace) {
+            case(true) {
+                std::io::echo_str("  " + std::fmt::int_to_str(m.pc) + "  "
+                + isa::show(ins) + "  -> " + stack::show(step.machine.stack));
+            }
+            * { }
+        }
+        m = step.machine;
+    }
+    return fine(m);
+};

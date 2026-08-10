@@ -1,0 +1,94 @@
+use std: pkg = {"std"};
+use vector: loc = {"vector"};
+use matrix: loc = {"matrix"};
+use render: loc = {"render"};
+
+// Two operands reused by every section below.
+fun[] left_operand(): matrix::Square3 = {
+    var a: vector::Triple = { 2.0, -1.0, 0.5 };
+    var b: vector::Triple = { 0.0, 3.0, -2.0 };
+    var c: vector::Triple = { 1.0, 1.0, 4.0 };
+    return matrix::from_rows(a, b, c);
+};
+
+fun[] right_operand(): matrix::Square3 = {
+    var a: vector::Triple = { 1.0, 0.0, 2.0 };
+    var b: vector::Triple = { -1.0, 1.0, 0.0 };
+    var c: vector::Triple = { 0.5, -0.5, 1.0 };
+    return matrix::from_rows(a, b, c);
+};
+
+pro[] show_addition(): non = {
+    var sum: matrix::Square3 = matrix::add(left_operand(), right_operand());
+    render::print_matrix("A + B", sum);
+    return;
+};
+
+pro[] show_product(): non = {
+    var product: matrix::Square3 = matrix::multiply(left_operand(), right_operand());
+    render::print_matrix("A * B", product);
+    return;
+};
+
+pro[] show_transpose(): non = {
+    var flipped: matrix::Square3 = matrix::transpose(left_operand());
+    render::print_matrix("A transposed", flipped);
+    render::print_scalar("trace(A)        ", matrix::trace(left_operand()));
+    render::print_scalar("trace(A^T)      ", matrix::trace(flipped));
+    return;
+};
+
+// det(A*B) must equal det(A)*det(B); printing all three makes the identity
+// visible instead of merely asserted.
+pro[] show_determinants(): non = {
+    var a: matrix::Square3 = left_operand();
+    var b: matrix::Square3 = right_operand();
+    render::print_scalar("det(A)          ", matrix::determinant(a));
+    render::print_scalar("det(B)          ", matrix::determinant(b));
+    render::print_scalar("det(A) * det(B) ", matrix::determinant(a) * matrix::determinant(b));
+    render::print_scalar("det(A * B)      ", matrix::determinant(matrix::multiply(a, b)));
+    return;
+};
+
+// The scalar triple product of the rows is another spelling of the determinant.
+pro[] show_triple_product(): non = {
+    var a: matrix::Square3 = left_operand();
+    var normal: vector::Triple = vector::cross(a.r1, a.r2);
+    render::print_triple("r1 x r2        ", normal);
+    render::print_scalar("r0 . (r1 x r2)  ", vector::dot(a.r0, normal));
+    return;
+};
+
+pro[] show_transform(): non = {
+    var point: vector::Triple = { 1.0, 2.0, -1.0 };
+    var moved: vector::Triple = matrix::apply(left_operand(), point);
+    render::print_triple("point          ", point);
+    render::print_triple("A * point      ", moved);
+    render::print_scalar("|A * point|^2   ", vector::norm_squared(moved));
+    return;
+};
+
+// Multiplying by the identity is the cheapest end-to-end check that row and
+// column selection line up.
+pro[] show_identity_check(): non = {
+    var a: matrix::Square3 = left_operand();
+    var same: matrix::Square3 = matrix::multiply(a, matrix::identity());
+    var delta: matrix::Square3 = matrix::add(same, matrix::scale(a, -1.0));
+    render::print_scalar("residual trace  ", matrix::trace(delta));
+    render::print_scalar("residual det    ", matrix::determinant(delta));
+    return;
+};
+
+fun[] main(): int = {
+    std::io::echo_str("== matrix_math ==");
+    render::print_matrix("A", left_operand());
+    render::print_matrix("B", right_operand());
+    show_addition();
+    show_product();
+    show_transpose();
+    show_determinants();
+    show_triple_product();
+    show_transform();
+    show_identity_check();
+    return 0;
+};

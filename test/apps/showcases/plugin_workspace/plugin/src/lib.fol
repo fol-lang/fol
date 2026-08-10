@@ -1,0 +1,4 @@
+// Package root file for the plugin member; the policy namespace holds the
+// actual code. See core/src/lib.fol for why the namespace directory is not
+// simply `src`.
+use policy: loc = {"policy"};

@@ -1,0 +1,76 @@
+// Rendering. `std::io::write` does not append a newline, so lines are
+// assembled piece by piece and closed with an explicit "\n".
+
+use std: pkg = {"std"};
+use model: loc = {"../model"};
+use parse: loc = {"../parse"};
+
+pro[exp] head(title: str): non = {
+    std::io::write("\n== ");
+    std::io::write(title);
+    std::io::write(" ==\n");
+    return;
+};
+
+pro[exp] pair(key: str, value: str): non = {
+    std::io::write("  ");
+    std::io::write(key);
+    std::io::write(" = ");
+    std::io::write(value);
+    std::io::write("\n");
+    return;
+};
+
+pro[exp] note(text: str): non = {
+    std::io::write("  ");
+    std::io::write(text);
+    std::io::write("\n");
+    return;
+};
+
+// Print every line of a document, one rendered row per physical line.
+pro[exp] dump(text: str, from: int, number: int): non = {
+    when(from >= .len(text)) {
+        case(true) { return; }
+        * { }
+    };
+    var line = parse::parse_line(text, from);
+    std::io::write("  ");
+    std::io::write(std::fmt::int_to_str(number));
+    std::io::write("  ");
+    std::io::write(label(line.kind));
+    describe(line);
+    std::io::write("\n");
+    dump(text, line.stop, number + 1);
+    return;
+};
+
+fun[exp] label(kind: int): str = {
+    when(kind) {
+        is(model::kind_blank()) { return "blank   "; }
+        is(model::kind_comment()) { return "comment "; }
+        is(model::kind_section()) { return "section "; }
+        is(model::kind_pair()) { return "pair    "; }
+        * { return "broken  "; }
+    }
+};
+
+pro describe(line: model::Line): non = {
+    when(line.kind) {
+        is(model::kind_comment()) { std::io::write(line.value); }
+        is(model::kind_section()) {
+            std::io::write("[");
+            std::io::write(line.name);
+            std::io::write("]");
+        }
+        is(model::kind_pair()) {
+            std::io::write(line.name);
+            std::io::write(" -> '");
+            std::io::write(line.value);
+            std::io::write("'");
+        }
+        is(model::kind_broken()) { std::io::write(parse::fault_text(line.fault)); }
+        * { }
+    };
+    return;
+};

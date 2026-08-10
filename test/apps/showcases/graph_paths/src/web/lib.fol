@@ -1,0 +1,104 @@
+use task: loc = {"../task"};
+
+// Builds the dependency web.
+//
+// Construction order matters: `[ref]value` allocates and snapshots, so a task
+// can only name dependencies that already exist. The web is therefore built
+// leaves-first, and every strong edge points at an already-allocated node.
+
+typ[exp] Web: rec = {
+    all: vec[task::Handle],
+};
+
+fun[exp] size(web: Web): int = {
+    return .len(web.all);
+};
+
+fun[exp] node_at(web: Web, index: int): task::Handle = {
+    return web.all[index];
+};
+
+// Linear scan by name; the web is small and identity is the string label.
+fun[exp] find(web: Web, name: str): int = {
+    ~var index: int = 0;
+    loop(index < .len(web.all)) {
+        when(task::task_name(web.all[index]) == name) {
+            * { return index; }
+        };
+        index = index + 1;
+    };
+    return 0 - 1;
+};
+
+fun[exp] sample(): Web = {
+    var root_value: task::Task = {
+        name = "toolchain",
+        cost = 1,
+        deps = {},
+        base = nil,
+    };
+    var root: ptr[shared, task::Task] = [ref]root_value;
+    // Every later task observes the root weakly, so the root is never kept
+    // alive by the web itself.
+    var watch: ptr[weak, task::Task] = [weak]root;
+
+    var libc_value: task::Task = {
+        name = "libc",
+        cost = 4,
+        deps = { root },
+        base = watch,
+    };
+    var libc: ptr[shared, task::Task] = [ref]libc_value;
+
+    var zlib_value: task::Task = {
+        name = "zlib",
+        cost = 3,
+        deps = { root },
+        base = watch,
+    };
+    var zlib: ptr[shared, task::Task] = [ref]zlib_value;
+
+    var png_value: task::Task = {
+        name = "png",
+        cost = 6,
+        deps = { zlib, libc },
+        base = watch,
+    };
+    var png: ptr[shared, task::Task] = [ref]png_value;
+
+    var ui_value: task::Task = {
+        name = "ui",
+        cost = 9,
+        deps = { png, libc },
+        base = watch,
+    };
+    var ui: ptr[shared, task::Task] = [ref]ui_value;
+
+    var cli_value: task::Task = {
+        name = "cli",
+        cost = 2,
+        deps = { libc },
+        base = watch,
+    };
+    var cli: ptr[shared, task::Task] = [ref]cli_value;
+
+    var app_value: task::Task = {
+        name = "app",
+        cost = 5,
+        deps = { ui, cli },
+        base = watch,
+    };
+    var app: ptr[shared, task::Task] = [ref]app_value;
+
+    return {
+        all = {
+            { cell = root },
+            { cell = libc },
+            { cell = zlib },
+            { cell = png },
+            { cell = ui },
+            { cell = cli },
+            { cell = app },
+        },
+    };
+};

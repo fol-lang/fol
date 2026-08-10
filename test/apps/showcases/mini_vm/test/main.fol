@@ -1,0 +1,65 @@
+use std: pkg = {"std"};
+use vm: loc = {"../src"};
+
+fun[] expect(label: str, got: int, want: int): int = {
+    when(got == want) {
+        case(true) {
+            std::io::echo_str("ok   " + label);
+            return 0;
+        }
+        * {
+            std::io::echo_str("FAIL " + label
+            + " got=" + std::fmt::int_to_str(got)
+            + " want=" + std::fmt::int_to_str(want));
+            return 1;
+        }
+    }
+};
+
+fun[] expect_str(label: str, got: str, want: str): int = {
+    when(got == want) {
+        case(true) {
+            std::io::echo_str("ok   " + label);
+            return 0;
+        }
+        * {
+            std::io::echo_str("FAIL " + label + " got=" + got + " want=" + want);
+            return 1;
+        }
+    }
+};
+
+// Runs a program with tracing off and reports the value left on top.
+fun[] result_of(program: seq[vm::isa::Instr]): int = {
+    var outcome: vm::machine::Step = vm::machine::run(program, false);
+    return vm::stack::top(outcome.machine.stack) || -1;
+};
+
+fun[] fault_of(program: seq[vm::isa::Instr]): str = {
+    var outcome: vm::machine::Step = vm::machine::run(program, false);
+    when(outcome.fault) {
+        on(why) { return why; }
+        * { return "none"; }
+    }
+};
+
+fun[] main(): int = {
+    var[mut] bad: int = 0;
+
+    bad = bad + expect("arithmetic result", result_of(vm::program::arithmetic()), 30);
+    bad = bad + expect("square result", result_of(vm::program::square()), 81);
+    bad = bad + expect("swap keeps operand order", result_of(vm::program::swapped()), 16);
+
+    bad = bad + expect_str("underflow is reported",
+    fault_of(vm::program::underflow()), "pc 1 (add): stack underflow");
+    bad = bad + expect_str("divide by zero is reported",
+    fault_of(vm::program::divide_by_zero()), "pc 2 (div): divide by zero");
+
+    // A good program leaves exactly one value behind and stops on HALT.
+    var done: vm::machine::Step = vm::machine::run(vm::program::square(), false);
+    bad = bad + expect("square leaves one value", vm::stack::depth_of(done.machine.stack), 1);
+    bad = bad + expect("square takes five steps", done.machine.steps, 5);
+
+    std::io::echo_str("failures: " + std::fmt::int_to_str(bad));
+    return bad;
+};

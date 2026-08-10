@@ -1,0 +1,30 @@
+// Topic vocabulary for the bus.
+//
+// Topics are plain strings. Keeping them behind routines means the subscriber
+// table and the publisher agree on spelling, and the wildcard rule lives in one
+// place instead of being re-derived at every match site.
+
+fun[exp] temperature(): str = {
+    return "sensor.temp";
+};
+
+fun[exp] humidity(): str = {
+    return "sensor.hum";
+};
+
+fun[exp] tick(): str = {
+    return "system.tick";
+};
+
+fun[exp] wildcard(): str = {
+    return "*";
+};
+
+// A subscription pattern matches a published subject either exactly or through
+// the wildcard, which is how a firehose logger subscribes to everything.
+fun[exp] matches(pattern: str, subject: str): bol = {
+    if (pattern == wildcard()) {
+        return true;
+    }
+    return pattern == subject;
+};

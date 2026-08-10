@@ -1,0 +1,38 @@
+// Job model shared by the queue, the workers, and the report.
+//
+// A job is a unit of work with a dispatch priority. `weight` is the simulated
+// amount of work the worker has to grind through; the worker turns it into a
+// checksum so the report has something real to compare.
+
+typ[exp] Job: rec = {
+    id: int,
+    priority: int,
+    weight: int,
+};
+
+typ[exp] Outcome: rec = {
+    id: int,
+    priority: int,
+    checksum: int,
+};
+
+// Jobs are dispatched highest-priority-first. Ties fall back to the job id so
+// the dispatch order is a total order and the run stays reproducible.
+fun[exp] outranks(left: Job, right: Job): bol = {
+    when (left.priority == right.priority) {
+        case (true) { return left.id < right.id; }
+        * { return left.priority > right.priority; }
+    }
+};
+
+// The checksum a worker is expected to produce for a job. Keeping the formula
+// here lets the report verify the workers without duplicating the rule.
+fun[exp] expected_checksum(job: Job): int = {
+    var[mut] acc: int = job.id * 7;
+    var[mut] step: int = 0;
+    loop (step < job.weight) {
+        acc = acc + step * step;
+        step = step + 1;
+    };
+    return acc;
+};

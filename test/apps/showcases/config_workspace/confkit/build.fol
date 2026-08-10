@@ -1,0 +1,31 @@
+// confkit — the analysis library of the config checker.
+//
+// It ships two ways: as a linkable static library, and as a build module so a
+// dependent package can pull the sources into its own artifact. Both exports
+// are named so `confcheck` can ask for them by name.
+//
+// Every comment in this file sits at file root on purpose. A `//` comment
+// inside the build routine body makes build evaluation fail with F1001.
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "confkit", version = "0.1.0" });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+
+    var graph = build.graph();
+    var lib = graph.add_static_lib({
+        name = "confkit",
+        root = "src/lib.fol",
+        fol_model = "memo",
+    });
+    var api = graph.add_module({ name = "confkit_api", root = "src/lib.fol" });
+    var checks = graph.add_test({
+        name = "confkit_tests",
+        root = "tests/main.fol",
+        fol_model = "memo",
+    });
+
+    graph.install(lib);
+    build.export_module({ name = "api", module = api });
+    build.export_artifact({ name = "checker", artifact = lib });
+    return;
+};

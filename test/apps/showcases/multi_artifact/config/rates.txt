@@ -1,0 +1,3 @@
+// Settlement configuration consumed by the run step as a file argument.
+currency=EUR
+cash_step_cents=5

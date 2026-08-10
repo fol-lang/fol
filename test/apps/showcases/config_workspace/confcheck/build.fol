@@ -1,0 +1,25 @@
+// confcheck — the runnable half of the checker.
+//
+// It depends on the sibling `confkit` package by path. `confkit` has a
+// build.fol of its own, which makes it a formal package root, so source files
+// reach it through a `pkg` import against this alias rather than through `loc`.
+//
+// Comments stay at file root here: a `//` inside the build routine body makes
+// build evaluation fail with F1001.
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "confcheck", version = "0.1.0" });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    build.add_dep({ alias = "confkit", source = "loc", target = "../confkit" });
+
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "confcheck",
+        root = "src/main.fol",
+        fol_model = "memo",
+    });
+
+    graph.install(app);
+    graph.add_run(app);
+    return;
+};

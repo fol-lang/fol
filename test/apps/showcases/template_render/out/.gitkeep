@@ -1,0 +1,2 @@
+Keeps this directory in the tree: the default run writes greeting.txt here,
+and std::fs can create a file but not the directory holding it.

@@ -1,0 +1,32 @@
+// Text layout helpers, kept outside `src/` so the executable exercises a real
+// `loc` import as well as package-internal namespaces. A `loc` package is a
+// package of its own: it cannot see the importer's namespaces, so nothing in
+// here knows anything about the instruction set.
+
+fun[exp] repeat(glyph: str, count: int): str = {
+    var[mut] out: str = "";
+    var[mut] left: int = count;
+    loop (left > 0) {
+        out = out + glyph;
+        left = left - 1;
+    }
+    return out;
+};
+
+fun[exp] banner(title: str): str = {
+    return "== " + title + " " + repeat("=", 30 - .len(title));
+};
+
+fun[exp] join(parts: seq[str], sep: str): str = {
+    var[mut] out: str = "";
+    var[mut] i: int = 0;
+    loop (i < .len(parts)) {
+        when(i > 0) {
+            case(true) { out = out + sep; }
+            * { }
+        }
+        out = out + parts[i];
+        i = i + 1;
+    }
+    return out;
+};

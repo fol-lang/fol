@@ -1,0 +1,24 @@
+// The resource this tool manages. `Handle` claims `fin`, so whichever owner
+// holds it at scope exit runs `finalize` (V3_MEM §6.1). The finalizer prints,
+// which is the point: the transcript *is* the ownership proof.
+
+use std: pkg = {"std"};
+
+typ[exp] Handle()(fin): rec = {
+    descriptor: int,
+    label: str,
+};
+
+pro (Handle)finalize(): non = {
+    var line: str = "    [close] fd=" + std::fmt::int_to_str(self.descriptor);
+    var shown: str = std::io::echo_str(line + " " + self.label);
+    return;
+};
+
+fun[exp] open(descriptor: int, label: str): Handle = {
+    return { descriptor = descriptor, label = label };
+};
+
+fun[exp] describe(item[bor]: Handle): str = {
+    return "fd=" + std::fmt::int_to_str(item.descriptor) + " " + item.label;
+};

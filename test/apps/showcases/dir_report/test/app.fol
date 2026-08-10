@@ -1,0 +1,126 @@
+use std: pkg = {"std"};
+use text: loc = {"../src/text"};
+use kinds: loc = {"../src/kinds"};
+use counts: loc = {"../src/counts"};
+use walk: loc = {"../src/walk"};
+
+// The suite for dir-report. There is no assertion intrinsic in the current
+// surface, so each check reports itself and the exit status is the number of
+// failures.
+//
+// The walk is checked against `assets/tree`, a fixture whose contents and
+// byte sizes are fixed, so the totals below are exact rather than indicative.
+
+fun[] expect_int(label: str, actual: int, wanted: int): int = {
+    if (actual == wanted) {
+        std::io::echo_str("ok    " + label);
+        return 0;
+    };
+    var got: str = std::fmt::int_to_str(actual);
+    var want: str = std::fmt::int_to_str(wanted);
+    std::io::echo_str("FAIL  " + label + ": got " + got + ", wanted " + want);
+    return 1;
+};
+
+fun[] expect_str(label: str, actual: str, wanted: str): int = {
+    if (actual == wanted) {
+        std::io::echo_str("ok    " + label);
+        return 0;
+    };
+    std::io::echo_str("FAIL  " + label + ": got '" + actual + "', wanted '" + wanted + "'");
+    return 1;
+};
+
+fun[] check_text(): int = {
+    var bad: int = 0;
+    var listing: str = "one\ntwo\nthree";
+    bad = bad + expect_int("text::count", text::count(listing), 3);
+    bad = bad + expect_int("text::count empty", text::count(""), 0);
+    bad = bad + expect_str("text::nth first", text::nth(listing, 0), "one");
+    bad = bad + expect_str("text::nth last", text::nth(listing, 2), "three");
+    bad = bad + expect_str("text::nth past end", text::nth(listing, 9), "");
+    bad = bad + expect_str("text::pad_right", text::pad_right("ab", 5), "ab   ");
+    bad = bad + expect_str("text::pad_right no-op", text::pad_right("abcdef", 3), "abcdef");
+    bad = bad + expect_str("text::repeat", text::repeat("-", 4), "----");
+    return bad;
+};
+
+fun[] check_kinds(): int = {
+    var bad: int = 0;
+    bad = bad + expect_str("kinds::bare strips slash", kinds::bare("src/"), "src");
+    bad = bad + expect_str("kinds::bare keeps file", kinds::bare("a.fol"), "a.fol");
+    bad = bad + expect_str("kinds::suffix", kinds::suffix("a.tar.gz"), "gz");
+    bad = bad + expect_str("kinds::suffix none", kinds::suffix("README"), "");
+    bad = bad + expect_str("kinds::suffix dotfile", kinds::suffix(".env"), "");
+    bad = bad + expect_str("classify dir", kinds::label(kinds::classify("src/")), "dir");
+    bad = bad + expect_str("classify fol", kinds::label(kinds::classify("a.fol")), "source");
+    bad = bad + expect_str("classify md", kinds::label(kinds::classify("a.md")), "docs");
+    bad = bad + expect_str("classify json", kinds::label(kinds::classify("a.json")), "data");
+    bad = bad + expect_str("classify other", kinds::label(kinds::classify("a.bin")), "other");
+    return bad;
+};
+
+fun[] check_counts(): int = {
+    var bad: int = 0;
+    var left: counts::Tally = counts::empty();
+    left.code = 2;
+    left.docs = 1;
+    var right: counts::Tally = counts::empty();
+    right.code = 3;
+    right.data = 4;
+    var sum: counts::Tally = counts::merge(left, right);
+    bad = bad + expect_int("merge code", sum.code, 5);
+    bad = bad + expect_int("merge docs", sum.docs, 1);
+    bad = bad + expect_int("merge data", sum.data, 4);
+    bad = bad + expect_int("files total", counts::files(sum), 10);
+    return bad;
+};
+
+fun[] check_join(): int = {
+    var bad: int = 0;
+    bad = bad + expect_str("join plain", walk::join("a", "b"), "a/b");
+    bad = bad + expect_str("join trailing slash", walk::join("a/", "b"), "a/b");
+    bad = bad + expect_str("join empty parent", walk::join("", "b"), "b");
+    return bad;
+};
+
+// `show_depth = -1` keeps the walk silent so the suite output stays readable.
+fun[] check_walk(): int = {
+    var bad: int = 0;
+    var totals: counts::Tally = walk::walk("assets/tree", 0, 3, -1);
+    bad = bad + expect_int("walk dirs", totals.dirs, 1);
+    bad = bad + expect_int("walk source", totals.code, 2);
+    bad = bad + expect_int("walk docs", totals.docs, 1);
+    bad = bad + expect_int("walk data", totals.data, 2);
+    bad = bad + expect_int("walk other", totals.other, 1);
+    bad = bad + expect_int("walk files", counts::files(totals), 6);
+    bad = bad + expect_int("walk bytes", totals.bytes, 147);
+    bad = bad + expect_int("walk silent", totals.silent, 0);
+
+    // Depth 0 stops before descending, so only the top level is counted.
+    var shallow: counts::Tally = walk::walk("assets/tree", 0, 0, -1);
+    bad = bad + expect_int("shallow files", counts::files(shallow), 4);
+    bad = bad + expect_int("shallow dirs", shallow.dirs, 1);
+
+    // A path that cannot be listed is silent rather than fatal.
+    var absent: counts::Tally = walk::walk("assets/no-such-dir", 0, 2, -1);
+    bad = bad + expect_int("absent silent", absent.silent, 1);
+    bad = bad + expect_int("absent files", counts::files(absent), 0);
+    return bad;
+};
+
+fun[] main(): int = {
+    var bad: int = 0;
+    bad = bad + check_text();
+    bad = bad + check_kinds();
+    bad = bad + check_counts();
+    bad = bad + check_join();
+    bad = bad + check_walk();
+    std::io::echo_str("--");
+    if (bad == 0) {
+        std::io::echo_str("all checks passed");
+        return 0;
+    };
+    std::io::echo_str(std::fmt::int_to_str(bad) + " check(s) failed");
+    return 1;
+};

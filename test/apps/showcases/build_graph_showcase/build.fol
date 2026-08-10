@@ -1,0 +1,100 @@
+// Build graph for the release-manifest auditor.
+//
+// Four artifacts share one graph: the `manifest-audit` executable, the
+// `auditcore` static library, a `common` module both of them import, and a
+// `checks` test binary run by `fol code test`.
+//
+// Two named steps sit in front of the install and run steps: `audit` freezes
+// the manifest snapshot and the generated policy, and `release` waits on it.
+//
+// Layout note: every artifact root lives in its own directory, so the four
+// recursively parsed source scopes stay disjoint as the graph API requires.
+//
+// Style note: statement-level comments cannot appear inside the `build()` body
+// because build evaluation rejects them, so the commentary lives out here.
+
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "build_graph_showcase", version = "0.1.0" });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+
+    var channel = graph.option({ name = "channel", kind = "str", default = "stable" });
+    var policy = graph.write_file({
+        name = "policy",
+        path = "gen/policy.txt",
+        contents = "max_bytes = 65536\nchannel = stable\nmin_entries = 3\n",
+    });
+    when(channel == "nightly") {
+        {
+            var relaxed = graph.write_file({
+                name = "policy-nightly",
+                path = "gen/policy.nightly.txt",
+                contents = "max_bytes = 262144\nchannel = nightly\nmin_entries = 1\n",
+            });
+            var nightly = graph.step("nightly-policy", "Emit the relaxed nightly policy");
+            nightly.attach(relaxed);
+        }
+    };
+
+    var manifest = graph.file_from_root("config/manifest.txt");
+    var rules = graph.file_from_root("config/policy.txt");
+    var snapshot = graph.copy_file({
+        name = "manifest-snapshot",
+        source = manifest,
+        path = "gen/manifest.snapshot.txt",
+    });
+
+    var shared = graph.add_module({ name = "common", root = "common/lib.fol" });
+
+    var auditcore = graph.add_static_lib({
+        name = "auditcore",
+        root = "lib/lib.fol",
+        fol_model = "memo",
+        target = target,
+        optimize = optimize,
+    });
+    auditcore.import(shared);
+
+    var app = graph.add_exe({
+        name = "manifest-audit",
+        root = "src/main.fol",
+        fol_model = "memo",
+        target = target,
+        optimize = optimize,
+    });
+    app.import(shared);
+    app.link(auditcore);
+    app.add_generated(policy);
+
+    var checks = graph.add_test({
+        name = "checks",
+        root = "check/tests.fol",
+        fol_model = "memo",
+    });
+    checks.import(shared);
+
+    var audit = graph.step("audit", "Freeze the manifest snapshot and policy");
+    audit.attach(snapshot);
+    audit.attach(policy);
+    var release = graph.step("release", "Assemble the auditable release set");
+    release.depend_on(audit);
+
+    var install_app = graph.install(app);
+    install_app.depend_on(release);
+    graph.install(auditcore);
+    graph.install_file({ name = "installed-policy", source = policy });
+    graph.install_file({ name = "installed-manifest", source = manifest });
+    var docs = graph.dir_from_root("assets");
+    graph.install_dir({ name = "docs", source = docs });
+
+    var run = graph.add_run(app);
+    run.add_file_arg(manifest);
+    run.add_file_arg(rules);
+    run.set_env("AUDIT_SOURCE", "build-graph");
+    run.depend_on(release);
+    return;
+};

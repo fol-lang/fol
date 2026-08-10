@@ -1,0 +1,143 @@
+// Test bundle for ledger-records.
+//
+// It lives outside `src/`, so it reaches the library the way any other
+// package would: through one local import of the whole source tree. Every
+// check that fails prints its own line, and the exit status is the number of
+// failures, which is what makes `fol code test` fail.
+
+use std: pkg = {"std"};
+use ledger: loc = {"../src"};
+
+fun[] expect_int(label: str, actual: int, wanted: int): int = {
+    if(.eq(actual, wanted)) {
+        return 0;
+    }
+    std::io::echo_str("FAIL " + label + ": wanted " + std::fmt::int_to_str(wanted)
+        + " but got " + std::fmt::int_to_str(actual));
+    return 1;
+};
+
+fun[] expect_str(label: str, actual: str, wanted: str): int = {
+    if(.eq(actual, wanted)) {
+        return 0;
+    }
+    std::io::echo_str("FAIL " + label + ": wanted '" + wanted + "' but got '" + actual + "'");
+    return 1;
+};
+
+fun[] expect_true(label: str, actual: bol): int = {
+    if(actual) {
+        return 0;
+    }
+    std::io::echo_str("FAIL " + label + ": expected true");
+    return 1;
+};
+
+// Cents render with a padded fractional part and a leading sign.
+fun[] money_checks(): int = {
+    var bad: int = 0;
+    bad = bad + expect_str("money.whole", ledger::reporting::money(480000), "4800.00");
+    bad = bad + expect_str("money.pennies", ledger::reporting::money(5), "0.05");
+    bad = bad + expect_str("money.tens", ledger::reporting::money(127500), "1275.00");
+    bad = bad + expect_str("money.negative", ledger::reporting::money(0 - 4900), "-49.00");
+    bad = bad + expect_str("money.zero", ledger::reporting::money(0), "0.00");
+    return bad;
+};
+
+// The identity that makes a ledger a ledger.
+fun[] balance_checks(): int = {
+    var bad: int = 0;
+    bad = bad + expect_int("totals.equal", ledger::store::total_debits(), ledger::store::total_credits());
+    bad = bad + expect_int("totals.value", ledger::store::total_debits(), 990400);
+
+    var rows: vec[ledger::model::Account] = ledger::store::chart();
+    var debit_side: int = 0;
+    var credit_side: int = 0;
+    loop(row in rows) {
+        var amount: int = ledger::store::balance(row);
+        if(row.is_debit_normal()) {
+            debit_side = debit_side + amount;
+        }
+        if(.not(row.is_debit_normal())) {
+            credit_side = credit_side + amount;
+        }
+    }
+    bad = bad + expect_int("trial.balanced", debit_side, credit_side);
+    bad = bad + expect_int("trial.total", debit_side, 730000);
+    return bad;
+};
+
+// Individual accounts, including the two that net back to zero.
+fun[] account_checks(): int = {
+    var bad: int = 0;
+    var cash: opt[ledger::model::Account] = ledger::store::find_account("1000");
+    when(cash) {
+        on(row) { bad = bad + expect_int("cash.balance", ledger::store::balance(row), 712350); }
+        * { bad = bad + expect_true("cash.present", false); }
+    }
+    var payable: opt[ledger::model::Account] = ledger::store::find_account("2000");
+    when(payable) {
+        on(row) { bad = bad + expect_int("payable.settled", ledger::store::balance(row), 0); }
+        * { bad = bad + expect_true("payable.present", false); }
+    }
+    var ghost: opt[ledger::model::Account] = ledger::store::find_account("9999");
+    when(ghost) {
+        on(row) { bad = bad + expect_true("ghost.absent", false); }
+        * { bad = bad + 0; }
+    }
+    bad = bad + expect_true("known.real", ledger::store::known_code("4000"));
+    bad = bad + expect_true("known.fake", .not(ledger::store::known_code("9999")));
+    return bad;
+};
+
+// Structural validation, over the error channel and the stored-error shell.
+fun[] validation_checks(): int = {
+    var bad: int = 0;
+    bad = bad + expect_int("side.dr", ledger::model::side_from_text("dr") || 0, 1);
+    bad = bad + expect_int("side.cr", ledger::model::side_from_text("cr") || 0, 2);
+    bad = bad + expect_true("side.bad", check(ledger::model::side_from_text("zz")));
+
+    var zero: ledger::model::Posting = { day = 4, code = "1000", side = 1, amount = 0, memo = "nothing" };
+    var zero_fault: err[str] = ledger::model::fault_of(zero);
+    when(zero_fault) {
+        on(reason) { bad = bad + expect_str("fault.zero", reason, "amount must be a positive number of cents"); }
+        * { bad = bad + expect_true("fault.zero.raised", false); }
+    }
+
+    var good: ledger::model::Posting = { day = 4, code = "1000", side = 1, amount = 100, memo = "coffee" };
+    var good_fault: err[str] = ledger::model::fault_of(good);
+    when(good_fault) {
+        on(reason) { bad = bad + expect_true("fault.good.silent", false); }
+        * { bad = bad + 0; }
+    }
+
+    var books: err[str] = ledger::store::journal_fault();
+    when(books) {
+        on(reason) { bad = bad + expect_true("journal.clean", false); }
+        * { bad = bad + 0; }
+    }
+    return bad;
+};
+
+fun[] budget_checks(): int = {
+    var bad: int = 0;
+    bad = bad + expect_int("budget.office", ledger::store::over_budget("5200"), 2750);
+    bad = bad + expect_int("budget.software", ledger::store::over_budget("5100"), 0);
+    bad = bad + expect_int("budget.unbudgeted", ledger::store::over_budget("1000"), 0);
+    return bad;
+};
+
+fun[] main(): int = {
+    var failures: int = 0;
+    failures = failures + money_checks();
+    failures = failures + balance_checks();
+    failures = failures + account_checks();
+    failures = failures + validation_checks();
+    failures = failures + budget_checks();
+    if(.eq(failures, 0)) {
+        std::io::echo_str("ledger-records: all checks passed");
+        return 0;
+    }
+    std::io::echo_str("ledger-records: " + std::fmt::int_to_str(failures) + " check(s) failed");
+    return failures;
+};

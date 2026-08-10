@@ -1,0 +1,61 @@
+// Rendering. Every function returns text instead of printing it, so the same
+// report can go to stdout or into a file without a second code path.
+
+use std: pkg = {"std"};
+use scan: loc = {"../scan"};
+
+fun[exp] tally_line(path: str, counts: scan::Tally): str = {
+    return path + ": " + std::fmt::int_to_str(counts.lines) + " lines, "
+    + std::fmt::int_to_str(counts.words) + " words, "
+    + std::fmt::int_to_str(counts.bytes) + " bytes\n";
+};
+
+// grep-shaped output: one `<line-number>:<text>` record per matching line,
+// numbered from 1 the way every other tool numbers lines.
+fun[exp] matches(text: str, needle: str): str = {
+    var lines: int = scan::line_count(text);
+    var[mut] index: int = 0;
+    var[mut] out: str = "";
+    loop(index < lines) {
+        var line: str = scan::line_at(text, index);
+        when(scan::contains(line, needle)) {
+            * { out = out + std::fmt::int_to_str(index + 1) + ":" + line + "\n"; }
+        }
+        index = index + 1;
+    };
+    return out;
+};
+
+// The first `wanted` lines, numbered the same way matches are.
+fun[exp] head(text: str, wanted: int): str = {
+    var available: int = scan::line_count(text);
+    var[mut] index: int = 0;
+    var[mut] out: str = "";
+    loop((index < wanted) and (index < available)) {
+        out = out + std::fmt::int_to_str(index + 1) + ":" + scan::line_at(text, index) + "\n";
+        index = index + 1;
+    };
+    return out;
+};
+
+// A pattern is arbitrary text, and the report header is one line per field. Tabs
+// and newlines inside the needle are escaped so a pattern cannot forge extra
+// header rows.
+fun[exp] escape(needle: str): str = {
+    var no_newline: str = std::strn::replace(needle, "\n", "\\n");
+    return std::strn::replace(no_newline, "\t", "\\t");
+};
+
+// The written report keeps the header and the matches together so the file is
+// readable on its own.
+fun[exp] full(path: str, needle: str, text: str): str = {
+    var counts: scan::Tally = scan::tally(text);
+    var hits: int = scan::match_count(text, needle);
+    return "wordcount report\n"
+    + "----------------\n"
+    + tally_line(path, counts)
+    + "pattern: " + escape(needle) + "\n"
+    + "matches: " + std::fmt::int_to_str(hits) + "\n"
+    + "\n"
+    + matches(text, needle);
+};

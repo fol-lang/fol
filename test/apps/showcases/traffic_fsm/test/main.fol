@@ -1,0 +1,41 @@
+use std: pkg = {"std"};
+use fsm: loc = {"../src"};
+
+// Checks a handful of transition-table facts and the fault path.
+fun[] expect(label: str, got: int, want: int): int = {
+    when(got == want) {
+        case(true) {
+            std::io::echo_str("ok   " + label);
+            return 0;
+        }
+        * {
+            std::io::echo_str("FAIL " + label
+            + " got=" + std::fmt::int_to_str(got)
+            + " want=" + std::fmt::int_to_str(want));
+            return 1;
+        }
+    }
+};
+
+fun[] main(): int = {
+    var[mut] bad: int = 0;
+
+    bad = bad + expect("red holds 3 ticks", fsm::table::hold_time(0), 3);
+    bad = bad + expect("green holds 4 ticks", fsm::table::hold_time(1), 4);
+    bad = bad + expect("red times out to green", fsm::table::on_timeout(0), 1);
+    bad = bad + expect("fault forces flash", fsm::table::on_event(0, 2), 3);
+
+    // A fault, then an input FLASH refuses, then a reset back to RED.
+    var start: fsm::states::Signal = fsm::states::fresh();
+    var flashing: fsm::states::Signal = fsm::driver::step(start, 2);
+    bad = bad + expect("fault enters flash", flashing.phase, 3);
+
+    var refused: fsm::states::Signal = fsm::driver::step(flashing, 0);
+    bad = bad + expect("flash refuses tick", refused.faults, 1);
+
+    var reset: fsm::states::Signal = fsm::driver::step(refused, 3);
+    bad = bad + expect("reset returns to red", reset.phase, 0);
+
+    std::io::echo_str("failures: " + std::fmt::int_to_str(bad));
+    return bad;
+};

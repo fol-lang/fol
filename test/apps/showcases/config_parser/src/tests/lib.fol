@@ -1,0 +1,67 @@
+// Self-checking test bundle: returns 0 when every expectation holds and the
+// index of the first failing case otherwise, which is what `fol code test`
+// grades the run on.
+
+use std: pkg = {"std"};
+use parse: loc = {"../parse"};
+use model: loc = {"../model"};
+
+con DOC: str = "[server]\nhost = 10.0.0.7\nbanner = \"hi there\"\n\n; note\n[limits]\nmax = 512\n";
+
+fun[] main(): int = {
+    var failed = 0;
+
+    failed = expect_str(failed, 1, find("server", "host"), "10.0.0.7");
+    failed = expect_str(failed, 2, find("server", "banner"), "hi there");
+    failed = expect_str(failed, 3, find("limits", "max"), "512");
+    failed = expect_str(failed, 4, find("limits", "host"), "<none>");
+    failed = expect_str(failed, 5, find("nope", "host"), "<none>");
+
+    failed = expect_int(failed, 6, parse::first_fault(DOC, 0, 0), model::fault_none());
+    failed = expect_int(failed, 7, parse::first_fault("[oops\n", 0, 0), model::fault_unclosed());
+    failed = expect_int(failed, 8, parse::first_fault("a = 1\n", 0, 0), model::fault_orphan_pair());
+    failed = expect_int(failed, 9, parse::first_fault("[s]\nkey\n", 0, 0), model::fault_missing_equals());
+
+    // A comment body keeps its text; a blank line carries none.
+    var comment = parse::parse_line("; hello\n", 0);
+    failed = expect_int(failed, 10, comment.kind, model::kind_comment());
+    failed = expect_str(failed, 11, comment.value, "hello");
+
+    when(failed == 0) {
+        case(true) { std::io::echo_str("config_parser: all checks passed"); }
+        * { std::io::echo_str("config_parser: FAILED"); }
+    };
+    return failed;
+};
+
+fun find(section: str, key: str): str = {
+    return parse::lookup(DOC, section, key) || "<none>";
+};
+
+// Keeps the first failing case number; later failures do not overwrite it.
+fun expect_str(failed: int, number: int, got: str, want: str): int = {
+    when(got == want) {
+        case(true) { return failed; }
+        * { }
+    };
+    complain(number, got, want);
+    when(failed == 0) {
+        case(true) { return number; }
+        * { return failed; }
+    }
+};
+
+fun expect_int(failed: int, number: int, got: int, want: int): int = {
+    return expect_str(failed, number, std::fmt::int_to_str(got), std::fmt::int_to_str(want));
+};
+
+pro complain(number: int, got: str, want: str): non = {
+    std::io::write("  case ");
+    std::io::write(std::fmt::int_to_str(number));
+    std::io::write(": got '");
+    std::io::write(got);
+    std::io::write("' want '");
+    std::io::write(want);
+    std::io::write("'\n");
+    return;
+};

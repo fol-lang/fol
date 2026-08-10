@@ -1,0 +1,103 @@
+use std: pkg = {"std"};
+use readings: loc = {"readings"};
+use order: loc = {"order"};
+use summary: loc = {"summary"};
+use histogram: loc = {"histogram"};
+use pretty: loc = {"pretty"};
+
+pro[] show_raw(): non = {
+    pretty::heading("readings (mm, in observation order)");
+    var line: str = "";
+    loop(value in readings::rainfall()) {
+        line = line + pretty::pad_left(pretty::number(value), 8);
+    }
+    std::io::echo_str(line);
+    return;
+};
+
+// The ordering is enumerated by rank, since no sorted container can be built.
+pro[] show_sorted(): non = {
+    pretty::heading("readings, sorted ascending");
+    var values: vec[flt] = readings::rainfall();
+    var line: str = "";
+    var index: int = 0;
+    loop(index < .len(values)) {
+        line = line + pretty::pad_left(pretty::number(order::nth_smallest(values, index)), 8);
+        index = index + 1;
+    }
+    std::io::echo_str(line);
+    when(order::is_ordered(values)) {
+        case(true) { std::io::echo_str("ordering verified: yes"); }
+        * { std::io::echo_str("ordering verified: NO"); }
+    }
+    return;
+};
+
+pro[] show_summary(): non = {
+    var stats: summary::Summary = summary::describe(readings::rainfall());
+    pretty::heading("descriptive statistics");
+    pretty::int_row("days", stats.count);
+    pretty::float_row("total rainfall", stats.total);
+    pretty::float_row("mean", stats.mean);
+    pretty::float_row("median", stats.median);
+    pretty::float_row("minimum", stats.lowest);
+    pretty::float_row("maximum", stats.highest);
+    pretty::float_row("range", stats.spread);
+    pretty::float_row("variance", stats.variance);
+    pretty::float_row("standard deviation", stats.deviation);
+    return;
+};
+
+// The sample counts live in `int`, so their own mean has to stay integral;
+// mixing the two families in one expression is rejected by the typechecker.
+pro[] show_sample_load(): non = {
+    var counts: vec[int] = readings::samples();
+    var total: int = 0;
+    loop(value in counts) {
+        total = total + value;
+    }
+    pretty::heading("sensor samples (integer domain)");
+    pretty::int_row("samples collected", total);
+    pretty::int_row("mean samples per day", total / readings::day_count());
+    pretty::int_row("remainder", total % readings::day_count());
+    return;
+};
+
+pro[] show_histogram(): non = {
+    var values: vec[flt] = readings::rainfall();
+    var names: map[int, str] = readings::bucket_names();
+    var last: int = readings::bucket_count() - 1;
+    var tallest: int = histogram::busiest(values);
+    pretty::heading("rainfall histogram");
+    var index: int = 0;
+    loop(index <= last) {
+        var hits: int = histogram::tally(values, index, last);
+        var label: str = pretty::pad_right(names[index], 26);
+        var count: str = pretty::pad_left(std::fmt::int_to_str(hits), 3);
+        std::io::echo_str(label + count + "  " + histogram::bar(hits));
+        index = index + 1;
+    }
+    pretty::int_row("tallest bucket", tallest);
+    pretty::int_row("readings tallied", histogram::tallied_total(values));
+    return;
+};
+
+pro[] show_thresholds(): non = {
+    var values: vec[flt] = readings::rainfall();
+    pretty::heading("threshold counts");
+    pretty::int_row("days with any rain", summary::count_at_least(values, 0.1));
+    pretty::int_row("days above 10 mm", summary::count_at_least(values, 10.0));
+    pretty::int_row("days above 20 mm", summary::count_at_least(values, 20.0));
+    return;
+};
+
+fun[] main(): int = {
+    std::io::echo_str("== stats_toolkit ==");
+    show_raw();
+    show_sorted();
+    show_summary();
+    show_sample_load();
+    show_histogram();
+    show_thresholds();
+    return 0;
+};

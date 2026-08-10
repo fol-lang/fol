@@ -1,0 +1,63 @@
+use task: loc = {"../task"};
+
+// Depth-first path search over the shared-pointer web.
+//
+// The path is accumulated as a string rather than a container because a
+// rendered chain is what the caller wants and because nothing in V3 can push
+// onto a `vec` after it is built.
+
+fun[exp] path_from(start: task::Handle, target: str, fuel: int): opt[str] = {
+    var here: str = task::task_name(start);
+    when(here == target) {
+        * { return here; }
+    };
+    when(fuel == 0) {
+        * { return nil; }
+    };
+
+    ~var index: int = 0;
+    var count: int = task::dep_count(start);
+    loop(index < count) {
+        var found: opt[str] = path_from(task::dep_at(start, index), target, fuel - 1);
+        when(found) {
+            on(chain) { return here + " -> " + chain; }
+            * { }
+        };
+        index = index + 1;
+    };
+    return nil;
+};
+
+// Edge-weighted total cost below `start`: a dependency shared by two dependents
+// is counted once per traversal edge, which is what a rebuild estimate wants.
+fun[exp] reachable_cost(start: task::Handle, fuel: int): int = {
+    when(fuel == 0) {
+        * { return 0; }
+    };
+    ~var total: int = task::task_cost(start);
+    ~var index: int = 0;
+    var count: int = task::dep_count(start);
+    loop(index < count) {
+        total = total + reachable_cost(task::dep_at(start, index), fuel - 1);
+        index = index + 1;
+    };
+    return total;
+};
+
+// Longest dependency chain below `start`, measured in edges.
+fun[exp] depth(start: task::Handle, fuel: int): int = {
+    when(fuel == 0) {
+        * { return 0; }
+    };
+    ~var best: int = 0;
+    ~var index: int = 0;
+    var count: int = task::dep_count(start);
+    loop(index < count) {
+        var below: int = depth(task::dep_at(start, index), fuel - 1) + 1;
+        when(below > best) {
+            * { best = below; }
+        };
+        index = index + 1;
+    };
+    return best;
+};

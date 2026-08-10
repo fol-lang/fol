@@ -1,0 +1,54 @@
+// Priority queue over the fixed job batch.
+//
+// FOL containers are immutable once constructed -- there is no index assignment
+// and no `.add` -- so the queue never sorts in place. Instead it derives each
+// job's rank from the total order in `jobs::outranks` and hands the caller the
+// job sitting at a given rank. That keeps dispatch order a pure function of the
+// batch, which is what makes the whole run reproducible.
+
+use jobs: loc = {"../jobs"};
+
+// How many jobs in the batch outrank this one. Because `outranks` is a total
+// order, every job gets a distinct rank in 0..len-1.
+fun[exp] rank_of(batch: arr[jobs::Job, 6], job: jobs::Job): int = {
+    var[mut] ahead: int = 0;
+    for (other in batch) {
+        when (jobs::outranks(other, job)) {
+            case (true) { ahead = ahead + 1; }
+            * { ahead = ahead + 0; }
+        }
+    };
+    return ahead;
+};
+
+// The job that should be dispatched `position`-th. Falls back to the first job
+// only if the batch were not a total order, which the rank rule guarantees.
+fun[exp] job_at_rank(batch: arr[jobs::Job, 6], position: int): jobs::Job = {
+    for (candidate in batch) {
+        when (rank_of(batch, candidate) == position) {
+            case (true) { return candidate; }
+            * { }
+        }
+    };
+    return batch[0];
+};
+
+// Look a job back up by the id an outcome carries, so the collector can check
+// what a worker sent against what the job should have produced.
+fun[exp] job_by_id(batch: arr[jobs::Job, 6], id: int): jobs::Job = {
+    for (candidate in batch) {
+        when (candidate.id == id) {
+            case (true) { return candidate; }
+            * { }
+        }
+    };
+    return batch[0];
+};
+
+fun[exp] total_weight(batch: arr[jobs::Job, 6]): int = {
+    var[mut] sum: int = 0;
+    for (job in batch) {
+        sum = sum + job.weight;
+    };
+    return sum;
+};

@@ -1,0 +1,9 @@
+// Package root file for the core member. It only mounts the namespace that
+// holds the real vocabulary, the same shape the bundled std package uses.
+//
+// The vocabulary deliberately does NOT live directly in `src/`. Local packages
+// are keyed by their directory basename, so if both `core/src` and
+// `plugin/src` were imported by the executable they would collapse into one
+// generated module (`pkg__local__src`) and the build would fail with a rustc
+// E0428 duplicate-definition error.
+use vocab: loc = {"vocab"};

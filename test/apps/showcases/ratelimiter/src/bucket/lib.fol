@@ -1,0 +1,108 @@
+// The token bucket itself.
+//
+// The bucket is shared mutable state: every task calls into these routines with
+// the same `mux[Bucket]` handle, and the mutex is the only thing keeping the
+// counters honest. `granted + rejected` must equal the number of attempts; if
+// the lock were not doing its job, updates would be lost and that sum would
+// come out short.
+//
+// Two shape notes, both forced by the compiler rather than chosen:
+//
+//   * every routine takes the bucket as a `mux[Bucket]` *parameter*. Locking a
+//     `mux[T]` held in a local binding makes the backend emit Rust that rustc
+//     rejects, so the handle never gets locked where it is created.
+//   * locking goes through the guard-value surface (`var[mut, bor] guard =
+//     ([bor]limiter).lock()`) rather than the direct handle surface
+//     (`limiter.lock()` then `limiter.field`). On the handle surface only the
+//     first arm of the first `when` in the locked scope may touch a guarded
+//     field, which rules out "take a token, otherwise count a rejection" --
+//     i.e. exactly what a limiter does.
+
+typ[exp] Bucket: rec = {
+    capacity: int,
+    tokens: int,
+    granted: int,
+    rejected: int,
+    low_water: int,
+    over_capacity: int,
+};
+
+// One admission decision. Returns 1 when a token was handed out, 0 otherwise.
+// The read, the decision, and the counter update are one critical section --
+// that atomicity is what makes `granted + rejected` trustworthy.
+fun[exp] try_acquire(limiter: mux[Bucket]): int = {
+    var[mut, bor] guard: Bucket = ([bor]limiter).lock();
+    var[mut] outcome: int = 0;
+    when (guard.tokens > 0) {
+        case (true) {
+            guard.tokens = guard.tokens - 1;
+            guard.granted = guard.granted + 1;
+            outcome = 1;
+        }
+        * {
+            guard.rejected = guard.rejected + 1;
+        }
+    }
+    when (guard.tokens < guard.low_water) {
+        case (true) { guard.low_water = guard.tokens; }
+        * { }
+    }
+    [end]guard;
+    return outcome;
+};
+
+// Add `amount` tokens, clamped at the capacity, and return the new level. The
+// clamp is self-checking: any moment the bucket is observed above capacity
+// bumps `over_capacity`, which the report asserts stays at zero.
+fun[exp] refill(limiter: mux[Bucket], amount: int): int = {
+    var[mut, bor] guard: Bucket = ([bor]limiter).lock();
+    var raised: int = guard.tokens + amount;
+    when (raised > guard.capacity) {
+        case (true) { guard.tokens = guard.capacity; }
+        * { guard.tokens = raised; }
+    }
+    when (guard.tokens > guard.capacity) {
+        case (true) { guard.over_capacity = guard.over_capacity + 1; }
+        * { }
+    }
+    var level: int = guard.tokens;
+    [end]guard;
+    return level;
+};
+
+// Read-back accessors. A guarded `T` cannot be returned as a whole value, so
+// each counter needs its own accessor.
+fun[exp] tokens(limiter: mux[Bucket]): int = {
+    var[mut, bor] guard: Bucket = ([bor]limiter).lock();
+    var value: int = guard.tokens;
+    [end]guard;
+    return value;
+};
+
+fun[exp] granted(limiter: mux[Bucket]): int = {
+    var[mut, bor] guard: Bucket = ([bor]limiter).lock();
+    var value: int = guard.granted;
+    [end]guard;
+    return value;
+};
+
+fun[exp] rejected(limiter: mux[Bucket]): int = {
+    var[mut, bor] guard: Bucket = ([bor]limiter).lock();
+    var value: int = guard.rejected;
+    [end]guard;
+    return value;
+};
+
+fun[exp] low_water(limiter: mux[Bucket]): int = {
+    var[mut, bor] guard: Bucket = ([bor]limiter).lock();
+    var value: int = guard.low_water;
+    [end]guard;
+    return value;
+};
+
+fun[exp] over_capacity(limiter: mux[Bucket]): int = {
+    var[mut, bor] guard: Bucket = ([bor]limiter).lock();
+    var value: int = guard.over_capacity;
+    [end]guard;
+    return value;
+};

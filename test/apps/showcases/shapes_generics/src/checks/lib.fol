@@ -1,0 +1,93 @@
+// Self-checks: the geometry and the generic pipeline verified against values
+// worked out by hand. `run_all` reports 0 when every case agrees.
+//
+// These live in the main executable behind a `check` argument rather than in a
+// `graph.add_test` artifact: a second artifact root that imports a namespace
+// declaring a standard fails to build (T1005 "type import failed").
+
+use std: pkg = {"std"};
+use shape: loc = {"../shape"};
+use transform: loc = {"../transform"};
+use collection: loc = {"../collection"};
+
+// Floating point comparison with a millimetre-scale tolerance.
+fun[exp] near(left: flt, right: flt): bol = {
+    var gap: flt = left - right;
+    when(gap < 0.0) {
+        case(true) { gap = 0.0 - gap; }
+        * { }
+    }
+    return gap < 0.001;
+};
+
+fun[exp] expect(name: str, ok: bol): int = {
+    when(ok) {
+        case(true) { std::io::echo_str("  ok   " + name); return 0; }
+        * { std::io::echo_str("  FAIL " + name); return 1; }
+    }
+};
+
+fun[exp] run_all(): int = {
+    var bad: int = 0;
+
+    // 300x200 rectangle through the constrained generic entry point
+    var rect: shape::Rect = { w = 300.0, h = 200.0, cuts = 0 };
+    var rm: shape::Metrics = shape::measure_of(rect);
+    bad = bad + expect("rect area", near(rm.area, 60000.0));
+    bad = bad + expect("rect perim", near(rm.perim, 1000.0));
+
+    // Newton's root against a known square
+    bad = bad + expect("root 6400", near(shape::root(6400.0), 80.0));
+
+    // 3-4-5 triangle: base 6, legs 5 -> height 4, area 12
+    var tri: shape::Tri = { base = 6.0, leg = 5.0 };
+    var tm: shape::Metrics = shape::measure_of(tri);
+    bad = bad + expect("tri area", near(tm.area, 12.0));
+
+    // a circle is the most compact shape there is
+    var circ: shape::Circle = { r = 7.0 };
+    var cm: shape::Metrics = shape::measure_of(circ);
+    bad = bad + expect("circle compact", near(shape::compactness(cm), 1.0));
+
+    // generic scale wrapper: area grows with the square of the factor
+    var big: transform::Scaled[shape::Rect] = { inner = rect, factor = 3.0 };
+    bad = bad + expect("scaled area", near(big.measured().area, 540000.0));
+
+    // generic kerf wrapper: the blade eats one kerf width around the outline
+    var cut: transform::Kerfed[shape::Circle] = { inner = circ, kerf = 0.5 };
+    var kerfed: flt = cut.measured().area;
+    bad = bad + expect("kerf area", near(kerfed, cm.area - cm.perim * 0.5));
+
+    // composed routine values apply left to right
+    var grow: transform::Tweak = transform::allowance(2.0);
+    var tag: transform::Tweak = transform::rename("t");
+    var pipeline: transform::Tweak = transform::chain(grow, tag);
+    var piped: shape::Metrics = pipeline(rm);
+    bad = bad + expect("chain area", near(piped.area, 60000.0 + 1000.0 * 2.0));
+    bad = bad + expect("chain name", .eq(piped.name, "t/rect"));
+
+    // a routine value handed straight to a constrained generic routine
+    var edge: transform::Tweak = transform::allowance(1.0);
+    var trimmed: shape::Metrics = transform::adjust(tri, edge);
+    bad = bad + expect("adjust area", near(trimmed.area, 12.0 + 16.0));
+
+    // generic pair flip swaps slots and type arguments
+    var pair: collection::Pair[str, int] = { left = "lhs", right = 3 };
+    var flipped: collection::Pair[int, str] = pair.flip();
+    bad = bad + expect("pair flip", .eq(flipped.second(), "lhs"));
+
+    // tally accumulates through a mutable receiver
+    var sheet: vec[shape::Metrics] = { rm, tm };
+    var total: collection::Tally = collection::summarize(sheet);
+    bad = bad + expect("tally parts", .eq(total.parts, 2));
+    bad = bad + expect("tally widest", near(total.widest, 60000.0));
+
+    // the custom clone override counts one extra cut per duplicate
+    var dup: shape::Rect = [cln]rect;
+    bad = bad + expect("custom clone", .eq(dup.cuts, 1));
+
+    when(bad) {
+        case(0) { std::io::echo_str("all checks passed"); return 0; }
+        * { std::io::echo_str("checks failed"); return 1; }
+    }
+};

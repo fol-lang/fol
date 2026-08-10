@@ -1,0 +1,141 @@
+use std: pkg = {"std"};
+use text: loc = {"../src/text"};
+use vars: loc = {"../src/vars"};
+use tmpl: loc = {"../src/tmpl"};
+
+// The suite for template-render. There is no assertion intrinsic in the
+// current surface, so each check reports itself and the exit status is the
+// number of failures.
+
+fun[] expect_int(label: str, actual: int, wanted: int): int = {
+    if (actual == wanted) {
+        std::io::echo_str("ok    " + label);
+        return 0;
+    };
+    var got: str = std::fmt::int_to_str(actual);
+    var want: str = std::fmt::int_to_str(wanted);
+    std::io::echo_str("FAIL  " + label + ": got " + got + ", wanted " + want);
+    return 1;
+};
+
+fun[] expect_str(label: str, actual: str, wanted: str): int = {
+    if (actual == wanted) {
+        std::io::echo_str("ok    " + label);
+        return 0;
+    };
+    std::io::echo_str("FAIL  " + label + ": got '" + actual + "', wanted '" + wanted + "'");
+    return 1;
+};
+
+fun[] expect_bol(label: str, actual: bol, wanted: bol): int = {
+    if (actual == wanted) {
+        std::io::echo_str("ok    " + label);
+        return 0;
+    };
+    std::io::echo_str("FAIL  " + label + ": boolean mismatch");
+    return 1;
+};
+
+fun[] sample_vars(): str = {
+    return "# a comment\nname = Ada\n\n  spaced  =  padded  \nname = Lin\nbroken line\n";
+};
+
+fun[] check_text(): int = {
+    var bad: int = 0;
+    bad = bad + expect_str("trim both ends", text::trim("  hi \t"), "hi");
+    bad = bad + expect_str("trim nothing", text::trim("hi"), "hi");
+    bad = bad + expect_str("trim all space", text::trim("   "), "");
+    bad = bad + expect_str("slice", text::slice("abcdef", 1, 4), "bcd");
+    bad = bad + expect_str("slice inverted", text::slice("abcdef", 4, 1), "");
+    bad = bad + expect_str("tail past end", text::tail("abc", 9), "");
+    bad = bad + expect_int("find_from first", text::find_from("aXbXc", "X", 0), 1);
+    bad = bad + expect_int("find_from second", text::find_from("aXbXc", "X", 2), 3);
+    bad = bad + expect_int("find_from absent", text::find_from("abc", "X", 0), -1);
+    return bad;
+};
+
+fun[] check_vars(): int = {
+    var bad: int = 0;
+    var source: str = sample_vars();
+    bad = bad + expect_str("record_key trims", vars::record_key("  a  = 1"), "a");
+    bad = bad + expect_str("record_value trims", vars::record_value("a =  1  "), "1");
+    bad = bad + expect_str("record_key no equals", vars::record_key("nope"), "");
+    bad = bad + expect_bol("comment line", vars::is_comment("# hi"), true);
+    bad = bad + expect_bol("blank line", vars::is_comment("   "), true);
+    bad = bad + expect_bol("binding line", vars::is_comment("a = 1"), false);
+    bad = bad + expect_str("last binding wins", vars::binding(source, "name"), "Lin");
+    bad = bad + expect_str("padded binding", vars::binding(source, "spaced"), "padded");
+    bad = bad + expect_bol("has_binding", vars::has_binding(source, "name"), true);
+    bad = bad + expect_bol("missing binding", vars::has_binding(source, "absent"), false);
+
+    // "broken line" has no `=`, so it never becomes a binding.
+    bad = bad + expect_int("binding count", vars::count(source), 3);
+
+    // Built-in fallbacks fill in for keys the file does not carry.
+    bad = bad + expect_bol("fallback known", vars::known(source, "greeting"), true);
+    bad = bad + expect_str("fallback value", vars::resolve(source, "greeting"), "Hello");
+    bad = bad + expect_bol("unknown key", vars::known(source, "nowhere"), false);
+    return bad;
+};
+
+fun[] check_render(): int = {
+    var bad: int = 0;
+    var source: str = sample_vars();
+
+    var plain: tmpl::Output = tmpl::render("hi {{name}}!", source);
+    bad = bad + expect_str("substitutes", plain.body, "hi Lin!");
+    bad = bad + expect_int("counts filled", plain.filled, 1);
+    bad = bad + expect_int("counts missing", plain.missing, 0);
+
+    var spaced: tmpl::Output = tmpl::render("{{  name  }}", source);
+    bad = bad + expect_str("trims the key", spaced.body, "Lin");
+
+    var gone: tmpl::Output = tmpl::render("[{{nowhere}}]", source);
+    bad = bad + expect_str("marks missing", gone.body, "[<missing:nowhere>]");
+    bad = bad + expect_int("counts the miss", gone.missing, 1);
+
+    // An opening marker with no close on the same line is ordinary text and
+    // must not swallow the placeholder that follows it.
+    var loose: tmpl::Output = tmpl::render("{{oops\n{{name}}", source);
+    bad = bad + expect_str("unterminated stays literal", loose.body, "{{oops\nLin");
+
+    var bare: tmpl::Output = tmpl::render("nothing to do", source);
+    bad = bad + expect_str("passthrough", bare.body, "nothing to do");
+    bad = bad + expect_int("passthrough filled", bare.filled, 0);
+
+    var twice: tmpl::Output = tmpl::render("{{name}}/{{name}}", source);
+    bad = bad + expect_str("repeats", twice.body, "Lin/Lin");
+    bad = bad + expect_int("repeats filled", twice.filled, 2);
+
+    var listed: str = tmpl::placeholders("{{a}} {{b}}");
+    bad = bad + expect_str("placeholders listed", listed, "a\nb\n");
+    return bad;
+};
+
+fun[] check_roundtrip(): int = {
+    var bad: int = 0;
+    // Written beside the suite root: `std::fs` can create a file but not a
+    // directory, so a test cannot make its own output folder.
+    var target: str = "test/roundtrip.out";
+    var body: str = tmpl::render("{{greeting}} {{name}}{{punct}}", sample_vars()).body;
+    bad = bad + expect_int("write_file", std::fs::write_file(target, body), 0);
+    bad = bad + expect_str("read back", std::fs::read_file(target), "Hello Lin!");
+    var refused: int = std::fs::write_file("no/such/dir/x.txt", body);
+    bad = bad + expect_int("write to bad path", refused, -1);
+    return bad;
+};
+
+fun[] main(): int = {
+    var bad: int = 0;
+    bad = bad + check_text();
+    bad = bad + check_vars();
+    bad = bad + check_render();
+    bad = bad + check_roundtrip();
+    std::io::echo_str("--");
+    if (bad == 0) {
+        std::io::echo_str("all checks passed");
+        return 0;
+    };
+    std::io::echo_str(std::fmt::int_to_str(bad) + " check(s) failed");
+    return 1;
+};

@@ -1,0 +1,66 @@
+// The queue namespace owns the work items, the pure cost model, and the shard
+// plan. Nothing here touches threads: keeping the work derivable from an index
+// is what makes the concurrent pipeline's aggregate reproducible.
+
+typ[exp] Job: rec = {
+    id: int,
+    weight: int,
+};
+
+fun[exp] total_jobs(): int = {
+    return 12;
+};
+
+// A job's weight cycles through 1..4 so the batch totals stay small enough to
+// verify by hand.
+fun[exp] job_at(index: int): Job = {
+    var weight: int = (index % 4) + 1;
+    return { id = index, weight = weight };
+};
+
+// The "work" a worker performs. Pure and integer-only, so the sum over the
+// batch does not depend on which worker picked a job up or in what order.
+fun[exp] cost_of(job: Job): int = {
+    return (job.weight * job.weight) + (job.id * 2);
+};
+
+// A job above this cost is worth reporting on the side channel.
+fun[exp] alert_threshold(): int = {
+    return 25;
+};
+
+// How far the batch has got. This is the one piece of state every worker
+// touches at the same time, so it lives behind a `mux[Progress]` handle that is
+// cloned into each spawned task.
+typ[exp] Progress: rec = {
+    taken: int,
+};
+
+fun[exp] fresh(): Progress = {
+    return { taken = 0 };
+};
+
+// Claim one job. Called from several OS threads at once, which is exactly why
+// the counter is guarded.
+fun[exp] take(progress: mux[Progress]): int = {
+    progress.lock();
+    progress.taken = progress.taken + 1;
+    var claimed: int = progress.taken;
+    progress.unlock();
+    return claimed;
+};
+
+// Read the counter back once the workers are done.
+fun[exp] taken_count(progress: mux[Progress]): int = {
+    progress.lock();
+    var total: int = progress.taken;
+    progress.unlock();
+    return total;
+};
+
+// Round-robin sharding: worker `slot` of `slots` owns every index congruent to
+// `slot`. Each index therefore lands on exactly one worker with no shared
+// cursor and no locking on the queue side.
+fun[exp] owns(index: int, slot: int, slots: int): bol = {
+    return (index % slots) == slot;
+};

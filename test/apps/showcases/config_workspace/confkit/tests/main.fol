@@ -1,0 +1,110 @@
+use std: pkg = {"std"};
+use kit: loc = {"../src"};
+
+// Behaviour tests for confkit, run by `fol code test`.
+//
+// A test bundle fails when its entry routine returns a nonzero int, so each
+// check reports its own name and adds one to the failure count. The entry
+// returns that count.
+
+fun check_int(name: str, actual: int, expected: int): int = {
+    when(actual == expected) {
+        case(true) { return 0; }
+        * {
+            std::io::echo_str("FAIL " + name
+            + ": expected " + std::fmt::int_to_str(expected)
+            + ", got " + std::fmt::int_to_str(actual));
+            return 1;
+        }
+    }
+};
+
+fun check_str(name: str, actual: str, expected: str): int = {
+    when(actual == expected) {
+        case(true) { return 0; }
+        * {
+            std::io::echo_str("FAIL " + name + ": expected `" + expected + "`, got `" + actual + "`");
+            return 1;
+        }
+    }
+};
+
+fun check_bool(name: str, actual: bol, expected: bol): int = {
+    when(actual == expected) {
+        case(true) { return 0; }
+        * {
+            std::io::echo_str("FAIL " + name);
+            return 1;
+        }
+    }
+};
+
+// Line splitting: a trailing newline must not open an empty final line.
+fun test_lines(): int = {
+    var failures: int = 0;
+    failures = failures + check_int("line_count/no-trailing", kit::line_count("a\nb"), 2);
+    failures = failures + check_int("line_count/trailing", kit::line_count("a\nb\n"), 2);
+    failures = failures + check_int("line_count/empty", kit::line_count(""), 0);
+    failures = failures + check_str("line_at/first", kit::line_at("a\nb", 0), "a");
+    failures = failures + check_str("line_at/last", kit::line_at("a\nb", 1), "b");
+    failures = failures + check_str("line_at/past-end", kit::line_at("a\nb", 9), "");
+    return failures;
+};
+
+// Key and value extraction, including the surrounding whitespace.
+fun test_split(): int = {
+    var failures: int = 0;
+    failures = failures + check_str("key_of/spaced", kit::key_of("  port  =  80 "), "port");
+    failures = failures + check_str("value_of/spaced", kit::value_of("  port  =  80 "), "80");
+    failures = failures + check_str("key_of/no-equals", kit::key_of("bare"), "");
+    failures = failures + check_str("value_of/empty", kit::value_of("port ="), "");
+    return failures;
+};
+
+// The rules themselves, checked through the finding each one produces.
+fun test_rules(): int = {
+    var failures: int = 0;
+    var document: str = "host = h\nport = eighty\nnope = 1\nhost = again\nbare\n";
+
+    failures = failures + check_str("rule/ok", kit::check_line(document, 0).code, "ok");
+    failures = failures + check_str("rule/wrong-kind", kit::check_line(document, 1).code, "C005");
+    failures = failures + check_str("rule/unknown", kit::check_line(document, 2).code, "C003");
+    failures = failures + check_str("rule/duplicate", kit::check_line(document, 3).code, "C004");
+    failures = failures + check_str("rule/malformed", kit::check_line(document, 4).code, "C001");
+
+    // Findings carry a one-based line number for display.
+    failures = failures + check_int("rule/line-number", kit::check_line(document, 1).line, 2);
+    failures = failures + check_int("rule/severity", kit::check_line(document, 1).severity, 2);
+    return failures;
+};
+
+fun test_document_rules(): int = {
+    var failures: int = 0;
+    var complete: str = "host = h\nport = 80\n";
+    var partial: str = "host = h\n";
+
+    failures = failures + check_bool("defines/present", kit::defines(complete, "port"), true);
+    failures = failures + check_bool("defines/absent", kit::defines(partial, "port"), false);
+    failures = failures + check_int("setting_count", kit::setting_count(complete), 2);
+    failures = failures + check_int("setting_count/comments",
+    kit::setting_count("# note\n\nhost = h\n"), 1);
+
+    // `port` sits at slot 1 of the schema and is required.
+    failures = failures + check_str("required/missing", kit::check_required(partial, 1).code, "C006");
+    failures = failures + check_str("required/present", kit::check_required(complete, 1).code, "ok");
+    return failures;
+};
+
+fun[] main(): int = {
+    var failures: int = 0;
+    failures = failures + test_lines();
+    failures = failures + test_split();
+    failures = failures + test_rules();
+    failures = failures + test_document_rules();
+
+    when(failures == 0) {
+        case(true) { std::io::echo_str("confkit: all checks passed"); }
+        * { std::io::echo_str("confkit: " + std::fmt::int_to_str(failures) + " check(s) failed"); }
+    }
+    return failures;
+};

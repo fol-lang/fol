@@ -1,0 +1,28 @@
+// Escalation policy. Some subsystems matter more than their raw severity
+// suggests, so their entries get one extra step up the ladder.
+
+// Capped at ERROR so escalation can never walk off the top of the ladder.
+fun[hid] step_up(level: int): int = {
+    when(.ge(level, 4)) {
+        case(true) { return 4; }
+        * { return level + 1; }
+    }
+};
+
+fun[exp] escalate(level: int, source: str): int = {
+    when(.lt(level, 0)) {
+        case(true) { return level; }
+        * {
+            when(source) {
+                is("net") { return step_up(level); }
+                is("disk") { return step_up(level); }
+                * { return level; }
+            }
+        }
+    }
+};
+
+// A subsystem is "critical" when the policy escalates it at all.
+fun[exp] is_critical(source: str): bol = {
+    return .gt(escalate(0, source), 0);
+};

@@ -1,0 +1,69 @@
+// One complaint about one line, plus the counters a whole run accumulates.
+
+typ[exp] Severity: ent = {
+    var NOTE: int = 0;
+    var WARNING: int = 1;
+    var ERROR: int = 2;
+};
+
+typ[exp] Finding: rec = {
+    line: int;
+    severity: int;
+    code: str;
+    message: str
+};
+
+// A run's outcome: how many findings of each weight, and how many settings the
+// document actually defined.
+typ[exp] Tally: rec = {
+    errors: int;
+    warnings: int;
+    settings: int
+};
+
+fun[exp] empty_tally(): Tally = {
+    return { errors = 0, warnings = 0, settings = 0 };
+};
+
+fun[exp] note(line: int, code: str, message: str): Finding = {
+    return { line = line, severity = 0, code = code, message = message };
+};
+
+fun[exp] warning(line: int, code: str, message: str): Finding = {
+    return { line = line, severity = 1, code = code, message = message };
+};
+
+fun[exp] error(line: int, code: str, message: str): Finding = {
+    return { line = line, severity = 2, code = code, message = message };
+};
+
+fun[exp] severity_name(severity: int): str = {
+    when(severity) {
+        case(2) { return "error"; }
+        case(1) { return "warning"; }
+        * { return "note"; }
+    }
+};
+
+// Whether a finding is worth printing at all.
+fun[exp] is_complaint(item: Finding): bol = {
+    return item.severity > 0;
+};
+
+// Counters are folded rather than mutated: a container cannot be updated in
+// place, so each step returns a fresh Tally.
+fun[exp] count_in(base: Tally, item: Finding): Tally = {
+    when(item.severity) {
+        case(2) {
+            return { errors = base.errors + 1, warnings = base.warnings, settings = base.settings };
+        }
+        case(1) {
+            return { errors = base.errors, warnings = base.warnings + 1, settings = base.settings };
+        }
+        * { return base; }
+    }
+};
+
+fun[exp] with_settings(base: Tally, settings: int): Tally = {
+    return { errors = base.errors, warnings = base.warnings, settings = settings };
+};

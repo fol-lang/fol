@@ -1,0 +1,52 @@
+use std: pkg = {"std"};
+use money: loc = {"../lib"};
+
+// Test bundle for the ledger library. A test artifact is an ordinary entry
+// routine: returning 0 passes, any nonzero value fails the run, so each check
+// bumps a failure counter and the entry returns it.
+
+fun[hid] expect_int(label: str, actual: int, expected: int): int = {
+    when(.eq(actual, expected)) {
+        case(true) { return 0; }
+        * {
+            std::io::echo_str("FAIL " + label + ": expected "
+            + std::fmt::int_to_str(expected) + " got " + std::fmt::int_to_str(actual));
+            return 1;
+        }
+    }
+};
+
+fun[hid] expect_str(label: str, actual: str, expected: str): int = {
+    when(.eq(actual, expected)) {
+        case(true) { return 0; }
+        * {
+            std::io::echo_str("FAIL " + label + ": expected '" + expected + "' got '" + actual + "'");
+            return 1;
+        }
+    }
+};
+
+fun[] main(): int = {
+    var failures: int = 0;
+
+    failures = failures + expect_int("parse whole", money::parse_amount("1500.00"), 150000);
+    failures = failures + expect_int("parse negative", money::parse_amount("-42.50"), 0 - 4250);
+    failures = failures + expect_int("parse one decimal", money::parse_amount("3.5"), 350);
+    failures = failures + expect_int("parse no decimal", money::parse_amount("7"), 700);
+
+    failures = failures + expect_str("format whole", money::format_cents(150000), "1500.00");
+    failures = failures + expect_str("format negative", money::format_cents(0 - 4250), "-42.50");
+    failures = failures + expect_str("format sub-dime", money::format_cents(305), "3.05");
+
+    failures = failures + expect_int("settle down", money::settle(232272), 232270);
+    failures = failures + expect_int("settle up", money::settle(232274), 232275);
+    failures = failures + expect_int("settle negative", money::settle(0 - 232274), 0 - 232275);
+
+    failures = failures + expect_int("round trip", money::parse_amount(money::format_cents(98765)), 98765);
+
+    when(.eq(failures, 0)) {
+        case(true) { std::io::echo_str("ledger checks: all passed"); }
+        * { std::io::echo_str("ledger checks: " + std::fmt::int_to_str(failures) + " failed"); }
+    }
+    return failures;
+};

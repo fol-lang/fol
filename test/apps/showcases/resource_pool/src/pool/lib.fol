@@ -1,0 +1,173 @@
+// The pool is the admission ledger plus the places a handle can live: a direct
+// binding, a record field, and a container. Each shape is exercised so the
+// close transcript shows who finalizes what.
+
+use std: pkg = {"std"};
+use handle: loc = {"../handle"};
+
+typ[exp] Ledger: rec = {
+    name: str,
+    capacity: int,
+    in_use: int,
+    refused: int,
+};
+
+fun[exp] ledger(name: str, capacity: int): Ledger = {
+    return { name = name, capacity = capacity, in_use = 0, refused = 0 };
+};
+
+// The receiver is `[mut, bor]`, so the caller's ledger is updated in place
+// rather than handed back as a new record.
+pro (Ledger[mut, bor])admit(): bol = {
+    when(self.in_use < self.capacity) {
+        case(true) {
+            self.in_use = self.in_use + 1;
+            return true;
+        }
+        * {
+            self.refused = self.refused + 1;
+            return false;
+        }
+    }
+};
+
+pro (Ledger[mut, bor])release(): non = {
+    when(self.in_use > 0) {
+        case(true) { self.in_use = self.in_use - 1; }
+        * { }
+    }
+    return;
+};
+
+fun (Ledger[bor])summary(): str = {
+    var used: str = std::fmt::int_to_str(self.in_use);
+    var cap: str = std::fmt::int_to_str(self.capacity);
+    var refused: str = std::fmt::int_to_str(self.refused);
+    return self.name + ": " + used + "/" + cap + " in use, " + refused + " refused";
+};
+
+fun[exp] verdict(granted: bol): str = {
+    when(granted) {
+        case(true) { return "granted"; }
+        * { return "refused"; }
+    }
+};
+
+// Walk a request plan against the ledger. Three things force this shape: a
+// free routine cannot take a `[mut, bor]` parameter -- only a receiver may be
+// a mutable loan; a `[mut, bor]` method cannot re-borrow `self` to call
+// `admit`, so the admission rule is spelled out again here; and the request
+// list arrives by value because iterating a `[bor]` container parameter emits
+// broken generated Rust.
+pro (Ledger[mut, bor])run_plan(requests: vec[str]): non = {
+    for (name in requests) {
+        when(self.in_use < self.capacity) {
+            case(true) {
+                self.in_use = self.in_use + 1;
+                std::io::echo_str("  " + name + ": " + verdict(true));
+            }
+            * {
+                self.refused = self.refused + 1;
+                std::io::echo_str("  " + name + ": " + verdict(false));
+            }
+        }
+    }
+    return;
+};
+
+// A slot is a handle parked under a holder's name. The handle is a plain field,
+// so the slot's owner walks the field path at scope exit and closes it.
+typ[exp] Slot: rec = {
+    holder: str,
+    note: str,
+    resource: handle::Handle,
+};
+
+fun[exp] checkout(holder: str, resource: handle::Handle): Slot = {
+    var note: str = handle::describe([bor]resource);
+    return { holder = holder, note = note, resource = [mov]resource };
+};
+
+fun[exp] slot_line(entry[bor]: Slot): str = {
+    return entry.holder + " holds " + entry.note;
+};
+
+// Ownership decides who finalizes. The slot moves in here, so this routine's
+// scope exit closes the handle and the caller's binding no longer does.
+pro[exp] hand_off(entry: Slot): non = {
+    std::io::echo_str("  handed off: " + entry.holder);
+    return;
+};
+
+// Two `fin` fields in one record: the book says the owner walks the field path
+// deepest-field-first, so `spare` closes before `primary`.
+typ[exp] Bundle: rec = {
+    primary: handle::Handle,
+    spare: handle::Handle,
+};
+
+pro[exp] show_field_order(): non = {
+    var bundle: Bundle = {
+        primary = handle::open(50, "bundle/primary"),
+        spare = handle::open(51, "bundle/spare"),
+    };
+    std::io::echo_str("  bundle built, leaving scope");
+    return;
+};
+
+// Two direct bindings in one scope: owners are released in reverse declaration
+// order, so the second one closes first.
+pro[exp] show_binding_order(): non = {
+    var earlier: handle::Handle = handle::open(60, "order/earlier");
+    var later: handle::Handle = handle::open(61, "order/later");
+    std::io::echo_str("  two bindings live, leaving scope");
+    return;
+};
+
+// A container has no field name per element, so at scope exit it hands out its
+// elements one by one. The batch below is closed in element order when this
+// routine returns.
+pro[exp] stage_batch(): non = {
+    var batch: vec[handle::Handle] = {
+        handle::open(10, "batch/alpha"),
+        handle::open(11, "batch/beta"),
+        handle::open(12, "batch/gamma"),
+    };
+    var count: str = std::fmt::int_to_str(.len(batch));
+    var staged: str = std::io::echo_str("  staged " + count + " handles");
+    return;
+};
+
+// `dfr[item[mov]]` keeps the move inside this frame: the block replays at scope
+// exit, and the handle is finalized right after the body runs.
+pro[exp] release_late(item: handle::Handle): non = {
+    dfr[item[mov]] {
+        std::io::echo_str("  deferred body sees " + handle::describe([bor]item));
+    };
+    std::io::echo_str("  work before the deferred release");
+    return;
+};
+
+// `[fin]item` closes now and invalidates the source, so scope exit does not
+// close it a second time.
+pro[exp] release_now(item: handle::Handle): non = {
+    std::io::echo_str("  early release of " + handle::describe([bor]item));
+    [fin]item;
+    std::io::echo_str("  after the early release");
+    return;
+};
+
+// `edf` fires only on a recoverable `report`, `dfr` on every exit. The audit
+// reports when the ledger is over its own limit.
+fun[exp] audit(used: int, limit: int): int / int = {
+    edf {
+        std::io::echo_str("  audit: error path cleanup");
+    };
+    dfr {
+        std::io::echo_str("  audit: always cleanup");
+    };
+    when(used > limit) {
+        case(true) { report used - limit; }
+        * { return used; }
+    }
+};

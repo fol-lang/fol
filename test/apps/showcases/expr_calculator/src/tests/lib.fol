@@ -1,0 +1,93 @@
+// Self-checking test bundle. The exit status is the number of the first case
+// that failed, so `fol code test` fails the run on any mismatch.
+
+use std: pkg = {"std"};
+use token: loc = {"../token"};
+use lexer: loc = {"../lexer"};
+use eval: loc = {"../eval"};
+
+fun[] main(): int = {
+    var failed = 0;
+
+    failed = expect_value(failed, 1, "1 + 1", 2);
+    failed = expect_value(failed, 2, "2 + 3 * 4", 14);
+    failed = expect_value(failed, 3, "(2 + 3) * 4", 20);
+    failed = expect_value(failed, 4, "20 - 4 - 3", 13);
+    failed = expect_value(failed, 5, "100 / 5 / 2", 10);
+    failed = expect_value(failed, 6, "7 % 4", 3);
+    failed = expect_value(failed, 7, "-5 + 8", 3);
+    failed = expect_value(failed, 8, "-(2 * 3)", 0 - 6);
+    failed = expect_value(failed, 9, "--7", 7);
+    failed = expect_value(failed, 10, "  9  ", 9);
+    failed = expect_value(failed, 11, "2 * (3 + (4 * 5))", 46);
+
+    failed = expect_fault(failed, 12, "1 +", eval::fault_want_number());
+    failed = expect_fault(failed, 13, "(1", eval::fault_want_close());
+    failed = expect_fault(failed, 14, "1 1", eval::fault_trailing());
+    failed = expect_fault(failed, 15, "1 / 0", eval::fault_divide_by_zero());
+    failed = expect_fault(failed, 16, "1 % 0", eval::fault_divide_by_zero());
+    failed = expect_fault(failed, 17, "@", eval::fault_bad_char());
+
+    // The scanner reports the byte where a token starts and where to resume.
+    var first = lexer::next_token("  42 +", 0);
+    failed = expect_int(failed, 18, first.kind, token::number());
+    failed = expect_int(failed, 19, first.value, 42);
+    failed = expect_int(failed, 20, first.begin, 2);
+    failed = expect_int(failed, 21, first.stop, 4);
+
+    var second = lexer::next_token("  42 +", first.stop);
+    failed = expect_int(failed, 22, second.kind, token::plus());
+
+    when(failed == 0) {
+        case(true) { std::io::echo_str("expr_calculator: all checks passed"); }
+        * { std::io::echo_str("expr_calculator: FAILED"); }
+    };
+    return failed;
+};
+
+fun expect_value(failed: int, number: int, text: str, want: int): int = {
+    var step = eval::run(text);
+    when(step.fault != eval::fault_none()) {
+        case(true) { return note(failed, number, text, "unexpected fault"); }
+        * { }
+    };
+    when(step.value == want) {
+        case(true) { return failed; }
+        * { return note(failed, number, text, std::fmt::int_to_str(step.value)); }
+    }
+};
+
+fun expect_fault(failed: int, number: int, text: str, want: int): int = {
+    var step = eval::run(text);
+    when(step.fault == want) {
+        case(true) { return failed; }
+        * { return note(failed, number, text, eval::fault_text(step.fault)); }
+    }
+};
+
+fun expect_int(failed: int, number: int, got: int, want: int): int = {
+    when(got == want) {
+        case(true) { return failed; }
+        * { return note(failed, number, "scanner", std::fmt::int_to_str(got)); }
+    }
+};
+
+// Report the mismatch and keep the number of the first failing case.
+fun note(failed: int, number: int, text: str, got: str): int = {
+    complain(number, text, got);
+    when(failed == 0) {
+        case(true) { return number; }
+        * { return failed; }
+    }
+};
+
+pro complain(number: int, text: str, got: str): non = {
+    std::io::write("  case ");
+    std::io::write(std::fmt::int_to_str(number));
+    std::io::write(" ('");
+    std::io::write(text);
+    std::io::write("'): got ");
+    std::io::write(got);
+    std::io::write("\n");
+    return;
+};

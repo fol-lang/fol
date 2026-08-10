@@ -1,0 +1,173 @@
+// The coordinator namespace owns the pipeline: it opens the channels, starts
+// the workers, folds every report into a `mux[Tally]`, multiplexes the alert
+// and control streams with `select`, and hands back one immutable result.
+//
+// Keeping the orchestration here (rather than in `main`) is what lets both the
+// executable and the test bundle run the same pipeline.
+
+use std: pkg = {"std"};
+use queue: loc = {"../queue"};
+use worker: loc = {"../worker"};
+
+typ[exp] Tally: rec = {
+    jobs: int,
+    cost: int,
+    peak: int,
+    checksum: int,
+    alerts: int,
+    started: int,
+    claimed: int,
+};
+
+fun[exp] empty(): Tally = {
+    return {
+        jobs = 0,
+        cost = 0,
+        peak = 0,
+        checksum = 0,
+        alerts = 0,
+        started = 0,
+        claimed = 0,
+    };
+};
+
+// Fold one report into the guarded tally. `state` is a `mux[Tally]` handle, so
+// the mutation happens under an explicit lock and the guard is released before
+// the routine returns.
+fun[exp] absorb(state: mux[Tally], report: worker::Report): int = {
+    state.lock();
+    state.jobs = state.jobs + 1;
+    state.cost = state.cost + report.cost;
+    when (report.cost > state.peak) {
+        * {
+            var raised: int = report.cost;
+            state.peak = raised;
+        }
+    };
+    state.checksum = state.checksum + (report.id * report.slot);
+    var seen: int = state.jobs;
+    state.unlock();
+    return seen;
+};
+
+// Drain the result channel into the guarded tally. The mutex handle is
+// forwarded straight into `absorb`, which is the only `mux[T]` -> `mux[T]`
+// hand-off the pipeline needs. The loop ends when every worker has dropped its
+// sender endpoint, so it doubles as the pipeline's join point for results. The
+// whole `chn[T]` is moved in, not a `chn[rx, T]` endpoint: iterating an
+// extracted endpoint blocks forever while its channel binding still exists.
+fun[exp] drain(state: mux[Tally], inbox: chn[worker::Report]): Tally = {
+    var[mut] last: int = 0;
+    for (report in inbox[rx]) {
+        last = absorb(state, report);
+    };
+    return snapshot(state);
+};
+
+// Read the finished tally out through the guard-VALUE surface: locking a
+// borrowed handle yields a named `var[mut, bor]` guard, and the copy is built
+// from the guarded fields rather than from the guarded value as a whole.
+fun[exp] snapshot(state: mux[Tally]): Tally = {
+    var[mut, bor] guard: Tally = ([bor]state).lock();
+    var copy: Tally = {
+        jobs = guard.jobs,
+        cost = guard.cost,
+        peak = guard.peak,
+        checksum = guard.checksum,
+        alerts = guard.alerts,
+        started = guard.started,
+        claimed = guard.claimed,
+    };
+    [end]guard;
+    return copy;
+};
+
+// Run the whole batch and return the finished tally.
+//
+// Three streams are in play: `results` carries every report, `alerts` carries
+// the ids of expensive jobs, and `control` carries one token per worker that
+// actually started. The alert and control streams are drained together under a
+// single `select`, which is the point of the exercise: they are independent
+// sources and neither one blocks the other.
+fun[exp] run_batch(slots: int): Tally = {
+    var progress: queue::Progress = queue::fresh();
+    return execute([mov]progress, slots);
+};
+
+// The shared progress counter arrives as a `mux[Progress]` handle so it can be
+// handed to every spawned shard: a task boundary may receive the handle while
+// this routine keeps running, and each task acquires its own guard.
+fun[exp] execute(progress: mux[queue::Progress], slots: int): Tally = {
+    var results: chn[worker::Report];
+    var alerts: chn[int];
+    var control: chn[int];
+
+    var[mut] slot: int = 0;
+    loop (slot < slots) {
+        [spn]worker::run_shard(results[tx], alerts[tx], progress, slot, slots);
+        var announced: err[int] = 1 | control[tx];
+        slot = slot + 1;
+    };
+
+    // Blocks until every worker has dropped its result sender, so by the time
+    // it returns the alert stream is complete too.
+    var tally: Tally = empty();
+    var[mut] totals: Tally = drain([mov]tally, [mov]results);
+
+    // `inbox` is a first-class `chn[rx, int]` receiver endpoint; the `*` arm
+    // makes the select non-blocking, so the loop stops once both queues are
+    // empty rather than waiting on senders that are already gone.
+    var inbox: chn[rx, int] = alerts[rx];
+    var[mut] flagged: int = 0;
+    var[mut] started: int = 0;
+    var[mut] draining: bol = true;
+    loop (draining) {
+        select {
+            when inbox as id {
+                flagged = flagged + 1;
+            }
+            when control as token {
+                started = started + token;
+            }
+            * {
+                draining = false;
+            }
+        };
+    };
+
+    totals.alerts = flagged;
+    totals.started = started;
+    totals.claimed = queue::taken_count(progress);
+    return totals;
+};
+
+// Render the report line. Pure, so it is safe to run on its own OS thread.
+fun[exp] compose(
+    jobs: int,
+    cost: int,
+    peak: int,
+    checksum: int,
+    alerts: int,
+    claimed: int,
+): str = {
+    var head: str = "jobs=" + std::fmt::int_to_str(jobs);
+    var body: str = " cost=" + std::fmt::int_to_str(cost);
+    var tail: str = " peak=" + std::fmt::int_to_str(peak);
+    var sum: str = " checksum=" + std::fmt::int_to_str(checksum);
+    var flag: str = " alerts=" + std::fmt::int_to_str(alerts);
+    var claim: str = " claimed=" + std::fmt::int_to_str(claimed);
+    return head + body + tail + sum + flag + claim;
+};
+
+// The one-shot result of the pipeline. The eventual crosses a routine
+// signature, so its parent-scope lifetime `L` is spelled on both sides.
+fun[exp] summarize(L: lif)(
+    jobs: int,
+    cost: int,
+    peak: int,
+    checksum: int,
+    alerts: int,
+    claimed: int,
+): evt[L, str] = {
+    return compose(jobs, cost, peak, checksum, alerts, claimed) | async;
+};

@@ -1,0 +1,113 @@
+// Data model for a double-entry ledger.
+//
+// Money is carried as whole cents in `int`, so no float ever touches a
+// balance and every total stays exact. A posting names the account it hits,
+// the side it hits it on, and why.
+
+// The two sides of a double-entry posting.
+typ[exp] Side: ent = {
+    var DEBIT: int = 1;
+    var CREDIT: int = 2;
+};
+
+// `Side.DEBIT` only carries its `int` member type where a declared type
+// coerces it, so the constants are re-exported through these accessors and
+// every other module compares against those.
+fun[exp] debit_side(): int = {
+    return Side.DEBIT;
+};
+
+fun[exp] credit_side(): int = {
+    return Side.CREDIT;
+};
+
+// One line of the journal: on day `day`, `amount` cents moved onto `side` of
+// account `code`, because of `memo`.
+typ[exp] Posting: rec = {
+    day: int;
+    code: str;
+    side: int;
+    amount: int;
+    memo: str
+};
+
+// One row of the chart of accounts. `normal` is the side that increases this
+// account, which is what turns a raw signed sum into a reportable balance.
+typ[exp] Account: rec = {
+    code: str;
+    name: str;
+    normal: int;
+    opening: int
+};
+
+fun[exp] (Posting)is_debit(): bol = {
+    return .eq(self.side, debit_side());
+};
+
+// Debits count positive and credits negative, so a balanced journal sums to
+// exactly zero.
+fun[exp] (Posting)signed(): int = {
+    if(self.is_debit()) {
+        return self.amount;
+    }
+    return 0 - self.amount;
+};
+
+fun[exp] (Posting)side_text(): str = {
+    if(self.is_debit()) {
+        return "DR";
+    }
+    return "CR";
+};
+
+fun[exp] (Account)is_debit_normal(): bol = {
+    return .eq(self.normal, debit_side());
+};
+
+// Turn a debit-positive signed sum into the balance an accountant expects:
+// a credit-normal account reports its credit surplus as a positive number.
+fun[exp] (Account)present(raw: int): int = {
+    if(self.is_debit_normal()) {
+        return raw;
+    }
+    return 0 - raw;
+};
+
+// Structural checks every posting must survive before it may enter the
+// journal. Yields the reason as a stored error, or `nil` when the posting is
+// well formed.
+fun[exp] fault_of(entry: Posting): err[str] = {
+    if(.le(entry.amount, 0)) {
+        return "amount must be a positive number of cents";
+    }
+    if(.not(.eq(.len(entry.code), 4))) {
+        return "account code must be exactly four digits";
+    }
+    if(.lt(entry.day, 1)) {
+        return "day must fall inside the period";
+    }
+    if(.gt(entry.day, 31)) {
+        return "day must fall inside the period";
+    }
+    if(.eq(.len(entry.memo), 0)) {
+        return "every posting needs a memo";
+    }
+    if(.not(.eq(entry.side, debit_side()))) {
+        if(.not(.eq(entry.side, credit_side()))) {
+            return "side must be DR or CR";
+        }
+    }
+    return nil;
+};
+
+// "dr"/"cr" as they appear in journal text. Anything else is reported, so a
+// caller cannot reach the value without deciding what to do about the failure.
+fun[exp] side_from_text(text: str): int / str = {
+    if(.eq(text, "dr")) {
+        return debit_side();
+    }
+    if(.eq(text, "cr")) {
+        return credit_side();
+    }
+    report "posting side must be 'dr' or 'cr'";
+};

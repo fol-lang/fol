@@ -1,0 +1,37 @@
+// pipeline_workers -- a fixed batch of jobs pushed through several concurrent
+// workers, aggregated behind a mutex, multiplexed with `select`, and reported
+// through a one-shot eventual.
+//
+// The pipeline is deliberately deterministic: the work function is pure and the
+// aggregates (count, sum, max, checksum, alert count) do not depend on the order
+// the reports arrive in, so the printed summary is stable across runs even
+// though the scheduling is not.
+
+use std: pkg = {"std"};
+use queue: loc = {"queue"};
+use coordinator: loc = {"coordinator"};
+
+fun[] slots(): int = {
+    return 3;
+};
+
+fun[] main(): int = {
+    var totals: coordinator::Tally = coordinator::run_batch(slots());
+
+    // The summary line is composed on its own OS thread and awaited once.
+    var pending: evt[str] = coordinator::summarize(
+        totals.jobs,
+        totals.cost,
+        totals.peak,
+        totals.checksum,
+        totals.alerts,
+        totals.claimed,
+    );
+    var line: str = pending | await;
+
+    var banner: str = "pipeline: " + std::fmt::int_to_str(totals.started)
+        + " workers, " + std::fmt::int_to_str(queue::total_jobs()) + " jobs";
+    var shown: str = std::io::echo_str(banner);
+    var summary: str = std::io::echo_str(line);
+    return 0;
+};

@@ -1,0 +1,126 @@
+use std: pkg = {"std"};
+
+// String scanning primitives. `std::strn` offers a substring, a byte probe,
+// and a first-occurrence search; everything the renderer needs is built out
+// of those three.
+
+// A one-character double-quoted literal is inferred as `chr`, and `str ==
+// chr` does not typecheck. Routing both sides through parameters declared
+// `str` is what makes a single-character comparison compile.
+fun[exp] eq(left: str, right: str): bol = {
+    return left == right;
+};
+
+fun[exp] tail(source: str, from: int): str = {
+    if (from >= .len(source)) {
+        return "";
+    };
+    return std::strn::sub(source, from, .len(source) - from);
+};
+
+fun[exp] head(source: str, width: int): str = {
+    return std::strn::sub(source, 0, width);
+};
+
+fun[exp] slice(source: str, from: int, until: int): str = {
+    if (until <= from) {
+        return "";
+    };
+    return std::strn::sub(source, from, until - from);
+};
+
+// First occurrence of `needle` at or after `from`, as an absolute offset,
+// or -1 when the needle does not appear again.
+fun[exp] find_from(source: str, needle: str, from: int): int = {
+    var hit: int = std::strn::find(tail(source, from), needle);
+    if (hit < 0) {
+        return -1;
+    };
+    return from + hit;
+};
+
+fun[exp] repeat(unit: str, times: int): str = {
+    var out: str = "";
+    var left: int = times;
+    loop (left > 0) {
+        out = out + unit;
+        left = left - 1;
+    };
+    return out;
+};
+
+fun[exp] is_space(mark: str): bol = {
+    if (eq(mark, " ")) {
+        return true;
+    };
+    if (eq(mark, "\t")) {
+        return true;
+    };
+    if (eq(mark, "\r")) {
+        return true;
+    };
+    return eq(mark, "\n");
+};
+
+fun[exp] trim(source: str): str = {
+    var start: int = 0;
+    var stop: int = .len(source);
+    loop (start < stop) {
+        if (is_space(std::strn::sub(source, start, 1))) {
+            start = start + 1;
+        } else {
+            break;
+        };
+    };
+    loop (stop > start) {
+        if (is_space(std::strn::sub(source, stop - 1, 1))) {
+            stop = stop - 1;
+        } else {
+            break;
+        };
+    };
+    return slice(source, start, stop);
+};
+
+// Line cursor over a newline-separated blob.
+fun[exp] next_start(source: str, from: int): int = {
+    var stop: int = std::strn::find(tail(source, from), "\n");
+    if (stop < 0) {
+        return .len(source);
+    };
+    return from + stop + 1;
+};
+
+fun[exp] line_at(source: str, from: int): str = {
+    var stop: int = std::strn::find(tail(source, from), "\n");
+    if (stop < 0) {
+        return tail(source, from);
+    };
+    return std::strn::sub(source, from, stop);
+};
+
+fun[exp] line_count(source: str): int = {
+    if (.len(source) == 0) {
+        return 0;
+    };
+    var cursor: int = 0;
+    var total: int = 0;
+    loop (cursor < .len(source)) {
+        cursor = next_start(source, cursor);
+        total = total + 1;
+    };
+    return total;
+};
+
+fun[exp] line_nth(source: str, index: int): str = {
+    var cursor: int = 0;
+    var seen: int = 0;
+    loop (cursor < .len(source)) {
+        if (seen == index) {
+            return line_at(source, cursor);
+        };
+        cursor = next_start(source, cursor);
+        seen = seen + 1;
+    };
+    return "";
+};

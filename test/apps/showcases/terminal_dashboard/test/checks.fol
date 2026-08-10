@@ -1,0 +1,96 @@
+use std: pkg = {"std"};
+use render: loc = {"../src/render"};
+use app: loc = {"../src/app"};
+use input: loc = {"../src/input"};
+
+// Checks over the pure parts of the dashboard: the /proc parsers, the gauge
+// arithmetic and the history window. Nothing here touches the terminal, so the
+// whole suite is deterministic. Each check prints its verdict and the exit code
+// is the number of failures.
+
+fun expect_int(label: str, got: int, want: int): int = {
+    when (got == want) {
+        case (true) {
+            std::io::echo_str("ok   " + label);
+            return 0;
+        }
+        * {
+            var detail: str = " (got " + std::fmt::int_to_str(got);
+            var wanted: str = ", want " + std::fmt::int_to_str(want) + ")";
+            std::io::echo_str("FAIL " + label + detail + wanted);
+            return 1;
+        }
+    };
+};
+
+fun expect_str(label: str, got: str, want: str): int = {
+    when (got == want) {
+        case (true) {
+            std::io::echo_str("ok   " + label);
+            return 0;
+        }
+        * {
+            std::io::echo_str("FAIL " + label + " (got '" + got + "', want '" + want + "')");
+            return 1;
+        }
+    };
+};
+
+// A stand-in for /proc/loadavg with the exact shape the kernel prints.
+fun loadavg_fixture(): str = {
+    return "3.22 3.26 2.55 2/1193 2991709\n";
+};
+
+fun meminfo_fixture(): str = {
+    var head: str = "MemTotal:       61201652 kB\nMemFree:        14050080 kB\n";
+    return head + "MemAvailable:   51999948 kB\nBuffers:          123456 kB\n";
+};
+
+fun[] main(): int = {
+    var[mut] failures: int = 0;
+
+    var load: str = loadavg_fixture();
+    failures = failures + expect_int("loadavg 1m", app::parse_centi(load, 0), 322);
+    failures = failures + expect_int("loadavg runnable", app::runnable_procs(load), 2);
+
+    var mem: str = meminfo_fixture();
+    failures = failures + expect_int("meminfo total", app::kb_field(mem, "MemTotal:"), 61201652);
+    failures = failures + expect_int("meminfo available", app::kb_field(mem, "MemAvailable:"), 51999948);
+    failures = failures + expect_int("meminfo missing", app::kb_field(mem, "Swap:"), 0);
+    failures = failures + expect_int("percent used", app::percent_used(61201652, 51999948), 15);
+    failures = failures + expect_int("percent of nothing", app::percent_used(0, 0), 0);
+
+    // The scale rounds up to the next whole load unit, floored at 2.00, so a
+    // reading never sits pinned at the top of the gauge.
+    failures = failures + expect_int("ceiling of 3.22", app::ceiling_centi(322), 400);
+    failures = failures + expect_int("ceiling of 0.10", app::ceiling_centi(10), 200);
+    failures = failures + expect_int("level of 3.22", app::level_of(322, 322), 5);
+    failures = failures + expect_int("level of idle", app::level_of(0, 100), 0);
+
+    // The window keeps the newest samples and drops from the left.
+    var[mut] window: str = "";
+    window = app::push_level(window, 1, 4);
+    window = app::push_level(window, 2, 4);
+    window = app::push_level(window, 3, 4);
+    window = app::push_level(window, 4, 4);
+    window = app::push_level(window, 5, 4);
+    failures = failures + expect_str("history window", window, "2345");
+
+    failures = failures + expect_str("gauge half", render::gauge(500, 4), "[##..]");
+    failures = failures + expect_str("gauge empty", render::gauge(0, 4), "[....]");
+    failures = failures + expect_str("two decimals", render::hundredths(305), "3.05");
+    failures = failures + expect_str("pad left", render::pad_left("7", 3), "  7");
+    failures = failures + expect_int("clamp high", render::clamp(99, 0, 7), 7);
+
+    // Byte-level key decoding: 'q' quits, '?' is unknown, 'Q' folds to 'q'.
+    failures = failures + expect_int("key q", input::classify(113), input::key.QUIT);
+    failures = failures + expect_int("key upper", input::classify(input::lower(81)), input::key.QUIT);
+    failures = failures + expect_int("key unknown", input::classify(63), input::key.UNKNOWN);
+    failures = failures + expect_str("key name", input::name(3), "pause");
+
+    when (failures == 0) {
+        case (true) { std::io::echo_str("all checks passed"); }
+        * { std::io::echo_str("checks failed"); }
+    };
+    return failures;
+};

@@ -1,0 +1,39 @@
+// auditcore - the audit rules packaged as a linkable static library, for
+// consumers that want the verdict logic without the command-line front end.
+//
+// This is a separate artifact with its own source scope; it shares `common/`
+// with the executable instead of duplicating the rules.
+
+use core: loc = {"../common"};
+
+// Verdict bits for a single manifest line under the given rules.
+fun[exp] audit_line(line: str, max_bytes: int, channel: str, min_entries: int): int = {
+    var rules: core::Policy = {
+        max_bytes = max_bytes,
+        channel = channel,
+        min_entries = min_entries,
+    };
+    return core::verdict(core::parse_entry(line), rules);
+};
+
+// Number of failing entries across a whole manifest body.
+fun[exp] audit_body(body: str, max_bytes: int, channel: str): int = {
+    var lines: int = core::text::count(body, "\n");
+    var failures: int = 0;
+    var index: int = 0;
+    loop(.lt(index, lines)) {
+        var line: str = core::text::field(body, "\n", index);
+        index = index + 1;
+        when(core::is_data(line)) {
+            case(true) {
+                var faults: int = audit_line(line, max_bytes, channel, 0);
+                when(core::is_clean(faults)) {
+                    case(true) { failures = failures; }
+                    * { failures = failures + 1; }
+                }
+            }
+            * { failures = failures; }
+        };
+    };
+    return failures;
+};

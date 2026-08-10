@@ -1,0 +1,72 @@
+use std: pkg = {"std"};
+
+// The driver applies one event at a time and returns the next Signal.
+// It never mutates its input: each step produces a fresh record, which keeps
+// the trace and the state in step with each other.
+
+fun[exp] step(sig: states::Signal, event: int): states::Signal = {
+    var refused: bol = table::accepts(sig.phase, event) == false;
+    when(refused) {
+        case(true) {
+            return {
+                phase = sig.phase,
+                ticks = sig.ticks,
+                walk_pending = sig.walk_pending,
+                faults = sig.faults + 1,
+            };
+        }
+        * { }
+    }
+
+    var[mut] next: states::Signal = {
+        phase = sig.phase,
+        ticks = sig.ticks + 1,
+        walk_pending = sig.walk_pending,
+        faults = sig.faults,
+    };
+
+    // A pressed walk button is remembered until the next RED.
+    when(event) {
+        is(1) { next.walk_pending = true; }
+        * { }
+    }
+
+    var driven: int = table::on_event(sig.phase, event);
+    when(driven != sig.phase) {
+        case(true) {
+            next.phase = driven;
+            next.ticks = 0;
+            return next;
+        }
+        * { }
+    }
+
+    // No explicit transition: fall through to the hold-time timeout.
+    var limit: int = table::hold_time(sig.phase);
+    var expired: bol = limit > 0 and next.ticks >= limit;
+    when(expired) {
+        case(true) {
+            next.phase = table::on_timeout(sig.phase);
+            next.ticks = 0;
+        }
+        * { }
+    }
+
+    // Reaching RED serves any queued pedestrian request.
+    var red: int = states::Phase.RED;
+    when(next.phase == red and next.walk_pending) {
+        case(true) { next.walk_pending = false; }
+        * { }
+    }
+
+    return next;
+};
+
+// One human-readable trace line for a completed step.
+fun[exp] trace(before: states::Signal, event: int, after: states::Signal): str = {
+    return states::phase_name(before.phase)
+    + " --" + states::event_name(event) + "--> "
+    + states::phase_name(after.phase)
+    + " (t=" + std::fmt::int_to_str(after.ticks)
+    + ", faults=" + std::fmt::int_to_str(after.faults) + ")";
+};

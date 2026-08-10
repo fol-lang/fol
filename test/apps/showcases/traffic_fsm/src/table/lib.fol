@@ -1,0 +1,53 @@
+// The transition table, kept separate from the driver so the policy can be
+// read on its own: how long a phase holds, which events it accepts, and where
+// each accepted event leads.
+//
+// The tables use the arrow form of `when`, which reads closest to an actual
+// lookup table. Both the selectors and the results have to be plain `int`:
+// an `ent` member only typechecks where a type is already expected, so it is
+// legal as a `var` initializer but not as an `is` pattern and not as a branch
+// result. Every phase constant therefore gets an `int` local first.
+
+// Ticks a phase holds before it times out on its own.
+fun[exp] hold_time(phase: int): int = {
+    return when(phase) {
+        is 0 -> 3;
+        is 1 -> 4;
+        is 2 -> 1;
+        * -> 0;
+    };
+};
+
+// FLASH only listens for RESET; every other phase takes the whole alphabet.
+fun[exp] accepts(phase: int, event: int): bol = {
+    var reset: int = states::Event.RESET;
+    var flash: int = states::Phase.FLASH;
+    when(phase == flash) {
+        case(true) { return event == reset; }
+        * { return event != reset; }
+    }
+};
+
+// Where a phase goes when its hold time expires.
+fun[exp] on_timeout(phase: int): int = {
+    var red: int = states::Phase.RED;
+    var green: int = states::Phase.GREEN;
+    var amber: int = states::Phase.AMBER;
+    return when(phase) {
+        is 0 -> green;
+        is 1 -> amber;
+        is 2 -> red;
+        * -> phase;
+    };
+};
+
+// Where an explicit event drives the machine, ignoring hold time.
+fun[exp] on_event(phase: int, event: int): int = {
+    var red: int = states::Phase.RED;
+    var flash: int = states::Phase.FLASH;
+    return when(event) {
+        is 2 -> flash;
+        is 3 -> red;
+        * -> phase;
+    };
+};

@@ -1,0 +1,22 @@
+// Client tasks.
+//
+// Each task hammers the shared limiter a fixed number of times with a short
+// pause in between. The pause is what actually creates contention: without it
+// a task tends to run start to finish inside one scheduling slice and the
+// mutex is never really tested.
+
+use bucket: loc = {"../bucket"};
+use clock: loc = {"../clock"};
+
+fun[exp] hammer(attempts: int, gap_ms: int, limiter: mux[bucket::Bucket], audit: chn[int]): int = {
+    var[mut] step: int = 0;
+    var[mut] mine: int = 0;
+    loop (step < attempts) {
+        var got: int = bucket::try_acquire(limiter);
+        mine = mine + got;
+        var noted: err[int] = got | audit[tx];
+        clock::pause(gap_ms);
+        step = step + 1;
+    };
+    return mine;
+};

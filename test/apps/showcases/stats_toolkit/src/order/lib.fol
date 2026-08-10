@@ -1,0 +1,65 @@
+// Selection sort, expressed by rank instead of by swapping.
+//
+// FOL containers are immutable once built: there is no `values[i] = x`, no
+// append, and no concatenation. A classic in-place sort therefore cannot be
+// written. What can be written is the rank of each element, which is enough to
+// enumerate the data set in sorted order.
+
+// How many elements sort strictly before `values[index]`. Ties are broken by
+// position so that equal readings still get distinct ranks.
+fun[exp] rank_of(values: vec[flt], index: int): int = {
+    var pivot: flt = values[index];
+    var rank: int = 0;
+    var probe: int = 0;
+    loop(probe < .len(values)) {
+        var other: flt = values[probe];
+        when(other < pivot) {
+            case(true) { rank = rank + 1; }
+            * {
+                when((other == pivot) and (probe < index)) {
+                    case(true) { rank = rank + 1; }
+                    * { }
+                }
+            }
+        }
+        probe = probe + 1;
+    }
+    return rank;
+};
+
+// The element whose rank is `target`, i.e. the target-th smallest value.
+fun[exp] nth_smallest(values: vec[flt], target: int): flt = {
+    var found: flt = values[0];
+    var index: int = 0;
+    loop(index < .len(values)) {
+        when(rank_of(values, index) == target) {
+            case(true) { found = values[index]; }
+            * { }
+        }
+        index = index + 1;
+    }
+    return found;
+};
+
+fun[exp] smallest(values: vec[flt]): flt = {
+    return nth_smallest(values, 0);
+};
+
+fun[exp] largest(values: vec[flt]): flt = {
+    return nth_smallest(values, .len(values) - 1);
+};
+
+// Verifies the ordering is a real one: every consecutive pair must be
+// non-decreasing.
+fun[exp] is_ordered(values: vec[flt]): bol = {
+    var index: int = 1;
+    var ordered: bol = true;
+    loop(index < .len(values)) {
+        when(nth_smallest(values, index) < nth_smallest(values, index - 1)) {
+            case(true) { ordered = false; }
+            * { }
+        }
+        index = index + 1;
+    }
+    return ordered;
+};

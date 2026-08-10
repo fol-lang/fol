@@ -1,0 +1,10 @@
+# The workspace root. `confkit` is the analysis library, `confcheck` the
+# executable that consumes it.
+#
+# Only `members:` is set here. A `package_store_root:` entry is parsed and
+# echoed back by `fol work info`, but `fol code check/build/run` ignore it and
+# resolve `pkg` imports against the bundled library root regardless, so setting
+# it would only be misleading.
+members:
+  - confkit
+  - confcheck

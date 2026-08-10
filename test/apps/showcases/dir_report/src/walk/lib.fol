@@ -1,0 +1,78 @@
+use std: pkg = {"std"};
+use text: loc = {"../text"};
+use kinds: loc = {"../kinds"};
+use counts: loc = {"../counts"};
+
+// The traversal. Each directory contributes its own counters and then merges
+// whatever its children reported, so the whole walk is one bottom-up fold
+// with no shared mutable state.
+
+fun[exp] join(parent: str, child: str): str = {
+    if (.len(parent) == 0) {
+        return child;
+    };
+    if (text::ends_with(parent, "/")) {
+        return parent + child;
+    };
+    return parent + "/" + child;
+};
+
+// Size of a regular file, measured by reading it. `read_file` yields the
+// empty string for anything it cannot decode, so undecodable files simply
+// contribute nothing to the byte total.
+fun[exp] weigh(path: str): int = {
+    return .len(std::fs::read_file(path));
+};
+
+fun[exp] walk(path: str, depth: int, max_depth: int, show_depth: int): counts::Tally = {
+    var totals: counts::Tally = counts::empty();
+    var listing: str = std::fs::dir_list(path);
+
+    // An empty listing is either a genuinely empty directory or one this
+    // process may not read; `dir_list` cannot tell the two apart, so the
+    // report counts both as "silent".
+    if (.len(listing) == 0) {
+        totals.silent = 1;
+        if (depth <= show_depth) {
+            std::io::echo_str(text::repeat("  ", depth) + "silent   " + path);
+        };
+        return totals;
+    };
+
+    var entries: int = text::count(listing);
+    var index: int = 0;
+    loop (index < entries) {
+        var entry: str = text::nth(listing, index);
+        index = index + 1;
+        var group: int = kinds::classify(entry);
+        var child: str = join(path, kinds::bare(entry));
+
+        if (depth <= show_depth) {
+            var tag: str = text::pad_right(kinds::label(group), 8);
+            std::io::echo_str(text::repeat("  ", depth) + tag + entry);
+        };
+
+        if (group == kinds::kind_dir()) {
+            totals.dirs = totals.dirs + 1;
+            if (depth < max_depth) {
+                totals = counts::merge(totals, walk(child, depth + 1, max_depth, show_depth));
+            };
+        } else {
+            totals.bytes = totals.bytes + weigh(child);
+            if (group == kinds::kind_source()) {
+                totals.code = totals.code + 1;
+            } else {
+                if (group == kinds::kind_docs()) {
+                    totals.docs = totals.docs + 1;
+                } else {
+                    if (group == kinds::kind_data()) {
+                        totals.data = totals.data + 1;
+                    } else {
+                        totals.other = totals.other + 1;
+                    };
+                };
+            };
+        };
+    };
+    return totals;
+};

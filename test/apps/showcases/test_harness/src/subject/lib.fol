@@ -1,0 +1,44 @@
+// The code under test.
+//
+// Nothing here knows about the harness; it is an ordinary little utility
+// module, which is the point -- the harness is what has to be interesting.
+
+use std: pkg = {"std"};
+
+// Euclid's algorithm. Negative inputs are not handled, which is exactly the
+// kind of edge the suite pins down.
+fun[exp] gcd(left: int, right: int): int = {
+    var a: int = left;
+    var b: int = right;
+    loop (b != 0) {
+        var carry: int = b;
+        b = a % b;
+        a = carry;
+    }
+    return a;
+};
+
+fun[exp] clamp(value: int, low: int, high: int): int = {
+    if (value < low) {
+        return low;
+    }
+    if (value > high) {
+        return high;
+    }
+    return value;
+};
+
+// Turns a title into a URL-ish fragment: spaces become dashes.
+fun[exp] slug(text: str): str = {
+    return std::strn::replace(text, " ", "-");
+};
+
+fun[exp] repeat(text: str, times: int): str = {
+    var out: str = "";
+    var index: int = 0;
+    loop (index < times) {
+        out = out + text;
+        index = index + 1;
+    }
+    return out;
+};

@@ -1,0 +1,64 @@
+// Worker tasks.
+//
+// Each dispatched job runs on its own OS-thread task. A task does three things:
+// grind the job into a checksum, fold its contribution into the shared `Tally`
+// behind a mutex, and report back over two channels -- one audit channel that
+// carries the job id, one result channel that carries the full outcome.
+
+use jobs: loc = {"../jobs"};
+
+// Shared mutable state. Every worker folds into the same instance, so the
+// counters are only correct if the mutex actually serialises them.
+typ[exp] Tally: rec = {
+    dispatched: int,
+    checksum_sum: int,
+    weight_sum: int,
+};
+
+fun[exp] run(slot: int, job: jobs::Job, audit: chn[int], results: chn[jobs::Outcome], tally: mux[Tally]): int = {
+    var checksum: int = jobs::expected_checksum(job);
+
+    // Fold into the shared tally under the lock, then release it before the
+    // sends -- a guard must not be held across a blocking channel operation.
+    tally.lock();
+    tally.dispatched = tally.dispatched + 1;
+    tally.checksum_sum = tally.checksum_sum + checksum;
+    tally.weight_sum = tally.weight_sum + job.weight;
+    tally.unlock();
+
+    var noted: err[int] = job.id | audit[tx];
+    var outcome: jobs::Outcome = {
+        id = job.id,
+        priority = job.priority,
+        checksum = checksum,
+    };
+    var sent: err[jobs::Outcome] = outcome | results[tx];
+    return slot;
+};
+
+// Read-back accessors.
+//
+// A guarded `T` cannot be returned as a whole value, so each counter needs its
+// own accessor. They also have to live behind a `mux[Tally]` *parameter*:
+// locking a mux held in a local binding makes the backend emit Rust that the
+// borrow checker rejects as soon as the same routine contains a later loop.
+fun[exp] count(tally: mux[Tally]): int = {
+    tally.lock();
+    var value: int = tally.dispatched;
+    tally.unlock();
+    return value;
+};
+
+fun[exp] checksum(tally: mux[Tally]): int = {
+    tally.lock();
+    var value: int = tally.checksum_sum;
+    tally.unlock();
+    return value;
+};
+
+fun[exp] weight(tally: mux[Tally]): int = {
+    tally.lock();
+    var value: int = tally.weight_sum;
+    tally.unlock();
+    return value;
+};

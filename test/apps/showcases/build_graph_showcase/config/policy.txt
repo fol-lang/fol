@@ -1,0 +1,4 @@
+# shipping policy for the current release channel
+max_bytes = 65536
+channel = stable
+min_entries = 3

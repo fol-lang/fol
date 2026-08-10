@@ -1,0 +1,111 @@
+use std: pkg = {"std"};
+use text: loc = {"../text"};
+use vars: loc = {"../vars"};
+
+// The renderer. A template is copied verbatim except for `{{name}}` spans,
+// which are replaced by the value bound to `name`. Anything that opens with
+// `{{` but does not close cleanly on the same line is ordinary text.
+
+typ[exp] Output: rec = {
+    body: str,
+    filled: int,
+    missing: int,
+};
+
+fun[exp] open_mark(): str = {
+    return "{{";
+};
+
+fun[exp] close_mark(): str = {
+    return "}}";
+};
+
+// What an unresolved placeholder renders as. Leaving it visible in the
+// output beats silently emitting an empty string.
+fun[exp] unresolved(key: str): str = {
+    return "<missing:" + key + ">";
+};
+
+// A placeholder name is a single-line run with no further brace in it. That
+// rule is what keeps an unterminated `{{` from swallowing the placeholder on
+// the next line.
+fun[exp] valid_key(key: str): bol = {
+    if (.len(key) == 0) {
+        return false;
+    };
+    if (std::strn::find(key, "\n") >= 0) {
+        return false;
+    };
+    return std::strn::find(key, "{") < 0;
+};
+
+// Offset of the `}}` that closes the placeholder opening at `open`, or -1
+// when this `{{` does not open one.
+fun[exp] key_end(template: str, open: int): int = {
+    var close: int = text::find_from(template, close_mark(), open + 2);
+    if (close < 0) {
+        return -1;
+    };
+    if (valid_key(text::slice(template, open + 2, close))) {
+        return close;
+    };
+    return -1;
+};
+
+fun[exp] key_at(template: str, open: int, close: int): str = {
+    return text::trim(text::slice(template, open + 2, close));
+};
+
+fun[exp] render(template: str, source: str): Output = {
+    var out: Output = { body = "", filled = 0, missing = 0 };
+    var cursor: int = 0;
+    loop (cursor < .len(template)) {
+        var open: int = text::find_from(template, open_mark(), cursor);
+        if (open < 0) {
+            out.body = out.body + text::tail(template, cursor);
+            cursor = .len(template);
+        } else {
+            var close: int = key_end(template, open);
+            if (close < 0) {
+                // Not a placeholder: copy the opening braces literally and
+                // keep scanning just after them.
+                out.body = out.body + text::slice(template, cursor, open + 2);
+                cursor = open + 2;
+            } else {
+                out.body = out.body + text::slice(template, cursor, open);
+                var key: str = key_at(template, open, close);
+                if (vars::known(source, key)) {
+                    out.body = out.body + vars::resolve(source, key);
+                    out.filled = out.filled + 1;
+                } else {
+                    out.body = out.body + unresolved(key);
+                    out.missing = out.missing + 1;
+                };
+                cursor = close + 2;
+            };
+        };
+    };
+    return out;
+};
+
+// Names the template asks for, in first-use order, one per line. Reported
+// alongside the render so a caller can see what a vars file is missing.
+fun[exp] placeholders(template: str): str = {
+    var out: str = "";
+    var cursor: int = 0;
+    loop (cursor < .len(template)) {
+        var open: int = text::find_from(template, open_mark(), cursor);
+        if (open < 0) {
+            cursor = .len(template);
+        } else {
+            var close: int = key_end(template, open);
+            if (close < 0) {
+                cursor = open + 2;
+            } else {
+                out = out + key_at(template, open, close) + "\n";
+                cursor = close + 2;
+            };
+        };
+    };
+    return out;
+};

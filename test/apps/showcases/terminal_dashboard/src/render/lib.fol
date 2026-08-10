@@ -1,0 +1,163 @@
+use std: pkg = {"std"};
+
+// Drawing primitives for the dashboard: raw ANSI control sequences plus the
+// small widgets (gauges, sparklines, padded columns) the frame is built from.
+// Nothing here touches the terminal itself -- every routine returns a string
+// and the caller decides when to write it, so a frame is one single write.
+
+// ---------------------------------------------------------------------------
+// ANSI control sequences
+// ---------------------------------------------------------------------------
+
+// 0x1b has no string-literal spelling in FOL, so it is rebuilt from its byte.
+fun[exp] esc(): str = {
+    return std::strn::from_byte(27);
+};
+
+fun[exp] csi(): str = {
+    return esc() + "[";
+};
+
+fun[exp] clear_screen(): str = {
+    return csi() + "2J";
+};
+
+fun[exp] home(): str = {
+    return csi() + "H";
+};
+
+fun[exp] hide_cursor(): str = {
+    return csi() + "?25l";
+};
+
+fun[exp] show_cursor(): str = {
+    return csi() + "?25h";
+};
+
+// Colours are written as raw SGR numbers; 31 red, 32 green, 33 yellow, 36 cyan.
+fun[exp] color(code: int): str = {
+    return csi() + std::fmt::int_to_str(code) + "m";
+};
+
+fun[exp] plain(): str = {
+    return csi() + "0m";
+};
+
+fun[exp] dim(): str = {
+    return csi() + "2m";
+};
+
+fun[exp] bold(): str = {
+    return csi() + "1m";
+};
+
+// ---------------------------------------------------------------------------
+// Text helpers
+// ---------------------------------------------------------------------------
+
+fun[exp] repeat(unit: str, count: int): str = {
+    var[mut] out: str = "";
+    var[mut] left: int = count;
+    loop (left > 0) {
+        out = out + unit;
+        left = left - 1;
+    };
+    return out;
+};
+
+// Widths are counted in bytes. Every string these routines pad is ASCII, so
+// bytes and columns agree; the block glyphs are never padded.
+fun[exp] pad_right(text: str, width: int): str = {
+    var used: int = .len(text);
+    when (used < width) {
+        case (true) { return text + repeat(" ", width - used); }
+        * { return text; }
+    };
+};
+
+fun[exp] pad_left(text: str, width: int): str = {
+    var used: int = .len(text);
+    when (used < width) {
+        case (true) { return repeat(" ", width - used) + text; }
+        * { return text; }
+    };
+};
+
+// Renders hundredths as a two-decimal number: 322 becomes "3.22".
+fun[exp] hundredths(value: int): str = {
+    var whole: int = value / 100;
+    var frac: int = value % 100;
+    when (frac < 10) {
+        case (true) {
+            return std::fmt::int_to_str(whole) + ".0" + std::fmt::int_to_str(frac);
+        }
+        * {
+            return std::fmt::int_to_str(whole) + "." + std::fmt::int_to_str(frac);
+        }
+    };
+};
+
+// ---------------------------------------------------------------------------
+// Widgets
+// ---------------------------------------------------------------------------
+
+// A horizontal gauge: `permille` of `width` cells filled, the rest dotted.
+fun[exp] gauge(permille: int, width: int): str = {
+    var clamped: int = clamp(permille, 0, 1000);
+    var filled: int = (clamped * width) / 1000;
+    return "[" + repeat("#", filled) + repeat(".", width - filled) + "]";
+};
+
+fun[exp] clamp(value: int, low: int, high: int): int = {
+    when (value < low) {
+        case (true) { return low; }
+        * {
+            when (value > high) {
+                case (true) { return high; }
+                * { return value; }
+            };
+        }
+    };
+};
+
+// Maps a level 0..7 onto a Unicode block of matching height.
+fun[exp] glyph(level: int): str = {
+    when (level) {
+        is (0) { return "\u{2581}"; }
+        is (1) { return "\u{2582}"; }
+        is (2) { return "\u{2583}"; }
+        is (3) { return "\u{2584}"; }
+        is (4) { return "\u{2585}"; }
+        is (5) { return "\u{2586}"; }
+        is (6) { return "\u{2587}"; }
+        * { return "\u{2588}"; }
+    };
+};
+
+// History is a compact string of '0'..'7' digits, oldest first. Each digit is
+// a level, so a whole sample window fits in one immutable string.
+fun[exp] spark(history: str) : str = {
+    var count: int = .len(history);
+    var[mut] out: str = "";
+    var[mut] index: int = 0;
+    loop (index < count) {
+        var digit: int = std::strn::byte_at(history, index) - 48;
+        out = out + glyph(clamp(digit, 0, 7));
+        index = index + 1;
+    };
+    return out;
+};
+
+// Colour picked from load pressure: green below half, yellow up to 80%, red
+// above. The same thresholds are used for every gauge on screen.
+fun[exp] pressure_color(permille: int): str = {
+    when (permille < 500) {
+        case (true) { return color(32); }
+        * {
+            when (permille < 800) {
+                case (true) { return color(33); }
+                * { return color(31); }
+            };
+        }
+    };
+};

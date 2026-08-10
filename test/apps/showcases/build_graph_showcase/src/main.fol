@@ -1,0 +1,85 @@
+// manifest-audit - check a release manifest against the shipping policy that
+// the build graph generated, and fail the run when something may not ship.
+//
+//   manifest-audit [manifest-file] [policy-file]
+//
+// Both arguments are optional and default to the files the build graph
+// installs, so `fol code run` audits the checked-in release set directly.
+
+use std: pkg = {"std"};
+use core: loc = {"../common"};
+
+// Positional argument with a fallback, so the tool is still usable by hand.
+// Indices are 0-based over the user arguments; the program name is excluded.
+fun[] arg_or(index: int, fallback: str): str = {
+    when(.gt(std::os::arg_count(), index)) {
+        case(true) { return std::os::arg(index); }
+        * { return fallback; }
+    }
+};
+
+// 1 when this line was a real entry, 0 when it was blank or a comment.
+fun[] counted(line: str): int = {
+    when(core::is_data(line)) {
+        case(true) { return 1; }
+        * { return 0; }
+    }
+};
+
+// 1 when the verdict carries at least one violation bit.
+fun[] failed(faults: int): int = {
+    when(core::is_clean(faults)) {
+        case(true) { return 0; }
+        * { return 1; }
+    }
+};
+
+fun[] main(): int = {
+    var manifest_path: str = arg_or(0, "config/manifest.txt");
+    var policy_path: str = arg_or(1, "config/policy.txt");
+
+    var manifest_src: str = std::fs::read_file(manifest_path);
+    var policy_src: str = std::fs::read_file(policy_path);
+    var rules: core::Policy = core::parse_policy(policy_src);
+
+    std::io::echo_str("manifest-audit " + manifest_path);
+    std::io::echo_str(report::rule_summary(rules));
+
+    var lines: int = core::text::count(manifest_src, "\n");
+    var checked: int = 0;
+    var failures: int = 0;
+    var digest: int = 7;
+    var index: int = 0;
+
+    loop(.lt(index, lines)) {
+        var line: str = core::text::field(manifest_src, "\n", index);
+        index = index + 1;
+        var live: int = counted(line);
+        when(.eq(live, 1)) {
+            case(true) {
+                var entry: core::Entry = core::parse_entry(line);
+                var faults: int = core::verdict(entry, rules);
+                std::io::echo_str(report::entry_line(entry, faults));
+                digest = core::checksum(entry, digest);
+                failures = failures + failed(faults);
+            }
+            * { checked = checked; }
+        };
+        checked = checked + live;
+    };
+
+    // A manifest that is too short is a release problem in itself.
+    when(.lt(checked, rules.min_entries)) {
+        case(true) {
+            std::io::echo_str("  FAIL manifest has fewer than the required entries");
+            failures = failures + 1;
+        }
+        * { failures = failures; }
+    };
+
+    std::io::echo_str(report::verdict_line(checked, failures, digest));
+    when(.eq(failures, 0)) {
+        case(true) { return 0; }
+        * { return 1; }
+    }
+};

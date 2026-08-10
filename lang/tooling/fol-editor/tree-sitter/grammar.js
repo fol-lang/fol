@@ -74,9 +74,10 @@ module.exports = grammar({
       optional(field('generics', $.generic_params)),
       optional(field('contracts', $.type_contract_claims)),
       ':',
-      choice($.record_type, $.entry_type),
-      '=',
-      $.type_block,
+      choice(
+        seq(choice($.record_type, $.entry_type), '=', $.type_block),
+        field('target', $.type_expr),
+      ),
     ),
     ali_decl: $ => seq('ali', optional(field('modifiers', $.decl_modifiers)), field('name', $.identifier), ':', field('target', $.type_expr)),
     def_decl: $ => seq('def', optional(field('modifiers', $.decl_modifiers)), field('name', $.identifier), optional($.params), ':', field('def_type', $.type_expr), optional(seq('=', $.block))),
@@ -306,17 +307,25 @@ module.exports = grammar({
       $.of_clause,
       $.on_clause,
       $.default_clause,
+      $.block,
       $.comment,
       $.doc_comment,
     )), '}'),
-    case_clause: $ => seq('case', '(', $.expr, ')', $.block),
-    is_clause: $ => seq('is', '(', $.expr, ')', $.block),
-    in_clause: $ => seq('in', '(', $.expr, ')', $.block),
-    has_clause: $ => seq('has', '(', $.expr, ')', $.block),
-    of_clause: $ => seq('of', '(', $.expr, ')', $.block),
+    // Each arm has two spellings the compiler accepts: the block form
+    // `is (x) { ... }`, and the arrow form `is x -> value;` used when the
+    // `when` is itself an expression.
+    case_clause: $ => seq('case', $._arm_tail),
+    is_clause: $ => seq('is', $._arm_tail),
+    in_clause: $ => seq('in', $._arm_tail),
+    has_clause: $ => seq('has', $._arm_tail),
+    of_clause: $ => seq('of', $._arm_tail),
     // `on (binding) { ... }` binds the present/error shell payload.
-    on_clause: $ => seq('on', '(', $.expr, ')', $.block),
-    default_clause: $ => seq('*', $.block),
+    on_clause: $ => seq('on', $._arm_tail),
+    _arm_tail: $ => choice(
+      seq('(', $.expr, ')', $.block),
+      seq($.expr, '->', $.expr, ';'),
+    ),
+    default_clause: $ => seq('*', choice($.block, seq('->', $.expr, ';'))),
     flow_body: $ => choice(prec(1, $.block), prec.right(1, seq('=>', choice(prec(1, $.block), $.stmt)))),
     expr: $ => choice(
       $.pipe_or_expr,
@@ -386,6 +395,7 @@ module.exports = grammar({
       $.string_literal,
       $.raw_string_literal,
       $.char_literal,
+      $.float_literal,
       $.integer_literal,
       $.boolean_literal,
       $.nil_literal,
@@ -453,7 +463,7 @@ module.exports = grammar({
       ']',
     )),
     index_access: $ => prec.left(4, seq(
-      field('container', choice($.identifier, $.qualified_path, $.field_access, $.channel_access, $.index_access)),
+      field('container', choice($.identifier, $.qualified_path, $.field_access, $.channel_access, $.index_access, $.call_expr, $.paren_expr)),
       '[',
       // Empty access `container[]` is the V3 uniform inner-place access
       // (pointer pointee, opt payload, err payload).
@@ -474,6 +484,7 @@ module.exports = grammar({
     await_expr: _ => 'await',
     do_expr: _ => 'do',
     identifier: _ => /[A-Za-z_][A-Za-z0-9_]*/,
+    float_literal: _ => /[0-9]+\.[0-9]+/,
     integer_literal: _ => /[0-9]+/,
     // Single quotes are the compiler's raw-quoted family: one Unicode scalar
     // lowers as a character, while empty/two-or-more scalars lower as a raw

@@ -1,0 +1,5 @@
+.fol/
+fol.lock
+out/*
+!out/.gitkeep
+test/*.out

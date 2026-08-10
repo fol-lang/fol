@@ -1,0 +1,106 @@
+use text: loc = {"../text"};
+
+// Entry classification. `dir_list` marks directories with a trailing slash,
+// so the shape of the name is the only thing needed to sort an entry into
+// one of the buckets the report totals.
+
+typ[exp] Kind: ent = {
+    var DIR: int = 0;
+    var SOURCE: int = 1;
+    var DOCS: int = 2;
+    var DATA: int = 3;
+    var OTHER: int = 4;
+};
+
+// An `ent` member only typechecks where an `int` is already expected, so it
+// cannot appear directly in a comparison or a `when` selector. Each code is
+// re-exposed through a routine whose return type supplies that expectation.
+fun[exp] kind_dir(): int = {
+    return Kind.DIR;
+};
+
+fun[exp] kind_source(): int = {
+    return Kind.SOURCE;
+};
+
+fun[exp] kind_docs(): int = {
+    return Kind.DOCS;
+};
+
+fun[exp] kind_data(): int = {
+    return Kind.DATA;
+};
+
+fun[exp] kind_other(): int = {
+    return Kind.OTHER;
+};
+
+fun[exp] is_dir(entry: str): bol = {
+    return text::ends_with(entry, "/");
+};
+
+// The entry name without the marker `dir_list` adds to directories.
+fun[exp] bare(entry: str): str = {
+    if (is_dir(entry)) {
+        return text::sub_head(entry, .len(entry) - 1);
+    };
+    return entry;
+};
+
+// Everything after the last dot. A name that starts with a dot is a dotfile,
+// not an extension, so it has no suffix and classifies as "other".
+fun[exp] suffix(name: str): str = {
+    var cursor: int = .len(name);
+    loop (cursor > 0) {
+        cursor = cursor - 1;
+        if (text::eq(text::char_at(name, cursor), ".")) {
+            if (cursor == 0) {
+                return "";
+            };
+            return text::tail(name, cursor + 1);
+        };
+    };
+    return "";
+};
+
+fun[exp] classify(entry: str): int = {
+    if (is_dir(entry)) {
+        return kind_dir();
+    };
+    var ext: str = suffix(entry);
+    if (ext == "fol") {
+        return kind_source();
+    };
+    if (ext == "rs") {
+        return kind_source();
+    };
+    if (ext == "md") {
+        return kind_docs();
+    };
+    if (ext == "txt") {
+        return kind_docs();
+    };
+    if (ext == "json") {
+        return kind_data();
+    };
+    if (ext == "toml") {
+        return kind_data();
+    };
+    return kind_other();
+};
+
+fun[exp] label(code: int): str = {
+    if (code == kind_dir()) {
+        return "dir";
+    };
+    if (code == kind_source()) {
+        return "source";
+    };
+    if (code == kind_docs()) {
+        return "docs";
+    };
+    if (code == kind_data()) {
+        return "data";
+    };
+    return "other";
+};

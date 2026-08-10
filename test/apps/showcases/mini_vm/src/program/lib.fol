@@ -1,0 +1,67 @@
+// Sample programs, assembled by hand. Keeping them here means `machine` never
+// has to know what a particular program means.
+
+fun[exp] push(value: int): isa::Instr = {
+    return { op = isa::Op.PUSH, arg = value };
+};
+
+fun[exp] plain(op: int): isa::Instr = {
+    return { op = op, arg = 0 };
+};
+
+// (7 + 5) * 3 - 6, printed, then halted.
+fun[exp] arithmetic(): seq[isa::Instr] = {
+    return {
+        push(7),
+        push(5),
+        plain(isa::Op.ADD),
+        push(3),
+        plain(isa::Op.MUL),
+        push(6),
+        plain(isa::Op.SUB),
+        plain(isa::Op.PRINT),
+        plain(isa::Op.HALT),
+    };
+};
+
+// Squares 9 by duplicating the top of the stack.
+fun[exp] square(): seq[isa::Instr] = {
+    return {
+        push(9),
+        plain(isa::Op.DUP),
+        plain(isa::Op.MUL),
+        plain(isa::Op.PRINT),
+        plain(isa::Op.HALT),
+    };
+};
+
+// SWAP makes the operand order visible: 20 - 4, not 4 - 20.
+fun[exp] swapped(): seq[isa::Instr] = {
+    return {
+        push(4),
+        push(20),
+        plain(isa::Op.SWAP),
+        plain(isa::Op.SUB),
+        plain(isa::Op.PRINT),
+        plain(isa::Op.HALT),
+    };
+};
+
+// Deliberately broken: ADD with a single operand on the stack.
+fun[exp] underflow(): seq[isa::Instr] = {
+    return {
+        push(1),
+        plain(isa::Op.ADD),
+        plain(isa::Op.PRINT),
+    };
+};
+
+// Deliberately broken: division by zero.
+fun[exp] divide_by_zero(): seq[isa::Instr] = {
+    return {
+        push(10),
+        push(0),
+        plain(isa::Op.DIV),
+        plain(isa::Op.PRINT),
+    };
+};

@@ -1,0 +1,40 @@
+use std: pkg = {"std"};
+use task: loc = {"task"};
+use web: loc = {"web"};
+use search: loc = {"search"};
+
+// Prints one "start -> ... -> target" line, or a miss marker.
+pro[] show_path(net: web::Web, from: str, target: str): non = {
+    var index: int = web::find(net, from);
+    when(index < 0) {
+        * {
+            std::io::echo_str("no such task: " + from);
+            return;
+        }
+    };
+    var start: task::Handle = web::node_at(net, index);
+    var found: opt[str] = search::path_from(start, target, 8);
+    when(found) {
+        on(chain) { std::io::echo_str(chain); }
+        * { std::io::echo_str(from + " -/-> " + target); }
+    };
+    return;
+};
+
+fun[] main(): int = {
+    var net: web::Web = web::sample();
+    std::io::echo_str("tasks: " + std::fmt::int_to_str(web::size(net)));
+
+    show_path(net, "app", "zlib");
+    show_path(net, "app", "toolchain");
+    show_path(net, "cli", "png");
+    show_path(net, "ghost", "toolchain");
+
+    var app: task::Handle = web::node_at(net, web::find(net, "app"));
+    std::io::echo_str("app depth: " + std::fmt::int_to_str(search::depth(app, 8)));
+    std::io::echo_str("app cost: " + std::fmt::int_to_str(search::reachable_cost(app, 8)));
+
+    // The weak root observer is still upgradable while the web holds the root.
+    std::io::echo_str("app base: " + task::base_name(app));
+    return 0;
+};

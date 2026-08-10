@@ -1,0 +1,6 @@
+# Workspace root for the plugin showcase. Three members, built in dependency
+# order: core owns the vocabulary, plugin owns the policy, app wires them up.
+members:
+  - core
+  - plugin
+  - app

@@ -1,0 +1,31 @@
+// The severity ladder. It lives in its own namespace so consumers can spell
+// `core::levels::from_name(...)` instead of having every name land in the
+// package root file.
+
+// Unknown severities map to -1 so a malformed line is still countable rather
+// than silently becoming TRACE.
+fun[exp] from_name(name: str): int = {
+    when(name) {
+        is("TRACE") { return 0; }
+        is("DEBUG") { return 1; }
+        is("INFO") { return 2; }
+        is("WARN") { return 3; }
+        is("ERROR") { return 4; }
+        * { return -1; }
+    }
+};
+
+fun[exp] name_of(level: int): str = {
+    when(level) {
+        is(0) { return "TRACE"; }
+        is(1) { return "DEBUG"; }
+        is(2) { return "INFO"; }
+        is(3) { return "WARN"; }
+        is(4) { return "ERROR"; }
+        * { return "UNKNOWN"; }
+    }
+};
+
+fun[exp] highest(): int = {
+    return 4;
+};

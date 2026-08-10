@@ -1,0 +1,92 @@
+use std: pkg = {"std"};
+
+// A bounded operand stack.
+//
+// FOL containers are literal-only today -- there is no append, no element
+// assignment, and no concatenation -- so the stack cannot be a `seq[int]`.
+// It is spelled as a record with a fixed number of slots and an explicit
+// depth; `s0` is the top of the stack and a push shifts every slot down.
+
+con[exp] LIMIT: int = 8;
+
+typ[exp] Stack: rec = {
+    depth: int;
+    s0: int;
+    s1: int;
+    s2: int;
+    s3: int;
+    s4: int;
+    s5: int;
+    s6: int;
+    s7: int
+};
+
+fun[exp] empty(): Stack = {
+    return {
+        depth = 0,
+        s0 = 0, s1 = 0, s2 = 0, s3 = 0,
+        s4 = 0, s5 = 0, s6 = 0, s7 = 0,
+    };
+};
+
+fun[exp] depth_of(s: Stack): int = {
+    return s.depth;
+};
+
+fun[exp] push(s: Stack, value: int): Stack / str = {
+    when(s.depth >= LIMIT) {
+        case(true) { report "stack overflow"; }
+        * { }
+    }
+    return {
+        depth = s.depth + 1,
+        s0 = value, s1 = s.s0, s2 = s.s1, s3 = s.s2,
+        s4 = s.s3, s5 = s.s4, s6 = s.s5, s7 = s.s6,
+    };
+};
+
+// Reading the top and removing it are separate, because a routine can only
+// hand back one value and the caller usually needs both.
+fun[exp] top(s: Stack): int / str = {
+    when(s.depth <= 0) {
+        case(true) { report "stack underflow"; }
+        * { }
+    }
+    return s.s0;
+};
+
+fun[exp] second(s: Stack): int / str = {
+    when(s.depth <= 1) {
+        case(true) { report "stack underflow"; }
+        * { }
+    }
+    return s.s1;
+};
+
+fun[exp] drop_top(s: Stack): Stack / str = {
+    when(s.depth <= 0) {
+        case(true) { report "stack underflow"; }
+        * { }
+    }
+    return {
+        depth = s.depth - 1,
+        s0 = s.s1, s1 = s.s2, s2 = s.s3, s3 = s.s4,
+        s4 = s.s5, s5 = s.s6, s6 = s.s7, s7 = 0,
+    };
+};
+
+// Rendering only walks the live slots so the trace stays honest about depth.
+fun[exp] show(s: Stack): str = {
+    var[mut] out: str = "[";
+    var[mut] i: int = 0;
+    var slots: seq[int] = {s.s0, s.s1, s.s2, s.s3, s.s4, s.s5, s.s6, s.s7};
+    loop (i < s.depth) {
+        when(i > 0) {
+            case(true) { out = out + " "; }
+            * { }
+        }
+        out = out + std::fmt::int_to_str(slots[i]);
+        i = i + 1;
+    }
+    return out + "]";
+};

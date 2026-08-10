@@ -1,0 +1,105 @@
+// Geometry primitives and the `geometry` protocol standard they conform to.
+//
+// `geometry` is the constraint every generic routine in this package is written
+// against. It requires a single routine because a constraint call consumes the
+// generic value it dispatches on, so a standard with two required routines
+// could never be used twice on the same value inside one generic routine.
+// Bundling the answers into one `Metrics` record keeps the constraint usable.
+
+use std: pkg = {"std"};
+
+// One measurement of one part, in millimetres and square millimetres.
+typ[exp] Metrics: rec = {
+    name: str,
+    area: flt,
+    perim: flt,
+};
+
+std[exp] geometry: pro = {
+    fun measure(): Metrics;
+};
+
+typ[exp] Rect()(geometry, clone): rec = {
+    w: flt,
+    h: flt,
+    cuts: int,
+};
+
+typ[exp] Circle()(geometry): rec = {
+    r: flt,
+};
+
+typ[exp] Tri()(geometry): rec = {
+    base: flt,
+    leg: flt,
+};
+
+fun[exp] (Rect)measure(): Metrics = {
+    return {
+        name = "rect",
+        area = self.w * self.h,
+        perim = 2.0 * (self.w + self.h),
+    };
+};
+
+// Custom clone override: duplicating a rectangle is a shop operation, so the
+// duplicate records that one more cut was needed to produce it.
+fun[exp] (Rect[bor])clone(): Rect = {
+    return { w = self.w, h = self.h, cuts = self.cuts + 1 };
+};
+
+fun[exp] (Circle)measure(): Metrics = {
+    return {
+        name = "circle",
+        area = 3.14159265 * self.r * self.r,
+        perim = 2.0 * 3.14159265 * self.r,
+    };
+};
+
+// Newton's method. FOL has no square root: `.sqrt` is catalogued but reports
+// "not yet supported", and `std` ships no math module, so the package computes
+// its own. Sixteen iterations reach double precision for shop-sized inputs.
+fun[exp] root(value: flt): flt = {
+    when(value) {
+        case(0.0) { return 0.0; }
+        * { }
+    }
+    var guess: flt = value;
+    var step: int = 0;
+    loop (step < 16) {
+        guess = 0.5 * (guess + value / guess);
+        step = step + 1;
+    }
+    return guess;
+};
+
+// Isosceles triangle: the two legs are equal and the height follows from them.
+fun[exp] (Tri)measure(): Metrics = {
+    var half: flt = self.base * 0.5;
+    var height: flt = root(self.leg * self.leg - half * half);
+    return {
+        name = "tri",
+        area = half * height,
+        perim = self.base + self.leg + self.leg,
+    };
+};
+
+// Constrained generic entry point: accepts any conformer and dispatches to that
+// conformer's own `measure` at each monomorphised instantiation.
+fun[exp] measure_of(T: geometry)(part: T): Metrics = {
+    return part.measure();
+};
+
+// Compactness ratio 4*pi*area / perim^2 -- 1.0 for a circle, lower for anything
+// with corners. Used to rank how much material a part wastes.
+fun[exp] compactness(m: Metrics): flt = {
+    return 12.5663706 * m.area / (m.perim * m.perim);
+};
+
+fun[exp] row(m: Metrics, ratio: flt): str = {
+    var area: str = std::fmt::float_to_str(m.area, 2);
+    var perim: str = std::fmt::float_to_str(m.perim, 2);
+    var compact: str = std::fmt::float_to_str(ratio, 3);
+    return "  " + m.name + "   area " + area + "   perim " + perim
+    + "   compact " + compact;
+};

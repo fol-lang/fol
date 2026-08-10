@@ -1,0 +1,19 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "wordcount_tool", version = "0.1.0" });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "wordcount-tool",
+        root = "src/main.fol",
+        fol_model = "memo",
+    });
+    graph.install(app);
+    graph.add_run(app);
+    var checks = graph.add_test({
+        name = "wordcount-tests",
+        root = "tests/main.fol",
+        fol_model = "memo",
+    });
+    return;
+};

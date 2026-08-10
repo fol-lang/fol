@@ -1,0 +1,27 @@
+// Build description for the expr-calculator package.
+//
+// `src/tests/lib.fol` is a namespace of its own so that it can carry its own
+// imports and its own `main` alongside `src/main.fol`.
+//
+// Comments stay above the routine: a `//` comment inside the `build()` body
+// makes build evaluation fail with F1001.
+
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "expr_calculator", version = "0.1.0" });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "expr-calculator",
+        root = "src/main.fol",
+        fol_model = "memo",
+    });
+    graph.install(app);
+    graph.add_run(app);
+    graph.add_test({
+        name = "expr-calculator-tests",
+        root = "src/tests/lib.fol",
+        fol_model = "memo",
+    });
+    return;
+};

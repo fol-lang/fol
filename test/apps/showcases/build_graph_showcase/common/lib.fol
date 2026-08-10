@@ -1,0 +1,136 @@
+// Reusable audit core: manifest entries, release policy, and the rules that
+// decide whether an entry may ship. No `std`, no hosted APIs - the CLI in
+// `src/` and the static library in `lib/` both import this directory.
+
+// Violation bits, combined into one verdict per entry.
+typ[exp] Fault: ent = {
+    var NONE: int = 0;
+    var OVERSIZE: int = 1;
+    var CHANNEL: int = 2;
+    var UNNAMED: int = 4;
+    var MALFORMED: int = 8;
+};
+
+// One line of the release manifest: `name:bytes:channel`.
+typ[exp] Entry: rec = {
+    name: str;
+    size: int;
+    channel: str
+};
+
+// The shipping rules the manifest is audited against.
+typ[exp] Policy: rec = {
+    max_bytes: int;
+    channel: str;
+    min_entries: int
+};
+
+fun[exp] parse_entry(line: str): Entry = {
+    return {
+        name = text::trim(text::field(line, ":", 0)),
+        size = .parse_int(text::trim(text::field(line, ":", 1)), -1),
+        channel = text::trim(text::field(line, ":", 2)),
+    };
+};
+
+// Manifest lines that carry no data: blank ones and `#` comments.
+fun[exp] is_data(line: str): bol = {
+    var clean: str = text::trim(line);
+    when(.eq(.len(clean), 0)) {
+        case(true) { return false; }
+        * { return .nq(.str_byte(clean, 0), 35); }
+    }
+};
+
+// Read one `key = value` policy line into the accumulating policy record.
+fun[exp] apply_setting(rules: Policy, line: str): Policy = {
+    var key: str = text::trim(text::field(line, "=", 0));
+    var value: str = text::trim(text::field(line, "=", 1));
+    when(key) {
+        case("max_bytes") {
+            return { max_bytes = .parse_int(value, rules.max_bytes),
+                channel = rules.channel,
+                min_entries = rules.min_entries };
+        }
+        case("channel") {
+            return { max_bytes = rules.max_bytes,
+                channel = value,
+                min_entries = rules.min_entries };
+        }
+        case("min_entries") {
+            return { max_bytes = rules.max_bytes,
+                channel = rules.channel,
+                min_entries = .parse_int(value, rules.min_entries) };
+        }
+        * { return rules; }
+    }
+};
+
+// The rules applied when a policy file omits a key, or is missing entirely.
+fun[exp] default_policy(): Policy = {
+    return { max_bytes = 65536, channel = "stable", min_entries = 1 };
+};
+
+// Parse a whole policy file over the defaults. Unknown keys are ignored so a
+// newer policy file stays readable by an older auditor, and an absent file
+// simply leaves every default in place.
+fun[exp] parse_policy(source: str): Policy = {
+    var rules: Policy = default_policy();
+    var lines: int = text::count(source, "\n");
+    var index: int = 0;
+    loop(.lt(index, lines)) {
+        var line: str = text::field(source, "\n", index);
+        index = index + 1;
+        when(is_data(line)) {
+            case(true) { rules = apply_setting(rules, line); }
+            * { rules = rules; }
+        };
+    };
+    return rules;
+};
+
+// Combined violation bits for one entry. The `Fault` members are read into
+// int locals first; entry members are only usable through a typed binding.
+fun[exp] verdict(entry: Entry, rules: Policy): int = {
+    var oversize: int = Fault.OVERSIZE;
+    var wrong_channel: int = Fault.CHANNEL;
+    var unnamed: int = Fault.UNNAMED;
+    var malformed: int = Fault.MALFORMED;
+
+    var faults: int = 0;
+    when(.eq(.len(entry.name), 0)) {
+        case(true) { faults = faults + unnamed; }
+        * { faults = faults; }
+    };
+    when(.lt(entry.size, 0)) {
+        case(true) { faults = faults + malformed; }
+        * {
+            when(.gt(entry.size, rules.max_bytes)) {
+                case(true) { faults = faults + oversize; }
+                * { faults = faults; }
+            }
+        }
+    };
+    when(.nq(entry.channel, rules.channel)) {
+        case(true) { faults = faults + wrong_channel; }
+        * { faults = faults; }
+    };
+    return faults;
+};
+
+// True when an entry carries no violation bits at all.
+fun[exp] is_clean(faults: int): bol = {
+    return .eq(faults, 0);
+};
+
+// Order-independent checksum over the manifest, so the audit report can be
+// compared between machines without depending on line order.
+fun[exp] checksum(entry: Entry, running: int): int = {
+    var acc: int = running;
+    var index: int = 0;
+    loop(.lt(index, .len(entry.name))) {
+        acc = (acc * 31 + .str_byte(entry.name, index)) % 1000003;
+        index = index + 1;
+    };
+    return (acc + entry.size) % 1000003;
+};

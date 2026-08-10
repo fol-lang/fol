@@ -1,0 +1,155 @@
+// ledger-records: audit a small double-entry ledger and print its books.
+//
+// Run it with no arguments to get the journal, the trial balance, the budget
+// overruns and the balanced/out-of-balance verdict. Pass one extra posting as
+// `day|code|dr|amount|memo` and it is parsed, checked against the chart of
+// accounts, and either accepted or rejected with the reason.
+
+use std: pkg = {"std"};
+use model: loc = {"model"};
+use store: loc = {"store"};
+use reporting: loc = {"reporting"};
+
+pro[] show(text: str): non = {
+    std::io::echo_str(text);
+    return;
+};
+
+pro[] print_journal(): non = {
+    show("JOURNAL");
+    show(reporting::rule());
+    var rows: vec[model::Posting] = store::journal();
+    loop(row in rows) {
+        show(reporting::posting_line(row));
+    }
+    show("");
+    return;
+};
+
+pro[] print_trial_balance(): non = {
+    show("TRIAL BALANCE");
+    show(reporting::rule());
+    show(reporting::header());
+    var rows: vec[model::Account] = store::chart();
+    loop(row in rows) {
+        show(reporting::account_line(row));
+    }
+    show("");
+    return;
+};
+
+// Pull field `index` out of a `a|b|c` record. Returns nil when the record has
+// no such field, which is how a short input line is detected.
+fun[] field_at(line: str, index: int): opt[str] = {
+    var rest: str = line;
+    var seen: int = 0;
+    loop(true) {
+        var cut: int = std::strn::find(rest, "|");
+        if(.eq(cut, 0 - 1)) {
+            if(.eq(seen, index)) {
+                return rest;
+            }
+            return nil;
+        }
+        if(.eq(seen, index)) {
+            return std::strn::sub(rest, 0, cut);
+        }
+        rest = std::strn::sub(rest, cut + 1, .len(rest) - cut - 1);
+        seen = seen + 1;
+    }
+    return nil;
+};
+
+fun[] field_or_empty(line: str, index: int): str = {
+    var found: opt[str] = field_at(line, index);
+    when(found) {
+        on(text) { return text; }
+        * { return ""; }
+    }
+};
+
+// Turn `day|code|dr|amount|memo` into a posting. A malformed side is the one
+// failure the parser cannot paper over, so it travels the error channel.
+fun[] parse_posting(line: str): model::Posting / str = {
+    var day: int = std::strn::to_int(field_or_empty(line, 0), 0);
+    var code: str = field_or_empty(line, 1);
+    var side_text: str = field_or_empty(line, 2);
+    var amount: int = std::strn::to_int(field_or_empty(line, 3), 0);
+    var memo: str = field_or_empty(line, 4);
+    var side: int = model::side_from_text(side_text) || report "unusable posting side";
+    return {
+        day = day,
+        code = code,
+        side = side,
+        amount = amount,
+        memo = memo
+    };
+};
+
+// Everything that has to hold before a hand-entered posting may join the
+// books: it must parse, survive the structural checks, and name a real
+// account.
+fun[] admit(line: str): err[str] = {
+    if(check(model::side_from_text(field_or_empty(line, 2)))) {
+        return "posting side must be 'dr' or 'cr'";
+    }
+    var entry: model::Posting = parse_posting(line) || panic "parse contradicted its own check";
+    var fault: err[str] = model::fault_of(entry);
+    when(fault) {
+        on(reason) { return reason; }
+        * { }
+    }
+    if(.not(store::known_code(entry.code))) {
+        return "account " + entry.code + " is not in the chart of accounts";
+    }
+    return nil;
+};
+
+pro[] review(line: str): non = {
+    show("PROPOSED POSTING");
+    show(reporting::rule());
+    show("  " + line);
+    var fault: err[str] = admit(line);
+    when(fault) {
+        on(reason) { show("  rejected: " + reason); }
+        * {
+            var entry: model::Posting = parse_posting(line) || panic "admitted posting failed to parse";
+            show("  accepted: " + reporting::posting_line(entry));
+        }
+    }
+    show("");
+    return;
+};
+
+fun[] main(): int = {
+    show("ledger-records  ::  first month of trading");
+    show("");
+    print_journal();
+    print_trial_balance();
+
+    show("BUDGETS");
+    show(reporting::rule());
+    show(reporting::overruns());
+
+    show("AUDIT");
+    show(reporting::rule());
+    var books: err[str] = store::journal_fault();
+    when(books) {
+        on(reason) {
+            show("journal rejected: " + reason);
+            return 2;
+        }
+        * { show("journal accepted: every posting is well formed"); }
+    }
+    show(reporting::verdict());
+    show("");
+
+    if(.gt(std::os::arg_count(), 0)) {
+        review(std::os::arg(0));
+    }
+
+    if(.eq(store::total_debits(), store::total_credits())) {
+        return 0;
+    }
+    return 1;
+};

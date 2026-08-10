@@ -1,0 +1,43 @@
+use std: pkg = {"std"};
+use ui: loc = {"../common"};
+
+// A scripted morning: two quiet ticks, a pedestrian call, the green/amber
+// cycle, a hardware fault, one input the FLASH mode refuses, and a reset.
+fun[] script(): seq[int] = {
+    return {
+        states::Event.TICK,
+        states::Event.TICK,
+        states::Event.WALK,
+        states::Event.TICK,
+        states::Event.TICK,
+        states::Event.TICK,
+        states::Event.TICK,
+        states::Event.FAULT,
+        states::Event.TICK,
+        states::Event.RESET,
+        states::Event.TICK,
+    };
+};
+
+fun[] main(): int = {
+    std::io::echo_str(ui::rule("run"));
+
+    var[mut] sig: states::Signal = states::fresh();
+    var[mut] tally: report::Tally = report::empty();
+    loop (event in script()) {
+        var before: states::Signal = sig;
+        sig = driver::step(before, event);
+        tally = report::count(tally, sig.phase);
+        std::io::echo_str(driver::trace(before, event, sig));
+    }
+
+    std::io::echo_str(ui::rule("occupancy"));
+    loop (line in report::render(tally)) {
+        std::io::echo_str(line);
+    }
+
+    std::io::echo_str(ui::rule("summary"));
+    std::io::echo_str("final phase : " + states::phase_name(sig.phase));
+    std::io::echo_str("refused     : " + std::fmt::int_to_str(sig.faults));
+    return 0;
+};

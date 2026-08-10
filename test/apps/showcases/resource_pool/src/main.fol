@@ -1,0 +1,82 @@
+// resource-pool: a small descriptor manager.
+
+use std: pkg = {"std"};
+use handle: loc = {"handle"};
+use pool: loc = {"pool"};
+use graph: loc = {"graph"};
+
+fun[] main(): int = {
+    std::io::echo_str("== admission ==");
+    var[mut] book: pool::Ledger = pool::ledger("descriptors", 2);
+    var first: bol = [mut, bor]book.admit();
+    var second: bol = [mut, bor]book.admit();
+    var third: bol = [mut, bor]book.admit();
+    std::io::echo_str("  third request: " + pool::verdict(third));
+    std::io::echo_str("  " + [bor]book.summary());
+
+    std::io::echo_str("== request plan ==");
+    var[mut] plan_book: pool::Ledger = pool::ledger("plan", 3);
+    var requests: vec[str] = { "cache", "wal", "index", "spool", "tmp" };
+    [mut, bor]plan_book.run_plan(requests);
+    std::io::echo_str("  " + [bor]plan_book.summary());
+
+    std::io::echo_str("== container ==");
+    pool::stage_batch();
+
+    std::io::echo_str("== deferred ==");
+    pool::release_late(handle::open(30, "deferred"));
+
+    std::io::echo_str("== early ==");
+    pool::release_now(handle::open(31, "early"));
+
+    std::io::echo_str("== slot ==");
+    var seat: pool::Slot = pool::checkout("reader", handle::open(40, "index.db"));
+    std::io::echo_str("  " + pool::slot_line([bor]seat));
+
+    std::io::echo_str("== close ordering ==");
+    pool::show_field_order();
+    pool::show_binding_order();
+
+    std::io::echo_str("== hand off ==");
+    var loaned: pool::Slot = pool::checkout("writer", handle::open(41, "wal.log"));
+    pool::hand_off([mov]loaned);
+    std::io::echo_str("  caller no longer owns it");
+
+    std::io::echo_str("== audit ==");
+    var clean: int = pool::audit(2, 4) || 0;
+    std::io::echo_str("  clean audit accounted " + std::fmt::int_to_str(clean));
+    var over: int = pool::audit(9, 4) || 0;
+    std::io::echo_str("  overrun audit fell back to " + std::fmt::int_to_str(over));
+
+    std::io::echo_str("== weak lifecycle ==");
+    graph::weak_lifecycle();
+
+    std::io::echo_str("== dependency graph ==");
+    var store: graph::Node = graph::root("store", 40);
+    var store_edge: ptr[shared, graph::Node] = [ref]store;
+    var mirror: ptr[shared, graph::Node] = store_edge;
+    var back: ptr[weak, graph::Node] = [weak]store_edge;
+    var index: graph::Node = graph::child("index", 12, back);
+    var alias_weight: int = graph::edge_weight([bor]mirror);
+    var back_weight: int = graph::owner_weight([bor]index);
+    std::io::echo_str("  index owner: " + graph::owner_name([bor]index));
+    std::io::echo_str("  weight via alias: " + std::fmt::int_to_str(alias_weight));
+    std::io::echo_str("  owner weight via weak: " + std::fmt::int_to_str(back_weight));
+    var index_edge: ptr[shared, graph::Node] = [ref]index;
+    var edge: graph::Link = graph::link(index_edge, back);
+    std::io::echo_str("  link: " + graph::link_line([bor]edge));
+
+    std::io::echo_str("== quotas ==");
+    var base: graph::Quota = { soft = 8, hard = 16 };
+    var copied: graph::Quota = [cpy]base;
+    var cloned: graph::Quota = [cln]base;
+    var wider: graph::Quota = graph::widen([bor]base, 4);
+    std::io::echo_str("  " + graph::quota_line("base  ", [bor]base));
+    std::io::echo_str("  " + graph::quota_line("copied", [bor]copied));
+    std::io::echo_str("  " + graph::quota_line("cloned", [bor]cloned));
+    std::io::echo_str("  " + graph::quota_line("wider ", [bor]wider));
+    var left: int = graph::settle(100, 35);
+    std::io::echo_str("  budget after spend: " + std::fmt::int_to_str(left));
+
+    return 0;
+};

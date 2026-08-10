@@ -1,0 +1,42 @@
+// Test entry for the pipeline. It runs the real concurrent batch -- three
+// spawned workers, the mutex-guarded tally, the multiplexed alert and control
+// streams -- and asserts the aggregates that the design promises to keep
+// order-independent. The bundle fails by returning the number of failed checks.
+
+use std: pkg = {"std"};
+use coordinator: loc = {"../src/coordinator"};
+
+fun[] expect(label: str, actual: int, wanted: int): int = {
+    var[mut] failures: int = 0;
+    when (actual == wanted) {
+        * {
+            var good: str = "ok    " + label + " = " + std::fmt::int_to_str(actual);
+            var shown: str = std::io::echo_str(good);
+        }
+    };
+    when (actual == wanted) {
+        case (false) {
+            var bad: str = "FAIL  " + label + " = " + std::fmt::int_to_str(actual)
+                + ", wanted " + std::fmt::int_to_str(wanted);
+            var shown: str = std::io::echo_str(bad);
+            failures = 1;
+        }
+        * {
+            var quiet: int = 0;
+        }
+    };
+    return failures;
+};
+
+fun[] main(): int = {
+    var totals: coordinator::Tally = coordinator::run_batch(3);
+    var[mut] failures: int = 0;
+    failures = failures + expect("workers started", totals.started, 3);
+    failures = failures + expect("jobs processed", totals.jobs, 12);
+    failures = failures + expect("total cost", totals.cost, 222);
+    failures = failures + expect("peak cost", totals.peak, 38);
+    failures = failures + expect("slot checksum", totals.checksum, 74);
+    failures = failures + expect("alerts raised", totals.alerts, 3);
+    failures = failures + expect("jobs claimed", totals.claimed, 12);
+    return failures;
+};

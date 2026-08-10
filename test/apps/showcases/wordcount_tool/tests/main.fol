@@ -1,0 +1,63 @@
+// Self-check for the scanning and rendering layers.
+//
+// The counts here are hand-derived from the literal below, so a regression in
+// line/word splitting shows up as a named failure rather than a wrong number
+// buried in a report. The process exit status is the number of failures.
+
+use std: pkg = {"std"};
+use scan: loc = {"../src/scan"};
+use report: loc = {"../src/report"};
+
+fun[] expect(name: str, actual: int, wanted: int): int = {
+    when(actual == wanted) {
+        * {
+            std::io::write("ok    " + name + "\n");
+            return 0;
+        }
+    }
+    std::io::write_err("FAIL  " + name + ": got "
+    + std::fmt::int_to_str(actual) + ", wanted "
+    + std::fmt::int_to_str(wanted) + "\n");
+    return 1;
+};
+
+fun[] main(): int = {
+    var text: str = "alpha beta\ngamma alpha\n\ndelta\n";
+    var counts: scan::Tally = scan::tally(text);
+    var[mut] bad: int = 0;
+
+    bad = bad + expect("lines", counts.lines, 4);
+    bad = bad + expect("words", counts.words, 5);
+    bad = bad + expect("bytes", counts.bytes, .len(text));
+
+    // A blank line is still a line, so the fourth line is "delta".
+    bad = bad + expect("line_at 0", .len(scan::line_at(text, 0)), 10);
+    bad = bad + expect("line_at 2 is blank", .len(scan::line_at(text, 2)), 0);
+    bad = bad + expect("line_at 3", .len(scan::line_at(text, 3)), 5);
+    bad = bad + expect("line_at past end", .len(scan::line_at(text, 9)), 0);
+
+    bad = bad + expect("match_count alpha", scan::match_count(text, "alpha"), 2);
+    bad = bad + expect("match_count absent", scan::match_count(text, "zebra"), 0);
+
+    // Trailing text without a newline still counts as its own line.
+    bad = bad + expect("unterminated lines", scan::line_count("one\ntwo"), 2);
+    bad = bad + expect("empty lines", scan::line_count(""), 0);
+
+    // "1:alpha beta\n" plus "2:gamma alpha\n".
+    bad = bad + expect("matches render", .len(report::matches(text, "alpha")), 27);
+
+    // A carriage return belongs to the terminator, not to the line text.
+    bad = bad + expect("crlf trimmed", .len(scan::line_at("a\r\nb\r\n", 0)), 1);
+
+    // "1:alpha beta\n" plus "2:gamma alpha\n"; asking for more lines than the
+    // text has must stop at the end rather than emit blanks.
+    bad = bad + expect("head 2", .len(report::head(text, 2)), 27);
+    bad = bad + expect("head past end", .len(report::head(text, 99)), 38);
+
+    // A newline in the pattern becomes two characters, so the header stays on
+    // one line.
+    bad = bad + expect("escape newline", .len(report::escape("a\nb")), 4);
+    bad = bad + expect("escape tab", .len(report::escape("a\tb")), 4);
+
+    return bad;
+};

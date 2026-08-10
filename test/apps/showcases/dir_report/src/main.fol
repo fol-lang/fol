@@ -1,0 +1,41 @@
+use std: pkg = {"std"};
+use walk: loc = {"walk"};
+use render: loc = {"render"};
+use counts: loc = {"counts"};
+
+// dir-report walks a directory tree, classifies every entry it finds, and
+// prints a listing followed by totals.
+//
+//   dir-report [root] [max-depth] [show-depth]
+//
+// `root` defaults to the current directory, `max-depth` bounds the recursion
+// and `show-depth` bounds how much of the tree is echoed before the totals.
+
+fun[] arg_or(index: int, fallback: str): str = {
+    if (std::os::arg_count() > index) {
+        return std::os::arg(index);
+    };
+    return fallback;
+};
+
+fun[] arg_int(index: int, fallback: int): int = {
+    return std::strn::to_int(arg_or(index, ""), fallback);
+};
+
+fun[] main(): int = {
+    var root: str = arg_or(0, ".");
+    var max_depth: int = arg_int(1, 3);
+    var show_depth: int = arg_int(2, 1);
+
+    std::io::echo_str("scanning " + root);
+    var totals: counts::Tally = walk::walk(root, 0, max_depth, show_depth);
+    var found: int = render::print(root, totals);
+
+    // An empty walk is worth a non-zero exit status: a caller scripting this
+    // wants to know the tree had nothing in it.
+    if (found == 0) {
+        std::io::write_err("dir-report: no files under " + root + "\n");
+        return 1;
+    };
+    return 0;
+};

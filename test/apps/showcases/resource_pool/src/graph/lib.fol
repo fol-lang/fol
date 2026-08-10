@@ -1,0 +1,115 @@
+// Resources depend on each other, and the dependency edges are pointers. A
+// child points back at its owner, which would be a reference cycle if the
+// back-edge were a second `ptr[shared, Node]`; it is a `ptr[weak, Node]`
+// instead, so the cycle does not keep the allocation alive (V3_MEM §7.1).
+
+use std: pkg = {"std"};
+
+typ[exp] Node: rec = {
+    name: str,
+    weight: int,
+    owner: opt ptr[weak, Node],
+};
+
+fun[exp] root(name: str, weight: int): Node = {
+    return { name = name, weight = weight, owner = nil };
+};
+
+fun[exp] child(name: str, weight: int, owner: ptr[weak, Node]): Node = {
+    return { name = name, weight = weight, owner = owner };
+};
+
+// The back-edge is followed with `[upg]`: it hands back an `opt` because the
+// owner allocation may already be gone. `nil` is a real answer here, not an
+// error, so the caller gets a readable placeholder.
+fun[exp] owner_name(node[bor]: Node): str = {
+    var revived: opt[ptr[shared, Node]] = [upg](node.owner[]);
+    when(revived) {
+        on(alive) { return ([drf]alive).name; }
+        * { return "<detached>"; }
+    }
+};
+
+fun[exp] owner_weight(node[bor]: Node): int = {
+    var revived: opt[ptr[shared, Node]] = [upg](node.owner[]);
+    when(revived) {
+        on(alive) { return ([drf]alive).weight; }
+        * { return 0; }
+    }
+};
+
+// A shared edge is read through a borrow, so the alias count is untouched.
+fun[exp] edge_weight(edge[bor]: ptr[shared, Node]): int = {
+    return ([drf]edge).weight;
+};
+
+// Both directions of a dependency in one value. `down` is the strong edge an
+// owner keeps to the resource it depends on; `up` is the way back. If `up`
+// were a second `ptr[shared, Node]` the two allocations would keep each other
+// alive forever, so it is weak and the cycle is broken.
+typ[exp] Link: rec = {
+    down: ptr[shared, Node],
+    up: ptr[weak, Node],
+};
+
+fun[exp] link(down: ptr[shared, Node], up: ptr[weak, Node]): Link = {
+    return { down = down, up = up };
+};
+
+fun[exp] link_line(edge[bor]: Link): str = {
+    var below: str = ([drf](edge.down)).name;
+    return below + " <- " + upgrade_name([bor](edge.up));
+};
+
+fun[exp] upgrade_name(watch[bor]: ptr[weak, Node]): str = {
+    var revived: opt[ptr[shared, Node]] = [upg]watch;
+    when(revived) {
+        on(alive) { return ([drf]alive).name; }
+        * { return "<gone>"; }
+    }
+};
+
+// The strong owner lives and dies inside this routine; only the weak handle
+// escapes. A weak handle does not keep an allocation alive, so the caller's
+// upgrade has to fail.
+fun[exp] detached_edge(): ptr[weak, Node] = {
+    var seed: Node = root("scratch", 5);
+    var strong: ptr[shared, Node] = [ref]seed;
+    // The weak handle lands in its own binding first: `[weak]p` written
+    // straight into an `opt[...]` shell emits broken generated Rust.
+    var made: ptr[weak, Node] = [weak]strong;
+    std::io::echo_str("  inside the owner's scope: " + upgrade_name([bor]made));
+    return made;
+};
+
+pro[exp] weak_lifecycle(): non = {
+    var watch: ptr[weak, Node] = detached_edge();
+    std::io::echo_str("  after the owner's scope: " + upgrade_name([bor]watch));
+    return;
+};
+
+// A quota is plain data, so it duplicates rather than moves. `[cpy]` and
+// `[cln]` both produce an independent value; the source stays usable.
+typ[exp] Quota()(copy): rec = {
+    soft: int,
+    hard: int,
+};
+
+fun[exp] widen(base[bor]: Quota, extra: int): Quota = {
+    return { soft = base.soft + extra, hard = base.hard + extra };
+};
+
+fun[exp] quota_line(label: str, value[bor]: Quota): str = {
+    var soft: str = " soft=" + std::fmt::int_to_str(value.soft);
+    var hard: str = " hard=" + std::fmt::int_to_str(value.hard);
+    return label + soft + hard;
+};
+
+// A unique pointer owns its allocation outright; the budget is written through
+// the direct binding and read back by value.
+fun[exp] settle(start: int, spend: int): int = {
+    var seed: int = start;
+    var[mut] budget: ptr[int] = [ref]seed;
+    [drf]budget = [drf]budget - spend;
+    return [drf]budget;
+};

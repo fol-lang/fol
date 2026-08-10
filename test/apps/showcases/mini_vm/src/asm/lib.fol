@@ -1,0 +1,18 @@
+// Disassembly. This has to live inside the package because it knows the
+// instruction set; the generic text plumbing comes from the `loc`-imported
+// `listing` package.
+
+fun[exp] disassemble(program: seq[isa::Instr]): str = {
+    var[mut] i: int = 0;
+    var[mut] out: str = "";
+    loop (i < .len(program)) {
+        var ins: isa::Instr = program[i];
+        when(i > 0) {
+            case(true) { out = out + "; "; }
+            * { }
+        }
+        out = out + isa::show(ins);
+        i = i + 1;
+    }
+    return out;
+};

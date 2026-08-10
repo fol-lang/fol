@@ -1,0 +1,92 @@
+// Character-level helpers over `str`.
+//
+// The std string surface is deliberately small (`sub`, `byte_at`, `find`,
+// `replace`, `to_int`), so everything here is built from raw byte codes.
+// Offsets are byte offsets; every span is half-open `[from, upto)`.
+
+use std: pkg = {"std"};
+
+con[exp] SPACE: int = 32;
+con[exp] TAB: int = 9;
+con[exp] NEWLINE: int = 10;
+con[exp] RETURN: int = 13;
+con[exp] HASH: int = 35;
+con[exp] SEMI: int = 59;
+con[exp] OPEN: int = 91;
+con[exp] CLOSE: int = 93;
+con[exp] EQUALS: int = 61;
+con[exp] QUOTE: int = 34;
+
+fun[exp] is_blank(code: int): bol = {
+    return (code == SPACE) or (code == TAB) or (code == RETURN);
+};
+
+fun[exp] is_digit(code: int): bol = {
+    return (code >= 48) and (code <= 57);
+};
+
+// Identifier bytes: letters, digits, `_`, `-` and `.`.
+fun[exp] is_name(code: int): bol = {
+    var alpha = ((code >= 65) and (code <= 90)) or ((code >= 97) and (code <= 122));
+    return alpha or is_digit(code) or (code == 95) or (code == 45) or (code == 46);
+};
+
+fun[exp] skip_blank(text: str, from: int, upto: int): int = {
+    var cursor = from;
+    loop((cursor < upto) and is_blank(std::strn::byte_at(text, cursor))) {
+        cursor = cursor + 1;
+    };
+    return cursor;
+};
+
+fun[exp] trim_end(text: str, from: int, upto: int): int = {
+    var cursor = upto;
+    loop((cursor > from) and is_blank(std::strn::byte_at(text, cursor - 1))) {
+        cursor = cursor - 1;
+    };
+    return cursor;
+};
+
+// std::strn::sub takes a byte count, not an end offset.
+fun[exp] slice(text: str, from: int, upto: int): str = {
+    when(upto <= from) {
+        case(true) { return ""; }
+        * { return std::strn::sub(text, from, upto - from); }
+    }
+};
+
+fun[exp] trimmed(text: str, from: int, upto: int): str = {
+    var start = skip_blank(text, from, upto);
+    var stop = trim_end(text, start, upto);
+    return slice(text, start, stop);
+};
+
+// End of the line that starts at `from`: the next newline, or end of input.
+fun[exp] line_end(text: str, from: int): int = {
+    var cursor = from;
+    loop((cursor < .len(text)) and (std::strn::byte_at(text, cursor) != NEWLINE)) {
+        cursor = cursor + 1;
+    };
+    return cursor;
+};
+
+// First offset in [from, upto) holding `code`, or -1.
+fun[exp] index_of(text: str, from: int, upto: int, code: int): int = {
+    var cursor = from;
+    loop(cursor < upto) {
+        when(std::strn::byte_at(text, cursor) == code) {
+            case(true) { return cursor; }
+            * { cursor = cursor + 1; }
+        }
+    };
+    return 0 - 1;
+};
+
+// Length of the identifier run starting at `from`.
+fun[exp] name_run(text: str, from: int, upto: int): int = {
+    var cursor = from;
+    loop((cursor < upto) and is_name(std::strn::byte_at(text, cursor))) {
+        cursor = cursor + 1;
+    };
+    return cursor - from;
+};

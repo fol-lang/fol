@@ -1,0 +1,27 @@
+// Pre-flight planning, run off the main thread.
+//
+// Both routines hand back an eventual, so the scheduler can start the estimate
+// and the ordering check together and only block once it actually needs the
+// numbers. An eventual that crosses a signature must spell its region, hence
+// the `L: lif` parameter and the `evt[L, int]` return type.
+
+use jobs: loc = {"../jobs"};
+use queue: loc = {"../queue"};
+
+fun[exp] estimate(L: lif)(batch: arr[jobs::Job, 6]): evt[L, int] = {
+    return queue::total_weight(batch) | async;
+};
+
+// Sanity check on the dispatch order: sum the ranks the queue assigns. For a
+// well-formed total order over six jobs that is 0+1+2+3+4+5 = 15.
+fun[exp] rank_signature(batch: arr[jobs::Job, 6]): int = {
+    var[mut] sum: int = 0;
+    for (job in batch) {
+        sum = sum + queue::rank_of(batch, job);
+    };
+    return sum;
+};
+
+fun[exp] audit_order(L: lif)(batch: arr[jobs::Job, 6]): evt[L, int] = {
+    return rank_signature(batch) | async;
+};

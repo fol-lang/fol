@@ -1,0 +1,154 @@
+use std: pkg = {"std"};
+use scan: loc = {"scan"};
+use schema: loc = {"schema"};
+use verdict: loc = {"verdict"};
+
+// confkit: the analysis half of the config checker.
+//
+// Everything here is pure. It reads a whole document as one string and answers
+// questions about it; printing and exit codes belong to the executable that
+// consumes this library.
+//
+// The `use std` above is the package's only one. An import alias is visible
+// across every file of the package, and declaring the same alias twice is a
+// hard error, so the sibling namespaces rely on this single declaration.
+
+// A line that carries no setting: blank, or a `#` comment.
+fun[exp] is_ignorable(line: str): bol = {
+    var body: str = scan::trim(line);
+    return .len(body) == 0 or scan::starts_with(body, "#");
+};
+
+// The key a setting line declares, or "" when the line has no `=`.
+fun[exp] key_of(line: str): str = {
+    var body: str = scan::trim(line);
+    var split: int = std::strn::find(body, "=");
+    when(split < 0) {
+        case(true) { return ""; }
+        * { return scan::trim(std::strn::sub(body, 0, split)); }
+    }
+};
+
+// The raw value a setting line assigns, trimmed. "" when there is no `=`.
+fun[exp] value_of(line: str): str = {
+    var body: str = scan::trim(line);
+    var split: int = std::strn::find(body, "=");
+    when(split < 0) {
+        case(true) { return ""; }
+        * { return scan::trim(std::strn::sub(body, split + 1, .len(body) - split - 1)); }
+    }
+};
+
+// How many times `key` is set on lines strictly before `limit`. Counting only
+// what came earlier is what lets a duplicate be reported against the second
+// definition rather than the first.
+fun[exp] definitions_before(document: str, key: str, limit: int): int = {
+    var seen: int = 0;
+    var i: int = 0;
+    loop(i < limit) {
+        var line: str = scan::line_at(document, i);
+        when(is_ignorable(line)) {
+            case(true) { }
+            * {
+                when(key_of(line) == key) {
+                    case(true) { seen = seen + 1; }
+                    * { }
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return seen;
+};
+
+fun[exp] defines(document: str, key: str): bol = {
+    return definitions_before(document, key, line_count(document)) > 0;
+};
+
+fun[exp] line_count(document: str): int = {
+    return scan::line_count(document);
+};
+
+fun[exp] line_at(document: str, index: int): str = {
+    return scan::line_at(document, index);
+};
+
+// How many settings the document defines in total, duplicates included.
+fun[exp] setting_count(document: str): int = {
+    var total: int = 0;
+    var i: int = 0;
+    var lines: int = scan::line_count(document);
+    loop(i < lines) {
+        when(is_ignorable(scan::line_at(document, i))) {
+            case(true) { }
+            * { total = total + 1; }
+        }
+        i = i + 1;
+    }
+    return total;
+};
+
+// The verdict on one line. Severity NOTE with code "ok" means nothing is wrong;
+// code "skip" means the line carries no setting at all.
+fun[exp] check_line(document: str, index: int): verdict::Finding = {
+    var raw: str = scan::line_at(document, index);
+    var number: int = index + 1;
+
+    when(is_ignorable(raw)) {
+        case(true) { return verdict::note(number, "skip", "no setting on this line"); }
+        * { }
+    }
+
+    var body: str = scan::trim(raw);
+    when(std::strn::find(body, "=") < 0) {
+        case(true) {
+            return verdict::error(number, "C001", "expected `key = value`, found `" + body + "`");
+        }
+        * { }
+    }
+
+    var key: str = key_of(raw);
+    when(.len(key) == 0) {
+        case(true) {
+            return verdict::error(number, "C002", "assignment has no key on the left");
+        }
+        * { }
+    }
+
+    when(schema::is_known(key)) {
+        case(true) { }
+        * { return verdict::warning(number, "C003", "unknown setting `" + key + "`"); }
+    }
+
+    when(definitions_before(document, key, index) > 0) {
+        case(true) {
+            return verdict::warning(number, "C004", "`" + key + "` was already set above");
+        }
+        * { }
+    }
+
+    var value: str = value_of(raw);
+    var kind: int = schema::kind_of(key);
+    when(schema::value_fits(kind, value)) {
+        case(true) { return verdict::note(number, "ok", key); }
+        * {
+            return verdict::error(number, "C005",
+            "`" + key + "` expects " + schema::kind_name(kind) + ", found `" + value + "`");
+        }
+    }
+};
+
+// The complaint for a required key the document never defines. Reported against
+// line 0 because it belongs to the file rather than to any one line.
+fun[exp] check_required(document: str, slot: int): verdict::Finding = {
+    var key: str = schema::key_at(slot);
+    when(schema::required_at(slot)) {
+        case(true) { }
+        * { return verdict::note(0, "skip", key); }
+    }
+
+    when(defines(document, key)) {
+        case(true) { return verdict::note(0, "ok", key); }
+        * { return verdict::error(0, "C006", "required setting `" + key + "` is missing"); }
+    }
+};

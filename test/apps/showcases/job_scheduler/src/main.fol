@@ -1,0 +1,109 @@
+// job_scheduler -- priority-ordered dispatch onto worker tasks.
+//
+// The batch is a fixed set of jobs with priorities. The scheduler:
+//   1. starts two planning eventuals (`evt[L, int]`) off the main thread,
+//   2. dispatches every job, highest priority first, onto its own task,
+//   3. lets the tasks fold into one `mux[Tally]` and report over two channels,
+//   4. drains the result channel, then drains the audit backlog with `select`,
+//   5. prints a report rebuilt in rank order, so the output is byte-identical
+//      on every run even though the workers finish in arbitrary order.
+
+use std: pkg = {"std"};
+use jobs: loc = {"jobs"};
+use queue: loc = {"queue"};
+use workers: loc = {"workers"};
+use plan: loc = {"plan"};
+use report: loc = {"report"};
+
+fun[] main(): int = {
+    var batch: arr[jobs::Job, 6] = {
+        { id = 1, priority = 5, weight = 2 },
+        { id = 2, priority = 9, weight = 3 },
+        { id = 3, priority = 5, weight = 1 },
+        { id = 4, priority = 1, weight = 4 },
+        { id = 5, priority = 9, weight = 2 },
+        { id = 6, priority = 3, weight = 5 },
+    };
+
+    // Planning runs off-thread while the dispatch side is being set up.
+    var estimate: evt[int] = plan::estimate(batch);
+    var ordering: evt[int] = plan::audit_order(batch);
+
+    var audit: chn[int];
+    var results: chn[jobs::Outcome];
+    var tally: mux[workers::Tally] = {
+        dispatched = 0,
+        checksum_sum = 0,
+        weight_sum = 0,
+    };
+
+    // Dispatch highest priority first. Each job gets its own task; `slot` is the
+    // rank, so slot 0 is always the task that took the most urgent job.
+    var[mut] position: int = 0;
+    loop (position < 6) {
+        var picked: jobs::Job = queue::job_at_rank(batch, position);
+        [spn]workers::run(position, picked, audit, results, tally);
+        position = position + 1;
+    };
+
+    // The drain ends when the last worker has dropped its sender, so this both
+    // collects the outcomes and joins the dispatch round.
+    var[mut] received: int = 0;
+    var[mut] checksum_sum: int = 0;
+    var[mut] mismatches: int = 0;
+    for (outcome in results[rx]) {
+        received = received + 1;
+        checksum_sum = checksum_sum + outcome.checksum;
+        var origin: jobs::Job = queue::job_by_id(batch, outcome.id);
+        when (outcome.checksum == jobs::expected_checksum(origin)) {
+            case (true) { received = received + 0; }
+            * { mismatches = mismatches + 1; }
+        }
+    };
+
+    // Every worker has returned, so the audit backlog is fully queued and
+    // draining it one arm at a time with `select` is deterministic.
+    var[mut] audited: int = 0;
+    var[mut] id_sum: int = 0;
+    var[mut] rounds: int = 0;
+    loop (rounds < 6) {
+        select {
+            when audit as job_id {
+                audited = audited + 1;
+                id_sum = id_sum + job_id;
+            }
+            * {
+                rounds = rounds + 0;
+            }
+        };
+        rounds = rounds + 1;
+    };
+
+    var dispatched: int = workers::count(tally);
+    var tallied_checksum: int = workers::checksum(tally);
+    var tallied_weight: int = workers::weight(tally);
+
+    var estimated_weight: int = estimate | await;
+    var rank_signature: int = ordering | await;
+
+    std::io::write("job scheduler\n");
+    std::io::write(report::line("planned weight ", estimated_weight));
+    std::io::write(report::line("rank signature ", rank_signature));
+    std::io::write("dispatch order (priority desc, id asc)\n");
+
+    var[mut] slot: int = 0;
+    loop (slot < 6) {
+        std::io::write(report::job_line(slot, queue::job_at_rank(batch, slot)));
+        slot = slot + 1;
+    };
+
+    std::io::write(report::line("collected      ", received));
+    std::io::write(report::line("checksum total ", checksum_sum));
+    std::io::write(report::line("audit ids      ", audited));
+    std::io::write(report::line("audit id sum   ", id_sum));
+    std::io::write(report::line("tally count    ", dispatched));
+    std::io::write(report::line("tally checksum ", tallied_checksum));
+    std::io::write(report::line("tally weight   ", tallied_weight));
+    std::io::write(report::verdict(mismatches, 6 - received));
+    return 0;
+};

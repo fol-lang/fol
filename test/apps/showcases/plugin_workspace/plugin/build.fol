@@ -1,0 +1,32 @@
+// The plugin member layers triage policy on top of the core vocabulary. It
+// declares core as a local (`loc`) dependency so `fol work deps` shows the
+// edge, and it exports its own library artifact for the executable member.
+//
+// The dependency is declared but the source still reaches core through a
+// `loc` import of `../../core/src`: a `loc`-sourced dependency alias is never
+// projected into `pkg` import space, so `use core: pkg = {"core"};` cannot
+// resolve here.
+//
+// Comments have to stay outside the build() body; see core/build.fol.
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "pw_plugin",
+        version = "0.1.0",
+        kind = "lib",
+        description = "Escalation and rendering policy for the plugin workspace",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    build.add_dep({ alias = "core", source = "loc", target = "../core" });
+
+    var graph = build.graph();
+    var lib = graph.add_static_lib({
+        name = "pw_plugin",
+        root = "src/lib.fol",
+        fol_model = "memo",
+    });
+    graph.install(lib);
+
+    build.export_artifact({ name = "plugin_lib", artifact = lib });
+    return;
+};

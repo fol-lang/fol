@@ -1,0 +1,32 @@
+use std: pkg = {"std"};
+use text: loc = {"../text"};
+use counts: loc = {"../counts"};
+
+// Rendering. The report is a fixed set of aligned rows plus a note about the
+// directories the walk could not see into, so the only work here is padding
+// numbers into columns.
+
+fun[exp] row(name: str, value: int): str = {
+    return "  " + text::pad_right(name, 10) + std::fmt::int_to_str(value);
+};
+
+fun[exp] print(root: str, totals: counts::Tally): int = {
+    var rule: str = text::repeat("-", 34);
+    std::io::echo_str(rule);
+    std::io::echo_str("report for " + root);
+    std::io::echo_str(rule);
+    std::io::echo_str(row("dirs", totals.dirs));
+    std::io::echo_str(row("code", totals.code));
+    std::io::echo_str(row("docs", totals.docs));
+    std::io::echo_str(row("data", totals.data));
+    std::io::echo_str(row("other", totals.other));
+    std::io::echo_str(rule);
+    std::io::echo_str(row("files", counts::files(totals)));
+    std::io::echo_str(row("bytes", totals.bytes));
+    std::io::echo_str(row("silent", totals.silent));
+    if (totals.silent > 0) {
+        var note: str = std::fmt::int_to_str(totals.silent);
+        std::io::echo_str("note: " + note + " director(y/ies) empty or unreadable");
+    };
+    return counts::files(totals);
+};

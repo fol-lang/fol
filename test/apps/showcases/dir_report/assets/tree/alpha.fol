@@ -1,0 +1,5 @@
+// Sample source file for the directory classifier: the walker reports it by
+// extension, so it stays real FOL rather than placeholder text.
+fun[exp] fixture(): int = {
+    return 1;
+};

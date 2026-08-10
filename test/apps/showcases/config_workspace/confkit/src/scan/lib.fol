@@ -1,0 +1,122 @@
+// Byte-level text helpers.
+//
+// A config file is line-oriented ASCII, so every routine here works on byte
+// offsets and treats an out-of-range index as the end of the input rather than
+// an error. `std` is not imported here: an import alias is package-global, so
+// the one `use std` in the package root already reaches this file.
+
+// Space and tab. Config files indent with either.
+fun is_blank_byte(value: int): bol = {
+    return value == 32 or value == 9;
+};
+
+// Strip leading and trailing spaces and tabs.
+fun[exp] trim(text: str): str = {
+    var start: int = 0;
+    var stop: int = .len(text);
+
+    // `and` evaluates both sides, so both guards stay total: byte_at answers
+    // -1 for an out-of-range index rather than faulting.
+    loop(start < stop and is_blank_byte(std::strn::byte_at(text, start))) {
+        start = start + 1;
+    }
+    loop(stop > start and is_blank_byte(std::strn::byte_at(text, stop - 1))) {
+        stop = stop - 1;
+    }
+    return std::strn::sub(text, start, stop - start);
+};
+
+// How many newline-separated lines the document holds. A trailing newline does
+// not open a further line, so "a\nb\n" and "a\nb" are both two lines.
+fun[exp] line_count(text: str): int = {
+    var size: int = .len(text);
+    when(size == 0) {
+        case(true) { return 0; }
+        * { }
+    }
+
+    var lines: int = 1;
+    var i: int = 0;
+    loop(i < size) {
+        when(std::strn::byte_at(text, i) == 10) {
+            case(true) { lines = lines + 1; }
+            * { }
+        }
+        i = i + 1;
+    }
+
+    // The newline ending the final line opened a line that has no content.
+    when(std::strn::byte_at(text, size - 1) == 10) {
+        case(true) { return lines - 1; }
+        * { return lines; }
+    }
+};
+
+// The zero-based line at `index`, without its terminator. Empty past the end.
+fun[exp] line_at(text: str, index: int): str = {
+    var size: int = .len(text);
+    var seen: int = 0;
+    var start: int = 0;
+    var i: int = 0;
+
+    loop(i < size) {
+        when(std::strn::byte_at(text, i) == 10) {
+            case(true) {
+                when(seen == index) {
+                    case(true) { return std::strn::sub(text, start, i - start); }
+                    * { }
+                }
+                seen = seen + 1;
+                start = i + 1;
+            }
+            * { }
+        }
+        i = i + 1;
+    }
+
+    when(seen == index) {
+        case(true) { return std::strn::sub(text, start, size - start); }
+        * { return ""; }
+    }
+};
+
+fun[exp] starts_with(text: str, prefix: str): bol = {
+    var width: int = .len(prefix);
+    when(width > .len(text)) {
+        case(true) { return false; }
+        * { return std::strn::sub(text, 0, width) == prefix; }
+    }
+};
+
+// True only for a non-empty run of ASCII digits, optionally signed.
+fun[exp] is_integer(text: str): bol = {
+    var size: int = .len(text);
+    when(size == 0) {
+        case(true) { return false; }
+        * { }
+    }
+
+    var i: int = 0;
+    when(std::strn::byte_at(text, 0) == 45) {
+        case(true) { i = 1; }
+        * { }
+    }
+    when(i == size) {
+        case(true) { return false; }
+        * { }
+    }
+
+    loop(i < size) {
+        var value: int = std::strn::byte_at(text, i);
+        when(value < 48 or value > 57) {
+            case(true) { return false; }
+            * { }
+        }
+        i = i + 1;
+    }
+    return true;
+};
+
+fun[exp] is_boolean(text: str): bol = {
+    return text == "true" or text == "false";
+};

@@ -1,0 +1,141 @@
+// The books themselves: a chart of accounts, the journal that posts against
+// it, and the queries a report needs.
+//
+// Both containers are built once and handed back by value. There is no
+// container mutation in the language, so the journal is a fixed record of
+// what happened rather than something a caller appends to.
+
+// Chart of accounts for a one-person consultancy's first month.
+fun[exp] chart(): vec[model::Account] = {
+    return {
+        { code = "1000", name = "Cash",              normal = 1, opening = 250000 },
+        { code = "1200", name = "Accounts receivable", normal = 1, opening = 0 },
+        { code = "2000", name = "Accounts payable",  normal = 2, opening = 0 },
+        { code = "3000", name = "Owner equity",      normal = 2, opening = 250000 },
+        { code = "4000", name = "Consulting revenue", normal = 2, opening = 0 },
+        { code = "5100", name = "Software expense",  normal = 1, opening = 0 },
+        { code = "5200", name = "Office expense",    normal = 1, opening = 0 }
+    };
+};
+
+// The journal. Every business event appears twice, once on each side, which
+// is what the audit in `reporting` re-checks.
+fun[exp] journal(): vec[model::Posting] = {
+    return {
+        { day = 3,  code = "1200", side = 1, amount = 480000, memo = "invoice 001 to Northwind" },
+        { day = 3,  code = "4000", side = 2, amount = 480000, memo = "invoice 001 to Northwind" },
+        { day = 6,  code = "5100", side = 1, amount = 4900,   memo = "editor licence" },
+        { day = 6,  code = "1000", side = 2, amount = 4900,   memo = "editor licence" },
+        { day = 11, code = "5200", side = 1, amount = 12750,  memo = "desk and lamp" },
+        { day = 11, code = "2000", side = 2, amount = 12750,  memo = "desk and lamp" },
+        { day = 18, code = "1000", side = 1, amount = 480000, memo = "Northwind paid invoice 001" },
+        { day = 18, code = "1200", side = 2, amount = 480000, memo = "Northwind paid invoice 001" },
+        { day = 24, code = "2000", side = 1, amount = 12750,  memo = "settled furniture bill" },
+        { day = 24, code = "1000", side = 2, amount = 12750,  memo = "settled furniture bill" }
+    };
+};
+
+// A map keyed by account code carries the budget the owner set for the month.
+// Only codes that also appear in `chart()` are ever looked up, because a map
+// miss is a hard fault rather than an absent value.
+fun[exp] budgets(): map[str, int] = {
+    return {
+        {"5100", 10000},
+        {"5200", 10000}
+    };
+};
+
+// Account lookup is a linear scan over `chart()` rather than a map read: it
+// is the only shape that can answer "is this code known?" without faulting.
+fun[exp] find_account(code: str): opt[model::Account] = {
+    var rows: vec[model::Account] = chart();
+    loop(row in rows) {
+        if(.eq(row.code, code)) {
+            return row;
+        }
+    }
+    return nil;
+};
+
+fun[exp] known_code(code: str): bol = {
+    var found: opt[model::Account] = find_account(code);
+    when(found) {
+        on(row) { return true; }
+        * { return false; }
+    }
+};
+
+// Debit-positive movement recorded against one account, opening balance
+// excluded.
+fun[exp] movement(code: str): int = {
+    var rows: vec[model::Posting] = journal();
+    var total: int = 0;
+    loop(row in rows) {
+        if(.eq(row.code, code)) {
+            total = total + row.signed();
+        }
+    }
+    return total;
+};
+
+// The balance an accountant would read off the account, sign-corrected for
+// the account's normal side and including its opening balance.
+fun[exp] balance(account: model::Account): int = {
+    var raw: int = movement(account.code);
+    return account.present(raw) + account.opening;
+};
+
+fun[exp] total_debits(): int = {
+    var rows: vec[model::Posting] = journal();
+    var total: int = 0;
+    loop(row in rows) {
+        if(row.is_debit()) {
+            total = total + row.amount;
+        }
+    }
+    return total;
+};
+
+fun[exp] total_credits(): int = {
+    var rows: vec[model::Posting] = journal();
+    var total: int = 0;
+    loop(row in rows) {
+        if(.not(row.is_debit())) {
+            total = total + row.amount;
+        }
+    }
+    return total;
+};
+
+// How far an expense account is over the month's budget, in cents. Accounts
+// with no budget line are treated as unlimited.
+fun[exp] over_budget(code: str): int = {
+    var limits: map[str, int] = budgets();
+    if(.not(.eq(code, "5100"))) {
+        if(.not(.eq(code, "5200"))) {
+            return 0;
+        }
+    }
+    var spent: int = movement(code);
+    var allowed: int = limits[code];
+    if(.gt(spent, allowed)) {
+        return spent - allowed;
+    }
+    return 0;
+};
+
+// The first structurally broken posting in the journal, if there is one.
+fun[exp] journal_fault(): err[str] = {
+    var rows: vec[model::Posting] = journal();
+    loop(row in rows) {
+        var fault: err[str] = model::fault_of(row);
+        when(fault) {
+            on(reason) { return reason; }
+            * { }
+        }
+        if(.not(known_code(row.code))) {
+            return "posting hits an account that is not in the chart";
+        }
+    }
+    return nil;
+};

@@ -1,0 +1,93 @@
+use order: loc = {"../order"};
+
+typ[exp] Summary: rec = {
+    count: int;
+    total: flt;
+    mean: flt;
+    median: flt;
+    lowest: flt;
+    highest: flt;
+    spread: flt;
+    variance: flt;
+    deviation: flt
+};
+
+fun[exp] total_of(values: vec[flt]): flt = {
+    var running: flt = 0.0;
+    loop(value in values) {
+        running = running + value;
+    }
+    return running;
+};
+
+// The divisor is counted rather than converted, because `int` never becomes
+// `flt` implicitly and there is no cast surface to force it.
+fun[exp] count_as_float(values: vec[flt]): flt = {
+    var counted: flt = 0.0;
+    loop(value in values) {
+        counted = counted + 1.0;
+    }
+    return counted;
+};
+
+fun[exp] mean_of(values: vec[flt]): flt = {
+    return total_of(values) / count_as_float(values);
+};
+
+// Even-sized data sets average the two central readings.
+fun[exp] median_of(values: vec[flt]): flt = {
+    var size: int = .len(values);
+    var half: int = size / 2;
+    when((size % 2) == 0) {
+        case(true) {
+            return (order::nth_smallest(values, half - 1) + order::nth_smallest(values, half)) / 2.0;
+        }
+        * { return order::nth_smallest(values, half); }
+    }
+};
+
+// Population variance: the mean of the squared deviations.
+fun[exp] variance_of(values: vec[flt]): flt = {
+    var centre: flt = mean_of(values);
+    var accumulated: flt = 0.0;
+    loop(value in values) {
+        var deviation: flt = value - centre;
+        accumulated = accumulated + (deviation * deviation);
+    }
+    return accumulated / count_as_float(values);
+};
+
+// There is no square-root intrinsic, but the exponent operator accepts a
+// fractional right operand, so the standard deviation is the variance raised
+// to one half.
+fun[exp] deviation_of(values: vec[flt]): flt = {
+    return variance_of(values) ^ 0.5;
+};
+
+fun[exp] describe(values: vec[flt]): Summary = {
+    var low: flt = order::smallest(values);
+    var high: flt = order::largest(values);
+    return {
+        count = .len(values),
+        total = total_of(values),
+        mean = mean_of(values),
+        median = median_of(values),
+        lowest = low,
+        highest = high,
+        spread = high - low,
+        variance = variance_of(values),
+        deviation = deviation_of(values),
+    };
+};
+
+// How many readings fall at or above a threshold; useful for "wet days".
+fun[exp] count_at_least(values: vec[flt], threshold: flt): int = {
+    var hits: int = 0;
+    loop(value in values) {
+        when(value >= threshold) {
+            case(true) { hits = hits + 1; }
+            * { }
+        }
+    }
+    return hits;
+};

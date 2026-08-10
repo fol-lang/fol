@@ -2200,15 +2200,24 @@ fn resolve_fol_type_to_lowered(
                         format!("type annotation '{name}' lost its typed symbol"),
                     )
                 })?;
-            return typed_symbol
-                .declared_type
-                .and_then(|id| checked_type_map.get(&id).copied())
-                .ok_or_else(|| {
-                    LoweringError::with_kind(
-                        LoweringErrorKind::InvalidInput,
-                        format!("type annotation '{name}' does not map to a lowered type"),
-                    )
-                });
+            // Through the `Declared` node, so a named record resolves to the
+            // same lowered type here as everywhere else.
+            return crate::types::declared_node_lowered_type(
+                &typed_package.program,
+                checked_type_map,
+                symbol_id,
+            )
+            .or_else(|| {
+                typed_symbol
+                    .declared_type
+                    .and_then(|id| checked_type_map.get(&id).copied())
+            })
+            .ok_or_else(|| {
+                LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    format!("type annotation '{name}' does not map to a lowered type"),
+                )
+            });
         }
         FolType::QualifiedNamed { path } => {
             let syntax_id = path.syntax_id().ok_or_else(|| {
@@ -2255,18 +2264,27 @@ fn resolve_fol_type_to_lowered(
                         format!("qualified type '{}' lost its typed symbol", path.joined()),
                     )
                 })?;
-            return typed_symbol
-                .declared_type
-                .and_then(|id| checked_type_map.get(&id).copied())
-                .ok_or_else(|| {
-                    LoweringError::with_kind(
-                        LoweringErrorKind::InvalidInput,
-                        format!(
-                            "qualified type '{}' does not map to a lowered type",
-                            path.joined()
-                        ),
-                    )
-                });
+            // Through the `Declared` node, so a named record resolves to the
+            // same lowered type here as everywhere else.
+            return crate::types::declared_node_lowered_type(
+                &typed_package.program,
+                checked_type_map,
+                symbol_id,
+            )
+            .or_else(|| {
+                typed_symbol
+                    .declared_type
+                    .and_then(|id| checked_type_map.get(&id).copied())
+            })
+            .ok_or_else(|| {
+                LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    format!(
+                        "qualified type '{}' does not map to a lowered type",
+                        path.joined()
+                    ),
+                )
+            });
         }
         _ => {
             return Err(LoweringError::with_kind(

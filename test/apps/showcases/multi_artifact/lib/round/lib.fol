@@ -1,0 +1,22 @@
+// Cash rounding. Coins smaller than five cents are not in circulation here, so
+// a settled total is always a multiple of five, with halves going away from
+// zero.
+
+fun[exp] cash(cents: int): int = {
+    var sign: int = 1;
+    var value: int = cents;
+    when(.lt(cents, 0)) {
+        case(true) {
+            sign = 0 - 1;
+            value = 0 - cents;
+        }
+        * { }
+    }
+
+    var base: int = (value / 5) * 5;
+    var rest: int = value - base;
+    when(.ge(rest, 3)) {
+        case(true) { return sign * (base + 5); }
+        * { return sign * base; }
+    }
+};

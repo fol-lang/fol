@@ -1,0 +1,49 @@
+// The documents confcheck inspects.
+//
+// They are compiled in rather than read from disk so the showcase runs the same
+// way anywhere. Each document is assembled line by line: a `str` literal cannot
+// span source lines, so joining with "\n" is the readable way to keep the
+// intended file shape visible.
+
+fun[exp] count(): int = {
+    return 2;
+};
+
+fun[exp] name_at(index: int): str = {
+    when(index) {
+        case(0) { return "service.conf"; }
+        case(1) { return "staging.conf"; }
+        * { return "<none>"; }
+    }
+};
+
+// A document that satisfies the schema completely.
+fun clean_document(): str = {
+    return "# service defaults\n"
+    + "host = localhost\n"
+    + "port = 8080\n"
+    + "workers = 4\n"
+    + "debug = false\n"
+    + "name = edge-router\n";
+};
+
+// A document that trips every rule the checker knows, one rule per line:
+// an unknown key, a value of the wrong kind, a redefinition, a line with no
+// `=`, an assignment with no key, and a required key that is never set.
+fun broken_document(): str = {
+    return "# staging overrides\n"
+    + "host = staging.internal\n"
+    + "timeuot = 30\n"
+    + "debug = maybe\n"
+    + "host = duplicate.internal\n"
+    + "this line has no equals\n"
+    + "  = 12\n";
+};
+
+fun[exp] document_at(index: int): str = {
+    when(index) {
+        case(0) { return clean_document(); }
+        case(1) { return broken_document(); }
+        * { return ""; }
+    }
+};

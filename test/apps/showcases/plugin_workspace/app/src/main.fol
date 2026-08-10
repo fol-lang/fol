@@ -1,0 +1,77 @@
+use std: pkg = {"std"};
+use core: loc = {"../../core/src/vocab"};
+use plugin: loc = {"../../plugin/src/policy"};
+use report: loc = {"report"};
+
+// Log triage front-end. It reads a fixed feed, parses each line with the core
+// member, escalates and filters it with the plugin member, and prints the kept
+// entries followed by a summary block.
+//
+// The feed is inline so the showcase output is deterministic; in a real tool
+// these lines would come from a file or a socket.
+
+fun[hid] feed(): seq[str] = {
+    var lines: seq[str] = {
+        "INFO|api|service started",
+        "WARN|net|link flap on eth0",
+        "DEBUG|api|cache warm",
+        "ERROR|disk|write failed on sda1",
+        "WARN|api|slow response",
+        "TRACE|net|keepalive",
+        "garbled line without fields",
+    };
+    return lines;
+};
+
+// Severities are counted into five scalars rather than a map: FOL containers
+// are read-only once built, so `counts[level] = counts[level] + 1` is rejected
+// with T1001.
+fun[] main(): int = {
+    var floor: int = 3;
+    var scanned: int = 0;
+    var kept: int = 0;
+    var malformed: int = 0;
+    var n_trace: int = 0;
+    var n_debug: int = 0;
+    var n_info: int = 0;
+    var n_warn: int = 0;
+    var n_error: int = 0;
+
+    std::io::echo_str("== triage report ==");
+
+    loop(line in feed()) {
+        scanned = scanned + 1;
+        var parsed: core::Entry = core::parse(line);
+        when(core::is_valid(parsed)) {
+            case(true) {
+                var entry: core::Entry = plugin::triage(parsed);
+                when(plugin::keep(entry, floor)) {
+                    case(true) {
+                        kept = kept + 1;
+                        when(entry.level) {
+                            is(0) { n_trace = n_trace + 1; }
+                            is(1) { n_debug = n_debug + 1; }
+                            is(2) { n_info = n_info + 1; }
+                            is(3) { n_warn = n_warn + 1; }
+                            is(4) { n_error = n_error + 1; }
+                            * { malformed = malformed + 1; }
+                        }
+                        std::io::echo_str(plugin::marker(entry) + " " + plugin::render(entry));
+                    }
+                    * { }
+                }
+            }
+            * { malformed = malformed + 1; }
+        }
+    }
+
+    std::io::echo_str("-- summary --");
+    std::io::echo_str(report::totals_row(scanned, kept, malformed));
+    std::io::echo_str(report::histogram_row(4, n_error));
+    std::io::echo_str(report::histogram_row(3, n_warn));
+    std::io::echo_str(report::histogram_row(2, n_info));
+    std::io::echo_str(report::histogram_row(1, n_debug));
+    std::io::echo_str(report::histogram_row(0, n_trace));
+
+    return 0;
+};

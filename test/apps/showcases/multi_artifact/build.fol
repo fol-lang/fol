@@ -1,0 +1,99 @@
+// One package, three artifacts: a static library, an executable that links it,
+// and a test bundle that links it too, plus install and run steps.
+//
+// This file deliberately exercises the whole documented graph/handle surface
+// from book/src/055_build. What actually happens today:
+//
+//   works   meta, add_dep, standard_target, standard_optimize, option,
+//           add_static_lib, add_exe, add_test, artifact.link, step,
+//           install(exe), add_run, build_root, install_prefix, and the
+//           wrong-path-provenance rejections on install_file
+//   inert   install(static_lib) emits no library and no install step;
+//           write_file / copy_file never write anything;
+//           install_file / install_dir install nothing;
+//           run.add_arg / run.add_file_arg / run.set_env are dropped, so the
+//           launched binary sees zero arguments and no LEDGER_MODE;
+//           the "banner"/"rates"/"notes"/"install" steps are listed by the
+//           unknown-step diagnostic but `--step <name>` rejects every one of
+//           them; a custom step with no attachments silently binds to the
+//           default executable instead
+//
+// Every comment sits outside the build() body on purpose: a `//` comment
+// between two statements inside the body makes build evaluation fail with
+// `F1001 build evaluation does not support expression node 'ast_node'`.
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "multi_artifact",
+        version = "0.1.0",
+        kind = "exe",
+        description = "Fixed-point ledger built as lib + exe + tests",
+        license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+    var currency = graph.option({
+        name = "currency",
+        kind = "str",
+        default = "EUR",
+    });
+
+    var ledger = graph.add_static_lib({
+        name = "ledger",
+        root = "lib/lib.fol",
+        fol_model = "memo",
+        target = target,
+        optimize = optimize,
+    });
+
+    var app = graph.add_exe({
+        name = "ledger-report",
+        root = "src/main.fol",
+        fol_model = "memo",
+        target = target,
+        optimize = optimize,
+    });
+    app.link(ledger);
+
+    var checks = graph.add_test({
+        name = "ledger-tests",
+        root = "tests/main.fol",
+        fol_model = "memo",
+    });
+    checks.link(ledger);
+
+    var banner = graph.write_file({
+        name = "banner",
+        path = "gen/banner.txt",
+        contents = "multi_artifact ledger\n",
+    });
+    var rates = graph.file_from_root("config/rates.txt");
+    var rates_copy = graph.copy_file({
+        name = "rates",
+        source = rates,
+        path = "gen/rates.txt",
+    });
+    var notes = graph.dir_from_root("notes");
+
+    var verify = graph.step("verify", "Re-run the ledger checks before installing");
+
+    graph.install(ledger);
+    var install_app = graph.install(app);
+    install_app.depend_on(verify);
+    graph.install_file({ name = "banner", source = banner });
+    graph.install_file({ name = "rates", source = rates_copy });
+    graph.install_dir({ name = "notes", source = notes });
+
+    var run = graph.add_run(app);
+    run.add_arg("--config");
+    run.add_file_arg(rates);
+    run.set_env("LEDGER_MODE", "strict");
+    run.depend_on(verify);
+
+    var build_root = graph.build_root();
+    var install_prefix = graph.install_prefix();
+    return;
+};

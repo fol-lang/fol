@@ -1,0 +1,41 @@
+use std: pkg = {"std"};
+use ui: loc = {"../../common"};
+
+// Occupancy tally for a finished run. Containers have no in-place `add`, so
+// the histogram is accumulated in a record with one counter per phase.
+
+typ[exp] Tally: rec = {
+    red: int;
+    green: int;
+    amber: int;
+    flash: int
+};
+
+fun[exp] empty(): Tally = {
+    return { red = 0, green = 0, amber = 0, flash = 0 };
+};
+
+fun[exp] count(t: Tally, phase: int): Tally = {
+    var[mut] out: Tally = { red = t.red, green = t.green, amber = t.amber, flash = t.flash };
+    when(phase) {
+        is(0) { out.red = out.red + 1; }
+        is(1) { out.green = out.green + 1; }
+        is(2) { out.amber = out.amber + 1; }
+        is(3) { out.flash = out.flash + 1; }
+        * { }
+    }
+    return out;
+};
+
+fun[exp] row(label: str, hits: int): str = {
+    return label + " " + ui::repeat("#", hits) + " " + std::fmt::int_to_str(hits);
+};
+
+fun[exp] render(t: Tally): seq[str] = {
+    return {
+        row("RED  ", t.red),
+        row("GREEN", t.green),
+        row("AMBER", t.amber),
+        row("FLASH", t.flash),
+    };
+};

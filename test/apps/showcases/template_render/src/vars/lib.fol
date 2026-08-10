@@ -1,0 +1,131 @@
+use std: pkg = {"std"};
+use text: loc = {"../text"};
+
+// The variable set. Values come from two places: a `key = value` file read at
+// startup, and a built-in fallback table for the handful of keys a template
+// may always assume.
+//
+// The file half is kept as raw text and scanned on lookup rather than loaded
+// into a `map`, because a `map` can only be built from a literal whose entry
+// count is fixed at compile time -- there is no runtime insert. The fallback
+// half, whose keys *are* known at compile time, is a real `map`.
+
+fun[exp] fallbacks(): map[str, str] = {
+    return {
+        {"greeting", "Hello"},
+        {"punct", "!"},
+        {"signature", "-- template-render"},
+    };
+};
+
+// Keys present in the fallback table. `map` has no membership query, so the
+// known keys are listed once here as a newline-separated set.
+fun[exp] fallback_keys(): str = {
+    return "greeting\npunct\nsignature";
+};
+
+fun[exp] has_fallback(key: str): bol = {
+    var known_keys: str = fallback_keys();
+    var total: int = text::line_count(known_keys);
+    var index: int = 0;
+    loop (index < total) {
+        if (text::line_nth(known_keys, index) == key) {
+            return true;
+        };
+        index = index + 1;
+    };
+    return false;
+};
+
+// One `key = value` record. A line with no `=` is malformed and reports no
+// key, which is how the caller detects it.
+fun[exp] record_key(line: str): str = {
+    var split: int = std::strn::find(line, "=");
+    if (split < 0) {
+        return "";
+    };
+    return text::trim(text::head(line, split));
+};
+
+fun[exp] record_value(line: str): str = {
+    var split: int = std::strn::find(line, "=");
+    if (split < 0) {
+        return "";
+    };
+    return text::trim(text::tail(line, split + 1));
+};
+
+// Blank lines and lines starting with `#` carry no binding.
+fun[exp] is_comment(line: str): bol = {
+    var body: str = text::trim(line);
+    if (.len(body) == 0) {
+        return true;
+    };
+    return text::eq(text::head(body, 1), "#");
+};
+
+fun[exp] has_binding(source: str, key: str): bol = {
+    var total: int = text::line_count(source);
+    var index: int = 0;
+    loop (index < total) {
+        var line: str = text::line_nth(source, index);
+        index = index + 1;
+        if (is_comment(line) == false) {
+            if (record_key(line) == key) {
+                return true;
+            };
+        };
+    };
+    return false;
+};
+
+// The last binding for a key wins, so a vars file can override an earlier
+// line the way a shell profile does.
+fun[exp] binding(source: str, key: str): str = {
+    var found: str = "";
+    var total: int = text::line_count(source);
+    var index: int = 0;
+    loop (index < total) {
+        var line: str = text::line_nth(source, index);
+        index = index + 1;
+        if (is_comment(line) == false) {
+            if (record_key(line) == key) {
+                found = record_value(line);
+            };
+        };
+    };
+    return found;
+};
+
+fun[exp] known(source: str, key: str): bol = {
+    if (has_binding(source, key)) {
+        return true;
+    };
+    return has_fallback(key);
+};
+
+fun[exp] resolve(source: str, key: str): str = {
+    if (has_binding(source, key)) {
+        return binding(source, key);
+    };
+    if (has_fallback(key)) {
+        return fallbacks()[key];
+    };
+    return "";
+};
+
+fun[exp] count(source: str): int = {
+    var total: int = text::line_count(source);
+    var index: int = 0;
+    var kept: int = 0;
+    loop (index < total) {
+        var line: str = text::line_nth(source, index);
+        index = index + 1;
+        if (is_comment(line) == false) {
+            if (.len(record_key(line)) > 0) {
+                kept = kept + 1;
+            };
+        };
+    };
+    return kept;
+};

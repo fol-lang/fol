@@ -547,6 +547,33 @@ impl LoweredTypeTable {
     }
 }
 
+/// The lowered id of a type symbol's own `Declared` node.
+///
+/// Records intern structurally, so a symbol's `declared_type` (the bare record)
+/// is shared with any structural twin; only the `Declared` node carries which
+/// declaration it is, and lowering stamps that name on. Every path that turns a
+/// named type into a lowered id has to go through here, or one path resolves to
+/// the nominal type and another to the structural one, and lookups between them
+/// silently miss.
+pub(crate) fn declared_node_lowered_type(
+    program: &fol_typecheck::TypedProgram,
+    checked_type_map: &std::collections::BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    symbol_id: fol_resolver::SymbolId,
+) -> Option<LoweredTypeId> {
+    let table = program.type_table();
+    (0..table.len()).find_map(|raw| {
+        let checked_id = fol_typecheck::CheckedTypeId(raw);
+        match table.get(checked_id) {
+            Some(fol_typecheck::CheckedType::Declared { symbol, args, .. })
+                if *symbol == symbol_id && args.is_empty() =>
+            {
+                checked_type_map.get(&checked_id).copied()
+            }
+            _ => None,
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{LoweredBuiltinType, LoweredRoutineType, LoweredType, LoweredTypeTable};

@@ -1,0 +1,55 @@
+// Handlers.
+//
+// Every handler has the shape `{fun (payload: int): int}` and answers with a
+// status: 0 means "handled quietly", 1 means "raised an alert". Handlers know
+// nothing about the bus -- the bus only stores the routine value and calls it
+// later.
+//
+// Two flavours live here: plain named routines, usable as values by name, and
+// factories that build a routine value carrying a captured environment.
+
+use std: pkg = {"std"};
+
+// A named routine used directly as a subscriber value.
+fun[exp] trace(payload: int): int = {
+    std::io::echo_str("      trace reading=" + std::fmt::int_to_str(payload));
+    return 0;
+};
+
+// Ignores its payload; for subscribers that only care that an event happened.
+fun[exp] count_only(payload: int): int = {
+    return 0;
+};
+
+// `[cpy]` duplicates `limit` into the routine value's environment, so the
+// caller's binding stays live after the factory returns and the closure can be
+// invoked any number of times.
+fun[exp] threshold_alarm(limit: int): {fun (payload: int): int} = {
+    return fun(payload: int)[limit[cpy]]: int = {
+        if (payload > limit) {
+            std::io::echo_str("      ALERT reading=" + std::fmt::int_to_str(payload)
+            + " limit=" + std::fmt::int_to_str(limit));
+            return 1;
+        }
+        return 0;
+    };
+};
+
+// `[cln]` clones a heap value into the environment. The prefix is fixed when
+// the handler is built, not when it runs.
+fun[exp] prefixed_logger(prefix: str): {fun (payload: int): int} = {
+    return fun(payload: int)[prefix[cln]]: int = {
+        std::io::echo_str("      " + prefix + std::fmt::int_to_str(payload));
+        return 0;
+    };
+};
+
+// `[mov]` transfers a clone-safe value into the environment and invalidates the
+// outer binding, which suits a label built once and never read again by the
+// builder.
+fun[exp] moved_logger(label: str): {fun (payload: int): int} = {
+    return fun(payload: int)[label[mov]]: int = {
+        std::io::echo_str("      " + label + " -> " + std::fmt::int_to_str(payload));
+        return 0;
+    };
+};

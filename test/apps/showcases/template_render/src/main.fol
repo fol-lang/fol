@@ -1,0 +1,78 @@
+use std: pkg = {"std"};
+use text: loc = {"text"};
+use vars: loc = {"vars"};
+use tmpl: loc = {"tmpl"};
+
+// template-render substitutes `{{name}}` placeholders in a text template from
+// a `key = value` file and writes the result out.
+//
+//   template-render [template] [vars] [output]
+//
+// With no arguments it renders the sample under `assets/`, so `code run`
+// inside the package does something useful on its own.
+
+fun[] arg_or(index: int, fallback: str): str = {
+    if (std::os::arg_count() > index) {
+        return std::os::arg(index);
+    };
+    return fallback;
+};
+
+fun[] report_missing(template: str, source: str): int = {
+    var wanted: str = tmpl::placeholders(template);
+    var total: int = text::line_count(wanted);
+    var index: int = 0;
+    var absent: int = 0;
+    loop (index < total) {
+        var key: str = text::line_nth(wanted, index);
+        index = index + 1;
+        if (.len(key) > 0) {
+            if (vars::known(source, key) == false) {
+                std::io::write_err("template-render: no binding for '" + key + "'\n");
+                absent = absent + 1;
+            };
+        };
+    };
+    return absent;
+};
+
+fun[] main(): int = {
+    var template_path: str = arg_or(0, "assets/greeting.tmpl");
+    var vars_path: str = arg_or(1, "assets/greeting.vars");
+    var out_path: str = arg_or(2, "out/greeting.txt");
+
+    var template: str = std::fs::read_file(template_path);
+    if (.len(template) == 0) {
+        var blame: str = "template-render: empty or unreadable template: ";
+        std::io::write_err(blame + template_path + "\n");
+        return 2;
+    };
+
+    // A missing vars file is not fatal: the built-in fallbacks may still
+    // cover every placeholder the template uses.
+    var source: str = std::fs::read_file(vars_path);
+    var bound: str = std::fmt::int_to_str(vars::count(source));
+    std::io::echo_str("template  " + template_path);
+    std::io::echo_str("vars      " + vars_path + "  (" + bound + " bindings)");
+
+    var absent: int = report_missing(template, source);
+    var result: tmpl::Output = tmpl::render(template, source);
+
+    var wrote: int = std::fs::write_file(out_path, result.body);
+    if (wrote != 0) {
+        std::io::write_err("template-render: could not write " + out_path + "\n");
+        return 3;
+    };
+
+    var size: str = std::fmt::int_to_str(.len(result.body));
+    std::io::echo_str("output    " + out_path + "  (" + size + " bytes)");
+    std::io::echo_str("filled    " + std::fmt::int_to_str(result.filled));
+    std::io::echo_str("missing   " + std::fmt::int_to_str(result.missing));
+    std::io::echo_str(text::repeat("-", 34));
+    std::io::echo_str(result.body);
+
+    if (absent > 0) {
+        return 1;
+    };
+    return 0;
+};

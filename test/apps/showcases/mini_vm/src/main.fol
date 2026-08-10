@@ -1,0 +1,35 @@
+use std: pkg = {"std"};
+use listing: loc = {"../listing"};
+
+// Runs one program and prints its disassembly, its trace, and its outcome.
+fun[] demo(title: str, program: seq[isa::Instr]): int = {
+    std::io::echo_str("");
+    std::io::echo_str(listing::banner(title));
+    std::io::echo_str("  code: " + asm::disassemble(program));
+
+    var outcome: machine::Step = machine::run(program, true);
+    when(outcome.fault) {
+        on(why) {
+            std::io::echo_str("  fault: " + why);
+            return 1;
+        }
+        * { }
+    }
+
+    std::io::echo_str("  ok: " + std::fmt::int_to_str(outcome.machine.steps)
+    + " steps, stack " + stack::show(outcome.machine.stack));
+    return 0;
+};
+
+fun[] main(): int = {
+    var[mut] faults: int = 0;
+    faults = faults + demo("arithmetic", program::arithmetic());
+    faults = faults + demo("square", program::square());
+    faults = faults + demo("swapped", program::swapped());
+    faults = faults + demo("underflow", program::underflow());
+    faults = faults + demo("divide-by-zero", program::divide_by_zero());
+
+    std::io::echo_str("");
+    std::io::echo_str("programs that faulted: " + std::fmt::int_to_str(faults));
+    return 0;
+};

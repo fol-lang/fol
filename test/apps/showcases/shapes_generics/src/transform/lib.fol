@@ -1,0 +1,78 @@
+// Generic wrappers and higher-order routines over measurements.
+//
+// `Scaled(T)` and `Kerfed(T)` are generic types: they hold any conformer of
+// `shape::geometry` and expose their own generic receiver routines. Because a
+// generic type cannot itself claim a standard, the wrappers are consumed
+// through their own methods rather than through the `geometry` constraint.
+
+use std: pkg = {"std"};
+use shape: loc = {"../shape"};
+
+// One step of a measurement pipeline, passed around as an ordinary value.
+typ[exp] Tweak: {fun (m: shape::Metrics): shape::Metrics};
+
+// A part reproduced at a different scale. Areas grow with the square of the
+// factor, perimeters grow linearly.
+typ[exp] Scaled(T): rec = {
+    inner: T,
+    factor: flt,
+};
+
+// A part cut on a machine whose blade removes `kerf` millimetres from every
+// edge, so the finished piece is smaller than the drawing.
+typ[exp] Kerfed(T): rec = {
+    inner: T,
+    kerf: flt,
+};
+
+fun[exp] (Scaled[T])measured(T: shape::geometry)(): shape::Metrics = {
+    var base: shape::Metrics = self.inner.measure();
+    return {
+        name = base.name,
+        area = base.area * self.factor * self.factor,
+        perim = base.perim * self.factor,
+    };
+};
+
+fun[exp] (Kerfed[T])measured(T: shape::geometry)(): shape::Metrics = {
+    var base: shape::Metrics = self.inner.measure();
+    // The blade removes material along the whole outline: one kerf width of
+    // stock disappears around the perimeter.
+    return {
+        name = base.name,
+        area = base.area - base.perim * self.kerf,
+        perim = base.perim,
+    };
+};
+
+// Higher-order: a routine value decides how a measurement is adjusted, so the
+// same generic pipeline serves scaling, allowances and rounding.
+fun[exp] adjust(T: shape::geometry)(part: T, tweak: Tweak): shape::Metrics = {
+    return tweak(part.measure());
+};
+
+// A routine that returns a routine: closures capture their factor by copy and
+// re-supply it on every call.
+fun[exp] allowance(extra: flt): Tweak = {
+    return fun(m: shape::Metrics)[extra[cpy]]: shape::Metrics = {
+        return {
+            name = m.name,
+            area = m.area + m.perim * extra,
+            perim = m.perim,
+        };
+    };
+};
+
+fun[exp] rename(tag: str): Tweak = {
+    return fun(m: shape::Metrics)[tag[mov]]: shape::Metrics = {
+        return { name = tag + "/" + m.name, area = m.area, perim = m.perim };
+    };
+};
+
+// Compose two measurement transforms into one. Both are captured by move,
+// since a routine value is not clone-safe.
+fun[exp] chain(first: Tweak, then: Tweak): Tweak = {
+    return fun(m: shape::Metrics)[first[mov], then[mov]]: shape::Metrics = {
+        return then(first(m));
+    };
+};

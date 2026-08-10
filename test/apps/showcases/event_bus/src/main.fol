@@ -1,0 +1,56 @@
+// event_bus -- subscribe/publish with handler routines stored and invoked later.
+//
+// The point of the program is that a subscriber is just a routine value. Some
+// rows hold a named routine, some hold a closure built by a factory with a
+// captured environment; the bus treats them identically because they share the
+// type `{fun (payload: int): int}`.
+
+use std: pkg = {"std"};
+use topic: loc = {"topic"};
+use handler: loc = {"handler"};
+use bus: loc = {"bus"};
+
+// A routine value can also travel as an ordinary argument before it is ever
+// stored, which is how the alarm below gets attached.
+fun[] attach(pattern: str, label: str, handle: {fun (payload: int): int}): bus::Sub = {
+    return bus::new_sub(pattern, label, handle);
+};
+
+fun[] main(): int = {
+    var ceiling: int = 30;
+    var alarm: {fun (payload: int): int} = handler::threshold_alarm(ceiling);
+    // `[cpy]` left the source alive, so `ceiling` is still readable here.
+    std::io::echo_str("alarm ceiling=" + std::fmt::int_to_str(ceiling));
+
+    var banner: str = "moved-label";
+    var moved: {fun (payload: int): int} = handler::moved_logger(banner);
+
+    var wired: bus::Bus = bus::new_bus({
+        attach(topic::temperature(), "temp-trace", handler::trace),
+        attach(topic::temperature(), "temp-alarm", alarm),
+        attach(topic::humidity(), "hum-log", handler::prefixed_logger("humidity=")),
+        attach(topic::wildcard(), "firehose", moved),
+        attach(topic::tick(), "tick-count", handler::count_only),
+    });
+
+    std::io::echo_str("subscribers:");
+    [bor]wired.describe();
+
+    std::io::echo_str("stream:");
+    [mut, bor]wired.publish(topic::temperature(), 21);
+    [mut, bor]wired.publish(topic::temperature(), 47);
+    [mut, bor]wired.publish(topic::humidity(), 63);
+    [mut, bor]wired.publish(topic::tick(), 1);
+    [mut, bor]wired.publish("sensor.pressure", 990);
+
+    std::io::echo_str("summary:");
+    std::io::echo_str("  " + ([bor]wired.report()));
+
+    // A local, nonescaping closure may borrow instead of copying: `ceiling`
+    // stays readable but frozen for as long as this scope lasts.
+    var headroom: {fun (reading: int): int} = fun(reading: int)[ceiling[bor]]: int = {
+        return ceiling - reading;
+    };
+    std::io::echo_str("  headroom at 47: " + std::fmt::int_to_str(headroom(47)));
+    return 0;
+};

@@ -1,0 +1,79 @@
+// expr-calculator -- tokenize and evaluate integer arithmetic.
+//
+// Handles `+ - * / %`, prefix minus, parentheses and the usual precedence,
+// and points at the offset where a malformed expression went wrong.
+
+use std: pkg = {"std"};
+use token: loc = {"token"};
+use lexer: loc = {"lexer"};
+use eval: loc = {"eval"};
+
+fun[] main(): int = {
+    std::io::echo_str("== tokens of '12 + 3 * (40 - 1) % 7' ==");
+    show_tokens("12 + 3 * (40 - 1) % 7", 0);
+
+    std::io::echo_str("");
+    std::io::echo_str("== evaluation ==");
+    solve("2 + 3 * (4 - 1)");
+    solve("100 / 7");
+    solve("100 % 7");
+    solve("-(3 + 4) * 2");
+    solve("--3");
+    solve("2 * 3 + 4 * 5");
+    solve("((((7))))");
+    solve("1 + 2 * 3 - 4 / 2");
+
+    std::io::echo_str("");
+    std::io::echo_str("== rejected ==");
+    solve("2 +");
+    solve("(1 + 2");
+    solve("1 2");
+    solve("8 / 0");
+    solve("3 $ 4");
+
+    return 0;
+};
+
+// Pull tokens one at a time until the scanner reports the end.
+pro show_tokens(text: str, from: int): non = {
+    var next = lexer::next_token(text, from);
+    when(next.kind == token::end()) {
+        case(true) { return; }
+        * { }
+    };
+    std::io::write("  ");
+    std::io::write(std::fmt::int_to_str(next.begin));
+    std::io::write("  ");
+    std::io::write(token::name(next.kind));
+    when(next.kind) {
+        is(token::number()) {
+            std::io::write(" ");
+            std::io::write(std::fmt::int_to_str(next.value));
+        }
+        * { }
+    };
+    std::io::write("\n");
+    show_tokens(text, next.stop);
+    return;
+};
+
+pro solve(text: str): non = {
+    var step = eval::run(text);
+    std::io::write("  ");
+    std::io::write(text);
+    std::io::write("  =>  ");
+    when(step.fault == eval::fault_none()) {
+        case(true) { std::io::write(std::fmt::int_to_str(step.value)); }
+        * { explain(step); }
+    };
+    std::io::write("\n");
+    return;
+};
+
+pro explain(step: eval::Step): non = {
+    std::io::write("error at offset ");
+    std::io::write(std::fmt::int_to_str(step.begin));
+    std::io::write(": ");
+    std::io::write(eval::fault_text(step.fault));
+    return;
+};

@@ -1,0 +1,69 @@
+// Token vocabulary.
+//
+// `Kind` is an `ent`: a group of named integer constants. The compiler only
+// gives an `ent` member read its member type when it initialises an annotated
+// binding, so each constant is re-exported through an accessor routine that
+// call sites can use in `when ... is` arms.
+
+typ[exp] Kind: ent = {
+    con END: int = 0;
+    con NUMBER: int = 1;
+    con PLUS: int = 2;
+    con MINUS: int = 3;
+    con STAR: int = 4;
+    con SLASH: int = 5;
+    con PERCENT: int = 6;
+    con OPEN: int = 7;
+    con CLOSE: int = 8;
+    con JUNK: int = 9;
+};
+
+fun[exp] end(): int = { var value: int = Kind.END; return value; };
+fun[exp] number(): int = { var value: int = Kind.NUMBER; return value; };
+fun[exp] plus(): int = { var value: int = Kind.PLUS; return value; };
+fun[exp] minus(): int = { var value: int = Kind.MINUS; return value; };
+fun[exp] star(): int = { var value: int = Kind.STAR; return value; };
+fun[exp] slash(): int = { var value: int = Kind.SLASH; return value; };
+fun[exp] percent(): int = { var value: int = Kind.PERCENT; return value; };
+fun[exp] open(): int = { var value: int = Kind.OPEN; return value; };
+fun[exp] close(): int = { var value: int = Kind.CLOSE; return value; };
+fun[exp] junk(): int = { var value: int = Kind.JUNK; return value; };
+
+// One lexed token. `begin` is where it starts, `stop` is where the scanner should
+// resume, so the parser never needs to know how wide a token was.
+typ[exp] Token: rec = {
+    var kind: int;
+    var value: int;
+    var begin: int;
+    var stop: int;
+};
+
+fun[exp] make(kind: int, value: int, begin: int, stop: int): Token = {
+    var built: Token = { kind = kind, value = value, begin = begin, stop = stop };
+    return built;
+};
+
+fun[exp] name(kind: int): str = {
+    when(kind) {
+        is(end()) { return "end"; }
+        is(number()) { return "number"; }
+        is(plus()) { return "plus"; }
+        is(minus()) { return "minus"; }
+        is(star()) { return "star"; }
+        is(slash()) { return "slash"; }
+        is(percent()) { return "percent"; }
+        is(open()) { return "open-paren"; }
+        is(close()) { return "close-paren"; }
+        * { return "junk"; }
+    }
+};
+
+// True for the tokens that bind at `+`/`-` strength.
+fun[exp] is_additive(kind: int): bol = {
+    return (kind == plus()) or (kind == minus());
+};
+
+// True for the tokens that bind at `*`/`/`/`%` strength.
+fun[exp] is_multiplicative(kind: int): bol = {
+    return (kind == star()) or (kind == slash()) or (kind == percent());
+};

@@ -1,0 +1,122 @@
+// ratelimiter -- a token bucket shared by concurrent tasks.
+//
+// Two admission rounds run against one `mux[Bucket]`:
+//
+//   round A: 10 tokens, 4 tasks x 5 attempts  -> 10 granted, 10 rejected
+//   round B: refilled to 6,  2 tasks x 4 attempts -> 6 granted, 2 rejected
+//
+// Which task wins which token depends on the OS scheduler, but the totals do
+// not: the bucket can only ever hand out the tokens it holds. That is what
+// makes a contended program assertable -- every printed number is an invariant
+// of the bucket, never a property of the interleaving. Wall-clock readings are
+// reduced to a pass/fail band for the same reason.
+//
+// Note on shape: nothing here locks `limiter` directly. Locking a `mux[T]` held
+// in a local binding makes the backend emit Rust that rustc rejects (E0506) as
+// soon as the same routine also contains a later loop, so all locking lives
+// behind `mux[Bucket]` parameters in the `bucket` module.
+
+use std: pkg = {"std"};
+use bucket: loc = {"bucket"};
+use clock: loc = {"clock"};
+use tasks: loc = {"tasks"};
+use report: loc = {"report"};
+
+fun[] main(): int = {
+    var limiter: mux[bucket::Bucket] = {
+        capacity = 10,
+        tokens = 10,
+        granted = 0,
+        rejected = 0,
+        low_water = 10,
+        over_capacity = 0,
+    };
+
+    // Calibration overlaps round A instead of adding its sleep to the total.
+    var calibration: evt[int] = clock::calibrate(20);
+
+    var first: chn[int];
+    var started: int = clock::now();
+
+    var[mut] task: int = 0;
+    loop (task < 4) {
+        [spn]tasks::hammer(5, 2, limiter, first);
+        task = task + 1;
+    };
+
+    // Drains until the last task has dropped its sender, so it doubles as the
+    // join point for round A.
+    var[mut] decisions_a: int = 0;
+    var[mut] grants_a: int = 0;
+    for (entry in first[rx]) {
+        decisions_a = decisions_a + 1;
+        grants_a = grants_a + entry;
+    };
+    var elapsed_a: int = clock::since(started);
+
+    var tokens_after_a: int = bucket::tokens(limiter);
+    var low_water: int = bucket::low_water(limiter);
+
+    // Round B: top the bucket back up and let a smaller crowd drain it.
+    var level: int = bucket::refill(limiter, 6);
+
+    var second: chn[int];
+    var[mut] again: int = 0;
+    loop (again < 2) {
+        [spn]tasks::hammer(4, 2, limiter, second);
+        again = again + 1;
+    };
+
+    var[mut] decisions_b: int = 0;
+    var[mut] grants_b: int = 0;
+    for (entry in second[rx]) {
+        decisions_b = decisions_b + 1;
+        grants_b = grants_b + entry;
+    };
+
+    var total_granted: int = bucket::granted(limiter);
+    var total_rejected: int = bucket::rejected(limiter);
+    var tokens_left: int = bucket::tokens(limiter);
+    var breaches: int = bucket::over_capacity(limiter);
+
+    var slept: int = calibration | await;
+
+    std::io::write("token bucket rate limiter\n");
+    std::io::write(report::line("capacity      ", 10));
+
+    std::io::write(report::round_header("A", 4, 5));
+    std::io::write(report::line("  decisions   ", decisions_a));
+    std::io::write(report::line("  granted     ", grants_a));
+    std::io::write(report::line("  rejected    ", decisions_a - grants_a));
+    std::io::write(report::line("  tokens left ", tokens_after_a));
+    std::io::write(report::line("  low water   ", low_water));
+
+    std::io::write(report::line("refilled to   ", level));
+
+    std::io::write(report::round_header("B", 2, 4));
+    std::io::write(report::line("  decisions   ", decisions_b));
+    std::io::write(report::line("  granted     ", grants_b));
+    std::io::write(report::line("  rejected    ", decisions_b - grants_b));
+    std::io::write(report::line("  tokens left ", tokens_left));
+
+    std::io::write(report::line("total granted ", total_granted));
+    std::io::write(report::line("total rejected", total_rejected));
+
+    // Invariants. Every one of these holds regardless of interleaving.
+    var accounted: bol = total_granted + total_rejected == decisions_a + decisions_b;
+    var logged: bol = total_granted == grants_a + grants_b;
+    var capped: bol = breaches == 0;
+    var drained: bol = low_water == 0;
+    // Round A pauses 2ms after each of 5 attempts, and the tasks run
+    // concurrently, so the round cannot finish faster than one task's pauses.
+    var unhurried: bol = clock::at_least(elapsed_a, 10);
+    var calibrated: bol = clock::within(slept, 20, 5000);
+
+    std::io::write(report::check("no lost updates    ", accounted));
+    std::io::write(report::check("grants match log   ", logged));
+    std::io::write(report::check("never over capacity", capped));
+    std::io::write(report::check("bucket drained     ", drained));
+    std::io::write(report::check("round A not instant", unhurried));
+    std::io::write(report::check("calibration sane   ", calibrated));
+    return 0;
+};

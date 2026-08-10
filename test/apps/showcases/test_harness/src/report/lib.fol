@@ -1,0 +1,48 @@
+// Result rendering.
+//
+// One module owns every line the harness prints, so the columns line up and
+// the assertion module never has to build a string by hand.
+
+use std: pkg = {"std"};
+
+fun[exp] pad_right(text: str, width: int): str = {
+    var out: str = text;
+    var filled: int = .len(text);
+    loop (filled < width) {
+        out = out + " ";
+        filled = filled + 1;
+    }
+    return out;
+};
+
+fun[exp] label_width(): int = {
+    return 34;
+};
+
+fun[exp] pass_line(label: str): str = {
+    return "  pass  " + pad_right(label, label_width());
+};
+
+fun[exp] fail_line(label: str, complaint: str): str = {
+    return "  FAIL  " + pad_right(label, label_width()) + complaint;
+};
+
+// A refutation is a deliberate mismatch: the harness proving that its own
+// failure path fires when it should.
+fun[exp] refute_line(label: str, complaint: str): str = {
+    return "  refut " + pad_right(label, label_width())
+    + "correctly rejected -- " + complaint;
+};
+
+fun[exp] case_line(index: int, name: str): str = {
+    return "[" + std::fmt::int_to_str(index) + "] " + name;
+};
+
+fun[exp] suite_header(title: str, count: int): str = {
+    return "== " + title + " (" + std::fmt::int_to_str(count) + " cases)";
+};
+
+fun[exp] summary_line(title: str, passed: int, failed: int): str = {
+    return "-- " + title + ": " + std::fmt::int_to_str(passed) + " passed, "
+    + std::fmt::int_to_str(failed) + " failed";
+};

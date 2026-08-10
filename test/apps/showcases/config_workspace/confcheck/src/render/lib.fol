@@ -1,0 +1,57 @@
+// Turning findings into the lines a person reads.
+//
+// This file declares no imports of its own. An import alias belongs to the
+// whole package rather than to one file, and re-declaring `std` or `confkit`
+// here would be rejected as a duplicate symbol, so both aliases are taken from
+// the single declaration in main.fol.
+
+// A finding in the shape editors and CI logs expect: line, weight, code, text.
+fun[exp] finding_line(item: confkit::verdict::Finding): str = {
+    return "  line " + std::fmt::int_to_str(item.line)
+    + ": " + confkit::verdict::severity_name(item.severity)
+    + " [" + item.code + "] "
+    + item.message;
+};
+
+// A whole-file complaint has no line to point at, so it is labelled by file.
+fun[exp] document_finding_line(item: confkit::verdict::Finding): str = {
+    return "  file: " + confkit::verdict::severity_name(item.severity)
+    + " [" + item.code + "] "
+    + item.message;
+};
+
+fun plural(count: int, one: str, many: str): str = {
+    when(count == 1) {
+        case(true) { return one; }
+        * { return many; }
+    }
+};
+
+fun[exp] tally_line(result: confkit::verdict::Tally): str = {
+    return "  " + std::fmt::int_to_str(result.settings)
+    + " " + plural(result.settings, "entry", "entries")
+    + ", " + std::fmt::int_to_str(result.errors)
+    + " " + plural(result.errors, "error", "errors")
+    + ", " + std::fmt::int_to_str(result.warnings)
+    + " " + plural(result.warnings, "warning", "warnings")
+    + verdict_suffix(result);
+};
+
+fun verdict_suffix(result: confkit::verdict::Tally): str = {
+    when(result.errors > 0) {
+        case(true) { return "  -> FAIL"; }
+        * {
+            when(result.warnings > 0) {
+                case(true) { return "  -> OK (with warnings)"; }
+                * { return "  -> OK"; }
+            }
+        }
+    }
+};
+
+fun[exp] run_summary(documents: int, failed: int): str = {
+    return "checked " + std::fmt::int_to_str(documents)
+    + " " + plural(documents, "document", "documents")
+    + ", " + std::fmt::int_to_str(failed)
+    + " with errors";
+};

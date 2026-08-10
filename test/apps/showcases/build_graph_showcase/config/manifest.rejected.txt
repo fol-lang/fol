@@ -1,0 +1,8 @@
+# a deliberately broken manifest, kept so the failure paths stay demonstrable:
+#   manifest-audit config/manifest.rejected.txt config/policy.txt
+
+folc:14832:stable
+libaudit.a:98304:stable
+docs.tar.gz:512:nightly
+:64:stable
+broken:notanumber:stable

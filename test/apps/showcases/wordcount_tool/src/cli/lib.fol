@@ -1,0 +1,103 @@
+// Command-line surface.
+//
+// A failed parse is not a separate control path: `parse` always returns one
+// `Options`, and a bad command line simply leaves `mode` empty and fills
+// `problem` with the text the caller should print. That keeps every exit
+// decision in `main`.
+
+use std: pkg = {"std"};
+
+typ[exp] Options: rec = {
+    var mode: str;
+    var pattern: str;
+    var path: str;
+    var out: str;
+    var limit: int;
+    var problem: str;
+};
+
+fun[exp] usage(): str = {
+    return "usage:\n"
+    + "  wordcount-tool count <file>\n"
+    + "  wordcount-tool head <count> <file>\n"
+    + "  wordcount-tool find <pattern> <file>\n"
+    + "  wordcount-tool report <pattern> <file> <out-file>\n";
+};
+
+fun[exp] failed(options: Options): bol = {
+    return options.problem != "";
+};
+
+fun[exp] rejected(reason: str): Options = {
+    return { mode = "", pattern = "", path = "", out = "", limit = 0, problem = reason };
+};
+
+fun[exp] parse(): Options = {
+    var count: int = std::os::arg_count();
+    when(count < 1) {
+        * { return rejected("no subcommand given"); }
+    }
+
+    var mode: str = std::os::arg(0);
+    when(mode) {
+        is("count") {
+            when(count != 2) {
+                * { return rejected("count takes exactly one file"); }
+            }
+            return {
+                mode = "count",
+                pattern = "",
+                path = std::os::arg(1),
+                out = "",
+                limit = 0,
+                problem = "",
+            };
+        }
+        is("head") {
+            when(count != 3) {
+                * { return rejected("head takes a line count and a file"); }
+            }
+            // 0 is the fallback because it is already an invalid count, so a
+            // non-numeric argument and an explicit "0" fail the same way.
+            var wanted: int = std::strn::to_int(std::os::arg(1), 0);
+            when(wanted < 1) {
+                * { return rejected("head needs a positive line count, got: " + std::os::arg(1)); }
+            }
+            return {
+                mode = "head",
+                pattern = "",
+                path = std::os::arg(2),
+                out = "",
+                limit = wanted,
+                problem = "",
+            };
+        }
+        is("find") {
+            when(count != 3) {
+                * { return rejected("find takes a pattern and a file"); }
+            }
+            return {
+                mode = "find",
+                pattern = std::os::arg(1),
+                path = std::os::arg(2),
+                out = "",
+                limit = 0,
+                problem = "",
+            };
+        }
+        is("report") {
+            when(count != 4) {
+                * { return rejected("report takes a pattern, an input file and an output file"); }
+            }
+            return {
+                mode = "report",
+                pattern = std::os::arg(1),
+                path = std::os::arg(2),
+                out = std::os::arg(3),
+                limit = 0,
+                problem = "",
+            };
+        }
+        * { return rejected("unknown subcommand: " + mode); }
+    }
+};

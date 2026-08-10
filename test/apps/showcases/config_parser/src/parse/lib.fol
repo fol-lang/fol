@@ -1,0 +1,184 @@
+// The parser proper.
+//
+// The grammar is the usual INI shape:
+//
+//     line    := blank | comment | section | pair
+//     comment := ('#' | ';') rest-of-line
+//     section := '[' name ']'
+//     pair    := name '=' value
+//     value   := bare-text | '"' quoted '"'
+//
+// Nothing is accumulated into a container -- FOL's containers are fixed size
+// and `.add(...)` is not implemented -- so the parser is a cursor walk that
+// hands each classified line back to the caller.
+
+use std: pkg = {"std"};
+use scan: loc = {"../scan"};
+use model: loc = {"../model"};
+
+// Classify the line beginning at `from`.
+fun[exp] parse_line(text: str, from: int): model::Line = {
+    var limit = .len(text);
+    var eol = scan::line_end(text, from);
+    var stop = eol + 1;
+    when(eol >= limit) {
+        case(true) { stop = limit; }
+        * { stop = eol + 1; }
+    };
+
+    var head = scan::skip_blank(text, from, eol);
+    var tail = scan::trim_end(text, head, eol);
+
+    when(head >= tail) {
+        case(true) { return model::make_line(model::kind_blank(), "", "", from, stop); }
+        * { }
+    };
+
+    var lead = std::strn::byte_at(text, head);
+    when((lead == scan::HASH) or (lead == scan::SEMI)) {
+        case(true) {
+            var body = scan::trimmed(text, head + 1, tail);
+            return model::make_line(model::kind_comment(), "", body, from, stop);
+        }
+        * { }
+    };
+
+    when(lead == scan::OPEN) {
+        case(true) { return parse_section(text, head, tail, from, stop); }
+        * { return parse_pair(text, head, tail, from, stop); }
+    }
+};
+
+// `[name]`, with the bracket already matched at `head`.
+fun parse_section(text: str, head: int, tail: int, from: int, stop: int): model::Line = {
+    var close = scan::index_of(text, head + 1, tail, scan::CLOSE);
+    when(close < 0) {
+        case(true) { return model::make_broken(model::fault_unclosed(), from, stop); }
+        * { }
+    };
+    var name = scan::trimmed(text, head + 1, close);
+    when(.len(name) == 0) {
+        case(true) { return model::make_broken(model::fault_empty_section(), from, stop); }
+        * { }
+    };
+    when(scan::name_run(name, 0, .len(name)) != .len(name)) {
+        case(true) { return model::make_broken(model::fault_bad_key(), from, stop); }
+        * { }
+    };
+    return model::make_line(model::kind_section(), name, "", from, stop);
+};
+
+// `key = value`, where the value may be bare or double quoted.
+fun parse_pair(text: str, head: int, tail: int, from: int, stop: int): model::Line = {
+    var split = scan::index_of(text, head, tail, scan::EQUALS);
+    when(split < 0) {
+        case(true) { return model::make_broken(model::fault_missing_equals(), from, stop); }
+        * { }
+    };
+
+    var key = scan::trimmed(text, head, split);
+    when(.len(key) == 0) {
+        case(true) { return model::make_broken(model::fault_empty_key(), from, stop); }
+        * { }
+    };
+    when(scan::name_run(key, 0, .len(key)) != .len(key)) {
+        case(true) { return model::make_broken(model::fault_bad_key(), from, stop); }
+        * { }
+    };
+
+    var value_start = scan::skip_blank(text, split + 1, tail);
+    when(value_start >= tail) {
+        case(true) { return model::make_line(model::kind_pair(), key, "", from, stop); }
+        * { }
+    };
+
+    when(std::strn::byte_at(text, value_start) == scan::QUOTE) {
+        case(true) {
+            var end = scan::index_of(text, value_start + 1, tail, scan::QUOTE);
+            when(end < 0) {
+                case(true) { return model::make_broken(model::fault_unterminated(), from, stop); }
+                * { }
+            };
+            var quoted = scan::slice(text, value_start + 1, end);
+            return model::make_line(model::kind_pair(), key, quoted, from, stop);
+        }
+        * { }
+    };
+
+    var bare = scan::slice(text, value_start, tail);
+    return model::make_line(model::kind_pair(), key, bare, from, stop);
+};
+
+// Recursive walk that returns the fault of the first bad line, or NONE.
+//
+// `open` is 1 once a section header has been seen; a key/value pair before any
+// header is an orphan.
+fun[exp] first_fault(text: str, from: int, open: int): int = {
+    when(from >= .len(text)) {
+        case(true) { return model::fault_none(); }
+        * { }
+    };
+    var line = parse_line(text, from);
+    when(line.kind) {
+        is(model::kind_broken()) { return line.fault; }
+        is(model::kind_section()) { return first_fault(text, line.stop, 1); }
+        is(model::kind_pair()) {
+            when(open == 0) {
+                case(true) { return model::fault_orphan_pair(); }
+                * { return first_fault(text, line.stop, open); }
+            }
+        }
+        * { return first_fault(text, line.stop, open); }
+    }
+};
+
+// A storable, nil-able failure shell: nil means the document parsed cleanly.
+fun[exp] validate(text: str): err[str] = {
+    var fault = first_fault(text, 0, 0);
+    when(fault == model::fault_none()) {
+        case(true) { return nil; }
+        * { return fault_text(fault); }
+    }
+};
+
+fun[exp] fault_text(fault: int): str = {
+    when(fault) {
+        is(model::fault_unclosed()) { return "section header is missing its ']'"; }
+        is(model::fault_empty_section()) { return "section header has an empty name"; }
+        is(model::fault_missing_equals()) { return "entry line has no '='"; }
+        is(model::fault_empty_key()) { return "entry line has an empty key"; }
+        is(model::fault_bad_key()) { return "name contains a character that is not a letter, digit, '_', '-' or '.'"; }
+        is(model::fault_unterminated()) { return "quoted value is missing its closing quote"; }
+        is(model::fault_orphan_pair()) { return "entry appears before any [section] header"; }
+        * { return "no fault"; }
+    }
+};
+
+// Look one key up inside one section. Fails with a message rather than
+// inventing a default, so callers must handle it with `check` or `||`.
+fun[exp] lookup(text: str, section: str, key: str): str / str = {
+    var found = seek(text, 0, "", section, key);
+    when(.len(found) == 0) {
+        case(true) { report "no such key"; }
+        * { return found; }
+    }
+};
+
+// Recursive descent over the lines, carrying the section currently in scope.
+fun seek(text: str, from: int, current: str, section: str, key: str): str = {
+    when(from >= .len(text)) {
+        case(true) { return ""; }
+        * { }
+    };
+    var line = parse_line(text, from);
+    when(line.kind) {
+        is(model::kind_section()) { return seek(text, line.stop, line.name, section, key); }
+        is(model::kind_pair()) {
+            when((current == section) and (line.name == key)) {
+                case(true) { return line.value; }
+                * { return seek(text, line.stop, current, section, key); }
+            }
+        }
+        * { return seek(text, line.stop, current, section, key); }
+    }
+};

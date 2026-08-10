@@ -1,0 +1,53 @@
+use std: pkg = {"std"};
+use store: loc = {"store"};
+use trace: loc = {"trace"};
+
+// A four-slot LRU in front of a "loader" that is deliberately expensive to
+// call, so the run prints which requests were served from memory and which had
+// to go back to the loader.
+//
+// The request loop is inlined here rather than living in a helper routine:
+// `[mut, bor]` is only accepted on a method receiver, so a free routine cannot
+// take the cache mutably.
+
+// Stands in for the expensive fetch a real cache would front.
+fun[] load(label: str): int = {
+    return .len(label) * 100 + std::strn::byte_at(label, 0);
+};
+
+fun[] main(): int = {
+    ~var book: store::Store = store::fresh();
+    var stream: vec[str] = {
+        "alpha", "beta", "gamma", "delta",
+        "alpha", "epsilon", "beta", "alpha",
+        "zeta", "gamma",
+    };
+
+    std::io::echo_str("capacity " + std::fmt::int_to_str(store::capacity()));
+
+    ~var index: int = 0;
+    loop(index < .len(stream)) {
+        var label: str = stream[index];
+        var got: opt[int] = [mut, bor]book.fetch(label);
+        when(got) {
+            on(value) {
+                trace::line("hit  " + label + "=" + std::fmt::int_to_str(value), store::render(book));
+            }
+            * {
+                [mut, bor]book.admit(label, load(label));
+                trace::line("load " + label, store::render(book));
+            }
+        };
+        index = index + 1;
+    };
+
+    trace::summary(book);
+
+    // "alpha" was touched three times, so it stays resident even though six
+    // distinct keys passed through a four-slot cache; "delta" was touched once
+    // and early, so it is gone.
+    std::io::echo_str("alpha at " + std::fmt::int_to_str(store::position(book, "alpha")));
+    std::io::echo_str("beta at " + std::fmt::int_to_str(store::position(book, "beta")));
+    std::io::echo_str("delta at " + std::fmt::int_to_str(store::position(book, "delta")));
+    return 0;
+};

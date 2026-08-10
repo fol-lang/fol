@@ -1,0 +1,93 @@
+use vector: loc = {"../vector"};
+
+// A 3x3 matrix is three named rows rather than a nested array, because the
+// record gives the rows stable names and keeps every access a plain field read.
+typ[exp] Square3: rec = {
+    r0: vector::Triple;
+    r1: vector::Triple;
+    r2: vector::Triple
+};
+
+fun[exp] identity(): Square3 = {
+    return {
+        r0 = { 1.0, 0.0, 0.0 },
+        r1 = { 0.0, 1.0, 0.0 },
+        r2 = { 0.0, 0.0, 1.0 },
+    };
+};
+
+fun[exp] from_rows(a: vector::Triple, b: vector::Triple, c: vector::Triple): Square3 = {
+    return { r0 = a, r1 = b, r2 = c };
+};
+
+// Row and column selection are the only two places that need index dispatch;
+// every other routine composes these.
+fun[exp] row(source: Square3, index: int): vector::Triple = {
+    when(index) {
+        is(0) { return source.r0; }
+        is(1) { return source.r1; }
+        * { return source.r2; }
+    }
+};
+
+fun[exp] column(source: Square3, index: int): vector::Triple = {
+    return { source.r0[index], source.r1[index], source.r2[index] };
+};
+
+fun[exp] add(left: Square3, right: Square3): Square3 = {
+    return {
+        r0 = vector::add(left.r0, right.r0),
+        r1 = vector::add(left.r1, right.r1),
+        r2 = vector::add(left.r2, right.r2),
+    };
+};
+
+fun[exp] scale(source: Square3, factor: flt): Square3 = {
+    return {
+        r0 = vector::scale(source.r0, factor),
+        r1 = vector::scale(source.r1, factor),
+        r2 = vector::scale(source.r2, factor),
+    };
+};
+
+// Every product entry is a row of the left operand dotted with a column of the
+// right operand.
+fun[exp] multiply(left: Square3, right: Square3): Square3 = {
+    var c0: vector::Triple = column(right, 0);
+    var c1: vector::Triple = column(right, 1);
+    var c2: vector::Triple = column(right, 2);
+    return {
+        r0 = { vector::dot(left.r0, c0), vector::dot(left.r0, c1), vector::dot(left.r0, c2) },
+        r1 = { vector::dot(left.r1, c0), vector::dot(left.r1, c1), vector::dot(left.r1, c2) },
+        r2 = { vector::dot(left.r2, c0), vector::dot(left.r2, c1), vector::dot(left.r2, c2) },
+    };
+};
+
+fun[exp] apply(source: Square3, point: vector::Triple): vector::Triple = {
+    return {
+        vector::dot(source.r0, point),
+        vector::dot(source.r1, point),
+        vector::dot(source.r2, point),
+    };
+};
+
+fun[exp] transpose(source: Square3): Square3 = {
+    return {
+        r0 = column(source, 0),
+        r1 = column(source, 1),
+        r2 = column(source, 2),
+    };
+};
+
+// Laplace expansion along the first row.
+fun[exp] determinant(source: Square3): flt = {
+    var minor_a: flt = (source.r1[1] * source.r2[2]) - (source.r1[2] * source.r2[1]);
+    var minor_b: flt = (source.r1[0] * source.r2[2]) - (source.r1[2] * source.r2[0]);
+    var minor_c: flt = (source.r1[0] * source.r2[1]) - (source.r1[1] * source.r2[0]);
+    return (source.r0[0] * minor_a) - (source.r0[1] * minor_b) + (source.r0[2] * minor_c);
+};
+
+// The trace doubles as a cheap sanity check on transpose, which must preserve it.
+fun[exp] trace(source: Square3): flt = {
+    return source.r0[0] + source.r1[1] + source.r2[2];
+};

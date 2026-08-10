@@ -1,0 +1,79 @@
+use std: pkg = {"std"};
+use confkit: loc = {"../../confkit/src"};
+use sample: loc = {"sample"};
+use render: loc = {"render"};
+
+// confcheck — check config documents against the confkit schema.
+//
+// The library answers questions about a document; this package decides what to
+// print and in what order. All three import aliases above are declared once for
+// the whole package: an alias is package-global, so the sibling namespaces
+// `sample` and `render` read `std` and `confkit` from here.
+//
+// `confkit` is reached with `loc` pointing into its `src` directory. confcheck
+// declares it properly as a `loc` dependency in build.fol, and the book says a
+// directory holding a build.fol should be imported with `pkg` — but a `pkg`
+// import only ever searches the package store, never a declared `loc`
+// dependency, so `use confkit: pkg = {"confkit"}` cannot resolve a sibling
+// workspace member. Reaching into `src` is the only spelling that links.
+
+// Walk one document, print every complaint, and fold the counters.
+fun check_document(document: str): confkit::verdict::Tally = {
+    var result: confkit::verdict::Tally = confkit::verdict::empty_tally();
+    var lines: int = confkit::line_count(document);
+    var i: int = 0;
+
+    loop(i < lines) {
+        var item: confkit::verdict::Finding = confkit::check_line(document, i);
+        when(confkit::verdict::is_complaint(item)) {
+            case(true) { std::io::echo_str(render::finding_line(item)); }
+            * { }
+        }
+        result = confkit::verdict::count_in(result, item);
+        i = i + 1;
+    }
+
+    // Missing required keys belong to the file, not to any line, so they are
+    // reported after the line-by-line pass.
+    var slot: int = 0;
+    loop(slot < confkit::schema::key_count()) {
+        var missing: confkit::verdict::Finding = confkit::check_required(document, slot);
+        when(confkit::verdict::is_complaint(missing)) {
+            case(true) { std::io::echo_str(render::document_finding_line(missing)); }
+            * { }
+        }
+        result = confkit::verdict::count_in(result, missing);
+        slot = slot + 1;
+    }
+
+    return confkit::verdict::with_settings(result, confkit::setting_count(document));
+};
+
+fun[] main(): int = {
+    std::io::echo_str("confcheck 0.1.0");
+    std::io::echo_str("");
+
+    var failed: int = 0;
+    var index: int = 0;
+    var documents: int = sample::count();
+
+    loop(index < documents) {
+        std::io::echo_str(sample::name_at(index));
+        var result: confkit::verdict::Tally = check_document(sample::document_at(index));
+        std::io::echo_str(render::tally_line(result));
+        std::io::echo_str("");
+
+        when(result.errors > 0) {
+            case(true) { failed = failed + 1; }
+            * { }
+        }
+        index = index + 1;
+    }
+
+    std::io::echo_str(render::run_summary(documents, failed));
+
+    // The run itself succeeded: every document was inspected and every finding
+    // printed. A CI wrapper that wants a failing status on lint errors reads
+    // the summary line rather than making the showcase exit nonzero.
+    return 0;
+};

@@ -1,0 +1,56 @@
+// The registry and the runner.
+//
+// A `Case` is a name plus a stored routine value of type `{fun (): bol}`. The
+// runner never knows what any case does: it pulls the routine out of the row,
+// calls it, and tallies the answer.
+
+use std: pkg = {"std"};
+use report: loc = {"../report"};
+
+typ[exp] Case: rec = {
+    name: str,
+    probe: {fun (): bol}
+};
+
+typ[exp] Suite: rec = {
+    title: str,
+    cases: seq[Case],
+    passed: int,
+    failed: int
+};
+
+// `case` is a reserved keyword (it opens a `when` arm), so the constructor is
+// spelled `entry`.
+fun[exp] entry(name: str, probe: {fun (): bol}): Case = {
+    return { name = name, probe = probe };
+};
+
+fun[exp] new_suite(title: str, cases: seq[Case]): Suite = {
+    return { title = title, cases = cases, passed = 0, failed = 0 };
+};
+
+pro[exp] (Suite[mut, bor])run(): non = {
+    std::io::echo_str(report::suite_header(self.title, .len(self.cases)));
+    var index: int = 0;
+    loop (index < .len(self.cases)) {
+        var entry: Case = self.cases[index];
+        std::io::echo_str(report::case_line(index, entry.name));
+        // `entry.probe()` is rejected -- the parser reads it as a method call
+        // on `Case` -- so the stored routine is bound to a local first. The
+        // field is named `probe` rather than `check`: `check` is the keyword
+        // intrinsic, and both the parser and the grammar treat it as one.
+        var probe: {fun (): bol} = entry.probe;
+        if (probe()) {
+            self.passed = self.passed + 1;
+        } else {
+            self.failed = self.failed + 1;
+        }
+        index = index + 1;
+    }
+    std::io::echo_str(report::summary_line(self.title, self.passed, self.failed));
+    return;
+};
+
+fun[exp] (Suite[bor])failed_count(): int = {
+    return self.failed;
+};

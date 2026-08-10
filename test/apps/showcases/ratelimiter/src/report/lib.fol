@@ -1,0 +1,34 @@
+// Report rendering.
+//
+// Wall-clock numbers are never printed: they differ on every run and on every
+// machine. Timings are reduced to a pass/fail band so the output can be
+// diffed, while the token accounting -- which really is deterministic -- is
+// printed in full.
+
+use std: pkg = {"std"};
+
+fun[exp] pad(value: int, width: int): str = {
+    var[mut] text: str = std::fmt::int_to_str(value);
+    loop (.len(text) < width) {
+        text = " " + text;
+    };
+    return text;
+};
+
+fun[exp] line(label: str, value: int): str = {
+    return label + " " + pad(value, 3) + "\n";
+};
+
+fun[exp] check(label: str, ok: bol): str = {
+    when (ok) {
+        case (true) { return label + " ok\n"; }
+        * { return label + " FAILED\n"; }
+    }
+};
+
+fun[exp] round_header(name: str, tasks: int, attempts: int): str = {
+    var head: str = "round " + name + ": ";
+    var crowd: str = std::fmt::int_to_str(tasks) + " tasks x ";
+    var tries: str = std::fmt::int_to_str(attempts) + " attempts\n";
+    return head + crowd + tries;
+};

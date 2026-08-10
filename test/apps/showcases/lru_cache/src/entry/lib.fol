@@ -1,0 +1,30 @@
+// One cache slot.
+//
+// `live` marks a slot that has ever been filled. A fresh cache is four dead
+// slots rather than an empty container, because a `vec` in V3 cannot grow
+// after it is built: the only way to change one is to rebuild it whole.
+
+typ[exp] Slot: rec = {
+    label: str,
+    payload: int,
+    live: bol,
+};
+
+fun[exp] empty(): Slot = {
+    return { label = "", payload = 0, live = false };
+};
+
+fun[exp] filled(label: str, payload: int): Slot = {
+    return { label = label, payload = payload, live = true };
+};
+
+fun[exp] matches(slot: Slot, label: str): bol = {
+    return slot.live and (slot.label == label);
+};
+
+fun[exp] render(slot: Slot): str = {
+    when(slot.live) {
+        case(true) { return slot.label; }
+        * { return "-"; }
+    }
+};

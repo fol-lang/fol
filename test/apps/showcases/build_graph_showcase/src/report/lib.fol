@@ -1,0 +1,51 @@
+// Terminal rendering for the audit run. Kept apart from the rules in
+// `common/` so the same core can be reported on differently later.
+
+use core: loc = {"../../common"};
+
+fun[exp] rule_summary(rules: core::Policy): str = {
+    var size: str = "policy: max_bytes=" + std::fmt::int_to_str(rules.max_bytes);
+    var chan: str = " channel=" + rules.channel;
+    var least: str = " min_entries=" + std::fmt::int_to_str(rules.min_entries);
+    return size + chan + least;
+};
+
+// Human-readable reason for each violation bit present in the verdict.
+fun[exp] fault_text(faults: int): str = {
+    var text: str = "";
+    when(.eq(faults % 2, 1)) {
+        case(true) { text = text + " oversize"; }
+        * { text = text; }
+    };
+    when(.eq((faults / 2) % 2, 1)) {
+        case(true) { text = text + " wrong-channel"; }
+        * { text = text; }
+    };
+    when(.eq((faults / 4) % 2, 1)) {
+        case(true) { text = text + " unnamed"; }
+        * { text = text; }
+    };
+    when(.eq((faults / 8) % 2, 1)) {
+        case(true) { text = text + " malformed-size"; }
+        * { text = text; }
+    };
+    return text;
+};
+
+fun[exp] entry_line(entry: core::Entry, faults: int): str = {
+    var mark: str = "  ok  ";
+    when(core::is_clean(faults)) {
+        case(true) { mark = "  ok  "; }
+        * { mark = " FAIL "; }
+    };
+    var size: str = " (" + std::fmt::int_to_str(entry.size) + " bytes, ";
+    var chan: str = entry.channel + ")";
+    return mark + entry.name + size + chan + fault_text(faults);
+};
+
+fun[exp] verdict_line(checked: int, failures: int, digest: int): str = {
+    var seen: str = "checked=" + std::fmt::int_to_str(checked);
+    var bad: str = " failures=" + std::fmt::int_to_str(failures);
+    var sum: str = " digest=" + std::fmt::int_to_str(digest);
+    return seen + bad + sum;
+};

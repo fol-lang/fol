@@ -1,0 +1,145 @@
+// cutsheet -- plan a small sheet-metal job.
+//
+// Three drawn parts are measured through one constrained generic routine, then
+// re-measured as they will actually be produced: shrunk by the blade kerf. A
+// separate oversize order runs one part through a generic scale wrapper and a
+// composed pair of routine values. The tool prints the drawing, the production
+// sheet, the job totals and the stock order derived from them.
+
+use std: pkg = {"std"};
+use shape: loc = {"shape"};
+use transform: loc = {"transform"};
+use collection: loc = {"collection"};
+use checks: loc = {"checks"};
+
+// The job: one lid, one gasket, one bracket.
+fun[] lid(): shape::Rect = {
+    return { w = 300.0, h = 200.0, cuts = 0 };
+};
+
+fun[] gasket(): shape::Circle = {
+    return { r = 50.0 };
+};
+
+fun[] bracket(): shape::Tri = {
+    return { base = 120.0, leg = 100.0 };
+};
+
+fun[] banner(title: str): non = {
+    std::io::echo_str("");
+    std::io::echo_str(title);
+    return;
+};
+
+// Each drawn part is measured through the same generic routine; the constraint
+// picks each type's own `measure` at monomorphisation time.
+fun[] drawing(): collection::Trio[shape::Metrics] = {
+    return {
+        one = shape::measure_of(lid()),
+        two = shape::measure_of(gasket()),
+        three = shape::measure_of(bracket()),
+    };
+};
+
+// The same three parts as they leave the machine. Each is wrapped in the
+// generic `Kerfed[T]` container, which knows how to re-measure whatever
+// conformer it holds.
+fun[] produced(): collection::Trio[shape::Metrics] = {
+    var cut_lid: transform::Kerfed[shape::Rect] = { inner = lid(), kerf = 0.8 };
+    var cut_gasket: transform::Kerfed[shape::Circle] = { inner = gasket(), kerf = 0.8 };
+    var cut_bracket: transform::Kerfed[shape::Tri] = { inner = bracket(), kerf = 0.8 };
+    return {
+        one = cut_lid.measured(),
+        two = cut_gasket.measured(),
+        three = cut_bracket.measured(),
+    };
+};
+
+fun[] show_trio(trio: collection::Trio[shape::Metrics]): non = {
+    // A routine value turns each measurement into its printed row; `map_trio`
+    // applies it slot by slot and hands back a `Trio[str]`.
+    var as_row: {fun (item: shape::Metrics): str} = fun(item: shape::Metrics)[]: str = {
+        return shape::row(item, shape::compactness(item));
+    };
+    var rows: collection::Trio[str] = collection::map_trio(trio, as_row);
+    std::io::echo_str(rows.one);
+    std::io::echo_str(rows.two);
+    std::io::echo_str(rows.three);
+    return;
+};
+
+// `cutsheet check` runs the self-checks instead of printing the sheet.
+fun[] wants_check(): bol = {
+    var index: int = 0;
+    var count: int = std::os::arg_count();
+    loop (index < count) {
+        when(.eq(std::os::arg(index), "check")) {
+            case(true) { return true; }
+            * { }
+        }
+        index = index + 1;
+    }
+    return false;
+};
+
+fun[] main(): int = {
+    when(wants_check()) {
+        case(true) { return checks::run_all(); }
+        * { }
+    }
+
+    std::io::echo_str("cutsheet :: 3 parts");
+
+    banner("drawing");
+    show_trio(drawing());
+
+    banner("production (0.8mm kerf)");
+    var made: collection::Trio[shape::Metrics] = produced();
+    show_trio(made);
+
+    banner("job totals");
+    var sheet: vec[shape::Metrics] = { made.one, made.two, made.three };
+    var total: collection::Tally = collection::summarize(sheet);
+    std::io::echo_str(collection::tally_row(total));
+
+    // One spare lid is ordered oversize. `Scaled[T]` re-measures the part at
+    // 1.5x, then a composed routine value adds a welding allowance and retags
+    // the row -- both steps are ordinary values passed to a generic routine.
+    banner("spare, oversize");
+    var spare: transform::Scaled[shape::Rect] = { inner = lid(), factor = 1.5 };
+    var pad: transform::Tweak = transform::allowance(3.0);
+    var tag: transform::Tweak = transform::rename("spare");
+    var finish: transform::Tweak = transform::chain(pad, tag);
+    var spare_row: shape::Metrics = finish(spare.measured());
+    std::io::echo_str(shape::row(spare_row, shape::compactness(spare_row)));
+
+    // A generic pair carries the stock order: a label beside the measurement it
+    // was computed from. `fold_pair` collapses both slots with a routine value.
+    banner("stock order");
+    var order: collection::Pair[str, shape::Metrics] = {
+        left = "sheet-3mm",
+        right = { name = "stock", area = total.area * 1.15, perim = total.perim },
+    };
+    var line: {fun (left: str, right: shape::Metrics): str} = fun(left: str, right: shape::Metrics)[]: str = {
+        var area: str = std::fmt::float_to_str(right.area, 2);
+        return "  " + left + "   order " + area + " mm2 (15% offcut)";
+    };
+    std::io::echo_str(collection::fold_pair(order, line));
+
+    // Flipping a generic pair swaps both the slots and the container's own type
+    // arguments: Pair[str, int] becomes Pair[int, str].
+    var run: collection::Pair[str, int] = { left = "batch", right = 12 };
+    var flipped: collection::Pair[int, str] = run.flip();
+    var count: str = std::fmt::int_to_str(flipped.first());
+    std::io::echo_str("  " + flipped.second() + " x " + count);
+
+    // Cloning a rectangle is a shop operation: the custom `clone` override
+    // records that the duplicate needed one more cut than its original.
+    banner("duplicate lid");
+    var original: shape::Rect = lid();
+    var copy: shape::Rect = [cln]original;
+    var again: shape::Rect = [cln]copy;
+    var cuts: str = std::fmt::int_to_str(again.cuts);
+    std::io::echo_str("  cuts after two duplicates: " + cuts);
+    return 0;
+};

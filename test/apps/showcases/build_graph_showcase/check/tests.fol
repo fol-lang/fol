@@ -1,0 +1,85 @@
+// Test artifact for the audit core, run by `fol code test`.
+//
+// `tst` blocks are not part of the current compiler surface, so this is an
+// ordinary entry point: it returns 0 when every expectation held and 1
+// otherwise, which is what the frontend reports as the test result.
+
+use std: pkg = {"std"};
+use core: loc = {"../common"};
+
+// Compare one integer expectation and report the mismatch inline.
+fun[] expect(label: str, actual: int, wanted: int): int = {
+    when(.eq(actual, wanted)) {
+        case(true) {
+            std::io::echo_str("  ok  " + label);
+            return 0;
+        }
+        * {
+            var got: str = " (got " + std::fmt::int_to_str(actual);
+            var want: str = ", wanted " + std::fmt::int_to_str(wanted) + ")";
+            std::io::echo_str(" FAIL " + label + got + want);
+            return 1;
+        }
+    }
+};
+
+fun[] rules(): core::Policy = {
+    return { max_bytes = 1000, channel = "stable", min_entries = 1 };
+};
+
+fun[] fault_of(line: str): int = {
+    return core::verdict(core::parse_entry(line), rules());
+};
+
+fun[] main(): int = {
+    var bad: int = 0;
+
+    // Field splitting underpins every other rule.
+    var middle: int = .parse_int(core::text::field("a:12:c", ":", 1), -1);
+    bad = bad + expect("field picks the middle column", middle, 12);
+    bad = bad + expect("field past the end is empty", .len(core::text::field("a:b", ":", 9)), 0);
+    bad = bad + expect("count counts fields not separators", core::text::count("a,b,c", ","), 3);
+    bad = bad + expect("trim strips both ends", .len(core::text::trim("  ok  ")), 2);
+
+    // Comment and blank lines must never reach the rules.
+    bad = bad + expect("comments are not data", counted("# note"), 0);
+    bad = bad + expect("blank lines are not data", counted("   "), 0);
+    bad = bad + expect("entries are data", counted("a:1:stable"), 1);
+
+    // Each violation maps to its own bit, and clean entries to none.
+    bad = bad + expect("clean entry has no faults", fault_of("app:10:stable"), 0);
+    bad = bad + expect("oversize entry", fault_of("app:5000:stable"), 1);
+    bad = bad + expect("wrong channel", fault_of("app:10:nightly"), 2);
+    bad = bad + expect("unnamed entry", fault_of(":10:stable"), 4);
+    bad = bad + expect("malformed size", fault_of("app:zzz:stable"), 8);
+    bad = bad + expect("faults combine", fault_of(":5000:nightly"), 7);
+
+    // Policy parsing ignores unknown keys and keeps declared defaults.
+    var parsed: core::Policy = core::parse_policy("max_bytes = 4\nunknown = 9\nchannel = beta\n");
+    bad = bad + expect("policy reads max_bytes", parsed.max_bytes, 4);
+    var fallback: core::Policy = core::default_policy();
+    bad = bad + expect("policy keeps min_entries default", parsed.min_entries, fallback.min_entries);
+
+    // An absent or empty policy file leaves every default in place.
+    var empty: core::Policy = core::parse_policy("");
+    bad = bad + expect("empty policy keeps max_bytes default", empty.max_bytes, fallback.max_bytes);
+
+    when(.eq(bad, 0)) {
+        case(true) {
+            std::io::echo_str("all expectations held");
+            return 0;
+        }
+        * {
+            std::io::echo_str(std::fmt::int_to_str(bad) + " expectation(s) failed");
+            return 1;
+        }
+    }
+};
+
+// 1 when the line carries manifest data.
+fun[] counted(line: str): int = {
+    when(core::is_data(line)) {
+        case(true) { return 1; }
+        * { return 0; }
+    }
+};

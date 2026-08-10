@@ -1,0 +1,90 @@
+// The worker namespace is the processing stage. A worker owns no shared state:
+// it is handed two sender endpoints, walks its own shard of the queue, and
+// emits results on one channel and alerts on the other.
+
+use queue: loc = {"../queue"};
+
+typ[exp] Report: rec = {
+    slot: int,
+    id: int,
+    cost: int,
+};
+
+// One unit of work: evaluate the job and stamp the result with the worker slot
+// that produced it.
+fun[exp] process(job: queue::Job, slot: int): Report = {
+    return { slot = slot, id = job.id, cost = queue::cost_of(job) };
+};
+
+// Hand one report to the coordinator. A send yields a must-handle `err[T]`
+// whose present branch owns the payload nobody will ever receive, so a `false`
+// result means the coordinator has already gone away.
+fun[exp] deliver(results: chn[tx, Report], report: Report): bol = {
+    var[mut] accepted: bol = true;
+    var sent: err[Report] = report | results;
+    when (sent) {
+        on (unsent) {
+            accepted = false;
+        }
+        * {
+            accepted = true;
+        }
+    };
+    return accepted;
+};
+
+// Raise an alert for an expensive job, and report whether one was sent.
+fun[exp] raise_alert(alerts: chn[tx, int], id: int, cost: int): int = {
+    var[mut] raised: int = 0;
+    when (cost > queue::alert_threshold()) {
+        * {
+            var flagged: err[int] = id | alerts;
+            raised = 1;
+        }
+    };
+    return raised;
+};
+
+// The task body. `results` and `alerts` are first-class `chn[tx, T]` sender
+// endpoints, so the worker never sees the channels themselves and can never
+// receive from them. Both endpoints drop when this routine returns, which is
+// what eventually closes the channels for the coordinator.
+//
+// Returns the number of alerts this shard raised. A bare spawn discards that
+// value; it exists so the shard is still meaningful when called synchronously.
+fun[exp] run_shard(
+    results: chn[tx, Report],
+    alerts: chn[tx, int],
+    progress: mux[queue::Progress],
+    slot: int,
+    slots: int,
+): int = {
+    var[mut] index: int = 0;
+    var[mut] raised: int = 0;
+    var count: int = queue::total_jobs();
+    loop (index < count) {
+        when (queue::owns(index, slot, slots)) {
+            * {
+                // Every shard bumps the same guarded counter from its own thread.
+                var claimed: int = queue::take(progress);
+                var report: Report = process(queue::job_at(index), slot);
+                var cost: int = report.cost;
+                var id: int = report.id;
+                var accepted: bol = deliver(results, report);
+                when (accepted) {
+                    * {
+                        raised = raised + raise_alert(alerts, id, cost);
+                    }
+                };
+                // Nobody is receiving any more: abandon the rest of the shard.
+                when (accepted == false) {
+                    * {
+                        index = count;
+                    }
+                };
+            }
+        };
+        index = index + 1;
+    };
+    return raised;
+};

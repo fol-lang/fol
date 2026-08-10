@@ -1,0 +1,54 @@
+// Node type for the dependency web.
+//
+// A `Task` owns its outgoing edges as `ptr[shared, Task]`, so two dependents
+// can name the same dependency without duplicating it. `base` is a
+// `ptr[weak, Task]` observer of the toolchain root: every task observes it, so
+// a strong edge there would pin the root from every corner of the web. The
+// weak handle keeps ownership acyclic and still lets a walker revive the root
+// with `[upg]`.
+
+typ[exp] Task: rec = {
+    name: str,
+    cost: int,
+    deps: vec[ptr[shared, Task]],
+    base: opt ptr[weak, Task],
+};
+
+// Handle type used everywhere a task is referred to rather than owned.
+typ[exp] Handle: rec = {
+    cell: ptr[shared, Task],
+};
+
+fun[exp] task_name(handle: Handle): str = {
+    return ([drf](handle.cell)).name;
+};
+
+fun[exp] task_cost(handle: Handle): int = {
+    return ([drf](handle.cell)).cost;
+};
+
+fun[exp] dep_count(handle: Handle): int = {
+    return .len(([drf](handle.cell)).deps);
+};
+
+fun[exp] dep_at(handle: Handle, index: int): Handle = {
+    return { cell = ([drf](handle.cell)).deps[index] };
+};
+
+// Upgrades a weak observer. `nil` means the observed allocation is already
+// gone, which is the whole point of a weak edge.
+fun[exp] revive_name(observer: ptr[weak, Task]): str = {
+    var revived: opt[ptr[shared, Task]] = [upg]observer;
+    when(revived) {
+        on(alive) { return ([drf]alive).name; }
+        * { return "<collected>"; }
+    }
+};
+
+fun[exp] base_name(handle: Handle): str = {
+    var slot: opt ptr[weak, Task] = ([drf](handle.cell)).base;
+    when(slot) {
+        on(observer) { return revive_name(observer); }
+        * { return "<none>"; }
+    }
+};

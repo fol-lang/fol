@@ -1,0 +1,102 @@
+// Assertions.
+//
+// `holds` is the only assertion that does real work and it is generic over the
+// compared type. FOL generics carry no equality or display bound -- `left ==
+// right` on a bare `T` is rejected -- so the comparison arrives as a routine
+// value. A "judge" answers with an empty string when the two values agree and
+// with a complaint when they do not.
+//
+// Folding the verdict and the message into one routine is not just taste: a
+// generic-typed binding may be read exactly once inside a generic routine, so
+// an `equals(actual, expected, same, show)` shape that consults `actual` for
+// the verdict and again for the message renders the second read as a zero
+// value. One judge call touches each binding once.
+
+use std: pkg = {"std"};
+use report: loc = {"../report"};
+
+fun[exp] judge_int(actual: int, expected: int): str = {
+    if (actual == expected) {
+        return "";
+    }
+    return "expected " + std::fmt::int_to_str(expected)
+    + ", got " + std::fmt::int_to_str(actual);
+};
+
+fun[exp] judge_str(actual: str, expected: str): str = {
+    if (actual == expected) {
+        return "";
+    }
+    return "expected '" + expected + "', got '" + actual + "'";
+};
+
+fun[exp] judge_bol(actual: bol, expected: bol): str = {
+    if (actual == expected) {
+        return "";
+    }
+    if (expected) {
+        return "expected true, got false";
+    }
+    return "expected false, got true";
+};
+
+// The generic core: passes when the judge has nothing to complain about.
+fun[exp] holds(T)(label: str, actual: T, expected: T,
+judge: {fun (left: T, right: T): str}): bol = {
+    var complaint: str = judge(actual, expected);
+    if (complaint == "") {
+        std::io::echo_str(report::pass_line(label));
+        return true;
+    }
+    std::io::echo_str(report::fail_line(label, complaint));
+    return false;
+};
+
+// The mirror image: passes when the judge does complain. The harness uses it to
+// prove its own failure path fires without failing the run.
+fun[exp] rejects(T)(label: str, actual: T, expected: T,
+judge: {fun (left: T, right: T): str}): bol = {
+    var complaint: str = judge(actual, expected);
+    if (complaint == "") {
+        std::io::echo_str(report::fail_line(label, "expected a mismatch, found none"));
+        return false;
+    }
+    std::io::echo_str(report::refute_line(label, complaint));
+    return true;
+};
+
+fun[exp] int_holds(label: str, actual: int, expected: int): bol = {
+    return holds(label, actual, expected, judge_int);
+};
+
+fun[exp] str_holds(label: str, actual: str, expected: str): bol = {
+    return holds(label, actual, expected, judge_str);
+};
+
+fun[exp] bol_holds(label: str, actual: bol, expected: bol): bol = {
+    return holds(label, actual, expected, judge_bol);
+};
+
+fun[exp] int_rejects(label: str, actual: int, expected: int): bol = {
+    return rejects(label, actual, expected, judge_int);
+};
+
+// A tolerant judge built on the fly: the tolerance is copied into the routine
+// value's environment and the result is handed to the same generic assertion.
+// Different notion of equal, same machinery.
+fun[exp] near(label: str, actual: int, expected: int, tolerance: int): bol = {
+    var close: {fun (left: int, right: int): str} =
+    fun(left: int, right: int)[tolerance[cpy]]: str = {
+        var gap: int = left - right;
+        if (gap < 0) {
+            gap = 0 - gap;
+        }
+        if (gap <= tolerance) {
+            return "";
+        }
+        return "expected within " + std::fmt::int_to_str(tolerance)
+        + " of " + std::fmt::int_to_str(right)
+        + ", got " + std::fmt::int_to_str(left);
+    };
+    return holds(label, actual, expected, close);
+};

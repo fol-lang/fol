@@ -1,0 +1,173 @@
+// Recursive-descent evaluation.
+//
+//     expr  := term (('+' | '-') term)*
+//     term  := unary (('*' | '/' | '%') unary)*
+//     unary := '-' unary | atom
+//     atom  := NUMBER | '(' expr ')'
+//
+// Every level returns a `Step`: the value it produced, the offset to continue
+// from, and a fault code. Faults ride along in the record rather than through
+// `report`, because a `/ E` result cannot be handed up through a nested call.
+
+use token: loc = {"../token"};
+use lexer: loc = {"../lexer"};
+
+typ[exp] Fault: ent = {
+    con NONE: int = 0;
+    con WANT_NUMBER: int = 1;
+    con WANT_CLOSE: int = 2;
+    con TRAILING: int = 3;
+    con DIVIDE_BY_ZERO: int = 4;
+    con BAD_CHAR: int = 5;
+};
+
+fun[exp] fault_none(): int = { var value: int = Fault.NONE; return value; };
+fun[exp] fault_want_number(): int = { var value: int = Fault.WANT_NUMBER; return value; };
+fun[exp] fault_want_close(): int = { var value: int = Fault.WANT_CLOSE; return value; };
+fun[exp] fault_trailing(): int = { var value: int = Fault.TRAILING; return value; };
+fun[exp] fault_divide_by_zero(): int = { var value: int = Fault.DIVIDE_BY_ZERO; return value; };
+fun[exp] fault_bad_char(): int = { var value: int = Fault.BAD_CHAR; return value; };
+
+typ[exp] Step: rec = {
+    var value: int;
+    var next: int;
+    var fault: int;
+    var begin: int;
+};
+
+fun ok(value: int, next: int): Step = {
+    var built: Step = { value = value, next = next, fault = 0, begin = 0 };
+    return built;
+};
+
+fun bad(fault: int, begin: int): Step = {
+    var built: Step = { value = 0, next = begin, fault = fault, begin = begin };
+    return built;
+};
+
+// Evaluate a whole expression and insist the input is fully consumed.
+fun[exp] run(text: str): Step = {
+    var whole = expr(text, 0);
+    when(whole.fault != fault_none()) {
+        case(true) { return whole; }
+        * { }
+    };
+    var rest = lexer::next_token(text, whole.next);
+    when(rest.kind) {
+        is(token::end()) { return whole; }
+        is(token::junk()) { return bad(fault_bad_char(), rest.begin); }
+        * { return bad(fault_trailing(), rest.begin); }
+    }
+};
+
+// Left-associative `+` / `-`.
+fun[exp] expr(text: str, from: int): Step = {
+    var left = term(text, from);
+    when(left.fault != fault_none()) {
+        case(true) { return left; }
+        * { }
+    };
+    return expr_tail(text, left);
+};
+
+fun expr_tail(text: str, left: Step): Step = {
+    var sign = lexer::next_token(text, left.next);
+    when(token::is_additive(sign.kind)) {
+        case(false) { return left; }
+        * { }
+    };
+    var right = term(text, sign.stop);
+    when(right.fault != fault_none()) {
+        case(true) { return right; }
+        * { }
+    };
+    var folded = ok(0, right.next);
+    when(sign.kind) {
+        is(token::plus()) { folded = ok(left.value + right.value, right.next); }
+        * { folded = ok(left.value - right.value, right.next); }
+    };
+    return expr_tail(text, folded);
+};
+
+// Left-associative `*` / `/` / `%`.
+fun[exp] term(text: str, from: int): Step = {
+    var left = unary(text, from);
+    when(left.fault != fault_none()) {
+        case(true) { return left; }
+        * { }
+    };
+    return term_tail(text, left);
+};
+
+fun term_tail(text: str, left: Step): Step = {
+    var sign = lexer::next_token(text, left.next);
+    when(token::is_multiplicative(sign.kind)) {
+        case(false) { return left; }
+        * { }
+    };
+    var right = unary(text, sign.stop);
+    when(right.fault != fault_none()) {
+        case(true) { return right; }
+        * { }
+    };
+    when((right.value == 0) and (sign.kind != token::star())) {
+        case(true) { return bad(fault_divide_by_zero(), sign.begin); }
+        * { }
+    };
+    var folded = ok(0, right.next);
+    when(sign.kind) {
+        is(token::star()) { folded = ok(left.value * right.value, right.next); }
+        is(token::slash()) { folded = ok(left.value / right.value, right.next); }
+        * { folded = ok(left.value % right.value, right.next); }
+    };
+    return term_tail(text, folded);
+};
+
+// Right-associative prefix `-`, so `--3` is `3`.
+fun[exp] unary(text: str, from: int): Step = {
+    var lead = lexer::next_token(text, from);
+    when(lead.kind == token::minus()) {
+        case(false) { return atom(text, from); }
+        * { }
+    };
+    var inner = unary(text, lead.stop);
+    when(inner.fault != fault_none()) {
+        case(true) { return inner; }
+        * { }
+    };
+    return ok(0 - inner.value, inner.next);
+};
+
+fun[exp] atom(text: str, from: int): Step = {
+    var lead = lexer::next_token(text, from);
+    when(lead.kind) {
+        is(token::number()) { return ok(lead.value, lead.stop); }
+        is(token::open()) { return grouped(text, lead.stop); }
+        is(token::junk()) { return bad(fault_bad_char(), lead.begin); }
+        * { return bad(fault_want_number(), lead.begin); }
+    }
+};
+
+fun grouped(text: str, from: int): Step = {
+    var inner = expr(text, from);
+    when(inner.fault != fault_none()) {
+        case(true) { return inner; }
+        * { }
+    };
+    var tail = lexer::next_token(text, inner.next);
+    when(tail.kind == token::close()) {
+        case(true) { return ok(inner.value, tail.stop); }
+        * { return bad(fault_want_close(), tail.begin); }
+    }
+};
+
+fun[exp] fault_text(fault: int): str = {
+    when(fault) {
+        is(fault_want_number()) { return "expected a number or '('"; }
+        is(fault_want_close()) { return "expected ')'"; }
+        is(fault_trailing()) { return "unexpected text after the expression"; }
+        is(fault_divide_by_zero()) { return "division by zero"; }
+        is(fault_bad_char()) { return "character is not part of the expression language"; }
+        * { return "no fault"; }
+    }
+};

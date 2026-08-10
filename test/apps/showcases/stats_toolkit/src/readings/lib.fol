@@ -1,0 +1,57 @@
+// Daily rainfall in millimetres for one observation month, plus the number of
+// sensor samples behind each reading.
+//
+// The sample counts stay in `int` and the rainfall stays in `flt`. FOL has no
+// int/flt conversion, so a data set that needs both has to carry both.
+
+fun[exp] rainfall(): vec[flt] = {
+    return {
+        12.4, 0.0, 3.2, 18.9, 7.5, 0.0,
+        22.1, 4.8, 9.6, 0.0, 15.3, 6.0,
+    };
+};
+
+fun[exp] samples(): vec[int] = {
+    return { 24, 24, 23, 24, 22, 24, 24, 21, 24, 24, 20, 24 };
+};
+
+fun[exp] day_count(): int = {
+    return .len(rainfall());
+};
+
+// Same count as a float, built by counting rather than converting.
+fun[exp] day_count_as_float(): flt = {
+    var total: flt = 0.0;
+    loop(value in rainfall()) {
+        total = total + 1.0;
+    }
+    return total;
+};
+
+// Bucket names used by the histogram; a map keeps the label table separate
+// from the bucket arithmetic.
+fun[exp] bucket_names(): map[int, str] = {
+    return {
+        {0, "dry        (0.0 -  5.0)"},
+        {1, "light      (5.0 - 10.0)"},
+        {2, "moderate  (10.0 - 15.0)"},
+        {3, "heavy     (15.0 - 20.0)"},
+        {4, "storm     (20.0 +    )"},
+    };
+};
+
+fun[exp] bucket_count(): int = {
+    return .len(bucket_names());
+};
+
+// Lower edge of a bucket, in millimetres. Bucket 0 starts at zero and every
+// bucket is five millimetres wide.
+fun[exp] bucket_floor(index: int): flt = {
+    var edge: flt = 0.0;
+    var step: int = 0;
+    loop(step < index) {
+        edge = edge + 5.0;
+        step = step + 1;
+    }
+    return edge;
+};

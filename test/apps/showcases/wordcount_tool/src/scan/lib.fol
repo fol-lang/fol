@@ -1,0 +1,126 @@
+// Text scanning: byte-level counting and line addressing.
+//
+// Everything here works on one immutable `str` and re-walks it on demand
+// instead of building a list of lines, because the container surface has no
+// growable append yet.
+
+use std: pkg = {"std"};
+
+typ[exp] Tally: rec = {
+    var lines: int;
+    var words: int;
+    var bytes: int;
+};
+
+// Space, tab, newline and carriage return: the separators a word count cares
+// about.
+fun[exp] is_space(code: int): bol = {
+    return (code == 32) or (code == 9) or (code == 10) or (code == 13);
+};
+
+// Lines are newline-terminated, and a final fragment without its newline still
+// counts. That is why this is not simply "the number of newline bytes".
+fun[exp] line_count(text: str): int = {
+    var total: int = .len(text);
+    when(total == 0) {
+        * { return 0; }
+    }
+    var[mut] index: int = 0;
+    var[mut] lines: int = 0;
+    loop(index < total) {
+        when(std::strn::byte_at(text, index) == 10) {
+            * { lines = lines + 1; }
+        }
+        index = index + 1;
+    };
+    when(std::strn::byte_at(text, total - 1) != 10) {
+        * { lines = lines + 1; }
+    }
+    return lines;
+};
+
+// A word is a maximal run of non-separator bytes, counted by its leading edge.
+fun[exp] word_count(text: str): int = {
+    var total: int = .len(text);
+    var[mut] index: int = 0;
+    var[mut] words: int = 0;
+    var[mut] inside: bol = false;
+    loop(index < total) {
+        var space: bol = is_space(std::strn::byte_at(text, index));
+        when(space) {
+            case(true) { inside = false; }
+            * {
+                when(not inside) {
+                    * { words = words + 1; }
+                }
+                inside = true;
+            }
+        }
+        index = index + 1;
+    };
+    return words;
+};
+
+fun[exp] tally(text: str): Tally = {
+    return {
+        lines = line_count(text),
+        words = word_count(text),
+        bytes = .len(text),
+    };
+};
+
+// CRLF input would otherwise leave a stray carriage return inside every
+// reported line.
+fun[exp] trim_cr(line: str): str = {
+    var size: int = .len(line);
+    when(size == 0) {
+        * { return line; }
+    }
+    when(std::strn::byte_at(line, size - 1) == 13) {
+        * { return std::strn::sub(line, 0, size - 1); }
+    }
+    return line;
+};
+
+// The `wanted`-th line (zero based) without its terminator, or "" past the end.
+fun[exp] line_at(text: str, wanted: int): str = {
+    var total: int = .len(text);
+    var[mut] index: int = 0;
+    var[mut] line: int = 0;
+    var[mut] start: int = 0;
+    loop(index < total) {
+        when(std::strn::byte_at(text, index) == 10) {
+            * {
+                when(line == wanted) {
+                    * { return trim_cr(std::strn::sub(text, start, index - start)); }
+                }
+                line = line + 1;
+                start = index + 1;
+            }
+        }
+        index = index + 1;
+    };
+    when(line == wanted) {
+        * { return trim_cr(std::strn::sub(text, start, total - start)); }
+    }
+    return "";
+};
+
+fun[exp] contains(line: str, needle: str): bol = {
+    return std::strn::find(line, needle) >= 0;
+};
+
+// How many lines contain the needle. Callers that also want the text walk the
+// lines themselves with `line_at`.
+fun[exp] match_count(text: str, needle: str): int = {
+    var lines: int = line_count(text);
+    var[mut] index: int = 0;
+    var[mut] hits: int = 0;
+    loop(index < lines) {
+        when(contains(line_at(text, index), needle)) {
+            * { hits = hits + 1; }
+        }
+        index = index + 1;
+    };
+    return hits;
+};

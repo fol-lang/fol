@@ -1,0 +1,64 @@
+use readings: loc = {"../readings"};
+
+// Bucket membership is decided by comparing against the bucket edges directly.
+// Computing an index as `(value - floor) / width` would need a flt-to-int
+// conversion, which the language does not offer, so the comparison form is the
+// only one available.
+fun[exp] in_bucket(value: flt, index: int, last: int): bol = {
+    var low: flt = readings::bucket_floor(index);
+    var high: flt = low + 5.0;
+    when(index == last) {
+        case(true) { return value >= low; }
+        * { return (value >= low) and (value < high); }
+    }
+};
+
+fun[exp] tally(values: vec[flt], index: int, last: int): int = {
+    var hits: int = 0;
+    loop(value in values) {
+        when(in_bucket(value, index, last)) {
+            case(true) { hits = hits + 1; }
+            * { }
+        }
+    }
+    return hits;
+};
+
+// The tallest bucket sets the bar scale.
+fun[exp] busiest(values: vec[flt]): int = {
+    var last: int = readings::bucket_count() - 1;
+    var best: int = 0;
+    var index: int = 0;
+    loop(index <= last) {
+        var here: int = tally(values, index, last);
+        when(here > best) {
+            case(true) { best = here; }
+            * { }
+        }
+        index = index + 1;
+    }
+    return best;
+};
+
+fun[exp] bar(width: int): str = {
+    var drawn: str = "";
+    var step: int = 0;
+    loop(step < width) {
+        drawn = drawn + "#";
+        step = step + 1;
+    }
+    return drawn;
+};
+
+// Every tallied reading must be accounted for exactly once; this is the
+// histogram's own consistency check.
+fun[exp] tallied_total(values: vec[flt]): int = {
+    var last: int = readings::bucket_count() - 1;
+    var counted: int = 0;
+    var index: int = 0;
+    loop(index <= last) {
+        counted = counted + tally(values, index, last);
+        index = index + 1;
+    }
+    return counted;
+};

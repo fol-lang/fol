@@ -1,0 +1,97 @@
+use entry: loc = {"../entry"};
+
+// A four-slot LRU cache.
+//
+// Recency is position: slot 0 is the most recently used, slot 3 the eviction
+// candidate. Every mutation rebuilds the whole slot vector, because V3 offers
+// no in-place container write: `slots[i] = x` is rejected and there is no
+// push/insert/remove on `vec`. Rebuilding is why the capacity is a compile-time
+// constant rather than a field.
+
+typ[exp] Store: rec = {
+    slots: vec[entry::Slot],
+    hits: int,
+    misses: int,
+    evictions: int,
+};
+
+fun[exp] capacity(): int = {
+    return 4;
+};
+
+fun[exp] fresh(): Store = {
+    return {
+        slots = { entry::empty(), entry::empty(), entry::empty(), entry::empty() },
+        hits = 0,
+        misses = 0,
+        evictions = 0,
+    };
+};
+
+// Position of `label`, or -1.
+fun[exp] position(store: Store, label: str): int = {
+    ~var index: int = 0;
+    loop(index < .len(store.slots)) {
+        when(entry::matches(store.slots[index], label)) {
+            * { return index; }
+        };
+        index = index + 1;
+    };
+    return 0 - 1;
+};
+
+// Rebuilds the slot vector with `head` in front and the slot at `drop_at`
+// removed. `drop_at` of -1 (or of the last index) evicts the tail.
+fun[exp] promote(store: Store, head: entry::Slot, drop_at: int): vec[entry::Slot] = {
+    when(drop_at) {
+        is(0) { return { head, store.slots[1], store.slots[2], store.slots[3] }; }
+        is(1) { return { head, store.slots[0], store.slots[2], store.slots[3] }; }
+        is(2) { return { head, store.slots[0], store.slots[1], store.slots[3] }; }
+        * { return { head, store.slots[0], store.slots[1], store.slots[2] }; }
+    }
+};
+
+// Reads `label` and, on a hit, moves it to the front. Recording the read is
+// what makes this an LRU rather than a FIFO, so the lookup has to mutate.
+pro[exp] (Store[mut, bor]) fetch(label: str): opt[int] = {
+    var found: int = position(self, label);
+    when(found < 0) {
+        * {
+            self.misses = self.misses + 1;
+            return nil;
+        }
+    };
+    var hit: entry::Slot = self.slots[found];
+    var reordered: vec[entry::Slot] = promote(self, hit, found);
+    self.slots = reordered;
+    self.hits = self.hits + 1;
+    return hit.payload;
+};
+
+// Inserts or refreshes `label`. A miss that displaces a live tail slot counts
+// as an eviction.
+pro[exp] (Store[mut, bor]) admit(label: str, payload: int): non = {
+    var found: int = position(self, label);
+    when(found < 0) {
+        * {
+            when(self.slots[3].live) {
+                * { self.evictions = self.evictions + 1; }
+            };
+        }
+    };
+    var head: entry::Slot = entry::filled(label, payload);
+    var reordered: vec[entry::Slot] = promote(self, head, found);
+    self.slots = reordered;
+    return;
+};
+
+// "a b - -" style dump, most recent first.
+fun[exp] render(store: Store): str = {
+    ~var text: str = "";
+    ~var index: int = 0;
+    loop(index < .len(store.slots)) {
+        text = text + entry::render(store.slots[index]) + " ";
+        index = index + 1;
+    };
+    return text;
+};

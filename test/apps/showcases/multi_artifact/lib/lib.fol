@@ -1,0 +1,73 @@
+use std: pkg = {"std"};
+use round: loc = {"round"};
+
+// Fixed-point money. Amounts are carried as whole cents so nothing in the
+// ledger ever depends on float rounding. Text goes in as "12.34" and comes
+// back out the same way.
+
+// Two fractional digits, always: "5" widens to "50", "5049" truncates to "50".
+fun[hid] normalise_frac(text: str): str = {
+    var out: str = text;
+    loop(.lt(.len(out), 2)) {
+        out = out + "0";
+    }
+    return .str_sub(out, 0, 2);
+};
+
+fun[exp] parse_amount(text: str): int = {
+    var negative: bol = false;
+    var body: str = text;
+    var dash: str = "-";
+    when(.eq(.str_find(text, dash), 0)) {
+        case(true) {
+            negative = true;
+            body = .str_sub(text, 1, .len(text) - 1);
+        }
+        * { }
+    }
+
+    var point: str = ".";
+    var dot: int = .str_find(body, point);
+    var whole: int = 0;
+    var frac: int = 0;
+    when(.lt(dot, 0)) {
+        case(true) { whole = .parse_int(body, 0); }
+        * {
+            whole = .parse_int(.str_sub(body, 0, dot), 0);
+            frac = .parse_int(normalise_frac(.str_sub(body, dot + 1, .len(body) - dot - 1)), 0);
+        }
+    }
+
+    var cents: int = whole * 100 + frac;
+    when(negative) {
+        case(true) { return 0 - cents; }
+        * { return cents; }
+    }
+};
+
+fun[exp] format_cents(cents: int): str = {
+    var sign: str = "";
+    var value: int = cents;
+    when(.lt(cents, 0)) {
+        case(true) {
+            sign = "-";
+            value = 0 - cents;
+        }
+        * { }
+    }
+
+    var whole: int = value / 100;
+    var frac: int = value - whole * 100;
+    var frac_text: str = std::fmt::int_to_str(frac);
+    when(.lt(frac, 10)) {
+        case(true) { frac_text = "0" + frac_text; }
+        * { }
+    }
+    return sign + std::fmt::int_to_str(whole) + "." + frac_text;
+};
+
+// Cash totals are settled to the nearest five cents; the rule lives in the
+// nested `round` namespace so the ledger core stays free of policy.
+fun[exp] settle(cents: int): int = {
+    return round::cash(cents);
+};

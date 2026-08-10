@@ -1,0 +1,43 @@
+// Thin wrapper over `std::time`.
+//
+// Everything time-related funnels through here so the rest of the program never
+// touches a raw millisecond reading -- the limiter only ever asks "how long has
+// it been" and "pause for a bit".
+
+use std: pkg = {"std"};
+
+fun[exp] now(): int = {
+    return std::time::now_ms();
+};
+
+fun[exp] pause(ms: int): int = {
+    return std::time::sleep_ms(ms);
+};
+
+fun[exp] since(start: int): int = {
+    return std::time::now_ms() - start;
+};
+
+// Sleep and report how long the sleep really took. A limiter needs to know how
+// badly the host clock overshoots before it trusts a refill interval.
+fun[exp] timed_sleep(ms: int): int = {
+    var start: int = std::time::now_ms();
+    std::time::sleep_ms(ms);
+    return std::time::now_ms() - start;
+};
+
+// The calibration runs on its own thread, so it overlaps the first contention
+// round instead of adding its sleep to the wall clock.
+fun[exp] calibrate(L: lif)(ms: int): evt[L, int] = {
+    return timed_sleep(ms) | async;
+};
+
+// `.min` and `.max` are registered intrinsics but not implemented, so bounds
+// checks are spelled out by hand.
+fun[exp] at_least(value: int, floor: int): bol = {
+    return value >= floor;
+};
+
+fun[exp] within(value: int, low: int, high: int): bol = {
+    return value >= low and value <= high;
+};

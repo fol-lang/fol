@@ -1,0 +1,27 @@
+// dir-report: one executable plus a test artifact.
+//
+// The suite root lives outside `src/` because every artifact root needs its
+// own `main`, and two roots under the same directory share one scope.
+//
+// Comments must stay outside the routine body: a `//` line inside `pro[]
+// build()` makes the build evaluator fail with
+// "build evaluation does not support expression node 'ast_node'".
+pro[] build(): non = {
+    var build = .build();
+    build.meta({ name = "dir_report", version = "0.1.0" });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "dir-report",
+        root = "src/main.fol",
+        fol_model = "memo",
+    });
+    graph.install(app);
+    graph.add_run(app);
+    var tests = graph.add_test({
+        name = "dir-report-tests",
+        root = "test/app.fol",
+        fol_model = "memo",
+    });
+    return;
+};

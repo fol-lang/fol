@@ -1,0 +1,99 @@
+use std: pkg = {"std"};
+
+// Keyboard decoding. `std::io::read_key_ms` hands back one raw byte, -2 on a
+// timeout and -1 at end of input; the dashboard wants stable commands instead,
+// so every byte (and every escape sequence) is folded into one code here.
+
+typ[exp] key: ent = {
+    var IDLE: int = 0;
+    var CLOSED: int = 1;
+    var QUIT: int = 2;
+    var PAUSE: int = 3;
+    var RESET: int = 4;
+    var FASTER: int = 5;
+    var SLOWER: int = 6;
+    var UP: int = 7;
+    var DOWN: int = 8;
+    var UNKNOWN: int = 9;
+};
+
+// A single printable byte, already lower-cased by the caller.
+fun[exp] classify(byte: int): int = {
+    when (byte) {
+        is (113) { return key.QUIT; }
+        is (27) { return key.QUIT; }
+        is (112) { return key.PAUSE; }
+        is (32) { return key.PAUSE; }
+        is (114) { return key.RESET; }
+        is (43) { return key.FASTER; }
+        is (61) { return key.FASTER; }
+        is (45) { return key.SLOWER; }
+        is (95) { return key.SLOWER; }
+        * { return key.UNKNOWN; }
+    };
+};
+
+fun[exp] lower(byte: int): int = {
+    when ((byte > 64) and (byte < 91)) {
+        case (true) { return byte + 32; }
+        * { return byte; }
+    };
+};
+
+// A CSI sequence is ESC '[' final. The two follow-up bytes are read with a
+// short deadline so a bare ESC (nothing follows it) still reads as quit.
+fun[exp] escape_tail(): int = {
+    var bracket: int = std::io::read_key_ms(20);
+    when (bracket) {
+        is (91) {
+            var final_byte: int = std::io::read_key_ms(20);
+            when (final_byte) {
+                is (65) { return key.UP; }
+                is (66) { return key.DOWN; }
+                is (67) { return key.FASTER; }
+                is (68) { return key.SLOWER; }
+                * { return key.UNKNOWN; }
+            };
+        }
+        * { return key.QUIT; }
+    };
+};
+
+// Wait up to `budget_ms` for one command. Returns `key.IDLE` when the deadline
+// passes with nothing typed and `key.CLOSED` once the input stream ends, which
+// is how a piped run terminates instead of spinning.
+fun[exp] poll(budget_ms: int): int = {
+    var raw: int = std::io::read_key_ms(budget_ms);
+    when (raw) {
+        is (-2) { return key.IDLE; }
+        is (-1) { return key.CLOSED; }
+        is (27) { return escape_tail(); }
+        is (10) { return key.IDLE; }
+        is (13) { return key.IDLE; }
+        * { return classify(lower(raw)); }
+    };
+};
+
+// Human-readable name for the status line. The codes are pinned to locals
+// first because an ent member is not accepted directly as an `is` pattern.
+fun[exp] name(code: int): str = {
+    var quit: int = key.QUIT;
+    var pause: int = key.PAUSE;
+    var reset: int = key.RESET;
+    var faster: int = key.FASTER;
+    var slower: int = key.SLOWER;
+    var up: int = key.UP;
+    var down: int = key.DOWN;
+    var closed: int = key.CLOSED;
+    when (code) {
+        is (quit) { return "quit"; }
+        is (pause) { return "pause"; }
+        is (reset) { return "reset"; }
+        is (faster) { return "faster"; }
+        is (slower) { return "slower"; }
+        is (up) { return "up"; }
+        is (down) { return "down"; }
+        is (closed) { return "eof"; }
+        * { return "-"; }
+    };
+};

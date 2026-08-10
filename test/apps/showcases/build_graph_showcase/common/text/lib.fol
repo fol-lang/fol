@@ -1,0 +1,66 @@
+// Splitting helpers built straight on the string intrinsics.
+//
+// This namespace deliberately avoids `std` so that `common` stays importable
+// from every artifact in the package, including ones that never declare the
+// bundled standard dependency.
+
+// Number of separator-delimited fields. Empty text is one (empty) field, which
+// keeps `count` and `field` agreeing on the same indexing.
+fun[exp] count(text: str, sep: str): int = {
+    var total: int = 1;
+    var rest: str = text;
+    loop(true) {
+        var cut: int = .str_find(rest, sep);
+        when(.lt(cut, 0)) {
+            case(true) { break; }
+            * {
+                rest = .str_sub(rest, cut + 1, .len(rest) - cut - 1);
+                total = total + 1;
+            }
+        };
+    };
+    return total;
+};
+
+// The `index`-th separator-delimited field, or "" past the end.
+fun[exp] field(text: str, sep: str, index: int): str = {
+    var rest: str = text;
+    var seen: int = 0;
+    loop(.lt(seen, index)) {
+        var cut: int = .str_find(rest, sep);
+        when(.lt(cut, 0)) {
+            case(true) { return ""; }
+            * { rest = .str_sub(rest, cut + 1, .len(rest) - cut - 1); }
+        };
+        seen = seen + 1;
+    };
+    var end: int = .str_find(rest, sep);
+    when(.lt(end, 0)) {
+        case(true) { return rest; }
+        * { return .str_sub(rest, 0, end); }
+    }
+};
+
+// True when the byte is a space, tab or carriage return.
+fun[exp] blank_byte(code: int): bol = {
+    return .eq(code, 32) or .eq(code, 9) or .eq(code, 13);
+};
+
+// Strip surrounding whitespace.
+fun[exp] trim(text: str): str = {
+    var start: int = 0;
+    var stop: int = .len(text);
+    loop(.lt(start, stop)) {
+        when(blank_byte(.str_byte(text, start))) {
+            case(true) { start = start + 1; }
+            * { break; }
+        };
+    };
+    loop(.gt(stop, start)) {
+        when(blank_byte(.str_byte(text, stop - 1))) {
+            case(true) { stop = stop - 1; }
+            * { break; }
+        };
+    };
+    return .str_sub(text, start, stop - start);
+};

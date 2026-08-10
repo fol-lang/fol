@@ -1,0 +1,48 @@
+use std: pkg = {"std"};
+
+var[] DECIMALS: int = 2;
+
+fun[exp] number(value: flt): str = {
+    return std::fmt::float_to_str(value, DECIMALS);
+};
+
+fun[exp] pad_right(text: str, width: int): str = {
+    var padded: str = text;
+    var step: int = .len(text);
+    loop(step < width) {
+        padded = padded + " ";
+        step = step + 1;
+    }
+    return padded;
+};
+
+fun[exp] pad_left(text: str, width: int): str = {
+    var lead: str = "";
+    var step: int = .len(text);
+    loop(step < width) {
+        lead = lead + " ";
+        step = step + 1;
+    }
+    return lead + text;
+};
+
+pro[exp] row(label: str, value: str): non = {
+    std::io::echo_str(pad_right(label, 22) + pad_left(value, 10));
+    return;
+};
+
+pro[exp] float_row(label: str, value: flt): non = {
+    row(label, number(value));
+    return;
+};
+
+pro[exp] int_row(label: str, value: int): non = {
+    row(label, std::fmt::int_to_str(value));
+    return;
+};
+
+pro[exp] heading(text: str): non = {
+    std::io::echo_str("");
+    std::io::echo_str(text);
+    return;
+};

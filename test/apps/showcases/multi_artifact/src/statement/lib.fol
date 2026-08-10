@@ -1,0 +1,68 @@
+use std: pkg = {"std"};
+use money: loc = {"../../lib"};
+
+// Statement layout. This namespace owns column widths and row shape; it never
+// decides what an amount means.
+
+// Splits `date|memo|amount` by index. Out-of-range indexes give "" rather than
+// faulting, so a short row still prints.
+// A single-character literal such as "|" is typed `chr`, and `chr` does not
+// coerce to `str` at an intrinsic parameter, so the separator is bound to a
+// `str`-declared local first.
+fun[exp] field(row: str, index: int): str = {
+    var bar: str = "|";
+    var rest: str = row;
+    var seen: int = 0;
+    loop(.lt(seen, index)) {
+        var cut: int = .str_find(rest, bar);
+        when(.lt(cut, 0)) {
+            case(true) { return ""; }
+            * { rest = .str_sub(rest, cut + 1, .len(rest) - cut - 1); }
+        }
+        seen = seen + 1;
+    }
+    var stop: int = .str_find(rest, bar);
+    when(.lt(stop, 0)) {
+        case(true) { return rest; }
+        * { return .str_sub(rest, 0, stop); }
+    }
+};
+
+fun[hid] pad_right(text: str, width: int): str = {
+    var out: str = text;
+    loop(.lt(.len(out), width)) {
+        out = out + " ";
+    }
+    return out;
+};
+
+fun[hid] pad_left(text: str, width: int): str = {
+    var out: str = text;
+    loop(.lt(.len(out), width)) {
+        out = " " + out;
+    }
+    return out;
+};
+
+fun[exp] header(): str = {
+    return pad_right("DATE", 12) + pad_right("MEMO", 18) + pad_left("AMOUNT", 12) + pad_left("BALANCE", 12);
+};
+
+fun[exp] rule(): str = {
+    var line: str = "";
+    loop(.lt(.len(line), 54)) {
+        line = line + "-";
+    }
+    return line;
+};
+
+fun[exp] row(date: str, memo: str, amount: int, balance: int): str = {
+    return pad_right(date, 12)
+    + pad_right(memo, 18)
+    + pad_left(money::format_cents(amount), 12)
+    + pad_left(money::format_cents(balance), 12);
+};
+
+fun[exp] total(label: str, value: str): str = {
+    return pad_right(label, 30) + pad_left(value, 24);
+};

@@ -1,0 +1,81 @@
+// The shapes a parsed config is made of.
+//
+// `LineKind` and `Fault` are `ent` declarations: named integer constants that
+// classify one physical line and one parse failure.
+//
+// NOTE: an `ent` member read (`LineKind.SECTION`) only types as its member type
+// when it is the initializer of an annotated binding. Used directly in a
+// comparison or a `when ... is` arm the compiler gives it the whole `ent` type
+// and rejects the program, so every constant is republished through a small
+// accessor routine below.
+
+typ[exp] LineKind: ent = {
+    con BLANK: int = 0;
+    con COMMENT: int = 1;
+    con SECTION: int = 2;
+    con PAIR: int = 3;
+    con BROKEN: int = 4;
+};
+
+typ[exp] Fault: ent = {
+    con NONE: int = 0;
+    con UNCLOSED_SECTION: int = 1;
+    con EMPTY_SECTION: int = 2;
+    con MISSING_EQUALS: int = 3;
+    con EMPTY_KEY: int = 4;
+    con BAD_KEY: int = 5;
+    con UNTERMINATED_STRING: int = 6;
+    con PAIR_BEFORE_SECTION: int = 7;
+};
+
+fun[exp] kind_blank(): int = { var value: int = LineKind.BLANK; return value; };
+fun[exp] kind_comment(): int = { var value: int = LineKind.COMMENT; return value; };
+fun[exp] kind_section(): int = { var value: int = LineKind.SECTION; return value; };
+fun[exp] kind_pair(): int = { var value: int = LineKind.PAIR; return value; };
+fun[exp] kind_broken(): int = { var value: int = LineKind.BROKEN; return value; };
+
+fun[exp] fault_none(): int = { var value: int = Fault.NONE; return value; };
+fun[exp] fault_unclosed(): int = { var value: int = Fault.UNCLOSED_SECTION; return value; };
+fun[exp] fault_empty_section(): int = { var value: int = Fault.EMPTY_SECTION; return value; };
+fun[exp] fault_missing_equals(): int = { var value: int = Fault.MISSING_EQUALS; return value; };
+fun[exp] fault_empty_key(): int = { var value: int = Fault.EMPTY_KEY; return value; };
+fun[exp] fault_bad_key(): int = { var value: int = Fault.BAD_KEY; return value; };
+fun[exp] fault_unterminated(): int = { var value: int = Fault.UNTERMINATED_STRING; return value; };
+fun[exp] fault_orphan_pair(): int = { var value: int = Fault.PAIR_BEFORE_SECTION; return value; };
+
+// One classified physical line.
+//
+// `stop` is the offset just past the line's newline, so the caller can chain
+// straight into the next line without re-scanning.
+typ[exp] Line: rec = {
+    var kind: int;
+    var fault: int;
+    var name: str;
+    var value: str;
+    var start: int;
+    var stop: int;
+};
+
+fun[exp] make_line(kind: int, name: str, value: str, start: int, stop: int): Line = {
+    var built: Line = {
+        kind = kind,
+        fault = fault_none(),
+        name = name,
+        value = value,
+        start = start,
+        stop = stop,
+    };
+    return built;
+};
+
+fun[exp] make_broken(fault: int, start: int, stop: int): Line = {
+    var built: Line = {
+        kind = kind_broken(),
+        fault = fault,
+        name = "",
+        value = "",
+        start = start,
+        stop = stop,
+    };
+    return built;
+};

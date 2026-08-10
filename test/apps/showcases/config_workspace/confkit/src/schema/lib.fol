@@ -1,0 +1,84 @@
+use scan: loc = {"../scan"};
+
+// The schema every checked document is measured against: the known keys, the
+// kind of value each one accepts, and which of them a document must define.
+//
+// The three tables are parallel — index `i` of `keys()` describes the same
+// setting as index `i` of `kinds()` and `required_flags()`.
+
+typ[exp] Kind: ent = {
+    var TEXT: int = 0;
+    var INTEGER: int = 1;
+    var BOOLEAN: int = 2;
+};
+
+fun[exp] keys(): seq[str] = {
+    return {"host", "port", "workers", "debug", "name"};
+};
+
+// File-private: callers go through kind_of/required_at instead of indexing the
+// parallel tables themselves.
+fun kinds(): seq[int] = {
+    return {0, 1, 1, 2, 0};
+};
+
+fun required_flags(): seq[bol] = {
+    return {true, true, false, false, false};
+};
+
+// Position of `key` in the schema tables, or -1 when the key is not known.
+fun[exp] index_of(key: str): int = {
+    var names: seq[str] = keys();
+    var i: int = 0;
+    loop(i < .len(names)) {
+        when(names[i] == key) {
+            case(true) { return i; }
+            * { }
+        }
+        i = i + 1;
+    }
+    return -1;
+};
+
+fun[exp] is_known(key: str): bol = {
+    return index_of(key) >= 0;
+};
+
+fun[exp] kind_of(key: str): int = {
+    var slot: int = index_of(key);
+    when(slot < 0) {
+        case(true) { return -1; }
+        * { return kinds()[slot]; }
+    }
+};
+
+fun[exp] key_count(): int = {
+    return .len(keys());
+};
+
+fun[exp] key_at(index: int): str = {
+    return keys()[index];
+};
+
+fun[exp] required_at(index: int): bol = {
+    return required_flags()[index];
+};
+
+fun[exp] kind_name(kind: int): str = {
+    when(kind) {
+        case(0) { return "text"; }
+        case(1) { return "integer"; }
+        case(2) { return "boolean"; }
+        * { return "unknown"; }
+    }
+};
+
+// Whether a raw value spelling satisfies the kind its key declares.
+fun[exp] value_fits(kind: int, value: str): bol = {
+    when(kind) {
+        case(1) { return scan::is_integer(value); }
+        case(2) { return scan::is_boolean(value); }
+        case(0) { return .len(value) > 0; }
+        * { return false; }
+    }
+};

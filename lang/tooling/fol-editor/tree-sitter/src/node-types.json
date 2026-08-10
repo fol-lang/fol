@@ -695,6 +695,10 @@
         {
           "type": "block",
           "named": true
+        },
+        {
+          "type": "expr",
+          "named": true
         }
       ]
     }
@@ -1000,6 +1004,10 @@
         },
         {
           "type": "field_access",
+          "named": true
+        },
+        {
+          "type": "float_literal",
           "named": true
         },
         {
@@ -1475,6 +1483,10 @@
         "required": true,
         "types": [
           {
+            "type": "call_expr",
+            "named": true
+          },
+          {
             "type": "channel_access",
             "named": true
           },
@@ -1488,6 +1500,10 @@
           },
           {
             "type": "index_access",
+            "named": true
+          },
+          {
+            "type": "paren_expr",
             "named": true
           },
           {
@@ -3190,11 +3206,21 @@
             "named": true
           }
         ]
+      },
+      "target": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "type_expr",
+            "named": true
+          }
+        ]
       }
     },
     "children": {
       "multiple": true,
-      "required": true,
+      "required": false,
       "types": [
         {
           "type": "entry_type",
@@ -3449,6 +3475,10 @@
       "required": false,
       "types": [
         {
+          "type": "block",
+          "named": true
+        },
+        {
           "type": "case_clause",
           "named": true
         },
@@ -3586,6 +3616,10 @@
   },
   {
     "type": "-",
+    "named": false
+  },
+  {
+    "type": "->",
     "named": false
   },
   {
@@ -3841,6 +3875,10 @@
   {
     "type": "fin",
     "named": false
+  },
+  {
+    "type": "float_literal",
+    "named": true
   },
   {
     "type": "for",

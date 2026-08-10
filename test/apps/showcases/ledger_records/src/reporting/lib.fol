@@ -1,0 +1,85 @@
+// Rendering: cents to money text, fixed-width columns, and the trial balance
+// that puts the whole ledger on one screen.
+
+fun[exp] repeat(unit: str, count: int): str = {
+    var out: str = "";
+    var made: int = 0;
+    loop(.lt(made, count)) {
+        out = out + unit;
+        made = made + 1;
+    }
+    return out;
+};
+
+fun[exp] pad_right(text: str, width: int): str = {
+    return text + repeat(" ", width - .len(text));
+};
+
+fun[exp] pad_left(text: str, width: int): str = {
+    return repeat(" ", width - .len(text)) + text;
+};
+
+// Cents to a signed decimal amount: 480000 becomes "4800.00" and -4900
+// becomes "-49.00". The fractional part is padded by hand because the whole
+// pipeline works in integers.
+fun[exp] money(cents: int): str = {
+    var sign: str = "";
+    var value: int = cents;
+    if(.lt(cents, 0)) {
+        sign = "-";
+        value = 0 - cents;
+    }
+    var units: int = value / 100;
+    var rest: int = value % 100;
+    var tail: str = std::fmt::int_to_str(rest);
+    if(.lt(rest, 10)) {
+        tail = "0" + tail;
+    }
+    return sign + std::fmt::int_to_str(units) + "." + tail;
+};
+
+fun[exp] header(): str = {
+    return pad_right("CODE", 6) + pad_right("ACCOUNT", 22) + pad_left("BALANCE", 12);
+};
+
+fun[exp] rule(): str = {
+    return repeat("-", 40);
+};
+
+fun[exp] account_line(account: model::Account): str = {
+    var amount: int = store::balance(account);
+    return pad_right(account.code, 6) + pad_right(account.name, 22) + pad_left(money(amount), 12);
+};
+
+// One line per journal posting, in the order the events happened.
+fun[exp] posting_line(entry: model::Posting): str = {
+    return pad_left(std::fmt::int_to_str(entry.day), 3) + "  " + pad_right(entry.code, 6)
+    + entry.side_text() + " " + pad_left(money(entry.amount), 11)
+    + "  " + entry.memo;
+};
+
+// The audit: a journal is only trustworthy when both sides agree to the cent.
+fun[exp] verdict(): str = {
+    var debits: int = store::total_debits();
+    var credits: int = store::total_credits();
+    if(.eq(debits, credits)) {
+        return "BALANCED    debits " + money(debits) + " = credits " + money(credits);
+    }
+    return "OUT OF BALANCE   difference " + money(debits - credits);
+};
+
+// Budget overruns worth telling the owner about, one line each.
+fun[exp] overruns(): str = {
+    var rows: vec[model::Account] = store::chart();
+    var out: str = "";
+    loop(row in rows) {
+        var over: int = store::over_budget(row.code);
+        if(.gt(over, 0)) {
+            out = out + "  " + pad_right(row.name, 22) + "over by " + money(over) + "\n";
+        }
+    }
+    if(.eq(.len(out), 0)) {
+        return "  every budgeted account stayed inside its limit\n";
+    }
+    return out;
+};

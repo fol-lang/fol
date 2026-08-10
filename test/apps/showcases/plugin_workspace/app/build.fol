@@ -1,0 +1,32 @@
+// The executable member. It depends on both libraries, so it declares both as
+// local dependencies and links both artifacts into the produced binary.
+//
+// `artifact.link` takes an Artifact handle. There is no way to get one for a
+// sibling package here: dep.artifact("core_lib") needs a dependency handle,
+// and the only handle the source can actually use is the one returned by
+// build.add_dep, so the two libraries are reached through source-level `loc`
+// imports and are not linked as separate objects.
+//
+// Comments have to stay outside the build() body; see core/build.fol.
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "pw_app",
+        version = "0.1.0",
+        kind = "exe",
+        description = "Log triage front-end for the plugin workspace",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    build.add_dep({ alias = "core", source = "loc", target = "../core" });
+    build.add_dep({ alias = "plugin", source = "loc", target = "../plugin" });
+
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "pw-triage",
+        root = "src/main.fol",
+        fol_model = "memo",
+    });
+    graph.install(app);
+    graph.add_run(app);
+    return;
+};

@@ -1,0 +1,7 @@
+# release manifest: name:bytes:channel
+# audited against policy.txt by `manifest-audit`
+
+folc:14832:stable
+fol:2210:stable
+libauditcore.a:41260:stable
+assets/README.txt:284:stable

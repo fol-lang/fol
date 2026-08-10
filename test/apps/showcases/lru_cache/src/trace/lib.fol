@@ -1,0 +1,17 @@
+use std: pkg = {"std"};
+use store: loc = {"../store"};
+
+// Reporting helpers kept away from the cache logic so the store module stays
+// free of io.
+
+pro[exp] line(tag: str, body: str): non = {
+    std::io::echo_str(tag + " | " + body);
+    return;
+};
+
+pro[exp] summary(book: store::Store): non = {
+    std::io::echo_str("hits=" + std::fmt::int_to_str(book.hits)
+    + " misses=" + std::fmt::int_to_str(book.misses)
+    + " evictions=" + std::fmt::int_to_str(book.evictions));
+    return;
+};

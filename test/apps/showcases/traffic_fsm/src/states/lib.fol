@@ -1,0 +1,54 @@
+// Phase codes for one intersection light.
+// FLASH is the degraded mode the controller falls into after a fault.
+typ[exp] Phase: ent = {
+    var RED: int = 0;
+    var GREEN: int = 1;
+    var AMBER: int = 2;
+    var FLASH: int = 3;
+};
+
+// Inputs the controller reacts to.
+typ[exp] Event: ent = {
+    var TICK: int = 0;
+    var WALK: int = 1;
+    var FAULT: int = 2;
+    var RESET: int = 3;
+};
+
+// Live machine state. `ticks` counts how long the current phase has held.
+typ[exp] Signal: rec = {
+    phase: int;
+    ticks: int;
+    walk_pending: bol;
+    faults: int
+};
+
+// A cold-start controller sits at RED with nothing queued.
+fun[exp] fresh(): Signal = {
+    return {
+        phase = Phase.RED,
+        ticks = 0,
+        walk_pending = false,
+        faults = 0,
+    };
+};
+
+fun[exp] phase_name(code: int): str = {
+    when(code) {
+        is(0) { return "RED"; }
+        is(1) { return "GREEN"; }
+        is(2) { return "AMBER"; }
+        is(3) { return "FLASH"; }
+        * { return "????"; }
+    }
+};
+
+fun[exp] event_name(code: int): str = {
+    when(code) {
+        is(0) { return "tick"; }
+        is(1) { return "walk"; }
+        is(2) { return "fault"; }
+        is(3) { return "reset"; }
+        * { return "unknown"; }
+    }
+};
