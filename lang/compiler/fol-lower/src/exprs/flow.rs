@@ -240,6 +240,7 @@ pub(crate) fn lower_when_statement(
         })?;
         cursor.switch_block(body_block)?;
         if let Some(default) = default {
+            let __fin_before_branch = cursor.early_finalized.clone();
             let _ = lower_body_sequence(
                 typed_package,
                 type_table,
@@ -252,6 +253,7 @@ pub(crate) fn lower_when_statement(
                 default,
                 DeferScopeKind::Ordinary,
             )?;
+            cursor.early_finalized = __fin_before_branch;
         }
         if !cursor.current_block_terminated()? {
             cursor.terminate_current_block(crate::LoweredTerminator::Jump {
@@ -333,6 +335,7 @@ pub(crate) fn lower_when_statement(
             cursor.routine.local_symbols.insert(symbol, payload_local);
         }
         let body_scope = inline_body_scope(typed_package, scope_id, body).unwrap_or(scope_id);
+        let __fin_before_branch = cursor.early_finalized.clone();
         let _ = lower_body_sequence(
             typed_package,
             type_table,
@@ -345,6 +348,7 @@ pub(crate) fn lower_when_statement(
             body,
             DeferScopeKind::Ordinary,
         )?;
+        cursor.early_finalized = __fin_before_branch;
         if !cursor.current_block_terminated()? {
             let after_block = ensure_after_block(cursor, &mut after_block);
             cursor.terminate_current_block(crate::LoweredTerminator::Jump {
@@ -359,6 +363,7 @@ pub(crate) fn lower_when_statement(
     }
 
     if let Some(default) = default {
+        let __fin_before_branch = cursor.early_finalized.clone();
         has_fallthrough |= lower_default_when_body(
             typed_package,
             type_table,
@@ -371,6 +376,7 @@ pub(crate) fn lower_when_statement(
             default,
             &mut after_block,
         )?;
+        cursor.early_finalized = __fin_before_branch;
     }
 
     if let Some(after_block) = after_block.filter(|_| has_fallthrough) {
@@ -636,6 +642,7 @@ pub(crate) fn lower_loop_statement(
 
                 // Guard passed: run body
                 cursor.switch_block(guard_block)?;
+                let __fin_before_branch = cursor.early_finalized.clone();
                 let _ = lower_body_sequence(
                     typed_package,
                     type_table,
@@ -648,6 +655,7 @@ pub(crate) fn lower_loop_statement(
                     body,
                     DeferScopeKind::Loop,
                 )?;
+                cursor.early_finalized = __fin_before_branch;
                 if !cursor.current_block_terminated()? {
                     cursor.terminate_current_block(crate::LoweredTerminator::Jump {
                         target: increment_block,
@@ -682,6 +690,7 @@ pub(crate) fn lower_loop_statement(
                 })?;
             } else {
                 // No guard: run body directly
+                let __fin_before_branch = cursor.early_finalized.clone();
                 let _ = lower_body_sequence(
                     typed_package,
                     type_table,
@@ -694,6 +703,7 @@ pub(crate) fn lower_loop_statement(
                     body,
                     DeferScopeKind::Loop,
                 )?;
+                cursor.early_finalized = __fin_before_branch;
 
                 // Increment index
                 if !cursor.current_block_terminated()? {
@@ -858,6 +868,7 @@ fn lower_channel_iteration(
             else_block: continue_block,
         })?;
         cursor.switch_block(guard_body_block)?;
+        let __fin_before_branch = cursor.early_finalized.clone();
         let _ = lower_body_sequence(
             typed_package,
             type_table,
@@ -870,6 +881,7 @@ fn lower_channel_iteration(
             body,
             DeferScopeKind::Loop,
         )?;
+        cursor.early_finalized = __fin_before_branch;
         if !cursor.current_block_terminated()? {
             cursor.terminate_current_block(crate::LoweredTerminator::Jump {
                 target: continue_block,
@@ -877,6 +889,7 @@ fn lower_channel_iteration(
         }
         cursor.switch_block(continue_block)?;
     } else {
+        let __fin_before_branch = cursor.early_finalized.clone();
         let _ = lower_body_sequence(
             typed_package,
             type_table,
@@ -889,6 +902,7 @@ fn lower_channel_iteration(
             body,
             DeferScopeKind::Loop,
         )?;
+        cursor.early_finalized = __fin_before_branch;
     }
     if !cursor.current_block_terminated()? {
         cursor.terminate_current_block(crate::LoweredTerminator::Jump {
@@ -1046,6 +1060,7 @@ pub(crate) fn lower_select_statement(
                 value: value_local,
             },
         )?;
+        let __fin_before_branch = cursor.early_finalized.clone();
         let _ = lower_body_sequence(
             typed_package,
             type_table,
@@ -1058,6 +1073,7 @@ pub(crate) fn lower_select_statement(
             &arm.body,
             DeferScopeKind::Ordinary,
         )?;
+        cursor.early_finalized = __fin_before_branch;
         if !cursor.current_block_terminated()? {
             cursor
                 .terminate_current_block(crate::LoweredTerminator::Jump { target: exit_block })?;
@@ -1078,6 +1094,7 @@ pub(crate) fn lower_select_statement(
                 .then_some(candidate)
             })
             .unwrap_or(scope_id);
+        let __fin_before_branch = cursor.early_finalized.clone();
         let _ = lower_body_sequence(
             typed_package,
             type_table,
@@ -1090,6 +1107,7 @@ pub(crate) fn lower_select_statement(
             default,
             DeferScopeKind::Ordinary,
         )?;
+        cursor.early_finalized = __fin_before_branch;
         if !cursor.current_block_terminated()? {
             cursor
                 .terminate_current_block(crate::LoweredTerminator::Jump { target: exit_block })?;
@@ -1148,6 +1166,7 @@ fn lower_default_when_body(
     default: &[AstNode],
     after_block: &mut Option<LoweredBlockId>,
 ) -> Result<bool, LoweringError> {
+    let __fin_before_branch = cursor.early_finalized.clone();
     let _ = lower_body_sequence(
         typed_package,
         type_table,
@@ -1160,6 +1179,7 @@ fn lower_default_when_body(
         default,
         DeferScopeKind::Ordinary,
     )?;
+    cursor.early_finalized = __fin_before_branch;
     if !cursor.current_block_terminated()? {
         let after_block = ensure_after_block(cursor, after_block);
         cursor.terminate_current_block(crate::LoweredTerminator::Jump {
@@ -1280,6 +1300,7 @@ pub(crate) fn lower_when_expression(
             )?;
             cursor.routine.local_symbols.insert(symbol, payload_local);
         }
+        let __fin_before_branch = cursor.early_finalized.clone();
         let branch_value = lower_body_sequence(
             typed_package,
             type_table,
@@ -1292,6 +1313,7 @@ pub(crate) fn lower_when_expression(
             body,
             DeferScopeKind::Ordinary,
         )?;
+        cursor.early_finalized = __fin_before_branch;
         lower_when_branch_value(cursor, &mut join_local, branch_value, join_block)?;
 
         if else_block != join_block {
@@ -1299,6 +1321,7 @@ pub(crate) fn lower_when_expression(
         }
     }
 
+    let __fin_before_branch = cursor.early_finalized.clone();
     let default_value = lower_body_sequence(
         typed_package,
         type_table,
@@ -1311,6 +1334,7 @@ pub(crate) fn lower_when_expression(
         default,
         DeferScopeKind::Ordinary,
     )?;
+    cursor.early_finalized = __fin_before_branch;
     lower_when_branch_value(cursor, &mut join_local, default_value, join_block)?;
 
     cursor.switch_block(join_block)?;

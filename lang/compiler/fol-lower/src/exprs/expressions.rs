@@ -3209,6 +3209,19 @@ fn lower_finalize_op(
             error_type: None,
         },
     )?;
+    // The value is spent. Remember the BINDING it came from -- the operand
+    // lowers through a temp, so the temp's id says nothing about what the scope
+    // exit will try to finalize. A sibling arm that never ran `[fin]` still
+    // finalizes at its own exit, which is why this is restored when an arm ends.
+    if let AstNode::Identifier { syntax_id, name } = operand {
+        let symbol = resolve_reference_symbol(
+            typed_package,
+            *syntax_id,
+            ReferenceKind::Identifier,
+            name.as_str(),
+        )?;
+        cursor.early_finalized.insert(symbol.id);
+    }
     // `[fin]value` yields nothing usable; the value is returned only so the
     // statement position has a well-formed (and immediately discarded) result.
     Ok(value)

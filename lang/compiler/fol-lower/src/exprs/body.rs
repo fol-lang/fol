@@ -445,6 +445,10 @@ fn lower_finalizations(
         if cursor.current_block_terminated()? {
             break;
         }
+        // Already spent by an explicit `[fin]` on this path.
+        if cursor.early_finalized.contains(&entry.symbol) {
+            continue;
+        }
         // A `[mov]` capture into a dfr/edf block reads as a move but keeps the
         // value in this frame: the block's environment dies at this same scope
         // exit, so the finalizer still runs here, after the deferred bodies.

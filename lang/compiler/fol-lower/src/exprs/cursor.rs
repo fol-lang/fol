@@ -402,6 +402,13 @@ pub(crate) struct RoutineCursor<'a> {
     pub(crate) defer_scopes: Vec<ActiveDeferScope>,
     pub(crate) anonymous_routines: Vec<LoweredRoutine>,
     pub(crate) next_routine_index: usize,
+    /// Bindings already consumed by an explicit `[fin]value` on the path being
+    /// lowered. Typecheck records that move, but a `when`/`select` arm restores
+    /// its ownership flow when the arm ends -- so by the time the scope exit was
+    /// emitted the record was gone, and the finalizer ran a second time on a
+    /// value the first run had already emptied. Tracked per path here, and
+    /// restored around each arm so a sibling arm still finalizes at its own exit.
+    pub(crate) early_finalized: std::collections::BTreeSet<SymbolId>,
 }
 
 impl<'a> RoutineCursor<'a> {
@@ -414,6 +421,7 @@ impl<'a> RoutineCursor<'a> {
             block_id,
             loop_exit_blocks: Vec::new(),
             defer_scopes: Vec::new(),
+            early_finalized: std::collections::BTreeSet::new(),
             anonymous_routines: Vec::new(),
             next_routine_index: 0,
         }
