@@ -1014,7 +1014,26 @@ pub(crate) fn type_method_call(
     // Method syntax is value-receiver sugar: the receiver is the first value
     // passed to the routine. Record that transfer before checking the explicit
     // arguments so the same move-only binding cannot be used twice in one call.
-    super::bindings::track_value_transfer(typed, resolved, context, Some(object), object_type)?;
+    //
+    // An owned generic receiver is the exception. A standard's requirement
+    // cannot declare a receiver at all, so it never asks for ownership -- yet a
+    // generic value is conservatively move-only, so counting the call as a
+    // transfer consumed the receiver on the FIRST requirement call and left any
+    // standard with two requirements unusable on one value.
+    //
+    // A `[bor]` receiver keeps the ordinary transfer rule for now: lifting it
+    // there would only move the rejection into monomorphization, which cannot
+    // yet instantiate a generic loan parameter at all.
+    let constraint_call = node
+        .syntax_id()
+        .is_some_and(|syntax_id| typed.is_constraint_call_site(syntax_id))
+        && !matches!(
+            typed.type_table().get(object_type),
+            Some(CheckedType::Borrowed { .. })
+        );
+    if !constraint_call {
+        super::bindings::track_value_transfer(typed, resolved, context, Some(object), object_type)?;
+    }
     let (signature, arg_effect) = check_call_arguments(
         typed,
         resolved,

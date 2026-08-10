@@ -7214,3 +7214,27 @@ fn entry_variant_reads_compare_against_the_value_they_carry() {
         "narrowing must not make an entry comparable with an unrelated type"
     );
 }
+
+#[test]
+fn constraint_calls_do_not_consume_their_generic_receiver() {
+    // A standard's requirement cannot declare a receiver, so it never asks for
+    // ownership. Treating the call as a transfer made a generic value dead
+    // after its first requirement call, which left any standard with two
+    // requirements unusable on one value.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Metrics: rec = { area: int };\n\
+         std shape: pro = { fun measure(): Metrics; fun label(): str; };\n\
+         typ Rect()(shape): rec = { w: int, h: int };\n\
+         fun (Rect)measure(): Metrics = { return { area = self.w }; };\n\
+         fun (Rect)label(): str = { return \"rect\"; };\n\
+         fun describe(T: shape)(item: T): int = {\n\
+             var m: Metrics = item.measure();\n\
+             var name: str = item.label();\n\
+             return m.area + .len(name);\n\
+         };\n",
+    )]);
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "describe"))
+        .is_some());
+}

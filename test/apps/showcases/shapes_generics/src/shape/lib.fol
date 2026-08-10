@@ -1,10 +1,9 @@
 // Geometry primitives and the `geometry` protocol standard they conform to.
 //
 // `geometry` is the constraint every generic routine in this package is written
-// against. It requires a single routine because a constraint call consumes the
-// generic value it dispatches on, so a standard with two required routines
-// could never be used twice on the same value inside one generic routine.
-// Bundling the answers into one `Metrics` record keeps the constraint usable.
+// against. It requires a single routine because bundling every answer into one
+// `Metrics` record is what the callers here want; a standard may require more
+// than one routine, and an owned generic value survives every one of them.
 
 use std: pkg = {"std"};
 
