@@ -19,7 +19,7 @@ fun[exp] line(label: str, value: int): str = {
     return label + " " + pad(value, 3) + "\n";
 };
 
-fun[exp] check(label: str, ok: bol): str = {
+fun[exp] verdict(label: str, ok: bol): str = {
     when (ok) {
         case (true) { return label + " ok\n"; }
         * { return label + " FAILED\n"; }

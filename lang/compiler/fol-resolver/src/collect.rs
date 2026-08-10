@@ -383,10 +383,16 @@ fn collect_binding_names(pattern: &BindingPattern, output: &mut Vec<String>) {
 /// a different identifier from the lowercase keyword, and folding it in
 /// rejected every type in the tree that happened to be named for one.
 fn reserved_declaration_name(name: &str, node: &AstNode) -> Option<&'static str> {
-    if !matches!(
-        node,
-        AstNode::FunDecl { .. } | AstNode::ProDecl { .. } | AstNode::LogDecl { .. }
-    ) {
+    // A RECEIVER method is always reached through its receiver (`bus.report()`),
+    // which the keyword cannot shadow -- only a receiver-less routine, which is
+    // called by bare name, is at risk.
+    let receiver = match node {
+        AstNode::FunDecl { receiver_type, .. }
+        | AstNode::ProDecl { receiver_type, .. }
+        | AstNode::LogDecl { receiver_type, .. } => receiver_type,
+        _ => return None,
+    };
+    if receiver.is_some() {
         return None;
     }
     fol_lexer::token::buildin::DIAGNOSTIC_KEYWORDS

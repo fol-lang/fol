@@ -112,11 +112,11 @@ fun[] main(): int = {
     var unhurried: bol = clock::at_least(elapsed_a, 10);
     var calibrated: bol = clock::within(slept, 20, 5000);
 
-    std::io::write(report::check("no lost updates    ", accounted));
-    std::io::write(report::check("grants match log   ", logged));
-    std::io::write(report::check("never over capacity", capped));
-    std::io::write(report::check("bucket drained     ", drained));
-    std::io::write(report::check("round A not instant", unhurried));
-    std::io::write(report::check("calibration sane   ", calibrated));
+    std::io::write(report::verdict("no lost updates    ", accounted));
+    std::io::write(report::verdict("grants match log   ", logged));
+    std::io::write(report::verdict("never over capacity", capped));
+    std::io::write(report::verdict("bucket drained     ", drained));
+    std::io::write(report::verdict("round A not instant", unhurried));
+    std::io::write(report::verdict("calibration sane   ", calibrated));
     return 0;
 };
