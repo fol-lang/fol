@@ -10,6 +10,16 @@ pub fn format_document(text: &str) -> String {
 
     let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
     let source_scan = scan_source(&normalized);
+    // The scanner tracks `{}` only, which is the block structure. A call or a
+    // literal split across lines is held open by `(`/`[` instead, and without
+    // counting those every continuation line was parked at the statement's own
+    // indent -- the arguments of a wrapped call sat level with the call itself.
+    let masked_lines = source_scan
+        .comment_masked_code
+        .split('\n')
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let mut continuation = 0usize;
     let mut depth = 0usize;
     let mut lines: Vec<String> = Vec::new();
 
@@ -33,8 +43,14 @@ pub fn format_document(text: &str) -> String {
             .filter(|event| event.position.line == line_index as u32)
             .copied()
             .collect::<Vec<_>>();
-        let indent_depth =
-            depth.saturating_sub(leading_closing_brace_count(raw_line, &line_events));
+        let masked_line = masked_lines
+            .get(line_index)
+            .map(String::as_str)
+            .unwrap_or("");
+        // A line that opens with the closer sits at the level it closes back to.
+        let indent_depth = depth
+            .saturating_sub(leading_closing_brace_count(raw_line, &line_events))
+            + continuation.saturating_sub(leading_group_closers(masked_line));
         if protection.starts_protected {
             lines.push(raw_line.to_string());
         } else {
@@ -47,6 +63,15 @@ pub fn format_document(text: &str) -> String {
             lines.push(format!("{indent}{content}"));
         }
         depth = update_brace_depth(&line_events, depth);
+        // `graph.add_exe({` opens a group AND a block on one line. The block
+        // already indents what follows, so counting the group as well would
+        // indent it twice; the group closes on the same line as the block.
+        let opens_block = line_events
+            .iter()
+            .any(|event| event.kind == BraceKind::Open);
+        if !opens_block {
+            continuation = update_group_depth(masked_line, continuation);
+        }
     }
 
     let ends_in_protected_content = source_scan.terminal_unclosed;
@@ -171,6 +196,29 @@ fn leading_closing_brace_count(line: &str, events: &[BraceEvent]) -> usize {
             }
         })
         .count()
+}
+
+/// How many `)`/`]` a line opens with, so the line closing a wrapped group
+/// lines up with the line that opened it rather than with its contents.
+fn leading_group_closers(masked_line: &str) -> usize {
+    masked_line
+        .trim_start()
+        .chars()
+        .take_while(|ch| matches!(ch, ')' | ']'))
+        .count()
+}
+
+/// Net unclosed `(`/`[` after this line. Braces are the block structure and are
+/// counted separately; these two only ever mean "this statement continues".
+/// Only consulted for lines that do not open a block of their own.
+fn update_group_depth(masked_line: &str, initial_depth: usize) -> usize {
+    masked_line
+        .chars()
+        .fold(initial_depth, |depth, ch| match ch {
+            '(' | '[' => depth + 1,
+            ')' | ']' => depth.saturating_sub(1),
+            _ => depth,
+        })
 }
 
 fn update_brace_depth(events: &[BraceEvent], initial_depth: usize) -> usize {
