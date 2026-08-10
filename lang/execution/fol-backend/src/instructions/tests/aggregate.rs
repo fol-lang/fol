@@ -292,6 +292,7 @@ fn aggregate_and_container_rendering_emits_runtime_index_helpers() {
     let move_only_record = table.intern(fol_lower::LoweredType::Record {
         fields: BTreeMap::from([("pointer".to_string(), unique_pointer)]),
         finalized: false,
+        nominal: None,
     });
     let move_only_array = table.intern(fol_lower::LoweredType::Array {
         element_type: move_only_record,
@@ -528,6 +529,7 @@ fn aggregate_and_container_rendering_emits_record_and_entry_constructors() {
     let record_type = table.intern(LoweredType::Record {
         fields: BTreeMap::from([("count".to_string(), int_id)]),
         finalized: false,
+        nominal: None,
     });
     let entry_type = table.intern(LoweredType::Entry {
         variants: BTreeMap::from([("Ok".to_string(), Some(int_id))]),

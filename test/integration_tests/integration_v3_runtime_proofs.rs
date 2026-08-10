@@ -1191,3 +1191,45 @@ fn and_or_do_not_evaluate_the_operand_they_do_not_need() {
     // there the right side still decides the answer.
     assert_successful_stdout(&root, "false\nfalse\ntrue\n1\n3\n5\n6\n");
 }
+
+#[test]
+fn constrained_generic_dispatch_reaches_each_conformer_not_a_structural_twin() {
+    // Records interned structurally, so two declarations with the same field
+    // list collapsed to one lowered type -- and constraint dispatch, which
+    // matches a conformer by its receiver's lowered type, then called whichever
+    // one it found first. Alpha's method never ran, silently: no diagnostic,
+    // wrong answer. Distinct field names made the same program work, which is
+    // what pinned it to interning rather than to dispatch.
+    let root = write_hosted_app(
+        "v3_conformer_identity",
+        "use std: pkg = {\"std\"};\n\
+         \n\
+         std geometry: pro = {\n\
+         \x20   fun size(): int;\n\
+         };\n\
+         \n\
+         typ Alpha()(geometry): rec = { w: int };\n\
+         typ Beta()(geometry): rec = { w: int };\n\
+         \n\
+         fun (Alpha)size(): int = {\n\
+         \x20   return 111;\n\
+         };\n\
+         \n\
+         fun (Beta)size(): int = {\n\
+         \x20   return 222;\n\
+         };\n\
+         \n\
+         fun[] show(T: geometry)(part: T): int = {\n\
+         \x20   return part.size();\n\
+         };\n\
+         \n\
+         fun[] main(): int = {\n\
+         \x20   var a: Alpha = { w = 1 };\n\
+         \x20   var b: Beta = { w = 2 };\n\
+         \x20   std::io::echo_int(show([mov]a));\n\
+         \x20   std::io::echo_int(show([mov]b));\n\
+         \x20   return 0;\n\
+         };\n",
+    );
+    assert_successful_stdout(&root, "111\n222\n");
+}

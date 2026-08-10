@@ -856,6 +856,7 @@ mod tests {
                 ("name".to_string(), str_id),
             ]),
             finalized: false,
+            nominal: None,
         });
         let decl = LoweredTypeDecl {
             symbol_id: SymbolId(10),
@@ -898,6 +899,7 @@ mod tests {
                 ("name".to_string(), str_id),
             ]),
             finalized: false,
+            nominal: None,
         });
         let decl = LoweredTypeDecl {
             symbol_id: SymbolId(10),
@@ -950,6 +952,7 @@ mod tests {
                 ("tag".to_string(), str_id),
             ]),
             finalized: false,
+            nominal: None,
         });
         let decl = LoweredTypeDecl {
             symbol_id: SymbolId(12),
@@ -1103,6 +1106,7 @@ mod tests {
                 ("name".to_string(), str_id),
             ]),
             finalized: false,
+            nominal: None,
         });
         let entry_id = table.intern(LoweredType::Entry {
             variants: std::collections::BTreeMap::from([

@@ -86,9 +86,18 @@ pub enum LoweredType {
         fields: BTreeMap<String, LoweredTypeId>,
         /// True when the record's type claims `fin` custom finalization. This is
         /// part of the interning key so a `fin` record is a distinct move-only
-        /// type from a structurally identical non-`fin` record (fin is nominal;
-        /// the record layout is otherwise structural).
+        /// type from a structurally identical non-`fin` record.
         finalized: bool,
+        /// The declaring type's qualified name, when the record came from a
+        /// named declaration.
+        ///
+        /// Records are otherwise interned structurally, which collapsed two
+        /// declared types with the same field list into one id -- and method
+        /// dispatch, which matches a conformer by its receiver's lowered type,
+        /// then called whichever conformer it found first. `typ Alpha: rec =
+        /// { w: int }` and `typ Beta: rec = { w: int }` are different types, so
+        /// their identity has to survive lowering.
+        nominal: Option<String>,
     },
     Entry {
         variants: BTreeMap<String, Option<LoweredTypeId>>,
@@ -188,7 +197,9 @@ impl LoweredTypeTable {
                 }
                 // A `fin` record is affine: it owns a finalizable resource and
                 // must move (never copy) so finalization runs exactly once.
-                Some(LoweredType::Record { fields, finalized }) => {
+                Some(LoweredType::Record {
+                    fields, finalized, ..
+                }) => {
                     *finalized || fields.values().any(|field| moves(table, *field, visiting))
                 }
                 Some(LoweredType::Entry { variants }) => variants
@@ -567,10 +578,12 @@ mod tests {
         let record_first = table.intern(LoweredType::Record {
             fields: fields.clone(),
             finalized: false,
+            nominal: None,
         });
         let record_second = table.intern(LoweredType::Record {
             fields,
             finalized: false,
+            nominal: None,
         });
         let routine = table.intern(LoweredType::Routine(LoweredRoutineType {
             params: vec![record_first],
@@ -585,6 +598,7 @@ mod tests {
             Some(&LoweredType::Record {
                 fields: BTreeMap::from([("x".to_string(), int_id), ("y".to_string(), int_id),]),
                 finalized: false,
+                nominal: None,
             })
         );
     }
@@ -608,10 +622,12 @@ mod tests {
         let unique_record = table.intern(LoweredType::Record {
             fields: BTreeMap::from([("value".to_string(), unique)]),
             finalized: false,
+            nominal: None,
         });
         let shared_record = table.intern(LoweredType::Record {
             fields: BTreeMap::from([("value".to_string(), shared)]),
             finalized: false,
+            nominal: None,
         });
         let unique_array = table.intern(LoweredType::Array {
             element_type: unique_record,
@@ -657,6 +673,7 @@ mod tests {
                 ("shared".to_string(), shared),
             ]),
             finalized: false,
+            nominal: None,
         });
 
         assert!(table.contains_borrowed(nested));

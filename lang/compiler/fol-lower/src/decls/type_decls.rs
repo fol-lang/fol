@@ -393,6 +393,31 @@ pub(super) fn lower_symbol_signature(
         })
 }
 
+/// The lowered id of a type symbol's own `Declared` node, when the program
+/// interned one.
+///
+/// A generic declaration has several (`Box[int]`, `Box[str]`); those belong to
+/// their instantiations, so only an argument-free node identifies the
+/// declaration itself.
+fn declared_node_runtime_type(
+    typed_package: &fol_typecheck::TypedPackage,
+    lowered_package: &LoweredPackage,
+    symbol_id: SymbolId,
+) -> Option<crate::LoweredTypeId> {
+    let table = typed_package.program.type_table();
+    (0..table.len()).find_map(|raw| {
+        let checked_id = fol_typecheck::CheckedTypeId(raw);
+        match table.get(checked_id) {
+            Some(CheckedType::Declared { symbol, args, .. })
+                if *symbol == symbol_id && args.is_empty() =>
+            {
+                lowered_package.checked_type_map.get(&checked_id).copied()
+            }
+            _ => None,
+        }
+    })
+}
+
 fn lower_record_decl(
     typed_package: &fol_typecheck::TypedPackage,
     lowered_package: &LoweredPackage,
@@ -413,10 +438,16 @@ fn lower_record_decl(
                 ),
             )
         })?;
-    let runtime_type = lowered_package
-        .checked_type_map
-        .get(&checked_type)
-        .copied()
+    // Look the runtime type up through this symbol's own `Declared` node rather
+    // than through the bare record it resolves to. Records intern structurally,
+    // so two declarations with the same field list share one record id; only
+    // the `Declared` node carries which declaration this is, and lowering
+    // stamps that name onto the interned type. Resolving the decl from the bare
+    // record would give it the structural id while every *use* resolves to the
+    // nominal one, and the backend would then find no declaration for the type
+    // it was asked to render.
+    let runtime_type = declared_node_runtime_type(typed_package, lowered_package, symbol_id)
+        .or_else(|| lowered_package.checked_type_map.get(&checked_type).copied())
         .ok_or_else(|| {
             LoweringError::with_kind(
                 LoweringErrorKind::InvalidInput,

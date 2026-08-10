@@ -738,7 +738,11 @@ fn substitute_type(
                 .transpose()?;
             type_table.intern(LoweredType::Error { inner })
         }
-        LoweredType::Record { fields, finalized } => {
+        LoweredType::Record {
+            fields,
+            finalized,
+            nominal,
+        } => {
             let fields = fields
                 .into_iter()
                 .map(|(field_name, field_type)| {
@@ -746,7 +750,11 @@ fn substitute_type(
                         .map(|field_type| (field_name, field_type))
                 })
                 .collect::<Result<BTreeMap<_, _>, _>>()?;
-            type_table.intern(LoweredType::Record { fields, finalized })
+            type_table.intern(LoweredType::Record {
+                fields,
+                finalized,
+                nominal,
+            })
         }
         LoweredType::Entry { variants } => {
             let variants = variants

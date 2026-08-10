@@ -367,6 +367,7 @@ fn declaration_lowering_records_explicit_record_field_layouts() {
                 ),
             ]),
             finalized: false,
+            nominal: None,
         })
     );
 }
@@ -517,6 +518,7 @@ fn declaration_lowering_synthesizes_runtime_decls_for_instantiated_generic_recor
                     [&fol_typecheck::CheckedTypeId(0)],
             )]),
             finalized: false,
+            nominal: None,
         })
     );
 }

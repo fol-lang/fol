@@ -297,13 +297,42 @@ fn translate_checked_type(
                         ),
                     )]
                 })?;
-            translate_checked_type(
+            let lowered = translate_checked_type(
                 lowered_types,
                 cache,
                 package_identity,
                 program,
                 runtime_type,
-            )?
+            )?;
+            // This is the only point that still knows which declaration the
+            // record came from. Without stamping it on, two declared types with
+            // the same field list intern to one id, and constraint dispatch --
+            // which matches a conformer by its receiver's lowered type -- calls
+            // whichever one it happens to find first.
+            let declaring_root = program
+                .resolved()
+                .symbol(symbol)
+                .and_then(|resolved| resolved.mounted_from.as_ref())
+                .map(|provenance| provenance.package_identity.canonical_root.clone())
+                .unwrap_or_else(|| package_identity.canonical_root.clone());
+            match lowered_types.get(lowered) {
+                Some(LoweredType::Record {
+                    fields,
+                    finalized,
+                    nominal: None,
+                }) => {
+                    let (fields, finalized) = (fields.clone(), *finalized);
+                    lowered_types.intern(LoweredType::Record {
+                        fields,
+                        finalized,
+                        // Key on the package that *declares* the type, not the
+                        // one doing the lowering: an imported record must come
+                        // out as the same type in every package that sees it.
+                        nominal: Some(format!("{}::{name}", declaring_root)),
+                    })
+                }
+                _ => lowered,
+            }
         }
         CheckedType::Array { element_type, size } => {
             let element_type = translate_checked_type(
@@ -498,7 +527,13 @@ fn translate_checked_type(
                 })
                 .collect::<Result<BTreeMap<_, _>, _>>()?;
             let finalized = program.type_resolves_to_fin(checked_type_id);
-            lowered_types.intern(LoweredType::Record { fields, finalized })
+            // Structural on its own; the declaring name is attached by the
+            // `Declared` arm, which is the only place that knows it.
+            lowered_types.intern(LoweredType::Record {
+                fields,
+                finalized,
+                nominal: None,
+            })
         }
         CheckedType::Entry { variants } => {
             let variants = variants

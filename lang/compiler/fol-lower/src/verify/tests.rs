@@ -373,6 +373,7 @@ fn verifier_rejects_reading_move_only_aggregates_out_of_borrows() {
     let record_type = type_table.intern(crate::types::LoweredType::Record {
         fields: BTreeMap::from([("pointer".to_string(), pointer_type)]),
         finalized: false,
+        nominal: None,
     });
     let borrow_type = type_table.intern(crate::types::LoweredType::Borrowed {
         inner: record_type,

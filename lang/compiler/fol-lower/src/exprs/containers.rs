@@ -132,7 +132,24 @@ fn checked_record_layout<'a>(
     checked_type_map
         .iter()
         .filter(|(_, lowered_id)| **lowered_id == lowered_type_id)
-        .find_map(|(checked_id, _)| typed_package.program.record_layout(*checked_id))
+        .find_map(|(checked_id, _)| {
+            typed_package
+                .program
+                .record_layout(*checked_id)
+                .or_else(|| {
+                    // A named record's lowered id comes from its `Declared`
+                    // node, but the field layout is registered on the
+                    // structural record underneath it.
+                    match typed_package.program.type_table().get(*checked_id) {
+                        Some(fol_typecheck::CheckedType::Declared { symbol, .. }) => typed_package
+                            .program
+                            .typed_symbol(*symbol)
+                            .and_then(|typed_symbol| typed_symbol.declared_type)
+                            .and_then(|declared| typed_package.program.record_layout(declared)),
+                        _ => None,
+                    }
+                })
+        })
 }
 
 /// Lower positional (ordered) record initialization `{ v0, v1, ... }`. Values
