@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-f859bb09.js";
+            window.path_to_searchindex_js = "../searchindex-561cb04e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7a86c1dd.js"></script>
@@ -208,13 +208,16 @@ inaccessible</li>
     var stack_b: int = stack_a;
 
     @var heap_a: int = 3;
-    @var heap_b: int = heap_a;
+    @var heap_b: int = [mov]heap_a;
 
     return stack_a + stack_b;
 };
 </code></pre>
-<p>A later read of <code>heap_a</code> is a compile error in the <code>O####</code> OWNERSHIP diagnostic
-family. The diagnostic points at both the invalid use and the transfer site.
+<p>The transfer itself must state its operation. Writing <code>@var heap_b: int = heap_a;</code> is rejected with <code>O1001</code>, because a move-only value never transfers
+implicitly: <code>[mov]</code> moves it, <code>[cpy]</code> and <code>[cln]</code> produce an independent value.</p>
+<p>Adding a later read of <code>heap_a</code> to that body — say <code>return heap_a;</code> after the
+<code>[mov]</code> — is a compile error in the <code>O####</code> OWNERSHIP diagnostic family. The
+diagnostic points at both the invalid use and the transfer site.
 The backend emits clone-safe transfers with <code>.clone()</code> and unique transfers as
 ordinary Rust moves. No runtime tag decides which operation occurs.</p>
 <p>Evaluating a move-only value as a standalone expression is also a transfer even

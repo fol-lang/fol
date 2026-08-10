@@ -35,7 +35,7 @@
             const path_to_root = "../../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-f859bb09.js";
+            window.path_to_searchindex_js = "../../searchindex-561cb04e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-7a86c1dd.js"></script>
@@ -228,12 +228,12 @@ return path and a <code>report</code> path</li>
 <p>Routine names are unique: declaring two routines with the same name in one
 scope is rejected, so there is no overload-resolution step. Give the variants
 distinct names, or take a generic parameter when the bodies are the same shape:</p>
-<pre><code>fun[] lower_chr(c: chr): chr = {
-    return .to_lower(c);
+<pre><code class="language-fol">fun[] twice_int(value: int): int = {
+    return value + value;
 };
 
-fun[] lower_str(s: str): str = {
-    return .to_lower(s);
+fun[] twice_str(value: str): str = {
+    return value + value;
 };
 </code></pre>
 <h3 id="actual-parameters"><a class="header" href="#actual-parameters">Actual parameters</a></h3>
@@ -275,12 +275,12 @@ pro main: int = {
 <p>But this is valid in <code>V1</code> when the last parameter is variadic:</p>
 <pre><code class="language-fol">fun[] score(base: int, step: int = 2, extras: ... int): int = {
     return base;
-}
+};
 
 fun[] run(): int = {
     var extras: seq[int] = {4, 5};
     return score(base = 3, ...extras);
-}
+};
 </code></pre>
 <h3 id="default-arguments"><a class="header" href="#default-arguments">Default arguments</a></h3>
 <p>Formal parameters can have default values too. A default value is used if no
@@ -316,22 +316,22 @@ pro main: int = {
 </code></pre>
 <p>Call-site unpack is the companion feature to variadics. It forwards an existing
 sequence into the final variadic parameter:</p>
-<pre><code class="language-fol">fun[] calc(rise: bool; ints: ... int): int = {
+<pre><code class="language-fol">fun[] calc(rise: bol; ints: ... int): int = {
     return ints[0];
-}
+};
 
 fun[] run(values: seq[int]): int = {
     return calc(true, ...values);
-}
+};
 </code></pre>
 <p>This also works after named arguments:</p>
 <pre><code class="language-fol">fun[] score(base: int, step: int = 2, extras: ... int): int = {
     return base;
-}
+};
 
 fun[] run(values: seq[int]): int = {
     return score(base = 3, ...values);
-}
+};
 </code></pre>
 <p><code>V1</code> intentionally does not support pseudo-arguments such as
 <code>extras[0] = 1</code> at call sites. Variadic inputs are still just routine

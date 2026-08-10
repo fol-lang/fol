@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-f859bb09.js";
+            window.path_to_searchindex_js = "../searchindex-561cb04e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7a86c1dd.js"></script>
@@ -317,7 +317,7 @@ does not exist.</p>
 <li><code>fol tool semantic-tokens &lt;PATH&gt;</code></li>
 <li><code>fol tool tree generate &lt;PATH&gt;</code></li>
 <li><code>fol tool clean</code></li>
-<li><code>fol tool completion</code></li>
+<li><code>fol tool completion &lt;bash|zsh|fish&gt;</code></li>
 </ul>
 <p>Examples:</p>
 <pre><code class="language-text">fol tool parse src/main.fol
@@ -338,6 +338,22 @@ fol tool completion bash
 <li>LSP serving</li>
 <li>generated tool assets</li>
 </ul>
+<h3 id="shell-completion"><a class="header" href="#shell-completion">Shell Completion</a></h3>
+<p><code>fol tool completion &lt;bash|zsh|fish&gt;</code> writes the completion script to stdout and
+nothing else, so it can be sourced directly. The script registers both <code>fol</code> and
+<code>folc</code>.</p>
+<pre><code class="language-bash"># bash: source it for the current session
+eval "$(fol tool completion bash)"
+# or install it
+fol tool completion bash &gt; ~/.local/share/bash-completion/completions/fol
+</code></pre>
+<pre><code class="language-zsh"># zsh: install into a directory on $fpath
+fol tool completion zsh &gt; ~/.zfunc/_fol
+</code></pre>
+<pre><code class="language-fish">fol tool completion fish &gt; ~/.config/fish/completions/fol.fish
+</code></pre>
+<p>With <code>--output json</code> the script is carried in the envelope’s <code>payload</code> field
+instead, alongside <code>command</code> and <code>summary</code>.</p>
 <h3 id="parse-and-query-results"><a class="header" href="#parse-and-query-results">Parse And Query Results</a></h3>
 <p><code>parse</code>, <code>highlight</code>, and <code>symbols</code> execute the checked-in generated FOL
 Tree-sitter parser in-process. They do not estimate results from source text or

@@ -35,7 +35,7 @@
             const path_to_root = "../../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-f859bb09.js";
+            window.path_to_searchindex_js = "../../searchindex-561cb04e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-7a86c1dd.js"></script>
@@ -197,11 +197,11 @@ the receiver value. In other words:</p>
 <p>Current parser-supported receiver declaration syntax is:</p>
 <pre><code class="language-fol">fun (parser)parse_msg(code: int): str = {
     return "ok";
-}
+};
 
 pro (parser)update(code: int): int = {
     return code;
-}
+};
 </code></pre>
 <p>The receiver type appears in parentheses right after <code>fun</code> or <code>pro</code>, followed by the method name.</p>
 <p>That receiver clause does not move the routine “inside” the type. It only says
@@ -215,7 +215,7 @@ builtin forms such as <code>any</code>, <code>none</code>, and <code>non</code>.
 <p>Invalid example:</p>
 <pre><code class="language-fol">fun (any)parse_msg(code: int): str = {
     return "ok";
-}
+};
 </code></pre>
 <p>This form reports: <code>Method receiver type cannot be any, non, or none</code>.</p>
 <p>Method calls use standard dot syntax:</p>
@@ -242,11 +242,11 @@ variadic parameter</li>
 
 fun (Counter)shift(step: int = 2, extras: ... int): int = {
     return step;
-}
+};
 
 fun[] run(current: Counter, extras: seq[int]): int = {
     return current.shift(step = 3, ...extras);
-}
+};
 </code></pre>
 <p><code>V1</code> does not support indexed pseudo-arguments such as
 <code>current.shift(extras[0] = 1, ...extras)</code>. That spelling looks like assignment,
@@ -260,7 +260,7 @@ routine’s ordinary first argument; it does not introduce an object model.</p>
 
 fun (Counter)read(): int = {
     return self.total;
-}
+};
 </code></pre>
 <p>Generic receiver types participate too: <code>fun (Box[T])get(T)(): T</code> can return
 <code>self.value</code>, and each concrete call site monomorphizes the routine.</p>
@@ -274,12 +274,12 @@ procedural access to the receiver through <code>self</code></li>
 <p>Custom error routines also support reporting method call results when receiver-qualified signatures are available:</p>
 <pre><code class="language-fol">fun (parser)parse_err(code: int): str = {
     return "bad-input";
-}
+};
 
 fun run(tool: parser, code: int): int / str = {
     report tool.parse_err(code)
     return 0
-}
+};
 </code></pre>
 
                     </main>

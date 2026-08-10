@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-f859bb09.js";
+            window.path_to_searchindex_js = "../searchindex-561cb04e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7a86c1dd.js"></script>
@@ -206,6 +206,17 @@ binary. Both <code>core</code> and <code>memo</code> can produce runnable execut
 bundles. A <code>memo</code> artifact declares bundled <code>std</code> separately only when its
 source needs hosted APIs.</p>
 <p><code>name</code> must be lowercase. Allowed characters: <code>a-z</code>, <code>0-9</code>, <code>-</code>, <code>_</code>, <code>.</code>.</p>
+<h3 id="exit-status"><a class="header" href="#exit-status">Exit Status</a></h3>
+<p>A built artifact’s exit status is its entry routine’s <code>int</code> return value, and
+<code>0</code> when the entry returns <code>non</code>. A recoverable entry that reports exits <code>1</code>
+after printing the error. The full contract lives in the built-ins chapter.</p>
+<p>This is what makes a test bundle able to fail: <code>graph.add_test</code> runs the
+binary, and an entry that returns a nonzero <code>int</code> — or reports — fails the
+run.</p>
+<p><code>fol code run</code> and <code>fol code test</code> exit with the program’s own status rather
+than a status of their own. A program that fails on its own terms is reported
+under <code>F1005</code>, which says the build succeeded and the program did not; a real
+build or configuration failure keeps <code>F1004</code>.</p>
 <h3 id="artifact-name-validation"><a class="header" href="#artifact-name-validation">Artifact Name Validation</a></h3>
 <p>The build system validates artifact names at evaluation time. Invalid names
 (uppercase, spaces, special characters) produce a build error.</p>

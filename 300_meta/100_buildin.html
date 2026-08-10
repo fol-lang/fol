@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-f859bb09.js";
+            window.path_to_searchindex_js = "../searchindex-561cb04e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7a86c1dd.js"></script>
@@ -337,18 +337,67 @@ shell could not be launched</li>
 <li><code>.dir_list(path)</code> — the sorted entries of a directory, directories suffixed
 with <code>/</code></li>
 <li><code>.read_file(path)</code> — a file’s contents</li>
+<li><code>.write_file(path, contents)</code> — write text to a path, yielding <code>0</code> on success
+and <code>-1</code> when the write fails</li>
+<li><code>.arg_count()</code> / <code>.arg_at(index)</code> — the command-line arguments, excluding the
+program name; an index past the end reads as the empty string</li>
+<li><code>.write_err(text)</code> — write to standard error without a trailing newline</li>
+<li><code>.str_find(text, needle)</code> — the byte index of the first occurrence, or <code>-1</code></li>
+<li><code>.str_replace(text, from, to)</code> — replace every occurrence</li>
+<li><code>.parse_int(text, fallback)</code> — parse an integer, or the caller’s fallback; the
+fallback is an argument because every sentinel is also a valid parse result</li>
+<li><code>.float_to_str(value, decimals)</code> — a float at a fixed number of decimals</li>
 </ul>
 <p>The bundled <code>std</code> package wraps them as <code>std::io::write</code>, <code>std::io::read_key</code>,
 <code>std::io::read_key_ms</code>, <code>std::term::raw_mode</code>, <code>std::term::cols</code>,
 <code>std::term::rows</code>, <code>std::time::sleep_ms</code>, <code>std::time::now_ms</code>,
 <code>std::fmt::int_to_str</code>, <code>std::strn::sub</code>, <code>std::strn::byte_at</code>,
-<code>std::strn::from_byte</code>, <code>std::os::env</code>, <code>std::os::shell</code>, <code>std::fs::dir_list</code>,
-and <code>std::fs::read_file</code>.</p>
+<code>std::strn::from_byte</code>, <code>std::strn::find</code>, <code>std::strn::replace</code>,
+<code>std::strn::to_int</code>, <code>std::fmt::float_to_str</code>, <code>std::os::env</code>,
+<code>std::os::shell</code>, <code>std::os::arg_count</code>, <code>std::os::arg</code>, <code>std::io::write_err</code>,
+<code>std::fs::dir_list</code>, <code>std::fs::read_file</code>, and <code>std::fs::write_file</code>.</p>
 <p>With that build contract, this is valid:</p>
 <pre><code class="language-fol">fun[] main(flag: bol): bol = {
     return .echo(flag)
-}
+};
 </code></pre>
+<h3 id="the-entry-points-command-line-and-exit-status"><a class="header" href="#the-entry-points-command-line-and-exit-status">The entry point’s command line and exit status</a></h3>
+<p>An entry routine’s parameters are bound, in order, to the command-line
+arguments that follow the program name. Only the scalar builtins are bound
+this way: <code>int</code>, <code>flt</code>, <code>bol</code>, <code>chr</code>, and <code>str</code>. <code>bol</code> accepts
+<code>true</code>/<code>1</code>/<code>yes</code>/<code>on</code> and <code>false</code>/<code>0</code>/<code>no</code>/<code>off</code>.</p>
+<p>A command line that does not satisfy the signature is a usage error, not a
+default. A missing argument, or one that does not parse as the declared type,
+writes a message naming the position and the expected type to standard error
+and exits with status <code>2</code>. Nothing silently becomes <code>0</code> or <code>""</code>.</p>
+<pre><code class="language-fol">fun[] main(count: int, label: str): int = {
+    return .echo(count);
+};
+</code></pre>
+<pre><code class="language-text">$ ./program notanumber hello
+fol: command-line argument #1 is not a valid `int`: `notanumber`
+$ echo $?
+2
+</code></pre>
+<p>A parameter of any other type is not bound from the command line; it is
+constructed empty. Read the command line yourself with <code>.arg_count()</code> and
+<code>.arg_at(index)</code> when you need anything richer than a scalar.</p>
+<p>The entry’s <code>int</code> return value <strong>is</strong> the process exit status:</p>
+<pre><code class="language-fol">fun[] main(): int = {
+    return 3;
+};
+</code></pre>
+<pre><code class="language-text">$ ./program; echo $?
+3
+</code></pre>
+<p>This holds on both channels. A plain <code>fun[] main(): int</code> exits with the value
+it returns, and a recoverable <code>fun[] main(): int / E</code> exits with the returned
+value when it returns and with <code>1</code>, after printing the error, when it reports.
+An entry declared <code>: non</code> always exits <code>0</code>. Exit statuses are truncated to
+their low 8 bits by the operating system, so keep them in <code>0..=255</code>; <code>0</code> means
+success by convention.</p>
+<p>Because <code>main</code>’s return is the exit status, <code>return .echo(value)</code> makes the
+echoed value the status too. Return <code>0</code> explicitly when a program succeeds.</p>
 <h3 id="recoverable-and-control-intrinsics"><a class="header" href="#recoverable-and-control-intrinsics">Recoverable and control intrinsics</a></h3>
 <pre><code class="language-fol">check(read_code(path))
 panic("fatal")
@@ -426,11 +475,11 @@ ali Failure: err[str]
 
 fun[] unwrap_optional(value: MaybeText): str = {
     return [uwp]value
-}
+};
 
 fun[] unwrap_failure(value: Failure): str = {
     return [uwp]value
-}
+};
 </code></pre>
 <p>That <code>!</code> surface is part of shell typing, not the intrinsic registry.</p>
 <p>Likewise, recoverable routine calls such as:</p>

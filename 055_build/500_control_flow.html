@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-f859bb09.js";
+            window.path_to_searchindex_js = "../searchindex-561cb04e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7a86c1dd.js"></script>
@@ -247,7 +247,7 @@ only within the file — they are not exported to the package.</p>
 <h3 id="helper-function"><a class="header" href="#helper-function">Helper Function</a></h3>
 <pre><code class="language-fol">fun[] make_lib(name: str, root: str): Artifact = {
     return .build().graph().add_static_lib({ name = name, root = root });
-}
+};
 
 pro[] build(): non = {
     var build = .build();
@@ -260,7 +260,7 @@ pro[] build(): non = {
     app.link(io);
     graph.install(app);
     graph.add_run(app);
-}
+};
 </code></pre>
 <p>The helper <code>make_lib</code> accesses the graph through <code>.build().graph()</code>. The graph
 handle is not a public type name and is not passed as a user-declared
@@ -269,11 +269,11 @@ parameter.</p>
 <p>Helpers can call other helpers:</p>
 <pre><code class="language-fol">fun[] lib_root(name: str): str = {
     return "src/" + name + "/lib.fol";
-}
+};
 
 fun[] add_lib(name: str): Artifact = {
     return .build().graph().add_static_lib({ name = name, root = lib_root(name) });
-}
+};
 
 pro[] build(): non = {
     var build = .build();
@@ -283,12 +283,12 @@ pro[] build(): non = {
     var app  = graph.add_exe({ name = "app", root = "src/main.fol" });
     app.link(core);
     graph.install(app);
-}
+};
 </code></pre>
 <h2 id="combined-example"><a class="header" href="#combined-example">Combined Example</a></h2>
 <pre><code class="language-fol">fun[] make_lib(name: str): Artifact = {
     return .build().graph().add_static_lib({ name = name, root = name });
-}
+};
 
 pro[] build(): non = {
     var build = .build();
@@ -321,7 +321,7 @@ pro[] build(): non = {
             strip_step.attach(packed);
         }
     };
-}
+};
 </code></pre>
 
                     </main>

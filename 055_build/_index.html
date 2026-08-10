@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-f859bb09.js";
+            window.path_to_searchindex_js = "../searchindex-561cb04e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7a86c1dd.js"></script>
@@ -193,7 +193,7 @@ canonical entry:</p>
     build.meta({ name = "app", version = "0.1.0" });
     var graph = build.graph();
     ...
-}
+};
 </code></pre>
 <p>The active build context is accessed explicitly through the build-only ambient
 accessor:</p>
@@ -215,7 +215,7 @@ reached through <code>build.graph()</code>.</p>
     });
     graph.install(app);
     graph.add_run(app);
-}
+};
 </code></pre>
 <p>This registers package metadata, adds an executable, marks it for installation,
 and binds a default run step. The artifact uses <code>core</code>, so its source has no

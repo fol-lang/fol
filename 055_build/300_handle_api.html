@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-f859bb09.js";
+            window.path_to_searchindex_js = "../searchindex-561cb04e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7a86c1dd.js"></script>
@@ -284,7 +284,7 @@ run.add_arg("--config").add_arg("config/default.toml");
 var cfg = graph.copy_file({
     name   = "config",
     source = defaults,
-    dest   = "gen/config.toml",
+    path   = "gen/config.toml",
 });
 var run = graph.add_run(app);
 run.add_file_arg(cfg);
@@ -298,7 +298,7 @@ run.add_file_arg(defaults);
         path = "config/generated.toml",
         contents = "ok",
     });
-}
+};
 
 var cfg = emit_cfg();
 app.add_generated(cfg);
@@ -413,21 +413,17 @@ build.export_artifact({ name = "runtime", artifact = lib });
 </code></pre>
 <p>If a dependency does not export a build-facing module, artifact, step, or
 generated output, dependency handles do not see it.</p>
-<p>The currently implemented explicit export kinds are:</p>
+<p>The implemented explicit export kinds are:</p>
 <ul>
-<li>module</li>
-<li>artifact</li>
-<li>step</li>
-<li>generated output</li>
+<li>module — <code>build.export_module({ name = ..., module = ... })</code></li>
+<li>artifact — <code>build.export_artifact({ name = ..., artifact = ... })</code></li>
+<li>step — <code>build.export_step({ name = ..., step = ... })</code></li>
+<li>generated output — <code>build.export_output({ name = ..., output = ... })</code></li>
+<li>source file — <code>build.export_file({ name = ..., file = ... })</code></li>
+<li>source dir or generated dir — <code>build.export_dir({ name = ..., dir = ... })</code></li>
+<li>generated path — <code>build.export_path({ name = ..., path = ... })</code></li>
 </ul>
-<p>The next missing export kinds are:</p>
-<ul>
-<li>source file</li>
-<li>source dir</li>
-<li>broader path</li>
-<li>generated dir</li>
-</ul>
-<p>The intended next public shape is:</p>
+<p>Path exports take handles, not strings:</p>
 <pre><code class="language-fol">var cfg = graph.file_from_root("config/default.toml");
 var assets = graph.dir_from_root("assets");
 var schema = graph.write_file({
@@ -440,8 +436,11 @@ build.export_file({ name = "config", file = cfg });
 build.export_dir({ name = "assets", dir = assets });
 build.export_path({ name = "schema", path = schema });
 </code></pre>
-<p>That direction keeps path exports explicit and typed instead of collapsing back
-into ad hoc string registries.</p>
+<p><code>export_file</code> requires a source-file handle, <code>export_dir</code> accepts a source-dir
+handle or a generated-dir handle, and <code>export_path</code> requires a generated-output
+handle. Passing anything else names the missing field in the diagnostic. Keeping
+path exports handle-typed is what stops them from collapsing back into ad hoc
+string registries.</p>
 <p>Source import roots remain separate. A dependency can still be imported in
 ordinary package source through its alias even when it exports no build-facing
 handles at all.</p>

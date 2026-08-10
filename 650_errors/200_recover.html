@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-f859bb09.js";
+            window.path_to_searchindex_js = "../searchindex-561cb04e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7a86c1dd.js"></script>
@@ -189,7 +189,7 @@ split into two different surfaces:</p>
         case(true) { report "missing path" }
         * { return 7 }
     }
-}
+};
 </code></pre>
 <p>This means:</p>
 <ul>
@@ -200,12 +200,12 @@ split into two different surfaces:</p>
 <p><code>report expr</code> must match the declared error type:</p>
 <pre><code class="language-fol">fun read_code(path: str): int / str = {
     report "missing path"
-}
+};
 </code></pre>
 <p>The following is invalid because the reported value is the wrong type:</p>
 <pre><code class="language-fol">fun read_code(path: str): int / str = {
     report 1
-}
+};
 </code></pre>
 <h2 id="no-plain-propagation"><a class="header" href="#no-plain-propagation">No plain propagation</a></h2>
 <p>In current <code>V1</code>, <code>/ ErrorType</code> routine results do not flow through ordinary
@@ -238,7 +238,7 @@ be a direct recoverable routine call or a V3 awaited recoverable eventual.</p>
 <p>It returns <code>bol</code>.</p>
 <pre><code class="language-fol">fun main(path: str): bol = {
     return check(read_code(path))
-}
+};
 </code></pre>
 <p><code>check(...)</code> works on direct recoverable routine calls and on expressions such
 as <code>pending | await</code> when <code>pending</code> carries a recoverable result. It does not
@@ -261,15 +261,15 @@ a direct recoverable routine call or a V3 awaited recoverable eventual.</p>
 <p>Examples:</p>
 <pre><code class="language-fol">fun with_default(path: str): int = {
     return read_code(path) || 0
-}
+};
 
 fun with_context(path: str): int / str = {
     return read_code(path) || report "read failed"
-}
+};
 
 fun must_succeed(path: str): int = {
     return read_code(path) || panic "read failed"
-}
+};
 </code></pre>
 <h2 id="err-is-the-storable-error-form"><a class="header" href="#err-is-the-storable-error-form"><code>err[...]</code> is the storable error form</a></h2>
 <p><code>err[...]</code> is a normal value type. It is a nil-able shell: <code>nil</code> is the
@@ -280,11 +280,11 @@ no-error (success) state and a present value carries a stored error payload.
 
 fun keep(value: Failure): Failure = {
     return value
-}
+};
 
 fun unwrap(value: Failure): str = {
     return [uwp]value
-}
+};
 </code></pre>
 <p>Because it is nil-able, an <code>err[T]</code> scrutinee also drives <code>when ... on ... *</code>:
 <code>on(payload)</code> binds the stored error and <code>*</code> takes the <code>nil</code> (no-error) branch.

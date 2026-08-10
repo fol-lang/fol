@@ -35,7 +35,7 @@
             const path_to_root = "../../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-f859bb09.js";
+            window.path_to_searchindex_js = "../../searchindex-561cb04e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-7a86c1dd.js"></script>
@@ -200,11 +200,11 @@ as ordinary receiver-qualified routines outside the record body.</p>
 <pre><code class="language-fol">typ computer: rec = {
     brand: str;
     memory: int
-}
+};
 
 fun (computer)get_type(): str = {
     return self.brand
-}
+};
 
 var laptop: computer = { brand = "acme", memory = 16 }
 .echo(laptop.get_type())

@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-f859bb09.js";
+            window.path_to_searchindex_js = "../searchindex-561cb04e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7a86c1dd.js"></script>
@@ -217,7 +217,7 @@ use filesystem or network APIs, or contain more than one canonical entry.</p>
     var build = .build();
     var graph = build.graph();
     ...
-}
+};
 </code></pre>
 <ul>
 <li><code>pro[]</code> — procedure with no receivers</li>
@@ -258,7 +258,7 @@ parameter form, or explicit <code>Graph</code> type syntax are compile errors.</
     });
     graph.install(app);
     graph.add_run(app);
-}
+};
 </code></pre>
 <p>The public layering is:</p>
 <ul>
@@ -307,7 +307,7 @@ today</li>
 <p><code>build.fol</code> can define helper functions visible only within itself:</p>
 <pre><code class="language-fol">fun[] make_lib(name: str, root: str): Artifact = {
     return .build().graph().add_static_lib({ name = name, root = root });
-}
+};
 
 pro[] build(): non = {
     var build = .build();
@@ -318,7 +318,7 @@ pro[] build(): non = {
     app.link(core);
     app.link(io);
     graph.install(app);
-}
+};
 </code></pre>
 <p>Helpers may call <code>.build()</code> ambiently, but they do not name a public build or
 graph type in source.</p>

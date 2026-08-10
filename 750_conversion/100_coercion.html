@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-f859bb09.js";
+            window.path_to_searchindex_js = "../searchindex-561cb04e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7a86c1dd.js"></script>
@@ -210,11 +210,11 @@ var ratio: flt = 1.5
 
 fun[] take_int(value: int): int = {
     return value;
-}
+};
 
 fun[] take_float(value: flt): flt = {
     return value;
-}
+};
 </code></pre>
 <p>Examples that are rejected in <code>V1</code>:</p>
 <pre><code class="language-fol">var count: int = 1.5
@@ -222,11 +222,11 @@ var ratio: flt = 1
 </code></pre>
 <pre><code class="language-fol">fun[] take_float(value: flt): flt = {
     return value;
-}
+};
 
 fun[] bad(): flt = {
     return take_float(1);
-}
+};
 </code></pre>
 <p>Later versions may widen this contract, but <code>V1</code> keeps coercion intentionally
 small so type behavior stays predictable.</p>

@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-f859bb09.js";
+            window.path_to_searchindex_js = "../searchindex-561cb04e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7a86c1dd.js"></script>
@@ -190,7 +190,7 @@ should not collapse back into ad hoc string-only graph APIs</li>
     build.meta({ name = "app", version = "0.1.0" });
     var graph = build.graph();
     ...
-}
+};
 </code></pre>
 <h2 id="artifacts"><a class="header" href="#artifacts">Artifacts</a></h2>
 <h3 id="graphadd_exe"><a class="header" href="#graphadd_exe"><code>graph.add_exe</code></a></h3>
@@ -410,10 +410,11 @@ of whether the artifact uses <code>core</code>, <code>memo</code>, or bundled <c
 var docs = graph.step("docs", "Generate documentation");
 </code></pre>
 <p>Returns a <code>Step</code> handle. See <a href="./300_handle_api.html">Handle API</a> for <code>Step</code> methods.</p>
-<p>Named steps are selectable on the command line:</p>
-<pre><code class="language-text">fol code build docs
-fol code build --step docs
+<p>Named steps are selectable on the command line with <code>--step</code>:</p>
+<pre><code class="language-text">fol code build --step docs
 </code></pre>
+<p>A bare positional argument is a build target path, not a step name, so
+<code>fol code build docs</code> looks for a file called <code>docs</code> and fails with <code>F1004</code>.</p>
 <p>When a description is present, frontend step planning and unknown-step
 diagnostics surface it as part of the available step catalog.</p>
 <h2 id="native-system-libraries"><a class="header" href="#native-system-libraries">Native System Libraries</a></h2>
@@ -554,9 +555,11 @@ Optional field: <code>default</code>.</p>
 var cfg = graph.copy_file({
     name   = "config",
     source = template,
-    dest   = "gen/config.toml",
+    path   = "gen/config.toml",
 });
 </code></pre>
+<p>The destination field is <code>path</code>, the same spelling <code>graph.write_file</code> uses.
+<code>destination</code> and <code>destination_path</code> are accepted as well.</p>
 <p>Returns a <code>GeneratedFile</code> handle.</p>
 <h3 id="graphadd_system_tool"><a class="header" href="#graphadd_system_tool"><code>graph.add_system_tool</code></a></h3>
 <p>Declares a system tool invocation that produces a file.</p>

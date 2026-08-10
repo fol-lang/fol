@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-f859bb09.js";
+            window.path_to_searchindex_js = "searchindex-561cb04e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-7a86c1dd.js"></script>
@@ -260,11 +260,11 @@ fun[] main(): int = {
     std::io::echo_str(prefix);
     std::io::echo_int(add(3, 5));
     return 0;
-}
+};
 
 fun[exp] add(a, b: int): int = {
     return a + b;
-}
+};
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="toolchain-management"><a class="header" href="#toolchain-management">Toolchain Management</a></h1>
@@ -949,7 +949,7 @@ does not exist.</p>
 <li><code>fol tool semantic-tokens &lt;PATH&gt;</code></li>
 <li><code>fol tool tree generate &lt;PATH&gt;</code></li>
 <li><code>fol tool clean</code></li>
-<li><code>fol tool completion</code></li>
+<li><code>fol tool completion &lt;bash|zsh|fish&gt;</code></li>
 </ul>
 <p>Examples:</p>
 <pre><code class="language-text">fol tool parse src/main.fol
@@ -970,6 +970,22 @@ fol tool completion bash
 <li>LSP serving</li>
 <li>generated tool assets</li>
 </ul>
+<h3 id="shell-completion"><a class="header" href="#shell-completion">Shell Completion</a></h3>
+<p><code>fol tool completion &lt;bash|zsh|fish&gt;</code> writes the completion script to stdout and
+nothing else, so it can be sourced directly. The script registers both <code>fol</code> and
+<code>folc</code>.</p>
+<pre><code class="language-bash"># bash: source it for the current session
+eval "$(fol tool completion bash)"
+# or install it
+fol tool completion bash &gt; ~/.local/share/bash-completion/completions/fol
+</code></pre>
+<pre><code class="language-zsh"># zsh: install into a directory on $fpath
+fol tool completion zsh &gt; ~/.zfunc/_fol
+</code></pre>
+<pre><code class="language-fish">fol tool completion fish &gt; ~/.config/fish/completions/fol.fish
+</code></pre>
+<p>With <code>--output json</code> the script is carried in the envelope’s <code>payload</code> field
+instead, alongside <code>command</code> and <code>summary</code>.</p>
 <h3 id="parse-and-query-results"><a class="header" href="#parse-and-query-results">Parse And Query Results</a></h3>
 <p><code>parse</code>, <code>highlight</code>, and <code>symbols</code> execute the checked-in generated FOL
 Tree-sitter parser in-process. They do not estimate results from source text or
@@ -2051,7 +2067,7 @@ canonical entry:</p>
     build.meta({ name = "app", version = "0.1.0" });
     var graph = build.graph();
     ...
-}
+};
 </code></pre>
 <p>The active build context is accessed explicitly through the build-only ambient
 accessor:</p>
@@ -2073,7 +2089,7 @@ reached through <code>build.graph()</code>.</p>
     });
     graph.install(app);
     graph.add_run(app);
-}
+};
 </code></pre>
 <p>This registers package metadata, adds an executable, marks it for installation,
 and binds a default run step. The artifact uses <code>core</code>, so its source has no
@@ -2204,7 +2220,7 @@ use filesystem or network APIs, or contain more than one canonical entry.</p>
     var build = .build();
     var graph = build.graph();
     ...
-}
+};
 </code></pre>
 <ul>
 <li><code>pro[]</code> — procedure with no receivers</li>
@@ -2245,7 +2261,7 @@ parameter form, or explicit <code>Graph</code> type syntax are compile errors.</
     });
     graph.install(app);
     graph.add_run(app);
-}
+};
 </code></pre>
 <p>The public layering is:</p>
 <ul>
@@ -2294,7 +2310,7 @@ today</li>
 <p><code>build.fol</code> can define helper functions visible only within itself:</p>
 <pre><code class="language-fol">fun[] make_lib(name: str, root: str): Artifact = {
     return .build().graph().add_static_lib({ name = name, root = root });
-}
+};
 
 pro[] build(): non = {
     var build = .build();
@@ -2305,7 +2321,7 @@ pro[] build(): non = {
     app.link(core);
     app.link(io);
     graph.install(app);
-}
+};
 </code></pre>
 <p>Helpers may call <code>.build()</code> ambiently, but they do not name a public build or
 graph type in source.</p>
@@ -2490,7 +2506,7 @@ should not collapse back into ad hoc string-only graph APIs</li>
     build.meta({ name = "app", version = "0.1.0" });
     var graph = build.graph();
     ...
-}
+};
 </code></pre>
 <h2 id="artifacts"><a class="header" href="#artifacts">Artifacts</a></h2>
 <h3 id="graphadd_exe"><a class="header" href="#graphadd_exe"><code>graph.add_exe</code></a></h3>
@@ -2710,10 +2726,11 @@ of whether the artifact uses <code>core</code>, <code>memo</code>, or bundled <c
 var docs = graph.step("docs", "Generate documentation");
 </code></pre>
 <p>Returns a <code>Step</code> handle. See <a href="#handle-api">Handle API</a> for <code>Step</code> methods.</p>
-<p>Named steps are selectable on the command line:</p>
-<pre><code class="language-text">fol code build docs
-fol code build --step docs
+<p>Named steps are selectable on the command line with <code>--step</code>:</p>
+<pre><code class="language-text">fol code build --step docs
 </code></pre>
+<p>A bare positional argument is a build target path, not a step name, so
+<code>fol code build docs</code> looks for a file called <code>docs</code> and fails with <code>F1004</code>.</p>
 <p>When a description is present, frontend step planning and unknown-step
 diagnostics surface it as part of the available step catalog.</p>
 <h2 id="native-system-libraries"><a class="header" href="#native-system-libraries">Native System Libraries</a></h2>
@@ -2854,9 +2871,11 @@ Optional field: <code>default</code>.</p>
 var cfg = graph.copy_file({
     name   = "config",
     source = template,
-    dest   = "gen/config.toml",
+    path   = "gen/config.toml",
 });
 </code></pre>
+<p>The destination field is <code>path</code>, the same spelling <code>graph.write_file</code> uses.
+<code>destination</code> and <code>destination_path</code> are accepted as well.</p>
 <p>Returns a <code>GeneratedFile</code> handle.</p>
 <h3 id="graphadd_system_tool"><a class="header" href="#graphadd_system_tool"><code>graph.add_system_tool</code></a></h3>
 <p>Declares a system tool invocation that produces a file.</p>
@@ -3028,7 +3047,7 @@ run.add_arg("--config").add_arg("config/default.toml");
 var cfg = graph.copy_file({
     name   = "config",
     source = defaults,
-    dest   = "gen/config.toml",
+    path   = "gen/config.toml",
 });
 var run = graph.add_run(app);
 run.add_file_arg(cfg);
@@ -3042,7 +3061,7 @@ run.add_file_arg(defaults);
         path = "config/generated.toml",
         contents = "ok",
     });
-}
+};
 
 var cfg = emit_cfg();
 app.add_generated(cfg);
@@ -3157,21 +3176,17 @@ build.export_artifact({ name = "runtime", artifact = lib });
 </code></pre>
 <p>If a dependency does not export a build-facing module, artifact, step, or
 generated output, dependency handles do not see it.</p>
-<p>The currently implemented explicit export kinds are:</p>
+<p>The implemented explicit export kinds are:</p>
 <ul>
-<li>module</li>
-<li>artifact</li>
-<li>step</li>
-<li>generated output</li>
+<li>module — <code>build.export_module({ name = ..., module = ... })</code></li>
+<li>artifact — <code>build.export_artifact({ name = ..., artifact = ... })</code></li>
+<li>step — <code>build.export_step({ name = ..., step = ... })</code></li>
+<li>generated output — <code>build.export_output({ name = ..., output = ... })</code></li>
+<li>source file — <code>build.export_file({ name = ..., file = ... })</code></li>
+<li>source dir or generated dir — <code>build.export_dir({ name = ..., dir = ... })</code></li>
+<li>generated path — <code>build.export_path({ name = ..., path = ... })</code></li>
 </ul>
-<p>The next missing export kinds are:</p>
-<ul>
-<li>source file</li>
-<li>source dir</li>
-<li>broader path</li>
-<li>generated dir</li>
-</ul>
-<p>The intended next public shape is:</p>
+<p>Path exports take handles, not strings:</p>
 <pre><code class="language-fol">var cfg = graph.file_from_root("config/default.toml");
 var assets = graph.dir_from_root("assets");
 var schema = graph.write_file({
@@ -3184,8 +3199,11 @@ build.export_file({ name = "config", file = cfg });
 build.export_dir({ name = "assets", dir = assets });
 build.export_path({ name = "schema", path = schema });
 </code></pre>
-<p>That direction keeps path exports explicit and typed instead of collapsing back
-into ad hoc string registries.</p>
+<p><code>export_file</code> requires a source-file handle, <code>export_dir</code> accepts a source-dir
+handle or a generated-dir handle, and <code>export_path</code> requires a generated-output
+handle. Passing anything else names the missing field in the diagnostic. Keeping
+path exports handle-typed is what stops them from collapsing back into ad hoc
+string registries.</p>
 <p>Source import roots remain separate. A dependency can still be imported in
 ordinary package source through its alias even when it exports no build-facing
 handles at all.</p>
@@ -3416,7 +3434,7 @@ only within the file — they are not exported to the package.</p>
 <h3 id="helper-function"><a class="header" href="#helper-function">Helper Function</a></h3>
 <pre><code class="language-fol">fun[] make_lib(name: str, root: str): Artifact = {
     return .build().graph().add_static_lib({ name = name, root = root });
-}
+};
 
 pro[] build(): non = {
     var build = .build();
@@ -3429,7 +3447,7 @@ pro[] build(): non = {
     app.link(io);
     graph.install(app);
     graph.add_run(app);
-}
+};
 </code></pre>
 <p>The helper <code>make_lib</code> accesses the graph through <code>.build().graph()</code>. The graph
 handle is not a public type name and is not passed as a user-declared
@@ -3438,11 +3456,11 @@ parameter.</p>
 <p>Helpers can call other helpers:</p>
 <pre><code class="language-fol">fun[] lib_root(name: str): str = {
     return "src/" + name + "/lib.fol";
-}
+};
 
 fun[] add_lib(name: str): Artifact = {
     return .build().graph().add_static_lib({ name = name, root = lib_root(name) });
-}
+};
 
 pro[] build(): non = {
     var build = .build();
@@ -3452,12 +3470,12 @@ pro[] build(): non = {
     var app  = graph.add_exe({ name = "app", root = "src/main.fol" });
     app.link(core);
     graph.install(app);
-}
+};
 </code></pre>
 <h2 id="combined-example"><a class="header" href="#combined-example">Combined Example</a></h2>
 <pre><code class="language-fol">fun[] make_lib(name: str): Artifact = {
     return .build().graph().add_static_lib({ name = name, root = name });
-}
+};
 
 pro[] build(): non = {
     var build = .build();
@@ -3490,7 +3508,7 @@ pro[] build(): non = {
             strip_step.attach(packed);
         }
     };
-}
+};
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="artifacts-modules-and-generated-files"><a class="header" href="#artifacts-modules-and-generated-files">Artifacts, Modules, and Generated Files</a></h1>
@@ -3525,6 +3543,17 @@ binary. Both <code>core</code> and <code>memo</code> can produce runnable execut
 bundles. A <code>memo</code> artifact declares bundled <code>std</code> separately only when its
 source needs hosted APIs.</p>
 <p><code>name</code> must be lowercase. Allowed characters: <code>a-z</code>, <code>0-9</code>, <code>-</code>, <code>_</code>, <code>.</code>.</p>
+<h3 id="exit-status"><a class="header" href="#exit-status">Exit Status</a></h3>
+<p>A built artifact’s exit status is its entry routine’s <code>int</code> return value, and
+<code>0</code> when the entry returns <code>non</code>. A recoverable entry that reports exits <code>1</code>
+after printing the error. The full contract lives in the built-ins chapter.</p>
+<p>This is what makes a test bundle able to fail: <code>graph.add_test</code> runs the
+binary, and an entry that returns a nonzero <code>int</code> — or reports — fails the
+run.</p>
+<p><code>fol code run</code> and <code>fol code test</code> exit with the program’s own status rather
+than a status of their own. A program that fails on its own terms is reported
+under <code>F1005</code>, which says the build succeeded and the program did not; a real
+build or configuration failure keeps <code>F1004</code>.</p>
 <h3 id="artifact-name-validation"><a class="header" href="#artifact-name-validation">Artifact Name Validation</a></h3>
 <p>The build system validates artifact names at evaluation time. Invalid names
 (uppercase, spaces, special characters) produce a build error.</p>
@@ -5150,18 +5179,67 @@ shell could not be launched</li>
 <li><code>.dir_list(path)</code> — the sorted entries of a directory, directories suffixed
 with <code>/</code></li>
 <li><code>.read_file(path)</code> — a file’s contents</li>
+<li><code>.write_file(path, contents)</code> — write text to a path, yielding <code>0</code> on success
+and <code>-1</code> when the write fails</li>
+<li><code>.arg_count()</code> / <code>.arg_at(index)</code> — the command-line arguments, excluding the
+program name; an index past the end reads as the empty string</li>
+<li><code>.write_err(text)</code> — write to standard error without a trailing newline</li>
+<li><code>.str_find(text, needle)</code> — the byte index of the first occurrence, or <code>-1</code></li>
+<li><code>.str_replace(text, from, to)</code> — replace every occurrence</li>
+<li><code>.parse_int(text, fallback)</code> — parse an integer, or the caller’s fallback; the
+fallback is an argument because every sentinel is also a valid parse result</li>
+<li><code>.float_to_str(value, decimals)</code> — a float at a fixed number of decimals</li>
 </ul>
 <p>The bundled <code>std</code> package wraps them as <code>std::io::write</code>, <code>std::io::read_key</code>,
 <code>std::io::read_key_ms</code>, <code>std::term::raw_mode</code>, <code>std::term::cols</code>,
 <code>std::term::rows</code>, <code>std::time::sleep_ms</code>, <code>std::time::now_ms</code>,
 <code>std::fmt::int_to_str</code>, <code>std::strn::sub</code>, <code>std::strn::byte_at</code>,
-<code>std::strn::from_byte</code>, <code>std::os::env</code>, <code>std::os::shell</code>, <code>std::fs::dir_list</code>,
-and <code>std::fs::read_file</code>.</p>
+<code>std::strn::from_byte</code>, <code>std::strn::find</code>, <code>std::strn::replace</code>,
+<code>std::strn::to_int</code>, <code>std::fmt::float_to_str</code>, <code>std::os::env</code>,
+<code>std::os::shell</code>, <code>std::os::arg_count</code>, <code>std::os::arg</code>, <code>std::io::write_err</code>,
+<code>std::fs::dir_list</code>, <code>std::fs::read_file</code>, and <code>std::fs::write_file</code>.</p>
 <p>With that build contract, this is valid:</p>
 <pre><code class="language-fol">fun[] main(flag: bol): bol = {
     return .echo(flag)
-}
+};
 </code></pre>
+<h3 id="the-entry-points-command-line-and-exit-status"><a class="header" href="#the-entry-points-command-line-and-exit-status">The entry point’s command line and exit status</a></h3>
+<p>An entry routine’s parameters are bound, in order, to the command-line
+arguments that follow the program name. Only the scalar builtins are bound
+this way: <code>int</code>, <code>flt</code>, <code>bol</code>, <code>chr</code>, and <code>str</code>. <code>bol</code> accepts
+<code>true</code>/<code>1</code>/<code>yes</code>/<code>on</code> and <code>false</code>/<code>0</code>/<code>no</code>/<code>off</code>.</p>
+<p>A command line that does not satisfy the signature is a usage error, not a
+default. A missing argument, or one that does not parse as the declared type,
+writes a message naming the position and the expected type to standard error
+and exits with status <code>2</code>. Nothing silently becomes <code>0</code> or <code>""</code>.</p>
+<pre><code class="language-fol">fun[] main(count: int, label: str): int = {
+    return .echo(count);
+};
+</code></pre>
+<pre><code class="language-text">$ ./program notanumber hello
+fol: command-line argument #1 is not a valid `int`: `notanumber`
+$ echo $?
+2
+</code></pre>
+<p>A parameter of any other type is not bound from the command line; it is
+constructed empty. Read the command line yourself with <code>.arg_count()</code> and
+<code>.arg_at(index)</code> when you need anything richer than a scalar.</p>
+<p>The entry’s <code>int</code> return value <strong>is</strong> the process exit status:</p>
+<pre><code class="language-fol">fun[] main(): int = {
+    return 3;
+};
+</code></pre>
+<pre><code class="language-text">$ ./program; echo $?
+3
+</code></pre>
+<p>This holds on both channels. A plain <code>fun[] main(): int</code> exits with the value
+it returns, and a recoverable <code>fun[] main(): int / E</code> exits with the returned
+value when it returns and with <code>1</code>, after printing the error, when it reports.
+An entry declared <code>: non</code> always exits <code>0</code>. Exit statuses are truncated to
+their low 8 bits by the operating system, so keep them in <code>0..=255</code>; <code>0</code> means
+success by convention.</p>
+<p>Because <code>main</code>’s return is the exit status, <code>return .echo(value)</code> makes the
+echoed value the status too. Return <code>0</code> explicitly when a program succeeds.</p>
 <h3 id="recoverable-and-control-intrinsics"><a class="header" href="#recoverable-and-control-intrinsics">Recoverable and control intrinsics</a></h3>
 <pre><code class="language-fol">check(read_code(path))
 panic("fatal")
@@ -5239,11 +5317,11 @@ ali Failure: err[str]
 
 fun[] unwrap_optional(value: MaybeText): str = {
     return [uwp]value
-}
+};
 
 fun[] unwrap_failure(value: Failure): str = {
     return [uwp]value
-}
+};
 </code></pre>
 <p>That <code>!</code> surface is part of shell typing, not the intrinsic registry.</p>
 <p>Likewise, recoverable routine calls such as:</p>
@@ -6017,12 +6095,12 @@ return path and a <code>report</code> path</li>
 <p>Routine names are unique: declaring two routines with the same name in one
 scope is rejected, so there is no overload-resolution step. Give the variants
 distinct names, or take a generic parameter when the bodies are the same shape:</p>
-<pre><code>fun[] lower_chr(c: chr): chr = {
-    return .to_lower(c);
+<pre><code class="language-fol">fun[] twice_int(value: int): int = {
+    return value + value;
 };
 
-fun[] lower_str(s: str): str = {
-    return .to_lower(s);
+fun[] twice_str(value: str): str = {
+    return value + value;
 };
 </code></pre>
 <h3 id="actual-parameters"><a class="header" href="#actual-parameters">Actual parameters</a></h3>
@@ -6064,12 +6142,12 @@ pro main: int = {
 <p>But this is valid in <code>V1</code> when the last parameter is variadic:</p>
 <pre><code class="language-fol">fun[] score(base: int, step: int = 2, extras: ... int): int = {
     return base;
-}
+};
 
 fun[] run(): int = {
     var extras: seq[int] = {4, 5};
     return score(base = 3, ...extras);
-}
+};
 </code></pre>
 <h3 id="default-arguments"><a class="header" href="#default-arguments">Default arguments</a></h3>
 <p>Formal parameters can have default values too. A default value is used if no
@@ -6105,22 +6183,22 @@ pro main: int = {
 </code></pre>
 <p>Call-site unpack is the companion feature to variadics. It forwards an existing
 sequence into the final variadic parameter:</p>
-<pre><code class="language-fol">fun[] calc(rise: bool; ints: ... int): int = {
+<pre><code class="language-fol">fun[] calc(rise: bol; ints: ... int): int = {
     return ints[0];
-}
+};
 
 fun[] run(values: seq[int]): int = {
     return calc(true, ...values);
-}
+};
 </code></pre>
 <p>This also works after named arguments:</p>
 <pre><code class="language-fol">fun[] score(base: int, step: int = 2, extras: ... int): int = {
     return base;
-}
+};
 
 fun[] run(values: seq[int]): int = {
     return score(base = 3, ...values);
-}
+};
 </code></pre>
 <p><code>V1</code> intentionally does not support pseudo-arguments such as
 <code>extras[0] = 1</code> at call sites. Variadic inputs are still just routine
@@ -6221,7 +6299,9 @@ outside that shipped surface.</p>
 <p>Procedure parameters are ordinary typed inputs unless the parameter has an
 explicit ownership option. Values passed to ordinary parameters follow the
 type’s transfer rule. A parameter written as <code>name[bor]: T</code> borrows its
-argument for the call without taking ownership.</p>
+argument for the call without taking ownership. The borrow is explicit on both
+sides: the call site must pass <code>[bor]argument</code> or an existing borrow binding,
+otherwise the borrow checker rejects the call with <code>O2002</code>.</p>
 <p>Simple example:</p>
 <pre><code class="language-fol">pro[] inspect(value[bor]: int): int = {
     return value;
@@ -6229,7 +6309,7 @@ argument for the call without taking ownership.</p>
 
 pro[] main(): int = {
     var value: int = 7;
-    return inspect(value);
+    return inspect([bor]value);
 };
 </code></pre>
 <h3 id="ownership-and-borrowing"><a class="header" href="#ownership-and-borrowing">Ownership and borrowing</a></h3>
@@ -6430,11 +6510,11 @@ the receiver value. In other words:</p>
 <p>Current parser-supported receiver declaration syntax is:</p>
 <pre><code class="language-fol">fun (parser)parse_msg(code: int): str = {
     return "ok";
-}
+};
 
 pro (parser)update(code: int): int = {
     return code;
-}
+};
 </code></pre>
 <p>The receiver type appears in parentheses right after <code>fun</code> or <code>pro</code>, followed by the method name.</p>
 <p>That receiver clause does not move the routine “inside” the type. It only says
@@ -6448,7 +6528,7 @@ builtin forms such as <code>any</code>, <code>none</code>, and <code>non</code>.
 <p>Invalid example:</p>
 <pre><code class="language-fol">fun (any)parse_msg(code: int): str = {
     return "ok";
-}
+};
 </code></pre>
 <p>This form reports: <code>Method receiver type cannot be any, non, or none</code>.</p>
 <p>Method calls use standard dot syntax:</p>
@@ -6475,11 +6555,11 @@ variadic parameter</li>
 
 fun (Counter)shift(step: int = 2, extras: ... int): int = {
     return step;
-}
+};
 
 fun[] run(current: Counter, extras: seq[int]): int = {
     return current.shift(step = 3, ...extras);
-}
+};
 </code></pre>
 <p><code>V1</code> does not support indexed pseudo-arguments such as
 <code>current.shift(extras[0] = 1, ...extras)</code>. That spelling looks like assignment,
@@ -6493,7 +6573,7 @@ routine’s ordinary first argument; it does not introduce an object model.</p>
 
 fun (Counter)read(): int = {
     return self.total;
-}
+};
 </code></pre>
 <p>Generic receiver types participate too: <code>fun (Box[T])get(T)(): T</code> can return
 <code>self.value</code>, and each concrete call site monomorphizes the routine.</p>
@@ -6507,12 +6587,12 @@ procedural access to the receiver through <code>self</code></li>
 <p>Custom error routines also support reporting method call results when receiver-qualified signatures are available:</p>
 <pre><code class="language-fol">fun (parser)parse_err(code: int): str = {
     return "bad-input";
-}
+};
 
 fun run(tool: parser, code: int): int / str = {
     report tool.parse_err(code)
     return 0
-}
+};
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="logicals"><a class="header" href="#logicals">Logicals</a></h1>
@@ -6742,11 +6822,11 @@ surface.</p>
 
 pro (int)print(): non = {
     .echo(self)
-}
+};
 
 pro main(): non = {
     5.print()
-}
+};
 </code></pre>
 <p>The call <code>5.print()</code> is still just receiver sugar for <code>print(5)</code>.</p>
 <p>An older version of this chapter used a string-to-vector extension containing
@@ -6781,11 +6861,11 @@ as ordinary receiver-qualified routines outside the record body.</p>
 <pre><code class="language-fol">typ computer: rec = {
     brand: str;
     memory: int
-}
+};
 
 fun (computer)get_type(): str = {
     return self.brand
-}
+};
 
 var laptop: computer = { brand = "acme", memory = 16 }
 .echo(laptop.get_type())
@@ -7067,7 +7147,7 @@ receiver-qualified routines together.</p>
 std rect(geo): rec[] = {
     width: int[64];
     heigh: int[64];
-}
+};
 </code></pre>
 <p>Under that design, <code>rect</code> would need matching receiver-qualified routines such
 as:</p>
@@ -7232,7 +7312,7 @@ pro main: int = {
 
     barCall(2);
     barCall("go")
-}
+};
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="modules-and-source-layout"><a class="header" href="#modules-and-source-layout">Modules And Source Layout</a></h1>
@@ -7680,7 +7760,7 @@ split into two different surfaces:</p>
         case(true) { report "missing path" }
         * { return 7 }
     }
-}
+};
 </code></pre>
 <p>This means:</p>
 <ul>
@@ -7691,12 +7771,12 @@ split into two different surfaces:</p>
 <p><code>report expr</code> must match the declared error type:</p>
 <pre><code class="language-fol">fun read_code(path: str): int / str = {
     report "missing path"
-}
+};
 </code></pre>
 <p>The following is invalid because the reported value is the wrong type:</p>
 <pre><code class="language-fol">fun read_code(path: str): int / str = {
     report 1
-}
+};
 </code></pre>
 <h2 id="no-plain-propagation"><a class="header" href="#no-plain-propagation">No plain propagation</a></h2>
 <p>In current <code>V1</code>, <code>/ ErrorType</code> routine results do not flow through ordinary
@@ -7729,7 +7809,7 @@ be a direct recoverable routine call or a V3 awaited recoverable eventual.</p>
 <p>It returns <code>bol</code>.</p>
 <pre><code class="language-fol">fun main(path: str): bol = {
     return check(read_code(path))
-}
+};
 </code></pre>
 <p><code>check(...)</code> works on direct recoverable routine calls and on expressions such
 as <code>pending | await</code> when <code>pending</code> carries a recoverable result. It does not
@@ -7752,15 +7832,15 @@ a direct recoverable routine call or a V3 awaited recoverable eventual.</p>
 <p>Examples:</p>
 <pre><code class="language-fol">fun with_default(path: str): int = {
     return read_code(path) || 0
-}
+};
 
 fun with_context(path: str): int / str = {
     return read_code(path) || report "read failed"
-}
+};
 
 fun must_succeed(path: str): int = {
     return read_code(path) || panic "read failed"
-}
+};
 </code></pre>
 <h2 id="err-is-the-storable-error-form"><a class="header" href="#err-is-the-storable-error-form"><code>err[...]</code> is the storable error form</a></h2>
 <p><code>err[...]</code> is a normal value type. It is a nil-able shell: <code>nil</code> is the
@@ -7771,11 +7851,11 @@ no-error (success) state and a present value carries a stored error payload.
 
 fun keep(value: Failure): Failure = {
     return value
-}
+};
 
 fun unwrap(value: Failure): str = {
     return [uwp]value
-}
+};
 </code></pre>
 <p>Because it is nil-able, an <code>err[T]</code> scrutinee also drives <code>when ... on ... *</code>:
 <code>on(payload)</code> binds the stored error and <code>*</code> takes the <code>nil</code> (no-error) branch.
@@ -8275,14 +8355,14 @@ shipped V3 <code>std</code>-only forms; they do not enable general <code>this</c
 <p>Use <code>|</code> when you want to continue transforming a normal value:</p>
 <pre><code class="language-fol">fun add(x: int, y: int): int = {
     return x + y
-}
+};
 
 fun main(): int = {
     return add(4, 5) | when(this &gt; 8) {
         case(true) { 6 }
         * { 0 }
     }
-}
+};
 </code></pre>
 <p>This is ordinary value flow. The pipe itself does not create a special error
 model.</p>
@@ -8293,7 +8373,7 @@ model.</p>
         case(true) { report "missing path" }
         * { return 7 }
     }
-}
+};
 </code></pre>
 <p>For these calls, the current <code>V1</code> compiler does <strong>not</strong> treat plain <code>|</code> as the
 main error-handling tool.</p>
@@ -8313,7 +8393,7 @@ may be a direct routine call or, in V3, an awaited recoverable eventual.</p>
         case(true) { report "read failed" }
         * { return 0 }
     }
-}
+};
 </code></pre>
 <p>This is the current inspection surface for direct V1 recoverable calls and V3
 awaited recoverable results.</p>
@@ -8324,11 +8404,11 @@ awaited recoverable results.</p>
         case(true) { report "missing path" }
         * { return 7 }
     }
-}
+};
 
 fun with_default(path: str): int = {
     return read_code(path) || 5
-}
+};
 </code></pre>
 <p>Meaning:</p>
 <ul>
@@ -8344,27 +8424,27 @@ fun with_default(path: str): int = {
 <p>Examples:</p>
 <pre><code class="language-fol">fun recover(path: str): int = {
     return read_code(path) || 5
-}
+};
 
 fun re_report(path: str): int / str = {
     return read_code(path) || report "read failed"
-}
+};
 
 fun must_succeed(path: str): int = {
     return read_code(path) || panic "read failed"
-}
+};
 </code></pre>
 <h2 id="v3-async-and-await-stages"><a class="header" href="#v3-async-and-await-stages">V3 async and await stages</a></h2>
 <p>V3 ships two exact processor pipe stages:</p>
 <pre><code class="language-fol">fun[] load_async(path: str): int = {
     var pending = read_code(path) | async;
     return (pending | await) || 0;
-}
+};
 
 fun[] async_failed(path: str): bol = {
     var pending = read_code(path) | async;
     return check(pending | await);
-}
+};
 </code></pre>
 <p><code>| async</code> starts a direct named call on an OS thread and produces an internal
 eventual. <code>| await</code> consumes that eventual binding and blocks for its result. If
@@ -8429,7 +8509,7 @@ pro[] main(): int = {
 
     std::io::echo_str("work");
     return 7;
-}
+};
 </code></pre>
 <p>The deferred body runs before control leaves <code>main</code>.</p>
 <h2 id="reverse-order"><a class="header" href="#reverse-order">Reverse order</a></h2>
@@ -8438,7 +8518,7 @@ pro[] main(): int = {
 pro[] main(): non = {
     dfr { std::io::echo_int(1); };
     dfr { std::io::echo_int(2); };
-}
+};
 </code></pre>
 <p>This executes as:</p>
 <ul>
@@ -8459,7 +8539,7 @@ pro[] main(flag: bol): non = {
         }
         * { }
     }
-}
+};
 </code></pre>
 <p>If the inner scope exits first, its deferred bodies run before the outer
 scope’s deferred bodies.</p>
@@ -8798,11 +8878,11 @@ var ratio: flt = 1.5
 
 fun[] take_int(value: int): int = {
     return value;
-}
+};
 
 fun[] take_float(value: flt): flt = {
     return value;
-}
+};
 </code></pre>
 <p>Examples that are rejected in <code>V1</code>:</p>
 <pre><code class="language-fol">var count: int = 1.5
@@ -8810,11 +8890,11 @@ var ratio: flt = 1
 </code></pre>
 <pre><code class="language-fol">fun[] take_float(value: flt): flt = {
     return value;
-}
+};
 
 fun[] bad(): flt = {
     return take_float(1);
-}
+};
 </code></pre>
 <p>Later versions may widen this contract, but <code>V1</code> keeps coercion intentionally
 small so type behavior stays predictable.</p>
@@ -8844,11 +8924,11 @@ type system.</p>
 <p>Example:</p>
 <pre><code class="language-fol">fun[] bad_as(value: int): int = {
     return value as text;
-}
+};
 
 fun[] bad_cast(value: int): int = {
     return value cast target;
-}
+};
 </code></pre>
 <p>Both forms currently fail during typechecking.</p>
 <p>This boundary is intentional.
@@ -8911,6 +8991,7 @@ and the repository-level <code>docs/editor-sync.md</code> matrix.</p>
 <li><code>examples/mem_fin_finalizer_m1</code></li>
 <li><code>examples/mem_fin_move_m1</code></li>
 <li><code>examples/mem_fin_early_m1</code></li>
+<li><code>examples/mem_fin_deferred_m1</code></li>
 </ul>
 <p>Negative:</p>
 <ul>
@@ -8927,6 +9008,7 @@ and the repository-level <code>docs/editor-sync.md</code> matrix.</p>
 <li><code>examples/fail_mem_fin_partial_move_m1</code></li>
 <li><code>examples/fail_mem_fin_fun_finalizer_m1</code></li>
 <li><code>examples/fail_mem_fin_reuse_m1</code></li>
+<li><code>examples/fail_mem_fin_nested_m1</code></li>
 <li><code>examples/fail_mem_clone_fin_m1</code></li>
 <li><code>examples/fail_mem_clone_fin_claim_m1</code></li>
 <li><code>examples/fail_mem_generic_copy_bound_m1</code></li>
@@ -9049,13 +9131,16 @@ inaccessible</li>
     var stack_b: int = stack_a;
 
     @var heap_a: int = 3;
-    @var heap_b: int = heap_a;
+    @var heap_b: int = [mov]heap_a;
 
     return stack_a + stack_b;
 };
 </code></pre>
-<p>A later read of <code>heap_a</code> is a compile error in the <code>O####</code> OWNERSHIP diagnostic
-family. The diagnostic points at both the invalid use and the transfer site.
+<p>The transfer itself must state its operation. Writing <code>@var heap_b: int = heap_a;</code> is rejected with <code>O1001</code>, because a move-only value never transfers
+implicitly: <code>[mov]</code> moves it, <code>[cpy]</code> and <code>[cln]</code> produce an independent value.</p>
+<p>Adding a later read of <code>heap_a</code> to that body — say <code>return heap_a;</code> after the
+<code>[mov]</code> — is a compile error in the <code>O####</code> OWNERSHIP diagnostic family. The
+diagnostic points at both the invalid use and the transfer site.
 The backend emits clone-safe transfers with <code>.clone()</code> and unique transfers as
 ordinary Rust moves. No runtime tag decides which operation occurs.</p>
 <p>Evaluating a move-only value as a standalone expression is also a transfer even
@@ -9368,6 +9453,28 @@ value:</p>
 </code></pre>
 <p>When a value is moved, responsibility for finalization moves with it: the new
 owner finalizes it, and the original binding does not.</p>
+<p>A <code>[mov]</code> capture into a <code>dfr</code> or <code>edf</code> block is the one move that stays in the
+frame. The delayed block replays at scope exit, so the value is finalized right
+after the block body runs:</p>
+<pre><code class="language-fol">fun[] main(): int = {
+    var handle: File = { descriptor = 3 };
+    dfr[handle[mov]] {
+        observe(handle.descriptor);
+    };
+    return 0;
+    // the deferred body runs, then handle.finalize()
+};
+</code></pre>
+<h2 id="what-can-own-a-fin-value"><a class="header" href="#what-can-own-a-fin-value">What can own a <code>fin</code> value</a></h2>
+<p>A finalizer runs only for a value that a binding, a parameter or a <code>dfr</code>/<code>edf</code>
+capture owns directly. A <code>fin</code> value nested inside another value — a record
+field, a <code>vec</code>/<code>arr</code>/<code>seq</code> element, a <code>set</code>/<code>map</code> member, an <code>opt</code> or <code>err</code>
+payload — has no such owner, so nothing would ever call its finalizer. The
+compiler rejects those positions instead of skipping the cleanup silently:</p>
+<pre><code class="language-fol">var handles: vec[File] = { { descriptor = 3 } };
+// rejected: a nested 'fin' value would never be finalized
+</code></pre>
+<p>Give each <code>fin</code> value its own binding and transfer it with <code>[mov]</code>.</p>
 <h2 id="early-finalization"><a class="header" href="#early-finalization">Early finalization</a></h2>
 <p><code>[fin]value</code> runs the finalizer immediately and invalidates the source. The
 value is finalized exactly once, so scope-exit cleanup does not run a second

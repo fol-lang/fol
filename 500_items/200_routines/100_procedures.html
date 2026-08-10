@@ -35,7 +35,7 @@
             const path_to_root = "../../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-f859bb09.js";
+            window.path_to_searchindex_js = "../../searchindex-561cb04e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-7a86c1dd.js"></script>
@@ -215,7 +215,9 @@ outside that shipped surface.</p>
 <p>Procedure parameters are ordinary typed inputs unless the parameter has an
 explicit ownership option. Values passed to ordinary parameters follow the
 type’s transfer rule. A parameter written as <code>name[bor]: T</code> borrows its
-argument for the call without taking ownership.</p>
+argument for the call without taking ownership. The borrow is explicit on both
+sides: the call site must pass <code>[bor]argument</code> or an existing borrow binding,
+otherwise the borrow checker rejects the call with <code>O2002</code>.</p>
 <p>Simple example:</p>
 <pre><code class="language-fol">pro[] inspect(value[bor]: int): int = {
     return value;
@@ -223,7 +225,7 @@ argument for the call without taking ownership.</p>
 
 pro[] main(): int = {
     var value: int = 7;
-    return inspect(value);
+    return inspect([bor]value);
 };
 </code></pre>
 <h3 id="ownership-and-borrowing"><a class="header" href="#ownership-and-borrowing">Ownership and borrowing</a></h3>

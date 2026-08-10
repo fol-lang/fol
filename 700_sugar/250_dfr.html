@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-f859bb09.js";
+            window.path_to_searchindex_js = "../searchindex-561cb04e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7a86c1dd.js"></script>
@@ -224,7 +224,7 @@ pro[] main(): int = {
 
     std::io::echo_str("work");
     return 7;
-}
+};
 </code></pre>
 <p>The deferred body runs before control leaves <code>main</code>.</p>
 <h2 id="reverse-order"><a class="header" href="#reverse-order">Reverse order</a></h2>
@@ -233,7 +233,7 @@ pro[] main(): int = {
 pro[] main(): non = {
     dfr { std::io::echo_int(1); };
     dfr { std::io::echo_int(2); };
-}
+};
 </code></pre>
 <p>This executes as:</p>
 <ul>
@@ -254,7 +254,7 @@ pro[] main(flag: bol): non = {
         }
         * { }
     }
-}
+};
 </code></pre>
 <p>If the inner scope exits first, its deferred bodies run before the outer
 scope’s deferred bodies.</p>
