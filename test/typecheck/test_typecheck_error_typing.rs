@@ -1180,3 +1180,52 @@ fn entry_value_typing_rejects_unknown_variants() {
         "Expected an unknown-entry-variant diagnostic, got: {errors:?}"
     );
 }
+
+#[test]
+fn entry_declaration_rejects_payload_variants_without_a_value() {
+    // These used to clear typecheck and die in lowering with L1001
+    // ("requires a lowered default payload expression"), which is an internals
+    // message with no source span.
+    for source in [
+        "typ Color: ent = {\n    var BLUE: int;\n};\n\
+         fun[] main(): int = {\n    return 0;\n};\n",
+        "typ Color: ent = {\n    lab BLUE: int;\n};\n\
+         fun[] main(): int = {\n    return 0;\n};\n",
+    ] {
+        let errors = typecheck_fixture_folder_errors(&[("main.fol", source)]);
+
+        assert!(
+            errors.iter().any(|error| {
+                error.kind() == TypecheckErrorKind::InvalidInput
+                    && error.message().contains(
+                        "entry variant 'BLUE' of type 'Color' declares payload type 'int' but no value",
+                    )
+                    && error.origin().is_some()
+            }),
+            "Expected a located missing-entry-payload diagnostic for {source:?}, got: {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn entry_declaration_accepts_payload_free_and_valued_variants() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Color: ent = {\n\
+             var BLUE: int = 7;\n\
+             lab BARE;\n\
+         };\n\
+         fun[] blue(): int = {\n\
+             return Color.BLUE;\n\
+         };\n",
+    )]);
+
+    let syntax_id = find_named_routine_syntax_id(&typed, "blue");
+    assert_eq!(
+        typed
+            .typed_node(syntax_id)
+            .and_then(|node| node.inferred_type)
+            .and_then(|type_id| typed.type_table().get(type_id)),
+        Some(&CheckedType::Builtin(BuiltinType::Int))
+    );
+}

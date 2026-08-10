@@ -5,9 +5,9 @@ use crate::{
     TypedStandardRoutine,
 };
 use fol_parser::ast::{
-    AstNode, BindingPattern, FolType, Generic, Parameter, ParsedSourceUnitKind, ParsedTopLevel,
-    RecordFieldMeta, StandardKind, SyntaxNodeId, SyntaxOrigin, TypeDefinition, TypeOption,
-    VarOption,
+    AstNode, BindingPattern, EntryVariantMeta, FolType, Generic, Parameter, ParsedSourceUnitKind,
+    ParsedTopLevel, RecordFieldMeta, StandardKind, SyntaxNodeId, SyntaxOrigin, TypeDefinition,
+    TypeOption, VarOption,
 };
 use fol_resolver::{ResolvedProgram, ScopeId, SourceUnitId, SymbolId, SymbolKind};
 use std::collections::{BTreeMap, HashMap};
@@ -145,6 +145,51 @@ fn lower_record_field_layout(
     }
     typed.set_record_layout(record_type_id, layout);
     Ok(())
+}
+
+/// An entry variant that declares a payload type is constructed from the value
+/// spelled at the declaration; there is no other surface that supplies one, so
+/// a missing value is rejected here instead of failing to lower afterwards.
+fn reject_payload_variant_without_value(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    item: &ParsedTopLevel,
+    type_name: &str,
+    variant_meta: &HashMap<String, EntryVariantMeta>,
+    entry_type: CheckedTypeId,
+) -> Result<(), TypecheckError> {
+    let Some(CheckedType::Entry { variants }) = typed.type_table().get(entry_type) else {
+        return Ok(());
+    };
+    let Some((variant_name, payload_type)) =
+        variants
+            .iter()
+            .find_map(|(variant_name, payload_type)| match payload_type {
+                Some(payload_type)
+                    if variant_meta
+                        .get(variant_name)
+                        .is_none_or(|meta| meta.default.is_none()) =>
+                {
+                    Some((variant_name, *payload_type))
+                }
+                _ => None,
+            })
+    else {
+        return Ok(());
+    };
+
+    let rendered = typed.type_table().render_type(payload_type);
+    let message = format!(
+        "entry variant '{variant_name}' of type '{type_name}' declares payload type '{rendered}' but no value; spell one as '{variant_name}: {rendered} = <value>'"
+    );
+    let origin = node_origin(resolved, &item.node)
+        .or_else(|| resolved.syntax_index().origin(item.node_id).cloned());
+    Err(match origin {
+        Some(origin) => {
+            TypecheckError::with_origin(TypecheckErrorKind::InvalidInput, message, origin)
+        }
+        None => TypecheckError::new(TypecheckErrorKind::InvalidInput, message),
+    })
 }
 
 /// A custom finalizer (`finalize` on a `fin` type) runs foreign-resource cleanup
@@ -498,6 +543,16 @@ fn lower_top_level_declaration(
                 node_origin(resolved, &item.node)
                     .or_else(|| resolved.syntax_index().origin(item.node_id).cloned()),
             )?;
+            if let TypeDefinition::Entry { variant_meta, .. } = type_def {
+                reject_payload_variant_without_value(
+                    typed,
+                    resolved,
+                    item,
+                    name,
+                    variant_meta,
+                    type_id,
+                )?;
+            }
             record_symbol_type(typed, symbol_id, type_id)?;
             // Directly value-recursive definitions (`typ Node(T) = { next:
             // Node[T] }`, `typ Tree = { kids: vec[Tree] }`) have no finite

@@ -301,10 +301,20 @@ pub(crate) fn lower_dot_intrinsic_call(
             )
         })?;
     let lowering_mode = fol_intrinsics::lowering_mode_for_intrinsic(intrinsic_id);
+    // Dispatch on the registry's canonical spelling so aliases (`.print` for
+    // `.echo`) take the same lowering path as the name they alias.
+    let canonical_name = fol_intrinsics::intrinsic_by_id(intrinsic_id)
+        .map(|entry| entry.name)
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!("dot intrinsic '.{name}(...)' selected unregistered intrinsic id {intrinsic_id:?}"),
+            )
+        })?;
     if matches!(
         lowering_mode,
         Some(fol_intrinsics::IntrinsicLoweringMode::DedicatedIr)
-    ) && name == "len"
+    ) && canonical_name == "len"
     {
         let [operand] = args else {
             return Err(LoweringError::with_kind(
@@ -364,7 +374,7 @@ pub(crate) fn lower_dot_intrinsic_call(
         // `echo` and `write` forward their operand unchanged; the hook runs
         // for its side effect only.
         Some(fol_intrinsics::IntrinsicLoweringMode::RuntimeHook)
-            if name == "echo" || name == "write" =>
+            if canonical_name == "echo" || canonical_name == "write" =>
         {
             let [operand] = lowered_args.as_slice() else {
                 return Err(LoweringError::with_kind(

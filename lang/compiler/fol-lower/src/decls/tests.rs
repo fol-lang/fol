@@ -377,7 +377,7 @@ fn declaration_lowering_records_explicit_entry_variant_layouts() {
         fol_testkit::TempFixture::new("fol_lower_entry_decl").with_file("fol_lower_entry_decl.fol");
     std::fs::write(
         &fixture,
-        "typ Outcome: ent = { var Ok: int; var Err: str };\nfun[] main(): int = { return 0; };",
+        "typ Outcome: ent = { var Ok: int = 1; var Err: str = \"broken\" };\nfun[] main(): int = { return 0; };",
     )
     .expect("should write lowering entry fixture");
 
