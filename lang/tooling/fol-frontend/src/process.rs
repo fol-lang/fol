@@ -50,6 +50,22 @@ pub(crate) fn flush_frontend_streams() {
     let _ = std::io::stderr().flush();
 }
 
+/// Give the child stderr in place of stdout, so a machine-readable envelope on
+/// stdout stays parseable.
+///
+/// The program's output is still delivered as it is produced -- the child gets a
+/// duplicate of our stderr descriptor rather than a pipe we drain afterwards --
+/// it just lands on the stream a JSON consumer is not parsing. Interleaving it
+/// with the envelope made stdout valid neither as JSON nor as program output.
+fn stderr_as_stdout() -> FrontendResult<std::process::Stdio> {
+    use std::os::fd::AsFd;
+    std::io::stderr()
+        .as_fd()
+        .try_clone_to_owned()
+        .map(std::process::Stdio::from)
+        .map_err(|error| FrontendError::new(FrontendErrorKind::CommandFailed, error.to_string()))
+}
+
 /// Run a built binary on the frontend's own streams.
 ///
 /// `status()` leaves stdin, stdout, and stderr inherited, which is the whole
@@ -57,13 +73,24 @@ pub(crate) fn flush_frontend_streams() {
 /// input, its output arrives in one lump at exit rather than as it is
 /// produced, and a terminal query answers about a pipe. Interactive and
 /// full-screen programs need all three to be true.
-pub(crate) fn run_child_transparently(binary: &Path, args: &[String]) -> FrontendResult<()> {
+///
+/// `keep_stdout_machine_readable` is the one exception: it hands the child
+/// stderr in place of stdout so a JSON envelope on stdout stays parseable.
+pub(crate) fn run_child(
+    binary: &Path,
+    args: &[String],
+    keep_stdout_machine_readable: bool,
+) -> FrontendResult<()> {
     // Whatever the frontend has already printed has to reach the terminal
     // before the child starts writing to the same one.
     flush_frontend_streams();
 
-    let status = std::process::Command::new(binary)
-        .args(args)
+    let mut command = std::process::Command::new(binary);
+    command.args(args);
+    if keep_stdout_machine_readable {
+        command.stdout(stderr_as_stdout()?);
+    }
+    let status = command
         .status()
         .map_err(|error| FrontendError::new(FrontendErrorKind::CommandFailed, error.to_string()))?;
     if !status.success() {

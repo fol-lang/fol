@@ -3534,3 +3534,17 @@ fn test_entry_arguments_reject_missing_and_unparseable_values() {
 
     fs::remove_dir_all(&temp_root).ok();
 }
+
+#[test]
+fn every_printed_diagnostic_code_can_be_explained() {
+    // `explain` denying a code the compiler itself printed leaves the reader
+    // with nowhere to go.
+    for code in ["EUNKNOWN", "F1001", "F1004", "F1005"] {
+        let output = run_fol(&["code", "explain", code]);
+        assert!(
+            output.status.success(),
+            "`code explain {code}` should succeed: stderr=\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}

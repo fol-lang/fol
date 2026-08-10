@@ -443,8 +443,12 @@ fn render_uninit_routine_expr(
         ),
         _ => String::new(),
     };
+    // A closure rather than a nested `fn`: an inner item cannot name the
+    // enclosing routine's generic parameters, so the `fn` form failed to
+    // compile (E0401) for every routine-typed local inside a generic routine.
+    // A closure inherits them.
     Ok(format!(
-        "{{ fn __fol_uninit({}){return_clause} {{ unreachable!(\"uninitialized routine value\") }} let __fol_uninit_value: {rendered_type} = std::rc::Rc::new(__fol_uninit); __fol_uninit_value }}",
+        "{{ let __fol_uninit_value: {rendered_type} = std::rc::Rc::new(|{}|{return_clause} {{ unreachable!(\"uninitialized routine value\") }}); __fol_uninit_value }}",
         dummy_params.join(", ")
     ))
 }

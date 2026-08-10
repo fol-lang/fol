@@ -1005,8 +1005,11 @@ mod tests {
         assert!(rendered.contains("std::array::from_fn"));
         assert!(!rendered.contains("__slots: rt::FolArray<std::rc::Rc<dyn Fn(rt::FolInt) -> rt::FolInt>, 1> = Default::default();"));
         // The array element coerces to the named handle type on the way in.
+        // The placeholder is a closure, not a nested `fn`: an inner item cannot
+        // name an enclosing generic routine's parameters.
         assert!(rendered.contains(
-            "let __fol_uninit_value: std::rc::Rc<dyn Fn(rt::FolInt) -> rt::FolInt> = std::rc::Rc::new(__fol_uninit);"
+            "let __fol_uninit_value: std::rc::Rc<dyn Fn(rt::FolInt) -> rt::FolInt> = std::rc::Rc::new(|_p0: rt::FolInt|"
         ));
+        assert!(!rendered.contains("fn __fol_uninit("));
     }
 }

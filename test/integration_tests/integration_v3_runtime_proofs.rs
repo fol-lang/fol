@@ -1030,3 +1030,65 @@ fn aggregates_holding_routine_values_build_and_run() {
     assert_successful_stdout(&root, "Boxx { f: <routine>, tag: hi }\n1\n");
     std::fs::remove_dir_all(root).ok();
 }
+
+#[test]
+fn higher_order_generic_routines_can_be_called() {
+    // `T` was never substituted inside a routine type, so the parameter stayed
+    // spelled `fun(): T` while the argument was `fun(): int` and the call was
+    // rejected -- even with an explicit turbofish. Inference had the same hole,
+    // and the generated Rust then used a nested `fn` for the placeholder, which
+    // cannot name the enclosing routine's generic parameter.
+    let root = write_hosted_app(
+        "v3_generic_routine_types",
+        "use std: pkg = {\"std\"};\n\
+         \n\
+         fun[] seven(): int = {\n\
+         \x20   return 7;\n\
+         };\n\
+         \n\
+         fun[] apply(T)(f: {fun (): T}): T = {\n\
+         \x20   return f();\n\
+         };\n\
+         \n\
+         fun[] main(): int = {\n\
+         \x20   var g: {fun (): int} = [mov]seven;\n\
+         \x20   std::io::echo_int(apply([mov]g));\n\
+         \x20   return 0;\n\
+         };\n",
+    );
+    assert_successful_stdout(&root, "7\n");
+}
+
+#[test]
+fn json_mode_keeps_stdout_parseable_when_the_program_prints() {
+    // The child inherited the same stdout the envelope is written to, so any
+    // program that printed made `--output json` unparseable for a tool.
+    let root = write_hosted_app(
+        "v3_json_run_stream",
+        "use std: pkg = {\"std\"};\n\
+         \n\
+         fun[] main(): int = {\n\
+         \x20   std::io::echo_int(41);\n\
+         \x20   return 0;\n\
+         };\n",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_folc"))
+        .args(["--package-store-root"])
+        .arg(repo_root().join("lang/library"))
+        .args(["--output", "json", "code", "run"])
+        .current_dir(&root)
+        .output()
+        .expect("json run should start");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        serde_json::from_str::<serde_json::Value>(stdout.trim()).is_ok(),
+        "stdout must stay valid JSON, got:\n{stdout}"
+    );
+    // The program's own output is still delivered, on the other stream.
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("41"),
+        "the program's output must not be discarded"
+    );
+}

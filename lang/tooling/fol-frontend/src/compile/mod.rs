@@ -900,7 +900,7 @@ pub fn run_workspace_with_args_and_config(
             "build result is missing a binary path",
         )
     })?;
-    crate::process::run_child_transparently(&binary, args)?;
+    crate::process::run_child(&binary, args, config.output.mode == crate::OutputMode::Json)?;
 
     let mut result = FrontendCommandResult::new(
         "run",
@@ -969,7 +969,7 @@ pub(crate) fn run_selected_artifact_with_args_and_config(
             "build result is missing a binary path",
         )
     })?;
-    crate::process::run_child_transparently(&binary, args)?;
+    crate::process::run_child(&binary, args, config.output.mode == crate::OutputMode::Json)?;
 
     let mut result = FrontendCommandResult::new(
         "run",

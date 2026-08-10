@@ -21,7 +21,10 @@ pub struct ExplainRendering {
 pub fn render_explain(code: &str, mode: OutputMode) -> ExplainRendering {
     let normalized = code.trim().to_ascii_uppercase();
     let (family, hint) = family_for_code(&normalized);
-    let known = explanation(&normalized).is_some();
+    // The unclassified placeholder has no registry entry, but the tool does
+    // print it, and exiting nonzero here is the same denial as before: the
+    // reader asked about a code they were shown and got told it is not real.
+    let known = explanation(&normalized).is_some() || unclassified_note(&normalized).is_some();
 
     let text = match mode {
         OutputMode::Json => render_json(&normalized, family, hint),
@@ -33,6 +36,22 @@ pub fn render_explain(code: &str, mode: OutputMode) -> ExplainRendering {
 
 fn family_is_recognized(family: &str) -> bool {
     family != "ERROR"
+}
+
+/// The placeholder code a diagnostic carries when it reached the user without a
+/// classified one.
+///
+/// It is deliberately absent from the explanation registry, whose codes must
+/// each belong to a compiler stage. But the tool does still print it in some
+/// paths, and answering "not a recognized FOL diagnostic code" about something
+/// it just printed leaves the reader nowhere to go, so say what it means.
+const UNCLASSIFIED_CODE: &str = "EUNKNOWN";
+
+fn unclassified_note(code: &str) -> Option<&'static str> {
+    code.eq_ignore_ascii_case(UNCLASSIFIED_CODE).then_some(
+        "this diagnostic carried no stage-specific code; the message itself is \
+         the whole of what the tool knows, and it is worth reporting",
+    )
 }
 
 fn chip(family: &str) -> String {
@@ -74,6 +93,8 @@ fn render_human(code: &str, family: &str, hint: &str) -> String {
                         .bright_black()
                         .italic()
                 ));
+            } else if let Some(note) = unclassified_note(code) {
+                out.push_str(&format!("  {}\n", note.bright_black().italic()));
             } else {
                 out.push_str(&format!(
                     "  {}\n",

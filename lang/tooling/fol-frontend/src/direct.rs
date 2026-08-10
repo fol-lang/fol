@@ -337,7 +337,11 @@ pub fn run_direct_compile(
                         binary_path,
                     },
                 ) => {
-                    crate::process::run_child_transparently(Path::new(&binary_path), args)?;
+                    crate::process::run_child(
+                        Path::new(&binary_path),
+                        args,
+                        frontend_config.output.mode == OutputMode::Json,
+                    )?;
                     let mut result =
                         FrontendCommandResult::new("run", format!("ran {}", binary_path));
                     result.artifacts.push(FrontendArtifactSummary::new(
@@ -361,6 +365,19 @@ pub fn run_direct_compile(
     }
 }
 
+/// Emit a rendered report, machine-readable output included, on stdout.
+///
+/// Stdout is where this command's product goes: `--output json` consumers parse
+/// it, and 50-odd tests pin that. The grouped `code check|build|run` forms send
+/// theirs to stderr instead, which is a real inconsistency -- but the fix
+/// belongs on that side, not here.
+fn emit_report(stdout: &mut impl std::io::Write, rendered: &str, _has_errors: bool) {
+    if rendered.trim().is_empty() {
+        return;
+    }
+    let _ = writeln!(stdout, "{rendered}");
+}
+
 pub fn run_direct_compile_with_io(
     config: &DirectCompileConfig,
     frontend_config: &FrontendConfig,
@@ -377,15 +394,13 @@ pub fn run_direct_compile_with_io(
     }) {
         Ok(target) => target,
         Err(error) => {
-            diagnostics.add_error(error.to_string(), None);
+            diagnostics.add_coded_error("F1001", error.to_string(), None);
             let rendered = match frontend_config.output.mode {
                 OutputMode::Human => crate::pretty::render_report_pretty(&diagnostics),
                 OutputMode::Plain => diagnostics.output(OutputFormat::Human),
                 OutputMode::Json => diagnostics.output(OutputFormat::Json),
             };
-            if !rendered.trim().is_empty() {
-                let _ = writeln!(stdout, "{rendered}");
-            }
+            emit_report(stdout, &rendered, diagnostics.has_errors());
             return 1;
         }
     };
@@ -439,7 +454,8 @@ pub fn run_direct_compile_with_io(
                         let _ = writeln!(stdout, "✓ Compilation successful!");
                     }
                 } else {
-                    diagnostics.add_error(
+                    diagnostics.add_coded_error(
+                        "F1001",
                         format!("{} does not contain a runnable entrypoint", config.input),
                         None,
                     );
@@ -491,7 +507,7 @@ pub fn run_direct_compile_with_io(
                         }
                     }
                     Err(error) => {
-                        diagnostics.add_error(error.to_string(), None);
+                        diagnostics.add_coded_error("F1004", error.to_string(), None);
                     }
                 }
             }
@@ -503,9 +519,7 @@ pub fn run_direct_compile_with_io(
         OutputMode::Plain => diagnostics.output(OutputFormat::Human),
         OutputMode::Json => diagnostics.output(OutputFormat::Json),
     };
-    if !rendered.trim().is_empty() {
-        let _ = writeln!(stdout, "{rendered}");
-    }
+    emit_report(stdout, &rendered, diagnostics.has_errors());
 
     if diagnostics.has_errors() {
         1
@@ -532,7 +546,8 @@ fn compile_file(
 
     let mut file_stream = if path.is_dir() {
         FileStream::from_folder(file_path).map_err(|e| {
-            diagnostics.add_error(
+            diagnostics.add_coded_error(
+                "F1001",
                 e.to_string(),
                 Some(DiagnosticLocation {
                     file: Some(file_path.to_string()),
@@ -544,7 +559,8 @@ fn compile_file(
         })?
     } else {
         FileStream::from_file(file_path).map_err(|e| {
-            diagnostics.add_error(
+            diagnostics.add_coded_error(
+                "F1001",
                 e.to_string(),
                 Some(DiagnosticLocation {
                     file: Some(file_path.to_string()),
