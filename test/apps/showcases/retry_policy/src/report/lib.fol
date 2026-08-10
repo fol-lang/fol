@@ -29,7 +29,7 @@ fun[exp] line(label: str, value: int): str = {
     return "  " + pad_right(label, 22) + pad_left(value, 6) + "\n";
 };
 
-fun[exp] check(label: str, ok: bol): str = {
+fun[exp] verdict(label: str, ok: bol): str = {
     when(ok) {
         case(true) { return "  " + pad_right(label, 36) + "ok\n"; }
         * { return "  " + pad_right(label, 36) + "FAIL\n"; }
