@@ -19,7 +19,7 @@ fn test_bounded_slice_expression_parsing() {
                     AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(
                             value.as_ref(),
                             AstNode::SliceAccess { start, end, reverse, .. }
@@ -53,7 +53,7 @@ fn test_open_slice_expression_parsing() {
             for node in declarations {
                 if let AstNode::FunDecl { body, .. } = node {
                     for stmt in body {
-                        if let AstNode::Return { value: Some(value) } = stmt {
+                        if let AstNode::Return { value: Some(value), .. } = stmt {
                             if let AstNode::SliceAccess {
                                 start, end, reverse, ..
                             } = value.as_ref()
@@ -101,7 +101,7 @@ fn test_reverse_slice_expression_parsing() {
             for node in declarations {
                 if let AstNode::FunDecl { body, .. } = node {
                     for stmt in body {
-                        if let AstNode::Return { value: Some(value) } = stmt {
+                        if let AstNode::Return { value: Some(value), .. } = stmt {
                             if let AstNode::SliceAccess {
                                 start, end, reverse, ..
                             } = value.as_ref()

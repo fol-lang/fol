@@ -183,7 +183,7 @@ fn test_mixed_root_surface_keeps_declarations_statements_and_literals_in_order()
             &declarations[4],
             AstNode::ProDecl { name, body, .. }
                 if name == "main"
-                    && matches!(body.as_slice(), [AstNode::Return { value: None }])
+                    && matches!(body.as_slice(), [AstNode::Return { value: None, .. }])
         ),
         "Final root node should remain the routine declaration with its body nested"
     );

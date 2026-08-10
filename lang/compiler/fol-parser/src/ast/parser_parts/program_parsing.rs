@@ -146,7 +146,7 @@ impl AstParser {
             if key.is_illegal() {
                 errors.push(ParseError::from_token(
                     &token,
-                    format!("Parser encountered illegal token '{}'", token.con()),
+                    illegal_token_message(&token),
                 ));
                 if tokens.bump().is_none() {
                     break;

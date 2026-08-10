@@ -20,7 +20,7 @@ fn test_anonymous_routine_capture_lists_parsing() {
                     if name == "make"
                         && body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Return { value: Some(value) }
+                            AstNode::Return { value: Some(value), .. }
                             if matches!(
                                 value.as_ref(),
                                 AstNode::AnonymousFun { captures, .. }
@@ -37,7 +37,7 @@ fn test_anonymous_routine_capture_lists_parsing() {
                     if name == "build"
                         && body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Return { value: Some(value) }
+                            AstNode::Return { value: Some(value), .. }
                             if matches!(
                                 value.as_ref(),
                                 AstNode::AnonymousPro { captures, .. }
@@ -54,7 +54,7 @@ fn test_anonymous_routine_capture_lists_parsing() {
                     if name == "check_it"
                         && body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Return { value: Some(value) }
+                            AstNode::Return { value: Some(value), .. }
                             if matches!(
                                 value.as_ref(),
                                 AstNode::AnonymousLog { captures, return_type: Some(FolType::Bool), .. }
@@ -89,7 +89,7 @@ fn test_shorthand_anonymous_function_capture_lists_parsing() {
                     if name == "outer"
                         && body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Return { value: Some(value) }
+                            AstNode::Return { value: Some(value), .. }
                             if matches!(
                                 value.as_ref(),
                                 AstNode::AnonymousFun { captures, params, .. }

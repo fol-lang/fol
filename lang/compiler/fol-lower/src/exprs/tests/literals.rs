@@ -663,7 +663,9 @@ fn parser_typecheck_and_lower_keep_same_canonical_intrinsic_identity() {
             _ => None,
         })
         .and_then(|node| match node {
-            fol_parser::ast::AstNode::Return { value: Some(value) } => match value.as_ref() {
+            fol_parser::ast::AstNode::Return {
+                value: Some(value), ..
+            } => match value.as_ref() {
                 fol_parser::ast::AstNode::FunctionCall {
                     syntax_id,
                     surface,

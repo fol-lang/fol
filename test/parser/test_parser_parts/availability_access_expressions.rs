@@ -20,7 +20,7 @@ fn test_prefix_availability_expression_parsing() {
                     AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::AvailabilityAccess { target }
                             if matches!(target.as_ref(), AstNode::IndexAccess { .. }))
                     ))
@@ -51,7 +51,7 @@ fn test_multi_pattern_availability_expression_parsing() {
                     AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::AvailabilityAccess { target }
                             if matches!(target.as_ref(), AstNode::PatternAccess { patterns, .. } if patterns.len() == 2))
                     ))
@@ -82,7 +82,7 @@ fn test_semicolon_multi_pattern_availability_expression_parsing() {
                     AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::AvailabilityAccess { target }
                             if matches!(target.as_ref(), AstNode::PatternAccess { patterns, .. } if patterns.len() == 2))
                     ))
@@ -113,7 +113,7 @@ fn test_trailing_separator_availability_expression_parsing() {
                     AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::AvailabilityAccess { target }
                             if matches!(target.as_ref(), AstNode::PatternAccess { patterns, .. } if patterns.len() == 2))
                     ))
@@ -144,7 +144,7 @@ fn test_empty_prefix_availability_expression_parsing() {
                     AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::AvailabilityAccess { target }
                             if matches!(target.as_ref(), AstNode::PatternAccess { patterns, .. } if patterns.is_empty()))
                     ))
@@ -175,7 +175,7 @@ fn test_suffix_availability_expression_parsing() {
             for node in declarations {
                 if let AstNode::FunDecl { body, .. } = node {
                     for stmt in body {
-                        if let AstNode::Return { value: Some(value) } = stmt {
+                        if let AstNode::Return { value: Some(value), .. } = stmt {
                             if let AstNode::AvailabilityAccess { target } = value.as_ref() {
                                 if matches!(target.as_ref(), AstNode::PatternAccess { .. }) {
                                     saw_pattern = true;

@@ -12,7 +12,7 @@ fn parse_report_fixture(path: &str) -> AstNode {
 fn body_contains_report_call(body: &[AstNode]) -> bool {
     body.iter().any(|node| match node {
         AstNode::FunctionCall { name, .. } => name == "report",
-        AstNode::Return { value } => value
+        AstNode::Return { value, .. } => value
             .as_deref()
             .is_some_and(|inner| matches!(inner, AstNode::FunctionCall { name, .. } if name == "report")),
         _ => false,

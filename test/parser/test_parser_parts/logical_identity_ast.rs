@@ -37,6 +37,7 @@ fn test_get_type_remains_a_compatibility_shim() {
 #[test]
 fn test_log_decl_children_include_body_and_inquiries() {
     let body_stmt = AstNode::Return {
+        syntax_id: None,
         value: Some(Box::new(AstNode::Literal(Literal::Boolean(true)))),
     };
     let inquiry = AstNode::Inquiry {

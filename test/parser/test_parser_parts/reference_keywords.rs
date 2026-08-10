@@ -28,7 +28,7 @@ fn test_self_and_this_parse_as_identifier_expressions() {
                         )
                     )) && body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(
                             value.as_ref(),
                             AstNode::FieldAccess { object, field }

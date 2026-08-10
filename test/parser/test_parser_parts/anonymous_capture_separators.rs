@@ -20,7 +20,7 @@ fn test_anonymous_routines_accept_semicolon_capture_separators() {
                 if name == "make"
                     && body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(
                             value.as_ref(),
                             AstNode::AnonymousFun { captures, .. }
@@ -34,7 +34,7 @@ fn test_anonymous_routines_accept_semicolon_capture_separators() {
                 if name == "build"
                     && body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(
                             value.as_ref(),
                             AstNode::AnonymousPro { captures, .. }
@@ -48,7 +48,7 @@ fn test_anonymous_routines_accept_semicolon_capture_separators() {
                 if name == "check_it"
                     && body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(
                             value.as_ref(),
                             AstNode::AnonymousLog { captures, .. }
@@ -62,7 +62,7 @@ fn test_anonymous_routines_accept_semicolon_capture_separators() {
                 if name == "outer"
                     && body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(
                             value.as_ref(),
                             AstNode::AnonymousFun { captures, .. }

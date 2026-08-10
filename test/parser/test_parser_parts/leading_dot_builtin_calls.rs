@@ -196,7 +196,7 @@ fn test_leading_dot_builtin_calls_in_pipe_stages() {
                 AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                             if matches!(
                                 value.as_ref(),
                                 AstNode::BinaryOp { right, .. }

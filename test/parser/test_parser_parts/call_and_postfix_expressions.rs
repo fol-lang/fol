@@ -31,7 +31,7 @@ fn test_call_expressions_in_assignment_and_return() {
             let has_call_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                     matches!(
                         node,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::FunctionCall { name, .. } if name == "emit")
                     )
                 });
@@ -81,7 +81,7 @@ fn test_zero_argument_calls_in_statement_and_return_positions() {
             let has_emit_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                     matches!(
                         node,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::FunctionCall { name, args, .. } if name == "emit" && args.is_empty())
                     )
                 });
@@ -131,7 +131,7 @@ fn test_method_calls_in_statement_and_return_positions() {
             let has_get_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                     matches!(
                         node,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::MethodCall { method, .. } if method == "get")
                     )
                 });
@@ -181,7 +181,7 @@ fn test_zero_argument_method_calls_with_optional_semicolons() {
             let has_done_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                     matches!(
                         node,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::MethodCall { method, args, .. } if method == "done" && args.is_empty())
                     )
                 });
@@ -234,7 +234,7 @@ fn test_field_access_expressions_in_assignment_and_return() {
             let has_nested_field_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                     matches!(
                         node,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(
                             value.as_ref(),
                             AstNode::FieldAccess { object, field }
@@ -293,7 +293,7 @@ fn test_index_access_expressions_in_assignment_and_return() {
             let has_index_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                     matches!(
                         node,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(
                             value.as_ref(),
                             AstNode::IndexAccess { container, index }
@@ -363,7 +363,7 @@ fn test_chained_postfix_expressions_mix_fields_indexes_and_methods() {
             let has_chained_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                     matches!(
                         node,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(
                             value.as_ref(),
                             AstNode::IndexAccess { container, index }
@@ -427,7 +427,7 @@ fn test_nested_function_and_method_calls_in_expression_positions() {
             let has_nested_return_emit = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                     matches!(
                         node,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(
                             value.as_ref(),
                             AstNode::FunctionCall { name, args, .. }
@@ -494,7 +494,7 @@ fn test_multiline_call_arguments_parse_with_expected_shapes() {
             let has_emit_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                     matches!(
                         node,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::FunctionCall { name, args, .. } if name == "emit" && args.len() == 1)
                     )
                 });
@@ -550,7 +550,7 @@ fn test_multiline_call_arguments_with_comments_parse_with_expected_shapes() {
             let has_emit_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                     matches!(
                         node,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::FunctionCall { name, args, .. } if name == "emit" && args.len() == 1)
                     )
                 });
@@ -602,7 +602,7 @@ fn test_multiline_call_arguments_with_slash_comments_still_parse_as_compatibilit
             let has_emit_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                     matches!(
                         node,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::FunctionCall { name, args, .. } if name == "emit" && args.len() == 1)
                     )
                 });
@@ -654,7 +654,7 @@ fn test_multiline_call_arguments_with_doc_comments_remain_ast_visible() {
             let has_emit_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                     matches!(
                         node,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::FunctionCall { name, args, .. } if name == "emit" && args.len() == 1)
                     )
                 });

@@ -457,7 +457,8 @@ fn test_function_parsing() {
                                 matches!(
                                     node,
                                     AstNode::Return {
-                                        value: Some(value)
+                                        value: Some(value),
+                                        ..
                                     } if matches!(value.as_ref(), AstNode::BinaryOp { .. })
                                 )
                             }),
@@ -523,7 +524,7 @@ fn test_function_body_con_parsing() {
             let has_return_identifier = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(value.as_ref(), AstNode::Identifier { name, .. } if name == "next")
                 )
             });
@@ -594,7 +595,7 @@ fn test_nested_block_statements_parse_inside_function_bodies() {
         nested_block.iter().any(|statement| {
             matches!(
                 statement,
-                AstNode::Return { value: Some(value) }
+                AstNode::Return { value: Some(value), .. }
                 if matches!(value.as_ref(), AstNode::Identifier { name, .. } if name == "inner")
             )
         }),
@@ -708,7 +709,8 @@ fn test_logical_declaration_parsing() {
                                 matches!(
                                     statement,
                                     AstNode::Return {
-                                        value: Some(value)
+                                        value: Some(value),
+                                        ..
                                     } if matches!(
                                         value.as_ref(),
                                         AstNode::BinaryOp {

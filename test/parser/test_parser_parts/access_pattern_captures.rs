@@ -20,7 +20,7 @@ fn test_pattern_access_capture_expression_parsing() {
                     AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::PatternAccess { patterns, .. }
                             if matches!(&patterns[0], AstNode::PatternCapture { binding, .. } if binding == "Y"))
                     ))
@@ -51,7 +51,7 @@ fn test_pattern_access_wildcard_expression_parsing() {
                     AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::PatternAccess { patterns, .. }
                             if matches!(&patterns[0], AstNode::PatternWildcard))
                     ))
@@ -82,7 +82,7 @@ fn test_availability_access_capture_expression_parsing() {
                     AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::AvailabilityAccess { target }
                             if matches!(target.as_ref(), AstNode::PatternAccess { patterns, .. }
                                 if matches!(&patterns[0], AstNode::PatternCapture { binding, .. } if binding == "Y")))
@@ -114,7 +114,7 @@ fn test_availability_access_wildcard_capture_expression_parsing() {
                     AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::AvailabilityAccess { target }
                             if matches!(target.as_ref(), AstNode::PatternAccess { patterns, .. }
                                 if matches!(&patterns[0], AstNode::PatternCapture { pattern, binding }

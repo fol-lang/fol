@@ -34,7 +34,7 @@ fn test_single_pipe_expression_parsing() {
             .iter()
             .find_map(|node| match node {
                 AstNode::FunDecl { body, .. } => body.iter().find_map(|stmt| match stmt {
-                    AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                    AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                     _ => None,
                 }),
                 _ => None,
@@ -65,7 +65,7 @@ fn test_pipe_expression_supports_if_call_stage() {
             .iter()
             .find_map(|node| match node {
                 AstNode::FunDecl { body, .. } => body.iter().find_map(|stmt| match stmt {
-                    AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                    AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                     _ => None,
                 }),
                 _ => None,
@@ -100,7 +100,7 @@ fn test_pipe_expression_supports_if_statement_stage() {
             .iter()
             .find_map(|node| match node {
                 AstNode::FunDecl { body, .. } => body.iter().find_map(|stmt| match stmt {
-                    AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                    AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                     _ => None,
                 }),
                 _ => None,
@@ -135,7 +135,7 @@ fn test_pipe_expression_supports_when_statement_stage() {
             .iter()
             .find_map(|node| match node {
                 AstNode::FunDecl { body, .. } => body.iter().find_map(|stmt| match stmt {
-                    AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                    AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                     _ => None,
                 }),
                 _ => None,
@@ -170,7 +170,7 @@ fn test_pipe_expression_supports_loop_statement_stage() {
             .iter()
             .find_map(|node| match node {
                 AstNode::FunDecl { body, .. } => body.iter().find_map(|stmt| match stmt {
-                    AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                    AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                     _ => None,
                 }),
                 _ => None,
@@ -206,7 +206,7 @@ fn test_pipe_expression_supports_async_stage() {
             .find_map(|node| match node {
                 AstNode::FunDecl { body, .. } | AstNode::ProDecl { body, .. } => {
                     body.iter().find_map(|stmt| match stmt {
-                        AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                        AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                         _ => None,
                     })
                 }
@@ -243,7 +243,7 @@ fn test_pipe_expression_supports_await_stage() {
             .find_map(|node| match node {
                 AstNode::FunDecl { body, .. } | AstNode::ProDecl { body, .. } => {
                     body.iter().find_map(|stmt| match stmt {
-                        AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                        AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                         AstNode::Assignment { value, .. } => Some(value.as_ref().clone()),
                         _ => None,
                     })
@@ -280,7 +280,7 @@ fn test_pipe_expression_supports_bare_builtin_stage() {
             .iter()
             .find_map(|node| match node {
                 AstNode::FunDecl { body, .. } => body.iter().find_map(|stmt| match stmt {
-                    AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                    AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                     _ => None,
                 }),
                 _ => None,
@@ -311,7 +311,7 @@ fn test_pipe_expression_supports_return_stage() {
             .iter()
             .find_map(|node| match node {
                 AstNode::FunDecl { body, .. } => body.iter().find_map(|stmt| match stmt {
-                    AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                    AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                     _ => None,
                 }),
                 _ => None,
@@ -326,7 +326,7 @@ fn test_pipe_expression_supports_return_stage() {
             op: BinaryOperator::PipeOr,
             right,
             ..
-        } if matches!(right.as_ref(), AstNode::Return { value: Some(_) })
+        } if matches!(right.as_ref(), AstNode::Return { value: Some(_), .. })
     ));
 }
 
@@ -346,7 +346,7 @@ fn test_pipe_expression_supports_binding_stages() {
             .iter()
             .find_map(|node| match node {
                 AstNode::FunDecl { body, .. } => body.iter().find_map(|stmt| match stmt {
-                    AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                    AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                     _ => None,
                 }),
                 _ => None,
@@ -382,7 +382,7 @@ fn test_pipe_expression_supports_binding_alternative_stages() {
             .iter()
             .find_map(|node| match node {
                 AstNode::FunDecl { body, .. } => body.iter().find_map(|stmt| match stmt {
-                    AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                    AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                     _ => None,
                 }),
                 _ => None,
@@ -417,7 +417,7 @@ fn test_pipe_expression_supports_declaration_stages() {
             .iter()
             .find_map(|node| match node {
                 AstNode::FunDecl { body, .. } => body.iter().find_map(|stmt| match stmt {
-                    AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                    AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                     _ => None,
                 }),
                 _ => None,
@@ -448,7 +448,7 @@ fn test_pipe_expression_supports_routine_stages() {
             .iter()
             .find_map(|node| match node {
                 AstNode::FunDecl { body, .. } => body.iter().find_map(|stmt| match stmt {
-                    AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                    AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                     _ => None,
                 }),
                 _ => None,
@@ -479,7 +479,7 @@ fn test_pipe_expression_supports_control_transfer_stages() {
             .iter()
             .find_map(|node| match node {
                 AstNode::FunDecl { body, .. } => body.iter().find_map(|stmt| match stmt {
-                    AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                    AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                     _ => None,
                 }),
                 _ => None,
@@ -518,7 +518,7 @@ fn test_pipe_expression_supports_assignment_stages() {
             .iter()
             .find_map(|node| match node {
                 AstNode::FunDecl { body, .. } => body.iter().find_map(|stmt| match stmt {
-                    AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                    AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                     _ => None,
                 }),
                 _ => None,
@@ -549,7 +549,7 @@ fn test_pipe_expression_supports_call_stages() {
             .iter()
             .find_map(|node| match node {
                 AstNode::FunDecl { body, .. } => body.iter().find_map(|stmt| match stmt {
-                    AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                    AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                     _ => None,
                 }),
                 _ => None,
@@ -580,7 +580,7 @@ fn test_pipe_expression_supports_invoke_stages() {
             .iter()
             .find_map(|node| match node {
                 AstNode::FunDecl { body, .. } => body.iter().find_map(|stmt| match stmt {
-                    AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                    AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                     _ => None,
                 }),
                 _ => None,
@@ -611,7 +611,7 @@ fn test_pipe_expression_supports_block_stages() {
             .iter()
             .find_map(|node| match node {
                 AstNode::FunDecl { body, .. } => body.iter().find_map(|stmt| match stmt {
-                    AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                    AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                     _ => None,
                 }),
                 _ => None,
@@ -688,7 +688,7 @@ fn test_double_pipe_expression_parsing() {
             .iter()
             .find_map(|node| match node {
                 AstNode::FunDecl { body, .. } => body.iter().find_map(|stmt| match stmt {
-                    AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                    AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                     _ => None,
                 }),
                 _ => None,
@@ -719,7 +719,7 @@ fn test_chained_pipe_expression_parsing() {
             .iter()
             .find_map(|node| match node {
                 AstNode::FunDecl { body, .. } => body.iter().find_map(|stmt| match stmt {
-                    AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                    AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                     _ => None,
                 }),
                 _ => None,
@@ -789,7 +789,8 @@ fn test_pipe_expression_parsing_in_call_arguments() {
                     if body.iter().any(|stmt| matches!(
                         stmt,
                         AstNode::Return {
-                            value: Some(value)
+                            value: Some(value),
+                            ..
                         }
                         if matches!(
                             value.as_ref(),
@@ -822,7 +823,7 @@ fn test_pipe_expression_supports_availability_invoke_stages() {
             .iter()
             .find_map(|node| match node {
                 AstNode::FunDecl { body, .. } => body.iter().find_map(|stmt| match stmt {
-                    AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                    AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                     _ => None,
                 }),
                 _ => None,

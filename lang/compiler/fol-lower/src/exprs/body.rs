@@ -807,7 +807,7 @@ pub(crate) fn lower_body_node(
             }
             Ok(None)
         }
-        AstNode::Return { value } => match value.as_deref() {
+        AstNode::Return { value, .. } => match value.as_deref() {
             Some(value) => {
                 let lowered = lower_expression_expected(
                     typed_package,

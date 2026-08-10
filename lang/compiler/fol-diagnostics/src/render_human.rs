@@ -80,7 +80,7 @@ pub fn render_diagnostic(diagnostic: &Diagnostic) -> String {
                 output.push_str(&format!(
                     "  {} | {}",
                     " ".repeat(gutter_width),
-                    source::primary_underline(loc)
+                    source::primary_underline(loc, &source_line)
                 ));
                 if let Some(message) = diagnostic
                     .primary_label()

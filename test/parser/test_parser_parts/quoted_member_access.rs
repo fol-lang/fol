@@ -26,7 +26,7 @@ fn test_quoted_member_access_and_calls_parse() {
                         AstNode::MethodCall { method, .. } if method == "kind"
                     )) && body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::FieldAccess { field, .. } if field == "name")
                     ))
                 )

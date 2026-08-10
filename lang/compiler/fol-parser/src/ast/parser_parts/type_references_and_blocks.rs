@@ -549,8 +549,13 @@ impl AstParser {
             ));
         }
 
+        let syntax_id = self.record_syntax_origin(&return_token);
+
         if tokens.bump().is_none() {
-            return Ok(AstNode::Return { value: None });
+            return Ok(AstNode::Return {
+                syntax_id,
+                value: None,
+            });
         }
 
         self.skip_ignorable(tokens)?;
@@ -561,7 +566,7 @@ impl AstParser {
             Err(_) => None,
         };
 
-        Ok(AstNode::Return { value })
+        Ok(AstNode::Return { syntax_id, value })
     }
 
     pub(super) fn parse_break_stmt(

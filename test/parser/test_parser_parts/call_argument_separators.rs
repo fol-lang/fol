@@ -32,7 +32,7 @@ fn test_call_argument_lists_accept_trailing_commas() {
             let has_emit_one_arg = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(value.as_ref(), AstNode::FunctionCall { name, args, .. } if name == "emit" && args.len() == 1)
                 )
             });
@@ -79,7 +79,7 @@ fn test_call_argument_lists_accept_semicolons() {
             let has_emit_two_args = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(value.as_ref(), AstNode::FunctionCall { name, args, .. } if name == "emit" && args.len() == 2)
                 )
             });
@@ -127,7 +127,7 @@ fn test_call_argument_lists_accept_mixed_separators() {
             let has_emit_three_args = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(value.as_ref(), AstNode::FunctionCall { name, args, .. } if name == "emit" && args.len() == 3)
                 )
             });
@@ -199,7 +199,7 @@ fn test_nested_calls_with_trailing_commas_preserve_argument_shapes() {
             let has_done_one_arg = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(value.as_ref(), AstNode::FunctionCall { name, args, .. } if name == "done" && args.len() == 1)
                 )
             });
@@ -245,7 +245,7 @@ fn test_nested_calls_with_semicolons_preserve_argument_shapes() {
             let has_done_one_arg = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(value.as_ref(), AstNode::FunctionCall { name, args, .. } if name == "done" && args.len() == 1)
                 )
             });

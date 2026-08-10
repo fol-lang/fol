@@ -320,7 +320,7 @@ fn test_v2_parser_accepts_explicit_generic_call_turbofish_syntax() {
                     if name == "main"
                         && body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Return { value: Some(value) }
+                            AstNode::Return { value: Some(value), .. }
                                 if matches!(value.as_ref(),
                                     AstNode::FunctionCall { name, type_args, args, .. }
                                     if name == "pick"
@@ -352,7 +352,7 @@ fn test_v2_parser_preserves_index_access_when_bracket_is_not_followed_by_paren()
                     if name == "main"
                         && body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Return { value: Some(value) }
+                            AstNode::Return { value: Some(value), .. }
                                 if matches!(value.as_ref(), AstNode::IndexAccess { .. })
                         ))
             )),
@@ -402,7 +402,7 @@ fn test_v2_m1_parser_keeps_template_call_surface_separate_from_generics() {
                 if name == "stringify"
                     && body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                             if matches!(value.as_ref(), AstNode::TemplateCall { template, .. } if template == "$")
                     ))
         )));

@@ -89,6 +89,7 @@ fn test_body_leading_comments_are_preserved_as_ast_nodes() {
                 body[3],
                 AstNode::Return {
                     value: Some(ref value),
+                    ..
                 } if matches!(value.as_ref(), AstNode::Identifier { name, .. } if name == "alpha")
             ));
         }
@@ -190,6 +191,7 @@ fn test_body_comments_between_statements_are_preserved() {
                 body[3],
                 AstNode::Return {
                     value: Some(ref value),
+                    ..
                 } if matches!(value.as_ref(), AstNode::Identifier { name, .. } if name == "beta")
             ));
         }
@@ -217,6 +219,7 @@ fn test_expression_comments_wrap_binary_nodes_and_rhs_nodes() {
                 body[0],
                 AstNode::Return {
                     value: Some(value),
+                    ..
                 } if matches!(
                     value.as_ref(),
                     AstNode::Commented {
@@ -288,6 +291,7 @@ fn test_postfix_comments_wrap_call_nodes() {
                 body[0],
                 AstNode::Return {
                     value: Some(value),
+                    ..
                 } if matches!(
                     value.as_ref(),
                     AstNode::Commented {
@@ -337,6 +341,7 @@ fn test_call_argument_comments_are_preserved_on_argument_nodes() {
                 body[0],
                 AstNode::Return {
                     value: Some(value),
+                    ..
                 } if matches!(
                     value.as_ref(),
                     AstNode::FunctionCall { name, args, .. }

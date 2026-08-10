@@ -30,7 +30,8 @@ fn test_nil_literals_parse_in_bindings_and_returns() {
                     && body.iter().any(|stmt| matches!(
                         stmt,
                         AstNode::Return {
-                            value: Some(value)
+                            value: Some(value),
+                            ..
                         }
                         if matches!(value.as_ref(), AstNode::Literal(Literal::Nil))
                     ))

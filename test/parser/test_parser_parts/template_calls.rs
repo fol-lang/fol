@@ -19,7 +19,7 @@ fn test_template_call_expression_parsing() {
                     AstNode::FunDecl { body, .. }
                         if body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Return { value: Some(value) }
+                            AstNode::Return { value: Some(value), .. }
                                 if matches!(value.as_ref(), AstNode::TemplateCall { template, .. } if template == "$")
                         ))
                 )

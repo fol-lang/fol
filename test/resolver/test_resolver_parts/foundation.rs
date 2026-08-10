@@ -42,8 +42,9 @@ fn test_resolver_keeps_parser_syntax_origins_available() {
         .expect("Syntax origin should retain file path")
         .ends_with("simple_var.fol"));
     assert_eq!(origin.line, 1);
-    assert_eq!(origin.column, 1);
-    assert!(origin.length >= 3);
+    // Binding items anchor at the declared NAME (`x`), not the `var` keyword.
+    assert_eq!(origin.column, 5);
+    assert!(origin.length >= 1);
 }
 
 #[test]
@@ -53,8 +54,11 @@ fn test_resolver_keeps_mounted_symbol_provenance_for_imported_exports() {
         .expect("Should create the importing package fixture directory");
     fs::create_dir_all(temp_root.join("shared"))
         .expect("Should create the imported package fixture directory");
-    fs::write(temp_root.join("shared/lib.fol"), "var[exp] answer: int = 42;\n")
-        .expect("Should write the imported package fixture");
+    fs::write(
+        temp_root.join("shared/lib.fol"),
+        "var[exp] answer: int = 42;\n",
+    )
+    .expect("Should write the imported package fixture");
     fs::write(
         temp_root.join("app/main.fol"),
         "use shared: loc = {\"../shared\"};\nfun[] main(): int = {\n    return answer;\n};\n",
@@ -79,7 +83,10 @@ fn test_resolver_keeps_mounted_symbol_provenance_for_imported_exports() {
 
     assert_eq!(provenance.package_identity.display_name, "shared");
     assert!(
-        provenance.package_identity.canonical_root.ends_with("shared"),
+        provenance
+            .package_identity
+            .canonical_root
+            .ends_with("shared"),
         "Expected mounted provenance to keep the imported package root, got {:?}",
         provenance.package_identity.canonical_root
     );

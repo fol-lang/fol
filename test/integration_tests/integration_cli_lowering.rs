@@ -1164,7 +1164,7 @@ fn test_cli_folder_resolver_errors_keep_json_locations() {
         "JSON resolver diagnostics should preserve the duplicate declaration line number"
     );
     assert!(
-        compact.contains("\"column\":1"),
+        compact.contains("\"column\":5"),
         "JSON resolver diagnostics should preserve the duplicate declaration column number"
     );
     assert!(

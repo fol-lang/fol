@@ -74,7 +74,7 @@ fn test_parser_name_and_path_ast_shapes_stay_distinct_by_surface() {
                     AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(
                             value.as_ref(),
                             AstNode::QualifiedIdentifier { path }

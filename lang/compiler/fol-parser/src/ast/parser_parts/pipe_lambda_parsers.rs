@@ -191,6 +191,7 @@ impl AstParser {
             )?
         } else {
             let body = vec![AstNode::Return {
+                syntax_id: None,
                 value: Some(Box::new(self.parse_logical_expression(tokens)?)),
             }];
             let mut inquiries = Vec::new();

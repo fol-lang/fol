@@ -151,11 +151,14 @@ impl Element {
             let mut elem = el.peek(0, false)?;
             elem.append(&el.peek(1, false)?);
             self.bump(el);
-            return Err(LexerError::LexerSpaceAdd(format!(
-                "Expected {} but {} was given",
-                KEYWORD::Void(VOID::Space),
-                elem.key()
-            )));
+            return Err(LexerError::new(
+                format!(
+                    "Expected {} but {} was given",
+                    KEYWORD::Void(VOID::Space),
+                    elem.key()
+                ),
+                Some(elem.loc().clone()),
+            ));
         }
         Ok(())
     }

@@ -16,7 +16,7 @@ fn test_simple_rolling_expression_parses_in_return_position() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -51,7 +51,7 @@ fn test_parenthesized_multi_binding_rolling_expression_parses() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -86,7 +86,7 @@ fn test_parenthesized_semicolon_multi_binding_rolling_expression_parses() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -121,7 +121,7 @@ fn test_bare_multi_binding_rolling_expression_parses() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -156,7 +156,7 @@ fn test_bare_semicolon_multi_binding_rolling_expression_parses() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -191,7 +191,7 @@ fn test_rolling_expression_supports_optional_filter() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -226,7 +226,7 @@ fn test_rolling_expression_supports_when_filter() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -348,7 +348,7 @@ fn test_rolling_expression_supports_silent_binders() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -381,7 +381,7 @@ fn test_rolling_expression_supports_typed_silent_binders() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -416,7 +416,7 @@ fn test_rolling_expression_supports_quoted_binders() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -449,7 +449,7 @@ fn test_rolling_expression_supports_keyword_named_binders() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -482,7 +482,7 @@ fn test_rolling_expression_supports_var_binders() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -515,7 +515,7 @@ fn test_rolling_expression_supports_typed_var_binders() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),
@@ -550,7 +550,7 @@ fn test_rolling_expression_supports_var_multi_bindings() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| match node {
-                AstNode::Return { value: Some(value) } => Some(value.as_ref().clone()),
+                AstNode::Return { value: Some(value), .. } => Some(value.as_ref().clone()),
                 _ => None,
             })
             .expect("Program should contain return value"),

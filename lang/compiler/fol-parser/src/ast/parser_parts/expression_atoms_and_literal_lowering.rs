@@ -179,10 +179,7 @@ impl AstParser {
         token: &fol_lexer::lexer::stage3::element::Element,
     ) -> Result<(), ParseError> {
         if token.key().is_illegal() {
-            return Err(ParseError::from_token(
-                token,
-                format!("Parser encountered illegal token '{}'", token.con()),
-            ));
+            return Err(ParseError::from_token(token, illegal_token_message(token)));
         }
 
         Ok(())

@@ -470,7 +470,7 @@ fn test_pipe_lambdas_keep_structural_inquiry_targets() {
                             AstNode::AnonymousFun { inquiries, .. } => inquiries.first(),
                             _ => None,
                         },
-                        AstNode::Return { value: Some(value) } => match value.as_ref() {
+                        AstNode::Return { value: Some(value), .. } => match value.as_ref() {
                             AstNode::AnonymousFun { inquiries, .. } => inquiries.first(),
                             _ => None,
                         },

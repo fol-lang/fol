@@ -363,7 +363,7 @@ fn test_mod_assignment_and_comparison_expressions() {
             let return_ops = only_root_routine_body_nodes(&declarations)
                 .into_iter()
                 .filter_map(|node| {
-                    if let AstNode::Return { value: Some(value) } = node {
+                    if let AstNode::Return { value: Some(value), .. } = node {
                         if let AstNode::BinaryOp { op, .. } = value.as_ref() {
                             Some(op.clone())
                         } else {
@@ -378,7 +378,7 @@ fn test_mod_assignment_and_comparison_expressions() {
             let return_values = only_root_routine_body_nodes(&declarations)
                 .into_iter()
                 .filter_map(|node| {
-                    if let AstNode::Return { value } = node {
+                    if let AstNode::Return { value, .. } = node {
                         Some(format!("{:?}", value))
                     } else {
                         None
@@ -423,7 +423,8 @@ fn test_pow_expression_parsing_is_right_associative() {
                         matches!(
                             node,
                             AstNode::Return {
-                                value: Some(value)
+                                value: Some(value),
+                                ..
                             }
                             if matches!(
                                 value.as_ref(),
@@ -508,7 +509,7 @@ fn test_logical_and_has_lower_precedence_than_comparison() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value) } = node {
+                if let AstNode::Return { value: Some(value), .. } = node {
                     Some(value.as_ref().clone())
                 } else {
                     None
@@ -562,7 +563,7 @@ fn test_logical_or_has_lower_precedence_than_and() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value) } = node {
+                if let AstNode::Return { value: Some(value), .. } = node {
                     Some(value.as_ref().clone())
                 } else {
                     None
@@ -616,7 +617,7 @@ fn test_logical_not_parses_as_unary_expression() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value) } = node {
+                if let AstNode::Return { value: Some(value), .. } = node {
                     Some(value.as_ref().clone())
                 } else {
                     None
@@ -655,7 +656,7 @@ fn test_logical_xor_precedence_between_or_and_and() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value) } = node {
+                if let AstNode::Return { value: Some(value), .. } = node {
                     Some(value.as_ref().clone())
                 } else {
                     None
@@ -714,7 +715,7 @@ fn test_logical_nand_lowers_to_not_of_and() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value) } = node {
+                if let AstNode::Return { value: Some(value), .. } = node {
                     Some(value.as_ref().clone())
                 } else {
                     None
@@ -759,7 +760,7 @@ fn test_logical_nor_lowers_to_not_of_or() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value) } = node {
+                if let AstNode::Return { value: Some(value), .. } = node {
                     Some(value.as_ref().clone())
                 } else {
                     None
@@ -805,7 +806,7 @@ fn test_logical_not_precedence_over_comparison_and_and() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value) } = node {
+                if let AstNode::Return { value: Some(value), .. } = node {
                     Some(value.as_ref().clone())
                 } else {
                     None

@@ -49,7 +49,8 @@ fn test_parse_package_retains_successful_top_level_origins() {
 
     assert_eq!(var_origin.file.as_deref(), Some(expected_path.as_str()));
     assert_eq!(var_origin.line, 2);
-    assert_eq!(var_origin.column, 1);
+    // Binding items anchor at the declared NAME (`alpha`), not the keyword.
+    assert_eq!(var_origin.column, 5);
 
     assert_eq!(fun_origin.file.as_deref(), Some(expected_path.as_str()));
     assert_eq!(fun_origin.line, 3);
@@ -204,7 +205,7 @@ fn test_parse_package_retains_qualified_reference_origins() {
     assert_eq!(return_type_origin.column, 18);
 
     let value_path = match &inner.1[0] {
-        AstNode::Return { value } => match value.as_deref() {
+        AstNode::Return { value, .. } => match value.as_deref() {
             Some(AstNode::QualifiedIdentifier { path }) => path,
             other => panic!("Expected qualified identifier return value, got {other:?}"),
         },
@@ -244,7 +245,7 @@ fn test_parse_package_retains_plain_identifier_origins() {
     };
 
     let identifier = match &routine_body[0] {
-        AstNode::Return { value } => match value.as_deref() {
+        AstNode::Return { value, .. } => match value.as_deref() {
             Some(identifier @ AstNode::Identifier { .. }) => identifier,
             other => panic!("Expected identifier return value, got {other:?}"),
         },
@@ -290,7 +291,7 @@ fn test_parse_package_retains_plain_free_call_origins() {
     };
 
     let call = match &routine_body[0] {
-        AstNode::Return { value } => match value.as_deref() {
+        AstNode::Return { value, .. } => match value.as_deref() {
             Some(call @ AstNode::FunctionCall { .. }) => call,
             other => panic!("Expected free-call return value, got {other:?}"),
         },

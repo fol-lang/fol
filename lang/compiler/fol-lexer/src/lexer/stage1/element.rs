@@ -84,8 +84,11 @@ impl Element {
         } else if is_alpha(&code.curr()?.0) {
             self.alpha(code)?;
         } else {
-            let msg = format!("{} {}", code.curr()?.0, "is not a recognized character");
-            return Err(LexerError::ReadingBadContent(msg));
+            let (character, location) = code.curr()?;
+            return Err(LexerError::new(
+                format!("'{character}' is not a recognized character"),
+                Some(location),
+            ));
         }
         Ok(())
     }
@@ -108,8 +111,9 @@ impl Element {
         if code.curr()?.0 == '*' {
             while !(code.curr()?.0 == '*' && code.peek(0)?.0 == '/') {
                 if is_eof(&code.peek(0)?.0) {
-                    return Err(LexerError::ReadingBadContent(
-                        "unterminated block comment: '/*' has no matching '*/'".to_string(),
+                    return Err(LexerError::new(
+                        "unterminated block comment: '/*' has no matching '*/'",
+                        Some(self.loc.clone()),
                     ));
                 };
                 if code.peek(0)?.0 == stage0::SOURCE_BOUNDARY_CHAR {

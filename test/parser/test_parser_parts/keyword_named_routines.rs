@@ -31,7 +31,7 @@ fn test_keyword_named_routines_and_calls_parse() {
                         ))
                         && body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Return { value: Some(value) }
+                            AstNode::Return { value: Some(value), .. }
                             if matches!(value.as_ref(), AstNode::MethodCall { method, args, .. } if method == "log" && args.is_empty())
                         ))
                 )

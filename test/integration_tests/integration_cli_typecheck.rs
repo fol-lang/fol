@@ -235,7 +235,8 @@ fn test_cli_json_typecheck_errors_keep_structured_fields() {
     );
     assert_eq!(first["code"], "T1002");
     assert_eq!(first["location"]["line"], 1);
-    assert_eq!(first["location"]["column"], 1);
+    // Binding diagnostics anchor at the declared name (`value`).
+    assert_eq!(first["location"]["column"], 10);
     assert!(
         first["location"]["file"]
             .as_str()
@@ -846,8 +847,9 @@ fn test_cli_json_typecheck_nil_shell_errors_keep_exact_locations() {
     );
     assert_eq!(first["code"], "T1001");
     assert_eq!(first["location"]["line"], 2);
-    assert_eq!(first["location"]["column"], 1);
-    assert_eq!(first["location"]["length"], 3);
+    // Binding diagnostics anchor at the declared name (`label`).
+    assert_eq!(first["location"]["column"], 5);
+    assert_eq!(first["location"]["length"], 5);
     assert!(
         first["location"]["file"]
             .as_str()

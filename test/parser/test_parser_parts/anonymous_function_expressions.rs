@@ -19,7 +19,7 @@ fn test_anonymous_function_expression_parsing() {
                     AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(
                             value.as_ref(),
                             AstNode::AnonymousFun { params, return_type, body, .. }
@@ -55,7 +55,7 @@ fn test_anonymous_function_immediate_invocation_parsing() {
                     AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(
                             value.as_ref(),
                             AstNode::Invoke { callee, args }
@@ -89,7 +89,7 @@ fn test_anonymous_procedure_expression_parsing() {
                     AstNode::ProDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(
                             value.as_ref(),
                             AstNode::AnonymousPro { params, return_type, body, .. }
@@ -125,7 +125,7 @@ fn test_anonymous_procedure_immediate_invocation_parsing() {
                     AstNode::ProDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(
                             value.as_ref(),
                             AstNode::Invoke { callee, args }
@@ -160,7 +160,7 @@ fn test_shorthand_anonymous_function_expression_parsing() {
                     AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::AnonymousFun { params, return_type, .. }
                             if params.len() == 2 && return_type.is_none())
                     ))
@@ -191,7 +191,7 @@ fn test_shorthand_anonymous_function_immediate_invocation_parsing() {
                     AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::Invoke { callee, args }
                             if args.len() == 2
                                 && matches!(callee.as_ref(), AstNode::AnonymousFun { .. }))
@@ -222,7 +222,7 @@ fn test_anonymous_logical_expression() {
                     AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(
                             value.as_ref(),
                             AstNode::AnonymousLog { params, return_type: Some(FolType::Bool), .. }
@@ -256,7 +256,7 @@ fn test_anonymous_logical_immediate_invocation_parsing() {
                     AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(
                             value.as_ref(),
                             AstNode::Invoke { callee, args }
@@ -459,7 +459,7 @@ fn test_anonymous_routine_inquiry_clauses_parsing() {
                     if name == "make"
                         && body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Return { value: Some(value) }
+                            AstNode::Return { value: Some(value), .. }
                             if matches!(
                                 value.as_ref(),
                                 AstNode::AnonymousFun { inquiries, .. }
@@ -477,7 +477,7 @@ fn test_anonymous_routine_inquiry_clauses_parsing() {
                     if name == "build"
                         && body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Return { value: Some(value) }
+                            AstNode::Return { value: Some(value), .. }
                             if matches!(
                                 value.as_ref(),
                                 AstNode::AnonymousPro { inquiries, .. }
@@ -513,7 +513,7 @@ fn test_shorthand_anonymous_function_inquiry_clauses_parsing() {
                     if name == "outer"
                         && body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Return { value: Some(value) }
+                            AstNode::Return { value: Some(value), .. }
                             if matches!(
                                 value.as_ref(),
                                 AstNode::AnonymousFun { inquiries, .. }
@@ -549,7 +549,7 @@ fn test_shorthand_anonymous_function_return_type_parsing() {
                     if name == "outer"
                         && body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Return { value: Some(value) }
+                            AstNode::Return { value: Some(value), .. }
                             if matches!(value.as_ref(), AstNode::AnonymousFun { return_type: Some(FolType::Int { .. }), .. })
                         ))
                 )
@@ -580,7 +580,7 @@ fn test_shorthand_anonymous_function_error_type_parsing() {
                     if name == "outer"
                         && body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Return { value: Some(value) }
+                            AstNode::Return { value: Some(value), .. }
                             if matches!(value.as_ref(), AstNode::AnonymousFun { error_type: Some(FolType::Named { name, .. }), .. } if name == "Failure")
                         ))
                 )
@@ -611,7 +611,7 @@ fn test_shorthand_anonymous_function_flow_return_type_parsing() {
                     if name == "outer"
                         && body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Return { value: Some(value) }
+                            AstNode::Return { value: Some(value), .. }
                             if matches!(value.as_ref(), AstNode::AnonymousFun {
                                 return_type: Some(FolType::Int { .. }),
                                 body,
@@ -646,7 +646,7 @@ fn test_shorthand_anonymous_function_flow_error_type_parsing() {
                     if name == "outer"
                         && body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Return { value: Some(value) }
+                            AstNode::Return { value: Some(value), .. }
                             if matches!(value.as_ref(), AstNode::AnonymousFun {
                                 error_type: Some(FolType::Named { name, .. }),
                                 body,
@@ -682,7 +682,7 @@ fn test_shorthand_anonymous_function_flow_capture_return_type_parsing() {
                     if name == "outer"
                         && body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Return { value: Some(value) }
+                            AstNode::Return { value: Some(value), .. }
                             if matches!(value.as_ref(), AstNode::AnonymousFun {
                                 captures,
                                 return_type: Some(FolType::Int { .. }),
@@ -719,7 +719,7 @@ fn test_shorthand_anonymous_function_flow_capture_inquiry_parsing() {
                     if name == "outer"
                         && body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Return { value: Some(value) }
+                            AstNode::Return { value: Some(value), .. }
                             if matches!(value.as_ref(), AstNode::AnonymousFun {
                                 captures,
                                 inquiries,
@@ -831,7 +831,7 @@ fn test_shorthand_anonymous_function_flow_return_type_in_call_args() {
                     if name == "outer"
                         && body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Return { value: Some(value) }
+                            AstNode::Return { value: Some(value), .. }
                             if matches!(value.as_ref(), AstNode::FunctionCall { name, args, .. }
                                 if name == "emit"
                                     && matches!(args.as_slice(), [AstNode::AnonymousFun {
@@ -869,7 +869,7 @@ fn test_shorthand_anonymous_function_flow_error_type_in_call_args() {
                     if name == "outer"
                         && body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Return { value: Some(value) }
+                            AstNode::Return { value: Some(value), .. }
                             if matches!(value.as_ref(), AstNode::FunctionCall { name, args, .. }
                                 if name == "emit"
                                     && matches!(args.as_slice(), [AstNode::AnonymousFun {
@@ -907,7 +907,7 @@ fn test_shorthand_anonymous_function_flow_return_type_in_procedure_bodies() {
                     if name == "outer"
                         && body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Return { value: Some(value) }
+                            AstNode::Return { value: Some(value), .. }
                             if matches!(value.as_ref(), AstNode::AnonymousFun {
                                 return_type: Some(FolType::Int { .. }),
                                 body,
@@ -943,7 +943,7 @@ fn test_shorthand_anonymous_function_flow_error_type_in_logical_bodies() {
                     if name == "outer"
                         && body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Return { value: Some(value) }
+                            AstNode::Return { value: Some(value), .. }
                             if matches!(value.as_ref(), AstNode::AnonymousFun {
                                 error_type: Some(FolType::Named { name, .. }),
                                 body,

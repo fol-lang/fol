@@ -39,7 +39,7 @@ fn test_resolver_duplicate_top_level_diagnostics_include_first_declaration_site(
         "Duplicate diagnostics should include the first declaration file path"
     );
     assert!(
-        error.to_string().contains(":1:1"),
+        error.to_string().contains(":1:5"),
         "Duplicate diagnostics should include the first declaration line and column"
     );
     assert_eq!(
@@ -179,10 +179,21 @@ fn test_resolver_ambiguous_plain_calls_lower_candidate_sites_as_secondary_labels
     assert_eq!(diagnostic.labels.len(), 3);
     let secondary_files = diagnostic.labels[1..]
         .iter()
-        .map(|label| label.location.file.as_deref().unwrap_or_default().to_string())
+        .map(|label| {
+            label
+                .location
+                .file
+                .as_deref()
+                .unwrap_or_default()
+                .to_string()
+        })
         .collect::<Vec<_>>();
-    assert!(secondary_files.iter().any(|file| file == first_file.to_string_lossy().as_ref()));
-    assert!(secondary_files.iter().any(|file| file == second_file.to_string_lossy().as_ref()));
+    assert!(secondary_files
+        .iter()
+        .any(|file| file == first_file.to_string_lossy().as_ref()));
+    assert!(secondary_files
+        .iter()
+        .any(|file| file == second_file.to_string_lossy().as_ref()));
     assert!(diagnostic.labels[1..]
         .iter()
         .all(|label| label.message.as_deref() == Some("candidate routine declaration")));
@@ -220,15 +231,24 @@ fn test_resolver_ambiguity_diagnostics_keep_primary_use_site_before_candidate_la
         .expect("Resolver should report an ambiguous reference error")
         .to_diagnostic();
 
-    assert_eq!(diagnostic.labels[0].location.file.as_deref(), second_file.to_str());
+    assert_eq!(
+        diagnostic.labels[0].location.file.as_deref(),
+        second_file.to_str()
+    );
     assert_eq!(diagnostic.labels[0].location.line, 6);
     assert_eq!(diagnostic.labels[0].message, None);
-    assert_eq!(diagnostic.labels[1].location.file.as_deref(), first_file.to_str());
+    assert_eq!(
+        diagnostic.labels[1].location.file.as_deref(),
+        first_file.to_str()
+    );
     assert_eq!(
         diagnostic.labels[1].message.as_deref(),
         Some("candidate routine declaration")
     );
-    assert_eq!(diagnostic.labels[2].location.file.as_deref(), second_file.to_str());
+    assert_eq!(
+        diagnostic.labels[2].location.file.as_deref(),
+        second_file.to_str()
+    );
     assert_eq!(
         diagnostic.labels[2].message.as_deref(),
         Some("candidate routine declaration")

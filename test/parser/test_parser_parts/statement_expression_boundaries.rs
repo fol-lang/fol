@@ -119,7 +119,7 @@ fn test_when_matching_forms_stay_nested_in_expression_positions() {
 
     assert!(matches!(
         body.as_slice(),
-        [AstNode::Return { value: Some(value) }]
+        [AstNode::Return { value: Some(value), .. }]
             if matches!(value.as_ref(), AstNode::When { .. })
     ));
 }

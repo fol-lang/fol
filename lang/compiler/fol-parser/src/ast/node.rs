@@ -406,6 +406,10 @@ pub enum AstNode {
 
     /// Return statement: return value
     Return {
+        /// Syntax node for the `return` keyword, so diagnostics about the
+        /// returned value can be located even when the value itself carries no
+        /// syntax node (a bare literal, for instance).
+        syntax_id: Option<SyntaxNodeId>,
         value: Option<Box<AstNode>>,
     },
 
@@ -486,7 +490,9 @@ impl AstNode {
 
     pub fn syntax_id(&self) -> Option<SyntaxNodeId> {
         match self {
-            AstNode::FunDecl { syntax_id, .. }
+            AstNode::VarDecl { syntax_id, .. }
+            | AstNode::LabDecl { syntax_id, .. }
+            | AstNode::FunDecl { syntax_id, .. }
             | AstNode::ProDecl { syntax_id, .. }
             | AstNode::LogDecl { syntax_id, .. }
             | AstNode::UseDecl { syntax_id, .. }
@@ -499,6 +505,7 @@ impl AstNode {
             | AstNode::Loop { syntax_id, .. }
             | AstNode::Select { syntax_id, .. }
             | AstNode::OwnershipOp { syntax_id, .. }
+            | AstNode::Return { syntax_id, .. }
             | AstNode::Block { syntax_id, .. } => *syntax_id,
             AstNode::Commented { node, .. } => node.syntax_id(),
             _ => None,
@@ -878,7 +885,7 @@ impl AstNode {
             AstNode::FieldAccess { object, .. } => {
                 vec![object.as_ref()]
             }
-            AstNode::Return { value } => {
+            AstNode::Return { value, .. } => {
                 value.as_ref().map(|v| vec![v.as_ref()]).unwrap_or_default()
             }
             AstNode::Yield { value } => {

@@ -817,7 +817,7 @@ pub(crate) const V3_PROC_M4_FAILURES: &[V3FailureExample] = &[
         "T1001",
         "recoverable eventual binding 'pending' must be awaited and handled",
         true,
-        false
+        true
     ),
     v3_failure!(
         "examples/fail_proc_await_recoverable_discard_m4",

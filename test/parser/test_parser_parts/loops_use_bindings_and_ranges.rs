@@ -554,7 +554,7 @@ fn test_boolean_keyword_literals_parse_in_var_and_return() {
             let has_false_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(value.as_ref(), AstNode::Literal(Literal::Boolean(false)))
                 )
             });
@@ -590,7 +590,7 @@ fn test_return_expression_precedence_mul_before_add() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value) } = node {
+                if let AstNode::Return { value: Some(value), .. } = node {
                     Some(value.as_ref().clone())
                 } else {
                     None
@@ -634,7 +634,7 @@ fn test_return_expression_parentheses_override_precedence() {
         AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
             .into_iter()
             .find_map(|node| {
-                if let AstNode::Return { value: Some(value) } = node {
+                if let AstNode::Return { value: Some(value), .. } = node {
                     Some(value.as_ref().clone())
                 } else {
                     None
@@ -696,7 +696,7 @@ fn test_range_expressions_parse_in_assignment_and_return() {
             let has_range_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(
                         value.as_ref(),
                         AstNode::Range {
@@ -785,7 +785,7 @@ fn test_open_start_range_expressions_parse_in_assignment_and_return() {
             let has_open_start_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(
                         value.as_ref(),
                         AstNode::Range {
@@ -874,7 +874,7 @@ fn test_open_end_range_expressions_parse_in_assignment_and_return() {
             let has_open_end_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(
                         value.as_ref(),
                         AstNode::Range {

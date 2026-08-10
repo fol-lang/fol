@@ -136,10 +136,15 @@ fn render_frame(
     label_message: Option<&str>,
     severity: &Severity,
 ) {
-    let where_line = match &location.file {
-        Some(file) => format!("{file}:{}:{}", location.line, location.column),
-        None => format!("line {}:{}", location.line, location.column),
+    // A location without a file names nothing the reader can open, so the
+    // frame is dropped rather than rendered as a bare `line 0:0`.
+    let Some(file) = &location.file else {
+        if let Some(message) = label_message {
+            out.push_str(&format!("{GUTTER}{} {}\n", "│".bright_black(), message));
+        }
+        return;
     };
+    let where_line = format!("{file}:{}:{}", location.line, location.column);
     out.push_str(&format!(
         "{}{} {}\n",
         GUTTER,
@@ -162,7 +167,7 @@ fn render_frame(
                 "│".bright_black(),
                 source_line
             ));
-            let underline = source::primary_underline(location);
+            let underline = source::primary_underline(location, &source_line);
             let carets = match severity {
                 Severity::Error => underline.red().bold(),
                 Severity::Warning => underline.yellow().bold(),
@@ -189,11 +194,14 @@ fn render_frame(
 }
 
 fn render_secondary(out: &mut String, location: &DiagnosticLocation, label_message: Option<&str>) {
-    let where_line = match &location.file {
-        Some(file) => format!("{file}:{}:{}", location.line, location.column),
-        None => format!("line {}:{}", location.line, location.column),
-    };
     let message = label_message.unwrap_or("related");
+    let Some(file) = &location.file else {
+        if let Some(message) = label_message {
+            out.push_str(&format!("{GUTTER}{} {}\n", "·".bright_black(), message));
+        }
+        return;
+    };
+    let where_line = format!("{file}:{}:{}", location.line, location.column);
     match source::load_source_line(location) {
         Ok(source_line) => {
             let number = location.line.to_string();
@@ -203,13 +211,13 @@ fn render_secondary(out: &mut String, location: &DiagnosticLocation, label_messa
                 "·".bright_black(),
                 where_line.cyan()
             ));
+            let underline = source::primary_underline(location, &source_line);
             out.push_str(&format!(
                 "{GUTTER}{} {} {}\n",
                 number.bright_black(),
                 "·".bright_black(),
                 source_line.bright_black()
             ));
-            let underline = source::primary_underline(location);
             out.push_str(&format!(
                 "{GUTTER}{} {} {} {}\n",
                 " ".repeat(width),

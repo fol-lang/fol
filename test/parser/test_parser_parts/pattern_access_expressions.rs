@@ -19,7 +19,7 @@ fn test_multi_pattern_access_expression_parsing() {
                     AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::PatternAccess { patterns, .. } if patterns.len() == 2)
                     ))
                 )
@@ -49,7 +49,7 @@ fn test_semicolon_multi_pattern_access_expression_parsing() {
                     AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::PatternAccess { patterns, .. } if patterns.len() == 2)
                     ))
                 )
@@ -79,7 +79,7 @@ fn test_trailing_separator_pattern_access_expression_parsing() {
                     AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::PatternAccess { patterns, .. } if patterns.len() == 2)
                     ))
                 )
@@ -109,7 +109,7 @@ fn test_empty_pattern_access_expression_parsing() {
                     AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::PatternAccess { patterns, .. } if patterns.is_empty())
                     ))
                 )

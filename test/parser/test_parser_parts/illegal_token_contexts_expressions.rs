@@ -10,7 +10,6 @@ fn parse_error_snapshot(path: &str) -> (String, usize, usize) {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     (
@@ -82,8 +81,9 @@ fn test_call_argument_illegal_numeric_token_reports_offending_token_location() {
 
 #[test]
 fn test_type_reference_illegal_token_reports_offending_token_location() {
-    let mut file_stream = FileStream::from_file("test/parser/simple_fun_param_illegal_type_ref.fol")
-        .expect("Should read illegal type-reference fixture");
+    let mut file_stream =
+        FileStream::from_file("test/parser/simple_fun_param_illegal_type_ref.fol")
+            .expect("Should read illegal type-reference fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -93,7 +93,6 @@ fn test_type_reference_illegal_token_reports_offending_token_location() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -116,8 +115,9 @@ fn test_type_reference_illegal_token_reports_offending_token_location() {
 
 #[test]
 fn test_container_element_illegal_token_reports_offending_token_location() {
-    let mut file_stream = FileStream::from_file("test/parser/simple_fun_container_illegal_element.fol")
-        .expect("Should read illegal container-element fixture");
+    let mut file_stream =
+        FileStream::from_file("test/parser/simple_fun_container_illegal_element.fol")
+            .expect("Should read illegal container-element fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -127,7 +127,6 @@ fn test_container_element_illegal_token_reports_offending_token_location() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -162,7 +161,6 @@ fn test_record_initializer_value_illegal_token_reports_offending_token_location(
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -196,7 +194,6 @@ fn test_return_expression_illegal_token_reports_offending_token_location() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -271,7 +268,6 @@ fn test_parameter_default_illegal_token_reports_offending_token_location() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -346,7 +342,6 @@ fn test_unterminated_backtick_comment_in_call_reports_offending_token_location()
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -389,10 +384,9 @@ fn test_unterminated_doc_comment_in_call_reports_offending_token_location() {
 
 #[test]
 fn test_unterminated_slash_block_comment_in_call_reports_offending_token_location() {
-    let mut file_stream = FileStream::from_file(
-        "test/parser/simple_fun_call_unterminated_block_comment.fol",
-    )
-    .expect("Should read parser error fixture");
+    let mut file_stream =
+        FileStream::from_file("test/parser/simple_fun_call_unterminated_block_comment.fol")
+            .expect("Should read parser error fixture");
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
     let errors = parser
@@ -450,30 +444,40 @@ fn test_postfix_member_illegal_name_reports_offending_token_location() {
 
 #[test]
 fn test_alias_declaration_illegal_name_reports_offending_token_location() {
-    let (message, line, column) =
-        parse_error_snapshot("test/parser/simple_alias_illegal_name.fol");
+    let (message, line, column) = parse_error_snapshot("test/parser/simple_alias_illegal_name.fol");
 
     assert!(
         message.contains("Parser encountered illegal token"),
         "Illegal alias names should surface as explicit illegal-token diagnostics, got: {}",
         message
     );
-    assert_eq!(line, 1, "Illegal alias names should report the declaration line");
-    assert!(column > 0, "Illegal alias names should retain a concrete source column");
+    assert_eq!(
+        line, 1,
+        "Illegal alias names should report the declaration line"
+    );
+    assert!(
+        column > 0,
+        "Illegal alias names should retain a concrete source column"
+    );
 }
 
 #[test]
 fn test_type_declaration_illegal_name_reports_offending_token_location() {
-    let (message, line, column) =
-        parse_error_snapshot("test/parser/simple_typ_illegal_name.fol");
+    let (message, line, column) = parse_error_snapshot("test/parser/simple_typ_illegal_name.fol");
 
     assert!(
         message.contains("Parser encountered illegal token"),
         "Illegal type names should surface as explicit illegal-token diagnostics, got: {}",
         message
     );
-    assert_eq!(line, 1, "Illegal type names should report the declaration line");
-    assert!(column > 0, "Illegal type names should retain a concrete source column");
+    assert_eq!(
+        line, 1,
+        "Illegal type names should report the declaration line"
+    );
+    assert!(
+        column > 0,
+        "Illegal type names should retain a concrete source column"
+    );
 }
 
 #[test]
@@ -485,35 +489,48 @@ fn test_type_declaration_illegal_option_reports_offending_token_location() {
         "Illegal type options should surface as explicit illegal-token diagnostics, got: {}",
         message
     );
-    assert_eq!(line, 1, "Illegal type options should report the declaration line");
-    assert!(column > 0, "Illegal type options should retain a concrete source column");
+    assert_eq!(
+        line, 1,
+        "Illegal type options should report the declaration line"
+    );
+    assert!(
+        column > 0,
+        "Illegal type options should retain a concrete source column"
+    );
 }
 
 #[test]
 fn test_segment_declaration_illegal_name_reports_offending_token_location() {
-    let (message, line, column) =
-        parse_error_snapshot("test/parser/simple_seg_illegal_name.fol");
+    let (message, line, column) = parse_error_snapshot("test/parser/simple_seg_illegal_name.fol");
 
     assert!(
         message.contains("Parser encountered illegal token"),
         "Illegal segment names should surface as explicit illegal-token diagnostics, got: {}",
         message
     );
-    assert_eq!(line, 1, "Illegal segment names should report the declaration line");
-    assert!(column > 0, "Illegal segment names should retain a concrete source column");
+    assert_eq!(
+        line, 1,
+        "Illegal segment names should report the declaration line"
+    );
+    assert!(
+        column > 0,
+        "Illegal segment names should retain a concrete source column"
+    );
 }
 
 #[test]
 fn test_standard_declaration_illegal_name_reports_offending_token_location() {
-    let (message, line, column) =
-        parse_error_snapshot("test/parser/simple_std_illegal_name.fol");
+    let (message, line, column) = parse_error_snapshot("test/parser/simple_std_illegal_name.fol");
 
     assert!(
         message.contains("Parser encountered illegal token"),
         "Illegal standard names should surface as explicit illegal-token diagnostics, got: {}",
         message
     );
-    assert_eq!(line, 1, "Illegal standard names should report the declaration line");
+    assert_eq!(
+        line, 1,
+        "Illegal standard names should report the declaration line"
+    );
     assert!(
         column > 0,
         "Illegal standard names should retain a concrete source column"
@@ -522,8 +539,7 @@ fn test_standard_declaration_illegal_name_reports_offending_token_location() {
 
 #[test]
 fn test_definition_declaration_illegal_name_reports_offending_token_location() {
-    let (message, line, column) =
-        parse_error_snapshot("test/parser/simple_def_illegal_name.fol");
+    let (message, line, column) = parse_error_snapshot("test/parser/simple_def_illegal_name.fol");
 
     assert!(
         message.contains("Parser encountered illegal token"),
@@ -561,15 +577,17 @@ fn test_definition_declaration_illegal_option_reports_offending_token_location()
 
 #[test]
 fn test_function_declaration_illegal_name_reports_offending_token_location() {
-    let (message, line, column) =
-        parse_error_snapshot("test/parser/simple_fun_illegal_name.fol");
+    let (message, line, column) = parse_error_snapshot("test/parser/simple_fun_illegal_name.fol");
 
     assert!(
         message.contains("Parser encountered illegal token"),
         "Illegal function names should surface as explicit illegal-token diagnostics, got: {}",
         message
     );
-    assert_eq!(line, 1, "Illegal function names should report the declaration line");
+    assert_eq!(
+        line, 1,
+        "Illegal function names should report the declaration line"
+    );
     assert!(
         column > 0,
         "Illegal function names should retain a concrete source column"
@@ -586,7 +604,10 @@ fn test_routine_illegal_option_reports_offending_token_location() {
         "Illegal routine options should surface as explicit illegal-token diagnostics, got: {}",
         message
     );
-    assert_eq!(line, 1, "Illegal routine options should anchor to the header line");
+    assert_eq!(
+        line, 1,
+        "Illegal routine options should anchor to the header line"
+    );
     assert!(
         column > 0,
         "Illegal routine options should retain a concrete source column"
@@ -595,17 +616,98 @@ fn test_routine_illegal_option_reports_offending_token_location() {
 
 #[test]
 fn test_logical_declaration_illegal_name_reports_offending_token_location() {
-    let (message, line, column) =
-        parse_error_snapshot("test/parser/simple_log_illegal_name.fol");
+    let (message, line, column) = parse_error_snapshot("test/parser/simple_log_illegal_name.fol");
 
     assert!(
         message.contains("Parser encountered illegal token"),
         "Illegal logical names should surface as explicit illegal-token diagnostics, got: {}",
         message
     );
-    assert_eq!(line, 1, "Illegal logical names should report the declaration line");
+    assert_eq!(
+        line, 1,
+        "Illegal logical names should report the declaration line"
+    );
     assert!(
         column > 0,
         "Illegal logical names should retain a concrete source column"
+    );
+}
+
+#[test]
+fn test_unterminated_string_message_names_the_defect_without_quoting_the_file_tail() {
+    let (message, line, column) =
+        parse_error_snapshot("test/parser/simple_fun_call_illegal_string_arg.fol");
+
+    assert_eq!(
+        message, "Parser encountered illegal token: unterminated string literal",
+        "Unterminated strings should be named, not quoted back at the reader"
+    );
+    assert!(
+        !message.contains('\n'),
+        "Illegal-token messages should never span lines, got: {}",
+        message
+    );
+    assert_eq!(
+        line, 2,
+        "Unterminated strings should report the literal line"
+    );
+    assert!(
+        column > 0,
+        "Unterminated strings should retain a concrete source column"
+    );
+}
+
+#[test]
+fn test_unterminated_backtick_comment_message_names_the_defect() {
+    let (message, _, column) =
+        parse_error_snapshot("test/parser/simple_fun_call_unterminated_backtick_comment.fol");
+
+    assert_eq!(
+        message, "Parser encountered illegal token: unterminated backtick comment",
+        "Unterminated backtick comments should be named, not quoted back at the reader"
+    );
+    assert!(
+        column > 0,
+        "Unterminated backtick comments should retain a concrete source column"
+    );
+}
+
+#[test]
+fn test_unrecognized_character_reports_a_located_lexer_diagnostic() {
+    let mut file_stream =
+        FileStream::from_file("test/parser/simple_var_unrecognized_character.fol")
+            .expect("Should read the unrecognized-character fixture");
+    let mut lexer = Elements::init(&mut file_stream);
+    let mut parser = AstParser::new();
+    let errors = parser
+        .parse(&mut lexer)
+        .expect_err("Parser should reject a character the lexer has no rule for");
+
+    let parse_error = errors
+        .first()
+        .expect("First parser error should be ParseError");
+    let location = parse_error
+        .primary_location()
+        .expect("Unrecognized characters should keep a primary location");
+
+    assert_eq!(
+        parse_error.message, "'§' is not a recognized character",
+        "Lexer errors should not leak their internal state name"
+    );
+    assert!(
+        location
+            .file
+            .as_deref()
+            .is_some_and(|file| file.ends_with("simple_var_unrecognized_character.fol")),
+        "Unrecognized characters should name the file they were read from, got: {:?}",
+        location
+    );
+    assert_eq!(
+        location.line, 2,
+        "Unrecognized characters should report the offending line"
+    );
+    assert_eq!(
+        location.column, 9,
+        "Unrecognized characters should report the offending column"
     );
 }
