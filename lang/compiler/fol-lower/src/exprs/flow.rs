@@ -10,6 +10,48 @@ use fol_parser::ast::{AstNode, ChannelEndpoint, Literal, LoopCondition, SelectAr
 use fol_resolver::{PackageIdentity, ScopeId, SourceUnitId, SymbolKind};
 use std::collections::BTreeMap;
 
+/// The block scope the resolver created for an inline body such as a `when`
+/// arm.
+///
+/// Arm bodies carry no syntax id of their own, so the scope is found from the
+/// inside out: any statement that owns a scope (a `dfr`/`edf` body, a loop, a
+/// nested block) sits under the arm's scope, so walking up from it lands on the
+/// arm. Lowering an arm body against the enclosing scope instead is what made a
+/// deferred block inside an arm fail as belonging to the wrong parent.
+fn inline_body_scope(
+    typed_package: &fol_typecheck::TypedPackage,
+    parent_scope: ScopeId,
+    body: &[AstNode],
+) -> Option<ScopeId> {
+    let resolved = typed_package.program.resolved();
+    let mut found: Option<ScopeId> = None;
+    for node in body {
+        let Some(nested) = node
+            .syntax_id()
+            .and_then(|id| resolved.scope_for_syntax(id))
+        else {
+            continue;
+        };
+        let mut scope_id = nested;
+        let candidate = loop {
+            let Some(parent) = resolved.scope(scope_id).and_then(|scope| scope.parent) else {
+                break None;
+            };
+            if parent == parent_scope {
+                break Some(scope_id);
+            }
+            scope_id = parent;
+        };
+        let Some(candidate) = candidate else { continue };
+        match found {
+            // Sibling statements disagreeing means this is not one body.
+            Some(previous) if previous != candidate => return None,
+            _ => found = Some(candidate),
+        }
+    }
+    found
+}
+
 pub(crate) fn when_case_body(case: &fol_parser::ast::WhenCase) -> &[AstNode] {
     match case {
         fol_parser::ast::WhenCase::Case { body, .. }
@@ -290,6 +332,7 @@ pub(crate) fn lower_when_statement(
             )?;
             cursor.routine.local_symbols.insert(symbol, payload_local);
         }
+        let body_scope = inline_body_scope(typed_package, scope_id, body).unwrap_or(scope_id);
         let _ = lower_body_sequence(
             typed_package,
             type_table,
@@ -298,7 +341,7 @@ pub(crate) fn lower_when_statement(
             decl_index,
             cursor,
             source_unit_id,
-            scope_id,
+            body_scope,
             body,
             DeferScopeKind::Ordinary,
         )?;

@@ -877,6 +877,27 @@ pub(crate) fn inline_body_block_scope(
         }
     }
 
+    // A nested construct that owns a scope -- a `dfr`/`edf` body, a loop, an
+    // inner block -- pins the enclosing body just as well as a binding does:
+    // walking up from its scope lands on the body's own block scope. Without
+    // this, an arm whose only statement is `dfr { ... }` looks scopeless, falls
+    // back to the parent, and the deferred block is then rejected for belonging
+    // to a scope that is not its parent.
+    for syntax_id in &syntax_ids {
+        let Some(nested_scope_id) = resolved.scope_for_syntax(*syntax_id) else {
+            continue;
+        };
+        let Some(body_scope_id) = direct_child_below_parent(nested_scope_id) else {
+            continue;
+        };
+        if resolved
+            .scope(body_scope_id)
+            .is_some_and(|scope| scope.kind == fol_resolver::ScopeKind::Block)
+        {
+            candidate_scopes.insert(body_scope_id);
+        }
+    }
+
     single_scope(candidate_scopes)
 }
 

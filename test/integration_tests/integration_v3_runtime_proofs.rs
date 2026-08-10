@@ -877,3 +877,50 @@ fn standard_error_stays_separate_from_standard_output() {
         "err"
     );
 }
+
+#[test]
+fn deferred_blocks_run_inside_when_and_select_arms() {
+    // A `when`/`select` arm body is its own scope, but it carries no syntax id
+    // of its own, so the arm scope was inferred from the bindings the body
+    // declared -- and an arm whose only statement is `dfr { ... }` declares
+    // none. It fell back to the enclosing scope and the deferred block was then
+    // rejected for belonging to the wrong parent. This is the book's own
+    // "Nested scopes" example (book/src/700_sugar/250_dfr.md).
+    let root = write_hosted_app(
+        "v3_dfr_in_arms",
+        "use std: pkg = {\"std\"};\n\
+         \n\
+         pro[] guarded(flag: bol): non = {\n\
+         \x20   dfr { std::io::echo_str(\"outer\"); };\n\
+         \x20   when(flag) {\n\
+         \x20       case(true) {\n\
+         \x20           dfr { std::io::echo_str(\"inner\"); };\n\
+         \x20           return;\n\
+         \x20       }\n\
+         \x20       * { }\n\
+         \x20   }\n\
+         \x20   return;\n\
+         };\n\
+         \n\
+         pro[] selected(): non = {\n\
+         \x20   var ch: chn[int];\n\
+         \x20   select {\n\
+         \x20       * {\n\
+         \x20           dfr { std::io::echo_str(\"select-arm\"); };\n\
+         \x20       }\n\
+         \x20   }\n\
+         \x20   return;\n\
+         };\n\
+         \n\
+         fun[] main(): int = {\n\
+         \x20   guarded(true);\n\
+         \x20   std::io::echo_str(\"--\");\n\
+         \x20   guarded(false);\n\
+         \x20   selected();\n\
+         \x20   return 0;\n\
+         };\n",
+    );
+    // The arm's deferred block runs when the arm exits, before the routine's
+    // own; the arm that never runs registers nothing.
+    assert_successful_stdout(&root, "inner\nouter\n--\nouter\nselect-arm\n");
+}

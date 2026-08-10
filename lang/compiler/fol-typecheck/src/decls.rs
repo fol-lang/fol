@@ -1086,6 +1086,42 @@ fn lower_nested_declarations_in_node(
                 )?;
             }
         }
+        AstNode::Select { arms, default, .. } => {
+            // Like `when`, each arm body is its own resolver Block scope. The
+            // generic child walk below would visit them against the enclosing
+            // scope, which makes a `dfr` inside an arm look like it belongs to
+            // the wrong parent.
+            for arm in arms {
+                lower_nested_declarations_in_node(
+                    typed,
+                    resolved,
+                    source_unit_id,
+                    current_scope,
+                    &arm.channel,
+                )?;
+            }
+            let mut bodies: Vec<&[fol_parser::ast::AstNode]> =
+                arms.iter().map(|arm| arm.body.as_slice()).collect();
+            if let Some(default) = default {
+                bodies.push(default);
+            }
+            for body in bodies {
+                let body_scope = crate::exprs::inline_body_block_scope(
+                    resolved,
+                    source_unit_id,
+                    current_scope,
+                    body,
+                )
+                .unwrap_or(current_scope);
+                lower_nested_declarations_in_nodes(
+                    typed,
+                    resolved,
+                    source_unit_id,
+                    body_scope,
+                    body,
+                )?;
+            }
+        }
         AstNode::Loop {
             syntax_id,
             condition,
