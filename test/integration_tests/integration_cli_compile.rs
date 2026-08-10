@@ -3313,6 +3313,120 @@ fn test_scaffolded_hyphenated_directory_is_a_buildable_package() {
 }
 
 #[test]
+fn test_code_run_exits_with_the_programs_own_status() {
+    use std::fs;
+
+    // `main`'s int return used to be dropped on the floor (`let _ = main()`),
+    // so a program could not tell its caller anything and `code run` always
+    // exited 0.
+    let temp_root = unique_temp_root("code_run_exit_status");
+    fs::create_dir_all(temp_root.join("src")).expect("Should create exit-status fixture dirs");
+    fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"code_run_exit_status\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"code_run_exit_status\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write exit-status build file");
+    fs::write(
+        temp_root.join("src/main.fol"),
+        "fun[] main(): int = {\n    return 3;\n};\n",
+    )
+    .expect("Should write exit-status source");
+
+    let run = run_fol_in_dir(&temp_root, &["code", "run"]);
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert_eq!(
+        run.status.code(),
+        Some(3),
+        "code run must exit with the program's own status: stdout=\n{}\nstderr=\n{stderr}",
+        String::from_utf8_lossy(&run.stdout)
+    );
+    // A program that failed on its own terms is not a build problem.
+    assert!(
+        stderr.contains("F1005"),
+        "a launched program's failure needs its own code: {stderr}"
+    );
+    assert!(
+        !stderr.contains("F1004"),
+        "a launched program's failure must not be reported as a build failure: {stderr}"
+    );
+
+    let binary = installed_debug_host_binary(&temp_root);
+    let direct = std::process::Command::new(&binary)
+        .output()
+        .expect("built binary should execute");
+    assert_eq!(
+        direct.status.code(),
+        Some(3),
+        "the built binary itself must exit with main's return value"
+    );
+
+    fs::remove_dir_all(&temp_root).ok();
+}
+
+#[test]
+fn test_code_test_reports_a_failing_test_binary_as_failing() {
+    use std::fs;
+
+    // `code test` decides pass/fail from the test binary's status, so a
+    // discarded `return 1` used to report a failing test as passing.
+    let temp_root = unique_temp_root("code_test_failing_binary");
+    fs::create_dir_all(temp_root.join("src")).expect("Should create test-status fixture dirs");
+    fs::write(
+        temp_root.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"code_test_failing_binary\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
+            "    var tests = graph.add_test({\n",
+            "        name = \"code-test-failing\",\n",
+            "        root = \"src/tests.fol\",\n",
+            "        fol_model = \"memo\",\n",
+            "    });\n",
+            "    return;\n",
+            "};\n",
+        ),
+    )
+    .expect("Should write test-status build file");
+    fs::write(
+        temp_root.join("src/tests.fol"),
+        "fun[] main(): int = {\n    return 1;\n};\n",
+    )
+    .expect("Should write test-status source");
+
+    let tested = run_fol_in_dir(&temp_root, &["code", "test"]);
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&tested.stdout),
+        String::from_utf8_lossy(&tested.stderr)
+    );
+    assert_eq!(
+        tested.status.code(),
+        Some(1),
+        "code test must fail when the test binary fails: {combined}"
+    );
+    assert!(
+        !combined.contains("tested 1 workspace artifact"),
+        "a failing test binary must not be summarized as tested: {combined}"
+    );
+    assert!(
+        combined.contains("F1005"),
+        "a failing test binary needs the launched-program code: {combined}"
+    );
+
+    fs::remove_dir_all(&temp_root).ok();
+}
+
+#[test]
 fn test_every_path_spelling_of_one_file_compiles_the_same() {
     use std::fs;
 
@@ -3342,6 +3456,80 @@ fn test_every_path_spelling_of_one_file_compiles_the_same() {
             String::from_utf8_lossy(&output.stderr)
         );
     }
+
+    fs::remove_dir_all(&temp_root).ok();
+}
+
+fn test_entry_arguments_reject_missing_and_unparseable_values() {
+    use std::fs;
+
+    // Entry parameters used to swallow a bad command line and hand `main` the
+    // type's default, so `notanumber` silently became 0.
+    let temp_root = unique_temp_root("entry_argument_usage");
+    fs::create_dir_all(temp_root.join("src")).expect("Should create entry-arg fixture dirs");
+    fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"entry_argument_usage\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"entry_argument_usage\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write entry-arg build file");
+    fs::write(
+        temp_root.join("src/main.fol"),
+        "fun[] main(count: int): int = {\n    return count;\n};\n",
+    )
+    .expect("Should write entry-arg source");
+
+    let build = run_fol_in_dir(&temp_root, &["code", "build"]);
+    assert!(
+        build.status.success(),
+        "entry-arg fixture should build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let binary = installed_debug_host_binary(&temp_root);
+
+    let parsed = std::process::Command::new(&binary)
+        .arg("0")
+        .output()
+        .expect("built binary should execute with a valid argument");
+    assert_eq!(parsed.status.code(), Some(0));
+
+    let unparseable = std::process::Command::new(&binary)
+        .arg("notanumber")
+        .output()
+        .expect("built binary should execute with an invalid argument");
+    let unparseable_stderr = String::from_utf8_lossy(&unparseable.stderr);
+    assert_eq!(
+        unparseable.status.code(),
+        Some(2),
+        "an unparseable argument is a usage error: {unparseable_stderr}"
+    );
+    assert!(
+        unparseable_stderr.contains("notanumber") && unparseable_stderr.contains("int"),
+        "the usage error must name the value and the expected type: {unparseable_stderr}"
+    );
+
+    let missing = std::process::Command::new(&binary)
+        .output()
+        .expect("built binary should execute with no arguments");
+    let missing_stderr = String::from_utf8_lossy(&missing.stderr);
+    assert_eq!(
+        missing.status.code(),
+        Some(2),
+        "a missing argument is a usage error: {missing_stderr}"
+    );
+    assert!(
+        missing_stderr.contains("missing command-line argument"),
+        "the usage error must say what is missing: {missing_stderr}"
+    );
 
     fs::remove_dir_all(&temp_root).ok();
 }

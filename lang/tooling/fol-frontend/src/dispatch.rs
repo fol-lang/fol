@@ -548,7 +548,9 @@ where
                             let _ = writeln!(stderr, "FrontendInternal: {render_error}");
                         }
                     }
-                    1
+                    // A launched program's own status belongs to the caller;
+                    // everything else is the frontend's own failure.
+                    error.process_exit_code().unwrap_or(1)
                 }
             }
         }

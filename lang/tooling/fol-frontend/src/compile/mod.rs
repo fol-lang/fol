@@ -1047,13 +1047,7 @@ pub(crate) fn test_selected_artifacts_with_config(
             FrontendError::new(FrontendErrorKind::CommandFailed, error.to_string())
         })?;
         if !status.success() {
-            return Err(FrontendError::new(
-                FrontendErrorKind::CommandFailed,
-                format!(
-                    "test command failed for '{}': status {status}",
-                    path.display()
-                ),
-            ));
+            return Err(crate::process::artifact_status_error("test", path, status));
         }
     }
 

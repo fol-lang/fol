@@ -228,6 +228,58 @@ fun[] main(flag: bol): bol = {
 };
 ```
 
+### The entry point's command line and exit status
+
+An entry routine's parameters are bound, in order, to the command-line
+arguments that follow the program name. Only the scalar builtins are bound
+this way: `int`, `flt`, `bol`, `chr`, and `str`. `bol` accepts
+`true`/`1`/`yes`/`on` and `false`/`0`/`no`/`off`.
+
+A command line that does not satisfy the signature is a usage error, not a
+default. A missing argument, or one that does not parse as the declared type,
+writes a message naming the position and the expected type to standard error
+and exits with status `2`. Nothing silently becomes `0` or `""`.
+
+```fol
+fun[] main(count: int, label: str): int = {
+    return .echo(count);
+};
+```
+
+```text
+$ ./program notanumber hello
+fol: command-line argument #1 is not a valid `int`: `notanumber`
+$ echo $?
+2
+```
+
+A parameter of any other type is not bound from the command line; it is
+constructed empty. Read the command line yourself with `.arg_count()` and
+`.arg_at(index)` when you need anything richer than a scalar.
+
+The entry's `int` return value **is** the process exit status:
+
+```fol
+fun[] main(): int = {
+    return 3;
+};
+```
+
+```text
+$ ./program; echo $?
+3
+```
+
+This holds on both channels. A plain `fun[] main(): int` exits with the value
+it returns, and a recoverable `fun[] main(): int / E` exits with the returned
+value when it returns and with `1`, after printing the error, when it reports.
+An entry declared `: non` always exits `0`. Exit statuses are truncated to
+their low 8 bits by the operating system, so keep them in `0..=255`; `0` means
+success by convention.
+
+Because `main`'s return is the exit status, `return .echo(value)` makes the
+echoed value the status too. Return `0` explicitly when a program succeeds.
+
 ### Recoverable and control intrinsics
 
 ```fol

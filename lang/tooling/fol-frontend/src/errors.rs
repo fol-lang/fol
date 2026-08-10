@@ -7,6 +7,9 @@ pub enum FrontendErrorKind {
     WorkspaceNotFound,
     PackageFailed,
     CommandFailed,
+    /// A program the frontend launched ran and failed on its own terms. Not a
+    /// build or configuration problem, so it never wears F1004.
+    ArtifactFailed,
     Internal,
 }
 
@@ -17,6 +20,7 @@ impl FrontendErrorKind {
             Self::WorkspaceNotFound => "FrontendWorkspaceNotFound",
             Self::PackageFailed => "FrontendPackageFailed",
             Self::CommandFailed => "FrontendCommandFailed",
+            Self::ArtifactFailed => "FrontendArtifactFailed",
             Self::Internal => "FrontendInternal",
         }
     }
@@ -27,6 +31,7 @@ impl FrontendErrorKind {
             Self::WorkspaceNotFound => "F1002",
             Self::PackageFailed => "F1003",
             Self::CommandFailed => "F1004",
+            Self::ArtifactFailed => "F1005",
             Self::Internal => "F1099",
         }
     }
@@ -38,6 +43,7 @@ pub struct FrontendError {
     message: String,
     notes: Vec<String>,
     diagnostics: Vec<Diagnostic>,
+    process_exit_code: Option<i32>,
 }
 
 impl FrontendError {
@@ -47,6 +53,7 @@ impl FrontendError {
             message: message.into(),
             notes: Vec::new(),
             diagnostics: Vec::new(),
+            process_exit_code: None,
         }
     }
 
@@ -58,6 +65,7 @@ impl FrontendError {
             message,
             notes: Vec::new(),
             diagnostics,
+            process_exit_code: None,
         }
     }
 
@@ -79,6 +87,18 @@ impl FrontendError {
 
     pub fn with_note(mut self, note: impl Into<String>) -> Self {
         self.notes.push(note.into());
+        self
+    }
+
+    /// The status the frontend itself should exit with. Set when the failure
+    /// is a launched program's own status, so `fol code run` is transparent to
+    /// what the program reported instead of collapsing everything to 1.
+    pub fn process_exit_code(&self) -> Option<i32> {
+        self.process_exit_code
+    }
+
+    pub fn with_process_exit_code(mut self, exit_code: i32) -> Self {
+        self.process_exit_code = Some(exit_code);
         self
     }
 }
@@ -117,6 +137,7 @@ impl From<fol_package::PackageError> for FrontendError {
             message: error.to_string(),
             notes: Vec::new(),
             diagnostics: vec![diagnostic],
+            process_exit_code: None,
         }
     }
 }
@@ -214,6 +235,33 @@ mod tests {
         );
         assert_eq!(FrontendErrorKind::PackageFailed.diagnostic_code(), "F1003");
         assert_eq!(FrontendErrorKind::CommandFailed.diagnostic_code(), "F1004");
+        assert_eq!(FrontendErrorKind::ArtifactFailed.diagnostic_code(), "F1005");
         assert_eq!(FrontendErrorKind::Internal.diagnostic_code(), "F1099");
+    }
+
+    #[test]
+    fn a_launched_programs_failure_is_not_a_build_failure() {
+        // F1004's explanation claims a build or configuration problem, which
+        // is a false statement about a program that built fine and then
+        // failed on its own.
+        let explanation = fol_diagnostics::explanation("F1005")
+            .expect("the launched-program code should be registered");
+
+        assert!(explanation.body.contains("The build itself succeeded"));
+        assert_eq!(
+            fol_diagnostics::family_for_code("F1005").0,
+            "PROGRAM",
+            "a launched program's failure must not wear the BUILD family"
+        );
+    }
+
+    #[test]
+    fn frontend_errors_carry_a_launched_programs_exit_status() {
+        let plain = FrontendError::new(FrontendErrorKind::CommandFailed, "boom");
+        let launched = FrontendError::new(FrontendErrorKind::ArtifactFailed, "program exited 3")
+            .with_process_exit_code(3);
+
+        assert_eq!(plain.process_exit_code(), None);
+        assert_eq!(launched.process_exit_code(), Some(3));
     }
 }

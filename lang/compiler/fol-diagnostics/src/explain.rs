@@ -30,6 +30,14 @@
 /// - `F` — frontend / build configuration
 /// - `B` — backend (code generation)
 pub fn family_for_code(code: &str) -> (&'static str, &'static str) {
+    // A launched program's own failing status is not a build problem, so it
+    // does not inherit the `F` family line.
+    if code.eq_ignore_ascii_case("F1005") {
+        return (
+            "PROGRAM",
+            "the program built and ran, then exited with a failing status",
+        );
+    }
     match code.as_bytes().first().map(|b| b.to_ascii_uppercase()) {
         Some(b'P') => (
             "PARSER",
@@ -584,6 +592,20 @@ static REGISTRY: &[Explanation] = &[
          - an underlying step or subprocess returned a failure\n\n\
          How to fix:\n\
          - fix the reported diagnostics, then re-run the command"
+    ),
+    explanation!(
+        "F1005",
+        "launched program failed",
+        "A program the toolchain built and launched ran, then exited with a\n\
+         failing status. The build itself succeeded.\n\n\
+         Why it happens:\n\
+         - `main` returned a nonzero `int` (that value is the exit status)\n\
+         - a recoverable `main` reported through its error channel\n\
+         - the program panicked, or was killed by a signal\n\n\
+         How to fix:\n\
+         - read the program's own output above this summary; the status is\n\
+           the program's answer, not a toolchain error\n\n\
+         `fol code run` and `fol code test` exit with the program's own status."
     ),
     explanation!(
         "F1099",

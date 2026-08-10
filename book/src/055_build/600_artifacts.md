@@ -33,6 +33,21 @@ source needs hosted APIs.
 
 `name` must be lowercase. Allowed characters: `a-z`, `0-9`, `-`, `_`, `.`.
 
+### Exit Status
+
+A built artifact's exit status is its entry routine's `int` return value, and
+`0` when the entry returns `non`. A recoverable entry that reports exits `1`
+after printing the error. The full contract lives in the built-ins chapter.
+
+This is what makes a test bundle able to fail: `graph.add_test` runs the
+binary, and an entry that returns a nonzero `int` — or reports — fails the
+run.
+
+`fol code run` and `fol code test` exit with the program's own status rather
+than a status of their own. A program that fails on its own terms is reported
+under `F1005`, which says the build succeeded and the program did not; a real
+build or configuration failure keeps `F1004`.
+
 ### Artifact Name Validation
 
 The build system validates artifact names at evaluation time. Invalid names

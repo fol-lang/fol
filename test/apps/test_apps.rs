@@ -271,7 +271,8 @@ fn full_v1_showcase_example_compiles_and_runs() {
     let run_output = Command::new(built_binary_path(&compile_output))
         .output()
         .expect("should run full v1 showcase binary");
-    assert_exit_code(&run_output, 0);
+    // `main`'s int return is the process exit status.
+    assert_exit_code(&run_output, 7);
     assert_output_contains(&run_output, "7");
 }
 
@@ -286,7 +287,7 @@ fn call_binding_v1_showcase_example_compiles_and_runs() {
     let run_output = Command::new(built_binary_path(&compile_output))
         .output()
         .expect("should run call binding v1 showcase binary");
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 33);
     assert_output_contains(&run_output, "33");
 }
 
@@ -298,7 +299,7 @@ fn call_binding_stress_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 50);
     assert_output_contains(&run_output, "50");
 }
 
@@ -310,7 +311,7 @@ fn method_call_binding_stress_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 47);
     assert_output_contains(&run_output, "47");
 }
 
@@ -322,7 +323,7 @@ fn generic_type_exec_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 42);
     assert_output_contains(&run_output, "42");
 }
 
@@ -334,7 +335,7 @@ fn generic_standard_constraint_exec_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 1);
     assert_output_contains(&run_output, "1");
 }
 
@@ -349,7 +350,7 @@ fn dfr_v1_showcase_example_compiles_and_runs() {
     let run_output = Command::new(built_binary_path(&compile_output))
         .output()
         .expect("should run dfr v1 showcase binary");
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 70);
     assert_stdout_order(
         &run_output,
         &["30", "20", "40", "10", "60", "70", "50"],
@@ -394,9 +395,10 @@ fn app_harness_run_helper_executes_built_binary() {
 
     let output = compile_and_run_app(&temp_root);
 
-    assert!(
-        output.status.success(),
-        "compiled app binary should run successfully"
+    assert_eq!(
+        output.status.code(),
+        Some(5),
+        "compiled app binary should exit with the value `main` returned"
     );
 
     fs::remove_dir_all(&temp_root).ok();
@@ -623,7 +625,7 @@ fn scalar_entry_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
 }
 
 #[test]
@@ -634,7 +636,7 @@ fn bindings_and_calls_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 5);
 }
 
 #[test]
@@ -645,7 +647,7 @@ fn control_when_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
 }
 
 #[test]
@@ -656,7 +658,7 @@ fn control_loop_break_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
 }
 
 #[test]
@@ -667,7 +669,7 @@ fn control_iteration_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 60);
 }
 
 #[test]
@@ -678,7 +680,7 @@ fn control_sibling_iterations_use_their_exact_loop_scopes() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 33);
 }
 
 #[test]
@@ -722,7 +724,7 @@ fn same_folder_shared_scope_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
 }
 
 #[test]
@@ -741,7 +743,7 @@ fn subfolder_namespace_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
 }
 
 #[test]
@@ -752,7 +754,7 @@ fn deep_namespace_chain_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
 }
 
 #[test]
@@ -763,7 +765,7 @@ fn loc_plain_values_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
 }
 
 #[test]
@@ -774,7 +776,7 @@ fn loc_types_and_records_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
 }
 
 #[test]
@@ -785,7 +787,7 @@ fn loc_methods_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
 }
 
 #[test]
@@ -796,7 +798,7 @@ fn loc_recoverable_calls_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 3);
 }
 
 #[test]
@@ -815,7 +817,7 @@ fn std_basic_import_fixture_compiles_and_runs() {
     let run_output = Command::new(&binary)
         .output()
         .expect("should run compiled std fixture");
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
 }
 
 #[test]
@@ -834,7 +836,7 @@ fn std_namespace_import_fixture_compiles_and_runs() {
     let run_output = Command::new(&binary)
         .output()
         .expect("should run compiled std namespace fixture");
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
 }
 
 #[test]
@@ -870,7 +872,7 @@ fn std_bundled_io_example_compiles_and_runs() {
     let run_output = Command::new(&binary)
         .output()
         .expect("should run compiled bundled std io example");
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
 }
 
 #[test]
@@ -904,7 +906,7 @@ fn pkg_basic_import_fixture_compiles_and_runs() {
     let run_output = Command::new(&binary)
         .output()
         .expect("should run compiled pkg fixture");
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
 }
 
 #[test]
@@ -921,7 +923,7 @@ fn pkg_transitive_import_fixture_compiles_and_runs() {
     let run_output = Command::new(&binary)
         .output()
         .expect("should run compiled transitive pkg fixture");
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
 }
 
 #[test]
@@ -946,7 +948,7 @@ fn mixed_loc_std_pkg_fixture_compiles_and_runs() {
     let run_output = Command::new(&binary)
         .output()
         .expect("should run compiled mixed import fixture");
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 8);
     fs::remove_dir_all(&merged_store_root).ok();
 }
 
@@ -958,7 +960,7 @@ fn record_flow_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
 }
 
 #[test]
@@ -969,7 +971,7 @@ fn entry_flow_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
 }
 
 #[test]
@@ -980,7 +982,7 @@ fn alias_flow_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
 }
 
 #[test]
@@ -991,7 +993,7 @@ fn method_flow_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
 }
 
 #[test]
@@ -1002,7 +1004,7 @@ fn call_niceties_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 19);
     assert_output_contains(&run_output, "19");
 }
 
@@ -1014,7 +1016,7 @@ fn method_call_niceties_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 19);
     assert_output_contains(&run_output, "19");
 }
 
@@ -1046,7 +1048,7 @@ fn dfr_nested_scopes_fixture_compiles_and_runs() {
     let fixture = fixture_root("dfr_nested_scopes");
     let run_output = compile_and_run_app(&fixture);
 
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
     assert_stdout_order(&run_output, &["3", "2", "7", "1"], "nested dfr scopes");
 }
 
@@ -1055,7 +1057,7 @@ fn dfr_loop_break_fixture_compiles_and_runs() {
     let fixture = fixture_root("dfr_loop_break");
     let run_output = compile_and_run_app(&fixture);
 
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
     assert_stdout_order(&run_output, &["3", "2", "7", "1"], "dfr loop break");
 }
 
@@ -1106,7 +1108,7 @@ fn loc_call_niceties_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 28);
     assert_output_contains(&run_output, "28");
 }
 
@@ -1118,7 +1120,7 @@ fn loc_call_binding_stress_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 55);
     assert_output_contains(&run_output, "55");
 }
 
@@ -1130,7 +1132,7 @@ fn container_linear_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
 }
 
 #[test]
@@ -1141,7 +1143,7 @@ fn container_slice_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 3);
 }
 
 #[test]
@@ -1152,7 +1154,7 @@ fn container_map_set_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
 }
 
 #[test]
@@ -1163,7 +1165,7 @@ fn container_cross_package_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
 }
 
 #[test]
@@ -1174,7 +1176,7 @@ fn intrinsics_comparison_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
 }
 
 #[test]
@@ -1185,7 +1187,7 @@ fn intrinsics_not_len_echo_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 2);
     assert_output_contains(&run_output, "2");
 }
 
@@ -1246,7 +1248,9 @@ fn recoverable_check_fixture_compiles_and_runs() {
         .arg("true")
         .output()
         .expect("should run recoverable check failure path");
-    assert_exit_code(&err_output, 0);
+    // `main` answers 1 on the checked-failure path, and that answer is the
+    // process exit status.
+    assert_exit_code(&err_output, 1);
 }
 
 #[test]
@@ -1262,13 +1266,13 @@ fn recoverable_fallback_fixture_compiles_and_runs() {
         .arg("false")
         .output()
         .expect("should run recoverable fallback success path");
-    assert_exit_code(&ok_output, 0);
+    assert_exit_code(&ok_output, 7);
 
     let err_output = Command::new(&binary)
         .arg("true")
         .output()
         .expect("should run recoverable fallback error path");
-    assert_exit_code(&err_output, 0);
+    assert_exit_code(&err_output, 5);
 }
 
 #[test]
@@ -1284,13 +1288,13 @@ fn recoverable_package_boundary_fixture_compiles_and_runs() {
         .arg("false")
         .output()
         .expect("should run package recoverable success path");
-    assert_exit_code(&ok_output, 0);
+    assert_exit_code(&ok_output, 7);
 
     let err_output = Command::new(&binary)
         .arg("true")
         .output()
         .expect("should run package recoverable fallback path");
-    assert_exit_code(&err_output, 0);
+    assert_exit_code(&err_output, 5);
 }
 
 #[test]
@@ -1306,7 +1310,7 @@ fn shell_optional_fixture_compiles_and_runs() {
         .arg("true")
         .output()
         .expect("should run optional shell success path");
-    assert_exit_code(&ok_output, 0);
+    assert_exit_code(&ok_output, 7);
 
     let nil_output = Command::new(&binary)
         .arg("false")
@@ -1323,7 +1327,7 @@ fn shell_error_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 7);
 }
 
 #[test]
@@ -1339,13 +1343,13 @@ fn shell_vs_recoverable_boundary_fixture_compiles_and_runs() {
         .arg("false")
         .output()
         .expect("should run shell-vs-recoverable success path");
-    assert_exit_code(&ok_output, 0);
+    assert_exit_code(&ok_output, 7);
 
     let err_output = Command::new(&binary)
         .arg("true")
         .output()
         .expect("should run shell-vs-recoverable fallback path");
-    assert_exit_code(&err_output, 0);
+    assert_exit_code(&err_output, 7);
 }
 
 #[test]
@@ -1356,7 +1360,7 @@ fn arithmetic_operators_fixture_compiles_and_runs() {
     assert_artifact_paths_exist(&compile_output);
 
     let run_output = compile_and_run_app(&fixture);
-    assert_exit_code(&run_output, 0);
+    assert_exit_code(&run_output, 2);
 }
 
 #[test]
@@ -1455,8 +1459,9 @@ fn fail_dfr_break_nested_fixture_fails_cleanly() {
 fn fail_generic_routine_fixture_now_executes_as_supported_generic_code() {
     let fixture = fixture_root("fail_generic_routine");
     let run_output = compile_and_run_app(&fixture);
-    assert!(
-        run_output.status.success(),
+    assert_eq!(
+        run_output.status.code(),
+        Some(42),
         "supported generic routine fixture should execute cleanly\nstdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&run_output.stdout),
         String::from_utf8_lossy(&run_output.stderr)
