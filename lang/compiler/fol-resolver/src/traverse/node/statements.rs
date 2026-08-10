@@ -88,6 +88,13 @@ pub fn traverse_when_node(
                     _ => None,
                 };
                 if let Some((name, syntax_id)) = binder {
+                    // The payload binding shares the arm body's own block scope
+                    // rather than opening one above it. Nesting a second scope
+                    // made this arm the only one where a body statement lived
+                    // two levels below the enclosing scope, and every lookup
+                    // downstream that walks to the body's scope landed on the
+                    // wrapper instead -- so a local declared in an `on` arm
+                    // could not be found at all.
                     let on_scope = program.add_scope(ScopeKind::Block, scope_id, source_unit_id);
                     program.record_scope_for_syntax(Some(syntax_id), on_scope);
                     insert_local_symbol(
@@ -98,15 +105,17 @@ pub fn traverse_when_node(
                         SymbolKind::ValueBinding,
                         format!("symbol#{}", fol_types::canonical_identifier_key(name)),
                     )?;
-                    super::traverse_block_body(
-                        session,
-                        program,
-                        source_unit_id,
-                        on_scope,
-                        None,
-                        body,
-                        routine_context,
-                    )?;
+                    for statement in body {
+                        super::traverse_node(
+                            session,
+                            program,
+                            source_unit_id,
+                            on_scope,
+                            statement,
+                            false,
+                            routine_context,
+                        )?;
+                    }
                 } else {
                     super::traverse_node(
                         session,
