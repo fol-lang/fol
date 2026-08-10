@@ -419,15 +419,48 @@ pub fn sources(
     Ok(sources.into_iter())
 }
 
+/// Derive a package identifier from an arbitrary file-system name.
+///
+/// Directory names are not identifiers: `my-proj`, `2024-notes` and `a b` are
+/// all ordinary folder names that no filesystem objects to. Every character a
+/// namespace component cannot carry becomes `_`, runs collapse (a component may
+/// not contain `__`), and a leading digit gets an `_` prefix. `None` means the
+/// name held nothing usable at all, leaving the fallback to the caller.
+pub fn sanitize_package_name(raw: &str) -> Option<String> {
+    let mut name = String::with_capacity(raw.len() + 1);
+    for ch in raw.chars() {
+        let mapped = if ch.is_ascii_alphanumeric() || ch == '_' {
+            ch
+        } else {
+            '_'
+        };
+        if mapped == '_' && name.ends_with('_') {
+            continue;
+        }
+        name.push(mapped);
+    }
+
+    if name.starts_with(|ch: char| ch.is_ascii_digit()) {
+        name.insert(0, '_');
+    }
+
+    (!name.is_empty()).then_some(name)
+}
+
 /// Detect package name from the explicit entry root instead of host build files.
+///
+/// The path is absolutized first so every spelling of one file -- `main.fol`,
+/// `./main.fol`, `pkg/main.fol`, `/abs/pkg/main.fol` -- derives the same
+/// package instead of the bare relative form silently falling through to the
+/// file stem.
 fn detect_package_name(input_path: &str) -> Result<String, StreamError> {
-    let path = std::path::Path::new(input_path);
-    let fallback_root = if path.is_file() {
-        path.parent().unwrap_or(path)
+    let path = absolute_input_path(std::path::Path::new(input_path));
+    let root = if path.is_file() {
+        path.parent().unwrap_or(path.as_path())
     } else {
-        path
+        path.as_path()
     };
-    let fallback_name = fallback_root
+    let derived = root
         .file_name()
         .and_then(|name| name.to_str())
         .filter(|name| !name.is_empty())
@@ -438,9 +471,38 @@ fn detect_package_name(input_path: &str) -> Result<String, StreamError> {
                 .filter(|name| !name.is_empty())
                 .map(str::to_string)
         })
+        .and_then(|name| sanitize_package_name(&name))
         .unwrap_or_else(|| "root".to_string());
 
-    validate_package_name(&fallback_name)
+    validate_package_name(&derived)
+}
+
+fn absolute_input_path(path: &std::path::Path) -> std::path::PathBuf {
+    if let Ok(canonical) = std::fs::canonicalize(path) {
+        return canonical;
+    }
+
+    let joined = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(path))
+            .unwrap_or_else(|_| path.to_path_buf())
+    };
+
+    let mut normalized = std::path::PathBuf::new();
+    for component in joined.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if !normalized.pop() {
+                    normalized.push(component.as_os_str());
+                }
+            }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
 }
 
 fn validate_package_name(package_name: &str) -> Result<String, StreamError> {
@@ -618,5 +680,40 @@ mod unit_tests {
         );
 
         fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn sanitized_package_names_are_always_valid_namespace_components() {
+        for raw in [
+            "my-proj",
+            "2024-notes",
+            "a--b",
+            "sp ace",
+            "dot.name",
+            "kebab-",
+            "-lead",
+            "ünïcode",
+            "_",
+            "already_fine",
+        ] {
+            let sanitized =
+                sanitize_package_name(raw).unwrap_or_else(|| panic!("'{raw}' should sanitize"));
+            assert!(
+                is_valid_namespace_component(&sanitized),
+                "'{raw}' sanitized into '{sanitized}', which is still not a namespace component"
+            );
+        }
+
+        assert_eq!(sanitize_package_name("my-proj").as_deref(), Some("my_proj"));
+        assert_eq!(sanitize_package_name("a--b").as_deref(), Some("a_b"));
+        assert_eq!(
+            sanitize_package_name("2024-notes").as_deref(),
+            Some("_2024_notes")
+        );
+        assert_eq!(
+            sanitize_package_name("already_fine").as_deref(),
+            Some("already_fine")
+        );
+        assert_eq!(sanitize_package_name(""), None);
     }
 }

@@ -3276,3 +3276,72 @@ fn test_book_fol_snippets_terminate_declarations_with_semicolons() {
         offenders.join("\n")
     );
 }
+
+#[test]
+fn test_scaffolded_hyphenated_directory_is_a_buildable_package() {
+    use std::fs;
+
+    // Hyphens are ordinary in directory names, so `work init` reporting success
+    // must not hand back a package the loader then refuses to name.
+    let temp_root = unique_temp_root("hyphen_scaffold");
+    let package_root = temp_root.join("my-proj");
+    fs::create_dir_all(&package_root).expect("Should create hyphenated package directory");
+
+    let init = run_fol_in_dir(&package_root, &["work", "init"]);
+    assert!(
+        init.status.success(),
+        "work init should scaffold into a hyphenated directory: stderr=\n{}",
+        String::from_utf8_lossy(&init.stderr)
+    );
+
+    let manifest =
+        fs::read_to_string(package_root.join("build.fol")).expect("Should read scaffolded build");
+    assert!(
+        manifest.contains("name = \"my_proj\""),
+        "scaffolded manifest should carry the sanitized package name: {manifest}"
+    );
+
+    let check = run_fol_in_dir(&package_root, &["code", "check"]);
+    assert!(
+        check.status.success(),
+        "the scaffolded package should check: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+
+    fs::remove_dir_all(&temp_root).ok();
+}
+
+#[test]
+fn test_every_path_spelling_of_one_file_compiles_the_same() {
+    use std::fs;
+
+    let temp_root = unique_temp_root("hyphen_path_spelling");
+    let package_root = temp_root.join("has-hyphen");
+    fs::create_dir_all(&package_root).expect("Should create hyphenated source directory");
+    fs::write(
+        package_root.join("ok.fol"),
+        "fun[] main(): int = {\n    return 0;\n};\n",
+    )
+    .expect("Should write the single-file fixture");
+    let absolute_path = package_root.join("ok.fol");
+    let absolute = absolute_path
+        .to_str()
+        .expect("Fixture path should be utf-8");
+
+    for (label, dir, target) in [
+        ("bare", package_root.as_path(), "ok.fol"),
+        ("dotted", package_root.as_path(), "./ok.fol"),
+        ("nested", temp_root.path(), "has-hyphen/ok.fol"),
+        ("absolute", package_root.as_path(), absolute),
+    ] {
+        let output = run_fol_in_dir(dir, &["code", "check", target]);
+        assert!(
+            output.status.success(),
+            "the {label} spelling of a file under a hyphenated directory should check: stderr=\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fs::remove_dir_all(&temp_root).ok();
+}

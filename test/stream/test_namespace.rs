@@ -310,64 +310,86 @@ mod namespace_tests {
     }
 
     #[test]
-    fn test_detached_folder_with_invalid_name_is_rejected_as_package() {
-        let temp_root = unique_temp_root("invalid_folder_package");
-        let invalid_root = temp_root.join("bad-dir");
-        fs::create_dir_all(&invalid_root).expect("Should create invalid package directory");
-        fs::write(invalid_root.join("main.fol"), "var answer = 42")
+    fn test_detached_folder_with_non_identifier_name_is_sanitized_into_a_package() {
+        let temp_root = unique_temp_root("sanitized_folder_package");
+        let hyphenated_root = temp_root.join("bad-dir");
+        fs::create_dir_all(&hyphenated_root).expect("Should create hyphenated package directory");
+        fs::write(hyphenated_root.join("main.fol"), "var answer = 42")
             .expect("Should create detached fol file");
 
-        let result = Source::init(
-            invalid_root
+        let sources = Source::init(
+            hyphenated_root
                 .to_str()
-                .expect("Invalid package directory should be utf-8"),
+                .expect("Hyphenated package directory should be utf-8"),
             SourceType::Folder,
-        );
+        )
+        .expect("Hyphenated directory names should still produce a package");
 
-        assert!(
-            result.is_err(),
-            "Invalid derived package names should be rejected"
+        assert_eq!(
+            sources[0].package, "bad_dir",
+            "Hyphens are ordinary in directory names and must be folded into the identifier"
         );
-        let error = format!(
-            "{}",
-            result.expect_err("Invalid package root should fail source discovery")
-        );
-        assert!(
-            error.contains("Invalid package name 'bad-dir'"),
-            "Package validation error should mention the invalid derived folder name: {}",
-            error
+        assert_eq!(sources[0].namespace, "bad_dir");
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_detached_file_with_non_identifier_parent_name_is_sanitized_into_a_package() {
+        let temp_root = unique_temp_root("sanitized_file_package");
+        let leading_digit_root = temp_root.join("123bad");
+        fs::create_dir_all(&leading_digit_root).expect("Should create leading-digit parent");
+        let file_path = leading_digit_root.join("main.fol");
+        fs::write(&file_path, "var answer = 42").expect("Should create detached fol file");
+
+        let sources = Source::init(
+            file_path
+                .to_str()
+                .expect("Leading-digit package file path should be utf-8"),
+            SourceType::File,
+        )
+        .expect("Leading-digit parent directories should still produce a package");
+
+        assert_eq!(
+            sources[0].package, "_123bad",
+            "A directory that cannot start an identifier must be prefixed, not rejected"
         );
 
         fs::remove_dir_all(&temp_root).ok();
     }
 
     #[test]
-    fn test_detached_file_with_invalid_parent_name_is_rejected_as_package() {
-        let temp_root = unique_temp_root("invalid_file_package");
-        let invalid_root = temp_root.join("123bad");
-        fs::create_dir_all(&invalid_root).expect("Should create invalid parent directory");
-        let file_path = invalid_root.join("main.fol");
+    fn test_relative_and_absolute_spellings_derive_the_same_package() {
+        let temp_root = unique_temp_root("path_spelling_package");
+        let package_root = temp_root.join("has-hyphen");
+        fs::create_dir_all(&package_root).expect("Should create hyphenated package directory");
+        let file_path = package_root.join("main.fol");
         fs::write(&file_path, "var answer = 42").expect("Should create detached fol file");
 
-        let result = Source::init(
-            file_path
-                .to_str()
-                .expect("Invalid package file path should be utf-8"),
-            SourceType::File,
-        );
+        let cwd = std::env::current_dir().expect("Should read the current directory");
+        let mut relative = std::path::PathBuf::new();
+        for _ in cwd.components().skip(1) {
+            relative.push("..");
+        }
+        for component in file_path.components().skip(1) {
+            relative.push(component.as_os_str());
+        }
 
-        assert!(
-            result.is_err(),
-            "Invalid parent-derived package names should be rejected"
-        );
-        let error = format!(
-            "{}",
-            result.expect_err("Invalid parent package root should fail source discovery")
-        );
-        assert!(
-            error.contains("Invalid package name '123bad'"),
-            "Package validation error should mention the invalid derived parent folder name: {}",
-            error
+        let absolute = Source::init(
+            file_path.to_str().expect("Absolute path should be utf-8"),
+            SourceType::File,
+        )
+        .expect("Absolute spelling should produce a source");
+        let traversed = Source::init(
+            relative.to_str().expect("Relative path should be utf-8"),
+            SourceType::File,
+        )
+        .expect("Relative spelling should produce a source");
+
+        assert_eq!(
+            (absolute[0].package.as_str(), traversed[0].package.as_str()),
+            ("has_hyphen", "has_hyphen"),
+            "Different spellings of one file must agree on the package they belong to"
         );
 
         fs::remove_dir_all(&temp_root).ok();

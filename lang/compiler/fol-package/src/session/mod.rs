@@ -50,9 +50,8 @@ impl PackageSession {
         let display_name = inferred_root
             .file_name()
             .and_then(|name| name.to_str())
-            .filter(|name| !name.is_empty())
-            .unwrap_or("root")
-            .to_string();
+            .and_then(fol_stream::sanitize_package_name)
+            .unwrap_or_else(|| "root".to_string());
         Ok(PreparedPackage::new(
             PackageIdentity {
                 source_kind: PackageSourceKind::Entry,
@@ -73,7 +72,7 @@ impl PackageSession {
         let display_name = canonical_root
             .file_name()
             .and_then(|name| name.to_str())
-            .filter(|name| !name.is_empty())
+            .and_then(fol_stream::sanitize_package_name)
             .ok_or_else(|| {
                 PackageError::new(
                     PackageErrorKind::InvalidInput,
@@ -82,8 +81,7 @@ impl PackageSession {
                         canonical_root.display()
                     ),
                 )
-            })?
-            .to_string();
+            })?;
         let identity = PackageIdentity {
             source_kind,
             canonical_root: canonical_root.to_string_lossy().to_string(),

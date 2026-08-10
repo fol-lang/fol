@@ -77,6 +77,7 @@ impl FrontendOutput {
         serde_json::to_string_pretty(&serde_json::json!({
             "command": result.command,
             "summary": result.summary,
+            "payload": result.payload,
             "artifacts": result
                 .artifacts
                 .iter()
@@ -145,6 +146,14 @@ impl FrontendOutput {
         &self,
         result: &FrontendCommandResult,
     ) -> Result<String, serde_json::Error> {
+        // A payload IS the command's output (a completion script, a match
+        // list). Wrapping it in a status envelope would break `eval "$(...)"`
+        // and every other consumer, so text modes print it verbatim.
+        if let Some(payload) = &result.payload {
+            if !matches!(self.config.mode, OutputMode::Json) {
+                return Ok(payload.trim_end_matches('\n').to_string());
+            }
+        }
         match self.config.mode {
             OutputMode::Human => {
                 let mut lines = vec![self.render_human_header(&result.command)];
@@ -324,6 +333,36 @@ mod tests {
 
         assert!(rendered.contains("missing root"));
         assert!(rendered.contains("run `fol work init --bin`"));
+    }
+
+    #[test]
+    fn payload_results_render_verbatim_in_text_modes() {
+        let result = FrontendCommandResult::new("completion", "generated bash completion script")
+            .with_payload("_fol() {\n    :\n}\n");
+
+        for mode in [OutputMode::Human, OutputMode::Plain] {
+            let output = FrontendOutput::new(FrontendOutputConfig { mode });
+            let rendered = output.render_command_summary(&result).unwrap();
+
+            assert_eq!(rendered, "_fol() {\n    :\n}");
+            assert!(!rendered.contains("Done:"));
+            assert!(!rendered.contains("summary:"));
+        }
+    }
+
+    #[test]
+    fn payload_results_keep_the_json_envelope_and_add_a_payload_field() {
+        let output = FrontendOutput::new(FrontendOutputConfig {
+            mode: OutputMode::Json,
+        });
+        let result = FrontendCommandResult::new("completion", "generated bash completion script")
+            .with_payload("_fol() { :; }");
+
+        let rendered = output.render_command_summary(&result).unwrap();
+
+        assert!(rendered.contains("\"command\": \"completion\""));
+        assert!(rendered.contains("\"payload\""));
+        assert!(rendered.contains("_fol()"));
     }
 
     #[test]

@@ -91,6 +91,7 @@ pub fn new_project_with_mode(
         command: "new".to_string(),
         summary: format!("created project '{}'", name),
         artifacts: result.artifacts,
+        payload: None,
     })
 }
 
@@ -110,29 +111,13 @@ fn starter_source_template(target: PackageTargetKind) -> &'static str {
     }
 }
 
+/// The manifest name has to be the identifier the package loader derives from
+/// the same directory, so both sides go through one sanitizer.
 fn starter_package_name(root: &Path) -> String {
-    let raw = root
-        .file_name()
+    root.file_name()
         .and_then(|name| name.to_str())
-        .unwrap_or("app");
-    let mut name = String::with_capacity(raw.len().max(3));
-
-    for (index, ch) in raw.chars().enumerate() {
-        let valid = ch.is_ascii_alphanumeric() || ch == '_';
-        let mapped = if valid { ch } else { '_' };
-        if index == 0 && mapped.is_ascii_digit() {
-            name.push('_');
-        }
-        if mapped.is_ascii() {
-            name.push(mapped);
-        }
-    }
-
-    if name.is_empty() {
-        "app".to_string()
-    } else {
-        name
-    }
+        .and_then(fol_stream::sanitize_package_name)
+        .unwrap_or_else(|| "app".to_string())
 }
 
 fn starter_build_file(root: &Path, target: PackageTargetKind) -> String {
@@ -462,5 +447,31 @@ mod tests {
     fn package_manifest_sanitizes_names_from_root_directories() {
         let root = std::env::temp_dir().join("123-invalid-name");
         assert_eq!(starter_package_name(&root), "_123_invalid_name");
+    }
+
+    #[test]
+    fn scaffolded_manifest_name_matches_the_package_the_loader_derives() {
+        let parent = fol_testkit::TempFixture::new("fol_frontend_hyphen_scaffold");
+        fs::create_dir_all(&parent).unwrap();
+
+        new_project(&parent, "my-proj").unwrap();
+        let root = parent.join("my-proj");
+        let manifest = fs::read_to_string(root.join("build.fol")).unwrap();
+
+        let loader_name = fol_stream::Source::init(
+            root.join("build.fol").to_str().unwrap(),
+            fol_stream::SourceType::File,
+        )
+        .expect("a hyphenated package root must still load")[0]
+            .package
+            .clone();
+
+        assert_eq!(loader_name, "my_proj");
+        assert!(
+            manifest.contains(&format!("name = \"{loader_name}\"")),
+            "manifest and loader must agree on the package name: {manifest}"
+        );
+
+        fs::remove_dir_all(parent).ok();
     }
 }

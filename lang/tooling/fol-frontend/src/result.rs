@@ -50,11 +50,16 @@ impl FrontendArtifactSummary {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FrontendCommandResult {
     pub command: String,
     pub summary: String,
     pub artifacts: Vec<FrontendArtifactSummary>,
+    /// Verbatim command output that is the point of the command rather than a
+    /// description of it — a shell completion script, a completion match list.
+    /// Human and plain rendering print it raw with no status envelope so it can
+    /// be piped or `eval`'d; JSON carries it in a `payload` field.
+    pub payload: Option<String>,
 }
 
 impl FrontendCommandResult {
@@ -63,11 +68,17 @@ impl FrontendCommandResult {
             command: command.into(),
             summary: summary.into(),
             artifacts: Vec::new(),
+            payload: None,
         }
     }
 
     pub fn with_artifact(mut self, artifact: FrontendArtifactSummary) -> Self {
         self.artifacts.push(artifact);
+        self
+    }
+
+    pub fn with_payload(mut self, payload: impl Into<String>) -> Self {
+        self.payload = Some(payload.into());
         self
     }
 }

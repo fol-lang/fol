@@ -1259,10 +1259,11 @@ fn compile_member_source_scope_for_model(
     let display_name = package_root
         .file_name()
         .and_then(|name| name.to_str())
-        .unwrap_or("package");
+        .and_then(fol_stream::sanitize_package_name)
+        .unwrap_or_else(|| "package".to_string());
     let syntax = fol_package::parse_directory_package_syntax(
         source_scope,
-        display_name,
+        &display_name,
         fol_package::PackageSourceKind::Package,
     )
     .map_err(FrontendError::from)?;
@@ -1283,7 +1284,7 @@ fn compile_member_source_scope_for_model(
         fol_package::PackageIdentity {
             source_kind: fol_package::PackageSourceKind::Entry,
             canonical_root: canonical_package_root.display().to_string(),
-            display_name: display_name.to_string(),
+            display_name,
         },
         syntax,
     );

@@ -357,9 +357,8 @@ fn prepare_analysis_entry_package(
     let display_name = canonical_root
         .file_name()
         .and_then(|name| name.to_str())
-        .filter(|name| !name.is_empty())
-        .unwrap_or("root")
-        .to_string();
+        .and_then(fol_stream::sanitize_package_name)
+        .unwrap_or_else(|| "root".to_string());
     let syntax =
         parse_directory_package_syntax(source_scope, &display_name, PackageSourceKind::Entry)?;
     Ok(PreparedPackage::new(
@@ -439,9 +438,10 @@ pub(super) fn parse_directory_diagnostics(root: &Path) -> EditorResult<Vec<Diagn
     let display_name = root
         .file_name()
         .and_then(|name| name.to_str())
-        .unwrap_or("root");
-    let sources =
-        Source::init_with_package(root_str, SourceType::Folder, display_name).map_err(|error| {
+        .and_then(fol_stream::sanitize_package_name)
+        .unwrap_or_else(|| "root".to_string());
+    let sources = Source::init_with_package(root_str, SourceType::Folder, &display_name).map_err(
+        |error| {
             EditorError::new(
                 EditorErrorKind::Internal,
                 format!(
@@ -449,7 +449,8 @@ pub(super) fn parse_directory_diagnostics(root: &Path) -> EditorResult<Vec<Diagn
                     root.display()
                 ),
             )
-        })?;
+        },
+    )?;
     let mut stream = FileStream::from_sources(sources).map_err(|error| {
         EditorError::new(
             EditorErrorKind::Internal,
