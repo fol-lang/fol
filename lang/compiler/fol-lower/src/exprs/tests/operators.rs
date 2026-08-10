@@ -55,7 +55,10 @@ fn comparison_binary_operators_lower_to_binary_op_instructions() {
 }
 
 #[test]
-fn logical_binary_operators_lower_to_binary_op_instructions() {
+fn logical_operators_lower_to_branches_so_the_right_side_can_be_skipped() {
+    // `and`/`or` are not plain binary instructions: lowering both operands into
+    // locals first is what made `false and f()` still call `f`. They lower to a
+    // branch instead, with one local written on each path.
     let workspace =
         lower_fixture_workspace("fun[] main(a: bol, b: bol): bol = {\n    return a and b;\n};\n");
     let routine = workspace
@@ -64,18 +67,23 @@ fn logical_binary_operators_lower_to_binary_op_instructions() {
         .values()
         .find(|r| r.name == "main")
         .expect("should find main routine");
-    let has_and = routine.instructions.iter().any(|instr| {
-        matches!(
+
+    assert!(
+        !routine.instructions.iter().any(|instr| matches!(
             instr.kind,
             LoweredInstrKind::BinaryOp {
                 op: LoweredBinaryOp::And,
                 ..
             }
-        )
-    });
+        )),
+        "`and` must not lower to an eager binary instruction"
+    );
     assert!(
-        has_and,
-        "lowered IR should contain a BinaryOp::And instruction"
+        routine.blocks.iter().any(|block| matches!(
+            block.terminator,
+            Some(crate::LoweredTerminator::Branch { .. })
+        )),
+        "`and` should lower to a branch over its right operand"
     );
 }
 
@@ -307,7 +315,8 @@ fn ordering_comparison_operators_lower_correctly() {
 }
 
 #[test]
-fn or_and_xor_logical_operators_lower_correctly() {
+fn or_branches_while_xor_stays_a_binary_instruction() {
+    // `xor` needs both operands by definition, so it keeps the eager form.
     let workspace =
         lower_fixture_workspace("fun[] main(a: bol, b: bol): bol = {\n    return a or b;\n};\n");
     let routine = workspace
@@ -316,16 +325,23 @@ fn or_and_xor_logical_operators_lower_correctly() {
         .values()
         .find(|r| r.name == "main")
         .expect("should find main routine");
-    let has_or = routine.instructions.iter().any(|instr| {
-        matches!(
+    assert!(
+        !routine.instructions.iter().any(|instr| matches!(
             instr.kind,
             LoweredInstrKind::BinaryOp {
                 op: LoweredBinaryOp::Or,
                 ..
             }
-        )
-    });
-    assert!(has_or, "lowered IR should contain BinaryOp::Or");
+        )),
+        "`or` must not lower to an eager binary instruction"
+    );
+    assert!(
+        routine.blocks.iter().any(|block| matches!(
+            block.terminator,
+            Some(crate::LoweredTerminator::Branch { .. })
+        )),
+        "`or` should lower to a branch over its right operand"
+    );
 
     let workspace2 =
         lower_fixture_workspace("fun[] main(a: bol, b: bol): bol = {\n    return a xor b;\n};\n");

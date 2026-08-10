@@ -1162,3 +1162,32 @@ fn fin_values_held_in_containers_are_finalized_at_scope_exit() {
     // path works too.
     assert_successful_stdout(&root, "scope end\n4\n3\n1\n2\n");
 }
+
+#[test]
+fn and_or_do_not_evaluate_the_operand_they_do_not_need() {
+    // Both operands were lowered into locals before the operator ran, so
+    // `false and f()` still called `f` -- which breaks the guard idiom the
+    // operators exist for (`p != nil and p.field > 0`).
+    let root = write_hosted_app(
+        "v3_short_circuit",
+        "use std: pkg = {\"std\"};\n\
+         \n\
+         fun[] loud(tag: int, answer: bol): bol = {\n\
+         \x20   std::io::echo_int(tag);\n\
+         \x20   return answer;\n\
+         };\n\
+         \n\
+         fun[] main(): int = {\n\
+         \x20   std::io::echo_bool(false and true);\n\
+         \x20   std::io::echo_bool(true and false);\n\
+         \x20   std::io::echo_bool(false or true);\n\
+         \x20   var a: bol = loud(1, false) and loud(2, true);\n\
+         \x20   var b: bol = loud(3, true) or loud(4, false);\n\
+         \x20   var c: bol = loud(5, true) and loud(6, true);\n\
+         \x20   return 0;\n\
+         };\n",
+    );
+    // The skipped operands (2 and 4) never print; 5 and 6 both do, because
+    // there the right side still decides the answer.
+    assert_successful_stdout(&root, "false\nfalse\ntrue\n1\n3\n5\n6\n");
+}

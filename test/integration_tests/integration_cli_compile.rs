@@ -3548,3 +3548,52 @@ fn every_printed_diagnostic_code_can_be_explained() {
         );
     }
 }
+
+#[test]
+fn check_and_build_agree_on_namespace_roots_for_a_nested_artifact_root() {
+    // `check` compiled the member root as one scope while `build` scoped to the
+    // artifact's own directory, so a sibling namespace resolved as `audit::f`
+    // for one command and `src::audit::f` for the other: no matter which you
+    // wrote, one of the two commands rejected your program.
+    let temp_root = unique_temp_root("namespace_root_parity");
+    std::fs::create_dir_all(temp_root.join("src/audit")).expect("Should create namespace dir");
+    std::fs::write(
+        temp_root.join("build.fol"),
+        "pro[] build(): non = {\n    var build = .build();\n    build.meta({ name = \"nsroot\", version = \"0.1.0\" });\n    var graph = build.graph();\n    var app = graph.add_exe({ name = \"nsroot\", root = \"src/main.fol\", fol_model = \"core\" });\n    graph.install(app);\n    return;\n};\n",
+    )
+    .expect("Should write build file");
+    std::fs::write(
+        temp_root.join("src/audit/lib.fol"),
+        "fun[exp] scaled(v: int): int = {\n    return v + 5;\n};\n",
+    )
+    .expect("Should write namespace source");
+
+    for (spelling, should_succeed) in [
+        ("audit::scaled(37)", true),
+        ("src::audit::scaled(37)", false),
+    ] {
+        std::fs::write(
+            temp_root.join("src/main.fol"),
+            format!("fun[] main(): int = {{\n    return {spelling};\n}};\n"),
+        )
+        .expect("Should write entry source");
+
+        let check = run_fol_in_dir(&temp_root, &["code", "check"]);
+        let build = run_fol_in_dir(&temp_root, &["code", "build"]);
+        assert_eq!(
+            check.status.success(),
+            build.status.success(),
+            "check and build must agree about '{spelling}': check={} build={}\ncheck stderr=\n{}\nbuild stderr=\n{}",
+            check.status,
+            build.status,
+            String::from_utf8_lossy(&check.stderr),
+            String::from_utf8_lossy(&build.stderr)
+        );
+        assert_eq!(
+            check.status.success(),
+            should_succeed,
+            "'{spelling}' should {} resolve",
+            if should_succeed { "" } else { "not" }
+        );
+    }
+}

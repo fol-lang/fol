@@ -600,7 +600,38 @@ pub fn check_workspace_with_config(
         // Check under the member's declared capability model so core/memo
         // legality surfaces at check time, not first at build time.
         let contract = package_wide_runtime_contract_for_package(&member.root, "check", config)?;
-        compile_member_workspace_for_model(workspace, config, &member.root, contract.fol_model)?;
+        let declared = evaluated_package_capability_contract(&member.root, config)?;
+        // Check each declared artifact under the same source scope build uses.
+        // Compiling the member root as one scope instead put namespaces one
+        // directory higher, so `audit::f` resolved for `build` and
+        // `src::audit::f` for `check` -- the two commands disagreed about what
+        // the source even means.
+        if declared.artifacts.is_empty() {
+            compile_member_workspace_for_model(
+                workspace,
+                config,
+                &member.root,
+                contract.fol_model,
+            )?;
+        } else {
+            for artifact in &declared.artifacts {
+                // The scope only -- not build's entry-point requirement, which
+                // a library artifact like the bundled std cannot satisfy.
+                let (source_scope, _) = isolated_artifact_source_scope(
+                    &member.root,
+                    &artifact.root_module,
+                    contract.fol_model,
+                    &declared.artifacts,
+                )?;
+                compile_member_source_scope_for_model(
+                    workspace,
+                    config,
+                    &member.root,
+                    &source_scope,
+                    contract.fol_model,
+                )?;
+            }
+        }
     }
 
     let mut result = FrontendCommandResult::new(

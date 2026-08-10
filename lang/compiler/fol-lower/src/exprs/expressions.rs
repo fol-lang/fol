@@ -905,6 +905,27 @@ fn lower_expression_observed_inner(
             left,
             right,
         ),
+        // `and`/`or` decide whether the right side runs at all, so they cannot
+        // be lowered as a plain binary instruction: that evaluates both operands
+        // into locals first, and any call on the right happens even when the
+        // left already settled the answer.
+        AstNode::BinaryOp {
+            op: op @ (fol_parser::ast::BinaryOperator::And | fol_parser::ast::BinaryOperator::Or),
+            left,
+            right,
+        } => lower_short_circuit_expression(
+            typed_package,
+            type_table,
+            checked_type_map,
+            current_identity,
+            decl_index,
+            cursor,
+            source_unit_id,
+            scope_id,
+            matches!(op, fol_parser::ast::BinaryOperator::And),
+            left,
+            right,
+        ),
         AstNode::BinaryOp { op, left, right } => {
             let lowered_op = match op {
                 fol_parser::ast::BinaryOperator::Add => LoweredBinaryOp::Add,
@@ -2696,6 +2717,94 @@ fn binary_op_result_type(
             .get(&typed_package.program.builtin_types().bool_)
             .copied(),
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+/// Lower `and`/`or` so the right operand only runs when it can still change the
+/// answer: `false and f()` must not call `f`, and `true or g()` must not call
+/// `g`. The result is a single local written on both paths.
+#[allow(clippy::too_many_arguments)]
+fn lower_short_circuit_expression(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    current_identity: &PackageIdentity,
+    decl_index: &WorkspaceDeclIndex,
+    cursor: &mut RoutineCursor<'_>,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    is_and: bool,
+    left: &AstNode,
+    right: &AstNode,
+) -> Result<LoweredValue, LoweringError> {
+    let left_value = lower_expression_observed(
+        typed_package,
+        type_table,
+        checked_type_map,
+        current_identity,
+        decl_index,
+        cursor,
+        source_unit_id,
+        scope_id,
+        None,
+        left,
+    )?;
+
+    let result_local = cursor.allocate_local(left_value.type_id, None);
+    cursor.push_instr(
+        None,
+        LoweredInstrKind::StoreLocal {
+            local: result_local,
+            value: left_value.local_id,
+        },
+    )?;
+
+    let right_block = cursor.create_block();
+    let join_block = cursor.create_block();
+    // `and` needs the right side only when the left was true; `or` only when it
+    // was false. Everything else jumps straight to the join with the left value
+    // already stored.
+    let (then_block, else_block) = if is_and {
+        (right_block, join_block)
+    } else {
+        (join_block, right_block)
+    };
+    cursor.terminate_current_block(crate::LoweredTerminator::Branch {
+        condition: left_value.local_id,
+        then_block,
+        else_block,
+    })?;
+
+    cursor.switch_block(right_block)?;
+    let right_value = lower_expression_observed(
+        typed_package,
+        type_table,
+        checked_type_map,
+        current_identity,
+        decl_index,
+        cursor,
+        source_unit_id,
+        scope_id,
+        None,
+        right,
+    )?;
+    cursor.push_instr(
+        None,
+        LoweredInstrKind::StoreLocal {
+            local: result_local,
+            value: right_value.local_id,
+        },
+    )?;
+    if !cursor.current_block_terminated()? {
+        cursor.terminate_current_block(crate::LoweredTerminator::Jump { target: join_block })?;
+    }
+
+    cursor.switch_block(join_block)?;
+    Ok(LoweredValue {
+        local_id: result_local,
+        type_id: left_value.type_id,
+        recoverable_error_type: None,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
