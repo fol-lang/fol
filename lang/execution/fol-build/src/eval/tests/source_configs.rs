@@ -1516,6 +1516,36 @@ fn build_source_evaluator_rejects_copy_file_with_source_dir_handle() {
 }
 
 #[test]
+fn build_source_evaluator_names_the_missing_copy_file_destination_field() {
+    let source = concat!(
+        "pro[] build(): non = {\n",
+        "    var graph = .build().graph();\n",
+        "    var logo = graph.file_from_root(\"assets/logo.svg\");\n",
+        "    graph.copy_file({ name = \"asset\", source = logo, dest = \"gen/logo.svg\" });\n",
+        "    return;\n",
+        "};\n",
+    );
+    let (package_root, build_path) = temp_build_package(source);
+    let request = BuildEvaluationRequest {
+        package_root: package_root.display().to_string(),
+        inputs: BuildEvaluationInputs {
+            working_directory: package_root.display().to_string(),
+            ..BuildEvaluationInputs::default()
+        },
+        operations: Vec::new(),
+    };
+
+    let error = evaluate_build_source(&request, &build_path, source)
+        .expect_err("copy_file without a destination field should fail");
+
+    assert_eq!(
+        error.message(),
+        "copy_file config is invalid: graph.copy_file requires a destination field: 'path' \
+         (also accepted: 'destination', 'destination_path')"
+    );
+}
+
+#[test]
 fn build_source_evaluator_rejects_install_dir_with_source_file_handle() {
     let source = concat!(
         "pro[] build(): non = {\n",

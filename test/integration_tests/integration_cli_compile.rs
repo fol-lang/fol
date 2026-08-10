@@ -3245,3 +3245,34 @@ fn test_pathological_nesting_rejects_instead_of_crashing() {
 
     fs::remove_dir_all(&temp_root).ok();
 }
+
+// A FOL declaration ends with `};`. A book snippet that closes one with a bare
+// `}` cannot be copy-pasted: the parser rejects it with K1001/P1001.
+#[test]
+fn test_book_fol_snippets_terminate_declarations_with_semicolons() {
+    let mut chapters = Vec::new();
+    collect_files_with_suffixes(&repo_root().join("book/src"), &[".md"], &mut chapters);
+    chapters.sort();
+
+    let mut offenders = Vec::new();
+    for chapter in chapters {
+        let text = std::fs::read_to_string(&chapter).expect("Should read book chapter");
+        let mut in_fol_fence = false;
+        for (index, line) in text.lines().enumerate() {
+            let trimmed = line.trim();
+            if let Some(info) = trimmed.strip_prefix("```") {
+                in_fol_fence = !in_fol_fence && info.trim() == "fol";
+                continue;
+            }
+            if in_fol_fence && line == "}" {
+                offenders.push(format!("{}:{}", chapter.display(), index + 1));
+            }
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "```fol book snippets must close declarations with '}};', not a bare '}}':\n{}",
+        offenders.join("\n")
+    );
+}

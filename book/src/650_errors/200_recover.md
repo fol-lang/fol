@@ -18,7 +18,7 @@ fun read_code(path: str): int / str = {
         case(true) { report "missing path" }
         * { return 7 }
     }
-}
+};
 ```
 
 This means:
@@ -32,7 +32,7 @@ This means:
 ```fol
 fun read_code(path: str): int / str = {
     report "missing path"
-}
+};
 ```
 
 The following is invalid because the reported value is the wrong type:
@@ -40,7 +40,7 @@ The following is invalid because the reported value is the wrong type:
 ```fol
 fun read_code(path: str): int / str = {
     report 1
-}
+};
 ```
 
 ## No plain propagation
@@ -86,7 +86,7 @@ It returns `bol`.
 ```fol
 fun main(path: str): bol = {
     return check(read_code(path))
-}
+};
 ```
 
 `check(...)` works on direct recoverable routine calls and on expressions such
@@ -112,15 +112,15 @@ Examples:
 ```fol
 fun with_default(path: str): int = {
     return read_code(path) || 0
-}
+};
 
 fun with_context(path: str): int / str = {
     return read_code(path) || report "read failed"
-}
+};
 
 fun must_succeed(path: str): int = {
     return read_code(path) || panic "read failed"
-}
+};
 ```
 
 ## `err[...]` is the storable error form
@@ -136,11 +136,11 @@ ali Failure: err[str]
 
 fun keep(value: Failure): Failure = {
     return value
-}
+};
 
 fun unwrap(value: Failure): str = {
     return [uwp]value
-}
+};
 ```
 
 Because it is nil-able, an `err[T]` scrutinee also drives `when ... on ... *`:

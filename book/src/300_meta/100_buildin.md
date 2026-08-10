@@ -225,7 +225,7 @@ With that build contract, this is valid:
 ```fol
 fun[] main(flag: bol): bol = {
     return .echo(flag)
-}
+};
 ```
 
 ### Recoverable and control intrinsics
@@ -322,11 +322,11 @@ ali Failure: err[str]
 
 fun[] unwrap_optional(value: MaybeText): str = {
     return [uwp]value
-}
+};
 
 fun[] unwrap_failure(value: Failure): str = {
     return [uwp]value
-}
+};
 ```
 
 That `!` surface is part of shell typing, not the intrinsic registry.

@@ -18,7 +18,7 @@ pro[] build(): non = {
     build.meta({ name = "app", version = "0.1.0" });
     var graph = build.graph();
     ...
-}
+};
 ```
 
 ## Artifacts
@@ -308,12 +308,14 @@ var docs = graph.step("docs", "Generate documentation");
 
 Returns a `Step` handle. See [Handle API](./300_handle_api.md) for `Step` methods.
 
-Named steps are selectable on the command line:
+Named steps are selectable on the command line with `--step`:
 
 ```text
-fol code build docs
 fol code build --step docs
 ```
+
+A bare positional argument is a build target path, not a step name, so
+`fol code build docs` looks for a file called `docs` and fails with `F1004`.
 
 When a description is present, frontend step planning and unknown-step
 diagnostics surface it as part of the available step catalog.
@@ -500,9 +502,12 @@ var template = graph.file_from_root("config/template.toml");
 var cfg = graph.copy_file({
     name   = "config",
     source = template,
-    dest   = "gen/config.toml",
+    path   = "gen/config.toml",
 });
 ```
+
+The destination field is `path`, the same spelling `graph.write_file` uses.
+`destination` and `destination_path` are accepted as well.
 
 Returns a `GeneratedFile` handle.
 

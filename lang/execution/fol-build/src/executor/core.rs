@@ -407,6 +407,17 @@ impl BuildBodyExecutor {
             },
         )
     }
+
+    pub(super) fn invalid_config(
+        &self,
+        method: &str,
+        detail: impl Into<String>,
+    ) -> BuildEvaluationError {
+        BuildEvaluationError::new(
+            BuildEvaluationErrorKind::InvalidInput,
+            format!("{method} config is invalid: {}", detail.into()),
+        )
+    }
 }
 
 fn validate_build_public_surface(package: &ParsedPackage) -> Result<(), BuildEvaluationError> {

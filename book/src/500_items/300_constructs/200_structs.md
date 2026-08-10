@@ -34,11 +34,11 @@ as ordinary receiver-qualified routines outside the record body.
 typ computer: rec = {
     brand: str;
     memory: int
-}
+};
 
 fun (computer)get_type(): str = {
     return self.brand
-}
+};
 
 var laptop: computer = { brand = "acme", memory = 16 }
 .echo(laptop.get_type())

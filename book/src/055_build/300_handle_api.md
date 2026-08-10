@@ -131,7 +131,7 @@ var defaults = graph.file_from_root("config/defaults.toml");
 var cfg = graph.copy_file({
     name   = "config",
     source = defaults,
-    dest   = "gen/config.toml",
+    path   = "gen/config.toml",
 });
 var run = graph.add_run(app);
 run.add_file_arg(cfg);
@@ -149,7 +149,7 @@ fun[] emit_cfg() = {
         path = "config/generated.toml",
         contents = "ok",
     });
-}
+};
 
 var cfg = emit_cfg();
 app.add_generated(cfg);
@@ -313,21 +313,17 @@ build.export_artifact({ name = "runtime", artifact = lib });
 If a dependency does not export a build-facing module, artifact, step, or
 generated output, dependency handles do not see it.
 
-The currently implemented explicit export kinds are:
+The implemented explicit export kinds are:
 
-- module
-- artifact
-- step
-- generated output
+- module — `build.export_module({ name = ..., module = ... })`
+- artifact — `build.export_artifact({ name = ..., artifact = ... })`
+- step — `build.export_step({ name = ..., step = ... })`
+- generated output — `build.export_output({ name = ..., output = ... })`
+- source file — `build.export_file({ name = ..., file = ... })`
+- source dir or generated dir — `build.export_dir({ name = ..., dir = ... })`
+- generated path — `build.export_path({ name = ..., path = ... })`
 
-The next missing export kinds are:
-
-- source file
-- source dir
-- broader path
-- generated dir
-
-The intended next public shape is:
+Path exports take handles, not strings:
 
 ```fol
 var cfg = graph.file_from_root("config/default.toml");
@@ -343,8 +339,11 @@ build.export_dir({ name = "assets", dir = assets });
 build.export_path({ name = "schema", path = schema });
 ```
 
-That direction keeps path exports explicit and typed instead of collapsing back
-into ad hoc string registries.
+`export_file` requires a source-file handle, `export_dir` accepts a source-dir
+handle or a generated-dir handle, and `export_path` requires a generated-output
+handle. Passing anything else names the missing field in the diagnostic. Keeping
+path exports handle-typed is what stops them from collapsing back into ad hoc
+string registries.
 
 Source import roots remain separate. A dependency can still be imported in
 ordinary package source through its alias even when it exports no build-facing

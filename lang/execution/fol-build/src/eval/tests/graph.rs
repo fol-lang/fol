@@ -424,6 +424,45 @@ fn build_source_evaluator_records_run_add_arg_in_graph() {
 }
 
 #[test]
+fn build_source_evaluator_records_chained_run_add_arg_in_graph() {
+    let source = concat!(
+        "pro[] build(): non = {\n",
+        "    var graph = .build().graph();\n",
+        "    var app = graph.add_exe({ name = \"app\", root = \"src/app.fol\" });\n",
+        "    var r = graph.add_run(app);\n",
+        "    r.add_arg(\"--config\").add_arg(\"config/default.toml\");\n",
+        "    return;\n",
+        "};\n",
+    );
+    let (package_root, build_path) = temp_build_package(source);
+    let request = BuildEvaluationRequest {
+        package_root: package_root.display().to_string(),
+        inputs: BuildEvaluationInputs {
+            working_directory: package_root.display().to_string(),
+            ..BuildEvaluationInputs::default()
+        },
+        operations: Vec::new(),
+    };
+
+    let evaluated = evaluate_build_source(&request, &build_path, source)
+        .expect("chained run.add_arg should evaluate")
+        .expect("build body should produce operations");
+
+    let steps = evaluated.result.graph.steps();
+    let run_step = steps.iter().find(|s| s.name == "run").expect("run step");
+    let config = evaluated
+        .result
+        .graph
+        .run_config_for(run_step.id)
+        .expect("run config should exist");
+    assert_eq!(config.args.len(), 2);
+    assert!(matches!(&config.args[0], crate::graph::BuildRunArg::Literal(s) if s == "--config"));
+    assert!(
+        matches!(&config.args[1], crate::graph::BuildRunArg::Literal(s) if s == "config/default.toml")
+    );
+}
+
+#[test]
 fn build_source_evaluator_records_run_capture_stdout_in_graph() {
     let source = concat!(
         "pro[] build(): non = {\n",

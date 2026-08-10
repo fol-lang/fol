@@ -43,14 +43,19 @@ fun[] main(): int = {
     var stack_b: int = stack_a;
 
     @var heap_a: int = 3;
-    @var heap_b: int = heap_a;
+    @var heap_b: int = [mov]heap_a;
 
     return stack_a + stack_b;
 };
 ```
 
-A later read of `heap_a` is a compile error in the `O####` OWNERSHIP diagnostic
-family. The diagnostic points at both the invalid use and the transfer site.
+The transfer itself must state its operation. Writing `@var heap_b: int =
+heap_a;` is rejected with `O1001`, because a move-only value never transfers
+implicitly: `[mov]` moves it, `[cpy]` and `[cln]` produce an independent value.
+
+Adding a later read of `heap_a` to that body — say `return heap_a;` after the
+`[mov]` — is a compile error in the `O####` OWNERSHIP diagnostic family. The
+diagnostic points at both the invalid use and the transfer site.
 The backend emits clone-safe transfers with `.clone()` and unique transfers as
 ordinary Rust moves. No runtime tag decides which operation occurs.
 

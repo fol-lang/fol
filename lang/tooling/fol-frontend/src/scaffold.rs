@@ -96,7 +96,16 @@ pub fn new_project_with_mode(
 
 fn starter_source_template(target: PackageTargetKind) -> &'static str {
     match target {
-        PackageTargetKind::Bin => "fun[] main(): int = {\n    return 0\n};\n",
+        // The binary scaffold's build.fol declares bundled `std` and the `memo`
+        // model, so its source has to actually use a hosted API.
+        PackageTargetKind::Bin => concat!(
+            "use std: pkg = {\"std\"};\n",
+            "\n",
+            "fun[] main(): int = {\n",
+            "    std::io::echo_str(\"hello from fol\");\n",
+            "    return 0;\n",
+            "};\n",
+        ),
         PackageTargetKind::Lib => "fun[exp] demo(): int = {\n    return 0\n};\n",
     }
 }
@@ -232,7 +241,44 @@ mod tests {
         assert!(root.join("src/main.fol").is_file());
         assert_eq!(
             fs::read_to_string(root.join("src/main.fol")).unwrap(),
-            "fun[] main(): int = {\n    return 0\n};\n"
+            concat!(
+                "use std: pkg = {\"std\"};\n",
+                "\n",
+                "fun[] main(): int = {\n",
+                "    std::io::echo_str(\"hello from fol\");\n",
+                "    return 0;\n",
+                "};\n",
+            )
+        );
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    // The scaffolded build.fol declares bundled `std`; the scaffolded source has
+    // to import and use it, or the dependency is unjustified.
+    #[test]
+    fn bin_scaffold_source_uses_the_declared_std_dependency() {
+        let root = fol_testkit::TempFixture::new("fol_frontend_bin_std_use");
+        fs::create_dir_all(&root).unwrap();
+
+        init_package_root(&root, PackageTargetKind::Bin).unwrap();
+
+        let build = fs::read_to_string(root.join("build.fol")).unwrap();
+        let source = fs::read_to_string(root.join("src/main.fol")).unwrap();
+
+        assert!(
+            build.contains(
+                "build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });"
+            ),
+            "scaffolded build.fol should declare bundled std, got: {build}"
+        );
+        assert!(
+            source.contains("use std: pkg = {\"std\"};"),
+            "scaffolded main.fol should import the declared std alias, got: {source}"
+        );
+        assert!(
+            source.contains("std::io::"),
+            "scaffolded main.fol should call a hosted std API, got: {source}"
         );
 
         fs::remove_dir_all(root).ok();

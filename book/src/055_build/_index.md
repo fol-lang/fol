@@ -22,7 +22,7 @@ pro[] build(): non = {
     build.meta({ name = "app", version = "0.1.0" });
     var graph = build.graph();
     ...
-}
+};
 ```
 
 The active build context is accessed explicitly through the build-only ambient
@@ -51,7 +51,7 @@ pro[] build(): non = {
     });
     graph.install(app);
     graph.add_run(app);
-}
+};
 ```
 
 This registers package metadata, adds an executable, marks it for installation,

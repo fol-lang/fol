@@ -16,7 +16,14 @@ fn init_root_scaffolds_binary_packages_through_public_api() {
     assert_eq!(result.artifacts[0].kind, FrontendArtifactKind::PackageRoot);
     assert_eq!(
         fs::read_to_string(root.join("src/main.fol")).expect("should read main"),
-        "fun[] main(): int = {\n    return 0\n};\n"
+        concat!(
+            "use std: pkg = {\"std\"};\n",
+            "\n",
+            "fun[] main(): int = {\n",
+            "    std::io::echo_str(\"hello from fol\");\n",
+            "    return 0;\n",
+            "};\n",
+        )
     );
     assert_eq!(
         fs::read_to_string(root.join("build.fol")).expect("should read build file"),

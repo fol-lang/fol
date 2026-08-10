@@ -100,7 +100,7 @@ only within the file — they are not exported to the package.
 ```fol
 fun[] make_lib(name: str, root: str): Artifact = {
     return .build().graph().add_static_lib({ name = name, root = root });
-}
+};
 
 pro[] build(): non = {
     var build = .build();
@@ -113,7 +113,7 @@ pro[] build(): non = {
     app.link(io);
     graph.install(app);
     graph.add_run(app);
-}
+};
 ```
 
 The helper `make_lib` accesses the graph through `.build().graph()`. The graph
@@ -127,11 +127,11 @@ Helpers can call other helpers:
 ```fol
 fun[] lib_root(name: str): str = {
     return "src/" + name + "/lib.fol";
-}
+};
 
 fun[] add_lib(name: str): Artifact = {
     return .build().graph().add_static_lib({ name = name, root = lib_root(name) });
-}
+};
 
 pro[] build(): non = {
     var build = .build();
@@ -141,7 +141,7 @@ pro[] build(): non = {
     var app  = graph.add_exe({ name = "app", root = "src/main.fol" });
     app.link(core);
     graph.install(app);
-}
+};
 ```
 
 ## Combined Example
@@ -149,7 +149,7 @@ pro[] build(): non = {
 ```fol
 fun[] make_lib(name: str): Artifact = {
     return .build().graph().add_static_lib({ name = name, root = name });
-}
+};
 
 pro[] build(): non = {
     var build = .build();
@@ -182,5 +182,5 @@ pro[] build(): non = {
             strip_step.attach(packed);
         }
     };
-}
+};
 ```
