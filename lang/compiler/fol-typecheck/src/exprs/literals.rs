@@ -113,6 +113,16 @@ pub(crate) fn expected_container_shape(
     })
 }
 
+/// Render a set's declared member types as `set[a, b]` for a diagnostic.
+fn describe_set_members(typed: &TypedProgram, members: &[CheckedTypeId]) -> String {
+    let rendered = members
+        .iter()
+        .map(|member| super::helpers::describe_type(typed, *member))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("set[{rendered}]")
+}
+
 pub(crate) fn type_container_literal(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
@@ -508,10 +518,15 @@ pub(crate) fn type_set_literal(
     };
     if let Some(expected_members) = expected_members {
         if expected_members.len() != element_nodes.len() {
+            // `set[...]` is the tuple-member form: one element per DECLARED
+            // member type, not a growable bag. Saying "expects 1 elements"
+            // reads as an arbitrary cap, which is what sent readers looking
+            // for the growable set the container chapter describes.
             return Err(TypecheckError::new(
                 TypecheckErrorKind::IncompatibleType,
                 format!(
-                    "set literal expects {} elements but got {}",
+                    "set literal needs one element per declared member type: '{}' declares {} but the literal has {}",
+                    describe_set_members(typed, expected_members),
                     expected_members.len(),
                     element_nodes.len()
                 ),

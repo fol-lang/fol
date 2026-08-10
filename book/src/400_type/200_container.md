@@ -106,15 +106,15 @@ Disadvantage:
 - Unpredictable performance when insertion or removal requires resizing
 - There is a bit of unused space, since dynamic array implementation usually allocates more memory than necessary (since resize is a very slow operation)
 
-In FOL vecotrs are represented like this:
+In FOL vectors are represented like this:
 ```
 vec[type]
 ```
 Example:
 ```
 pro[] main: int = {
-    var[new] aSequence: seq[str] = { "get", "over", "it" };   // declare an array of intigers of five elements
-    var element = aSequence[3];                               // accessing the element
+    var[new] aVector: vec[str] = { "get", "over", "it" };     // declare a vector of three strings
+    var element = aVector[2];                                 // accessing the last element
 }
 ```
 
@@ -178,13 +178,18 @@ pro[] main: int = {
     .echo(element)                                            // prints: 45
 }
 ```
-The number of map elements is called its length. For a map `aMap`, it can be discovered using the intrinsic `.len(...)` and may change during execution. To add a new element, we use `name+[element]` or `add`function:
+The number of map elements is called its length. For a map `aMap`, it can be
+discovered using the intrinsic `.len(...)`.
+
+Growing a map is **design work, not current behavior** — the same boundary the
+top of this chapter states for `.add(...)`. Neither form below is implemented:
+`aMap.add(...)` is rejected as an unavailable method, and `aMap+[...]` parses
+but adds nothing. A map is built once from its literal.
 
 ```
 .echo(.len(aMap))           // prints: 3
-aMap.add( {"IT",55} )
-aMap+[{"RU",24}]
-.echo(.len(aMap))           // prints: 4
+aMap.add( {"IT",55} )       // NOT implemented — rejected
+aMap+[{"RU",24}]            // NOT implemented — no effect
 ```
 
 In current `V1`, backend execution should treat `.len(...)` and runtime-visible
