@@ -824,7 +824,25 @@ pub(super) fn lower_global_decl(
     while let Some(AstNode::Commented { node, .. }) = stripped {
         stripped = Some(node);
     }
-    fn literal_operand(
+    // A text literal one character wide parses as a `chr` -- but the book has a
+    // `str` being "a single or a sequence" of characters, so a `con SEP: str =
+    // "-"` is a string and the DECLARED type decides. Every other binding site
+    // already resolves the literal against its expectation; only this one read
+    // the raw literal, and emitted a Rust `char` into a `FolStr` slot.
+    let declares_str = matches!(
+        typed_package.program.type_table().get(checked_type),
+        Some(fol_typecheck::CheckedType::Builtin(
+            fol_typecheck::BuiltinType::Str
+        ))
+    );
+    let literal_operand =
+        move |literal: &fol_parser::ast::Literal| -> Option<crate::control::LoweredOperand> {
+            if let (true, fol_parser::ast::Literal::Character(value)) = (declares_str, literal) {
+                return Some(crate::control::LoweredOperand::Str(value.to_string()));
+            }
+            literal_operand_by_shape(literal)
+        };
+    fn literal_operand_by_shape(
         literal: &fol_parser::ast::Literal,
     ) -> Option<crate::control::LoweredOperand> {
         Some(match literal {
