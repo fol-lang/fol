@@ -486,6 +486,23 @@ impl AstParser {
                 continue;
             }
 
+            // Last resort: a statement that is not a declaration, a call, an
+            // assignment or any other recognised form. Taking a single token
+            // here dropped whatever followed it -- `a + b;` kept `a`, skipped
+            // the `+`, and read `b` as a separate statement, silently. When an
+            // operator follows, parse the whole expression so nothing is lost.
+            //
+            // The lone-token path stays for everything else, and deliberately:
+            // it is what lets a half-typed line (`graph.` while the editor asks
+            // for completions) still produce a document to work with.
+            if (AstParser::token_can_be_logical_name(&key) || key.is_literal())
+                && self.statement_continues_with_operator(tokens)
+            {
+                body.push(self.parse_logical_expression(tokens)?);
+                self.consume_required_semicolon(tokens)?;
+                continue;
+            }
+
             if AstParser::token_can_be_logical_name(&key) {
                 body.push(AstNode::Identifier {
                     syntax_id: self.record_syntax_origin(&token),

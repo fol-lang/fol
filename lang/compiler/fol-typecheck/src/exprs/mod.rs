@@ -2432,6 +2432,53 @@ fn type_body_inner(
 /// did nothing and `(5 = 99);` was accepted without a word. Reads have no effect
 /// -- calls, assignments, declarations and control flow do, and none of them
 /// come through here.
+/// Whether the expression only reads: names, literals, field projections and
+/// operators over them. A call, an index, a shell operation or anything else
+/// may do work, so it never counts as effectless.
+fn is_pure_read(node: &AstNode) -> bool {
+    match helpers::strip_comments(node) {
+        AstNode::Literal(_) | AstNode::Identifier { .. } | AstNode::QualifiedIdentifier { .. } => {
+            true
+        }
+        AstNode::FieldAccess { object, .. } => is_pure_read(object),
+        // Arithmetic and logical negation only compute. Every other unary form
+        // is an ownership or shell operation -- `[end]view` releases a borrow,
+        // `[drf]p` may consume a pointer -- and those are the whole point of
+        // the statement, so they are never effectless.
+        AstNode::UnaryOp { op, operand } => {
+            matches!(op, UnaryOperator::Neg | UnaryOperator::Not) && is_pure_read(operand)
+        }
+        AstNode::BinaryOp { op, left, right } => {
+            is_pure_operator(op) && is_pure_read(left) && is_pure_read(right)
+        }
+        _ => false,
+    }
+}
+
+/// Whether a binary operator only computes. `|`-family stages run work, and
+/// `as`/`cast` are conversions the checker treats separately.
+fn is_pure_operator(op: &fol_parser::ast::BinaryOperator) -> bool {
+    use fol_parser::ast::BinaryOperator as Op;
+    matches!(
+        op,
+        Op::Add
+            | Op::Sub
+            | Op::Mul
+            | Op::Div
+            | Op::Mod
+            | Op::Pow
+            | Op::Eq
+            | Op::Ne
+            | Op::Lt
+            | Op::Le
+            | Op::Gt
+            | Op::Ge
+            | Op::And
+            | Op::Or
+            | Op::Xor
+    )
+}
+
 fn reject_effectless_statement(
     resolved: &ResolvedProgram,
     node: &AstNode,
@@ -2445,6 +2492,12 @@ fn reject_effectless_statement(
         AstNode::Identifier { name, .. } => format!("reads '{name}'"),
         AstNode::QualifiedIdentifier { path } => format!("reads '{}'", path.joined()),
         AstNode::FieldAccess { field, .. } => format!("reads the field '{field}'"),
+        // An arithmetic or logical statement computes a value and throws it
+        // away. Only when every leaf is itself a read: `f() + 1` runs `f`, so
+        // the statement is not effectless even though the sum is discarded.
+        AstNode::BinaryOp { .. } | AstNode::UnaryOp { .. } if is_pure_read(node) => {
+            "computes a value".to_string()
+        }
         _ => return Ok(()),
     };
     let message =

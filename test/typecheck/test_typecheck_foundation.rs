@@ -7238,3 +7238,45 @@ fn constraint_calls_do_not_consume_their_generic_receiver() {
         .typed_node(find_named_routine_syntax_id(&typed, "describe"))
         .is_some());
 }
+
+#[test]
+fn statement_position_expressions_keep_every_operand() {
+    // The block parsers' last resort took a single token, so `a + s;` kept `a`,
+    // skipped the `+` and read `s` as a separate statement — the operand was
+    // discarded with no diagnostic at all. The whole expression must reach the
+    // checker, which is what makes this mismatch visible.
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var a: int = 1;\n\
+             var s: str = \"xy\";\n\
+             a + s;\n\
+             return a;\n\
+         };\n",
+    )]);
+    assert!(
+        errors.iter().any(|error| {
+            error
+                .message()
+                .contains("binary operator 'Add' is not valid")
+        }),
+        "the discarded operand must reach typecheck: {errors:#?}"
+    );
+
+    // And a well-typed one is dead code, not silence.
+    let discarded = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var a: int = 1;\n\
+             var b: int = 2;\n\
+             a + b;\n\
+             return a;\n\
+         };\n",
+    )]);
+    assert!(
+        discarded
+            .iter()
+            .any(|error| error.message().contains("computes a value and discards it")),
+        "a discarded pure computation must be rejected: {discarded:#?}"
+    );
+}

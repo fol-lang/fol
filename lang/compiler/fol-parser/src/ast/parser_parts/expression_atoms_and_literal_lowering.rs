@@ -376,6 +376,40 @@ impl AstParser {
         }
     }
 
+    /// Whether the token after the current one continues a binary expression.
+    ///
+    /// The block parsers' last resort consumes exactly ONE token, so an
+    /// operator sitting after a bare name would be skipped and its right side
+    /// read as a separate statement. Asking this first keeps that cheap path
+    /// for genuinely lone names -- including the half-typed lines an editor
+    /// sends -- while routing real expressions to the expression parser.
+    pub(super) fn statement_continues_with_operator(
+        &self,
+        tokens: &fol_lexer::lexer::stage3::Elements,
+    ) -> bool {
+        let mut offset = 1usize;
+        while let Ok(next) = tokens.peek(offset, false) {
+            let key = next.key();
+            if key.is_void() && !key.is_eof() {
+                offset += 1;
+                continue;
+            }
+            return key.is_operator()
+                || matches!(
+                    key,
+                    KEYWORD::Symbol(SYMBOL::Plus)
+                        | KEYWORD::Symbol(SYMBOL::Minus)
+                        | KEYWORD::Symbol(SYMBOL::Star)
+                        | KEYWORD::Symbol(SYMBOL::Root)
+                        | KEYWORD::Symbol(SYMBOL::Percent)
+                        | KEYWORD::Symbol(SYMBOL::Carret)
+                        | KEYWORD::Symbol(SYMBOL::AngleO)
+                        | KEYWORD::Symbol(SYMBOL::AngleC)
+                );
+        }
+        false
+    }
+
     pub(super) fn consume_optional_semicolon(
         &self,
         tokens: &mut fol_lexer::lexer::stage3::Elements,
