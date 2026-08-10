@@ -168,6 +168,14 @@ pub enum LoweredInstrKind {
     MutexUnlock {
         mutex: LoweredLocalId,
     },
+    /// Replace the whole guarded value through a held guard. A guard binding is
+    /// an alias of its mutex local, so assigning to it looks exactly like
+    /// initialising the mutex -- and initialising takes the lock, which a held
+    /// guard already owns. Writing through the guard is the only safe form.
+    StoreMutexValue {
+        mutex: LoweredLocalId,
+        value: LoweredLocalId,
+    },
     OptionalHasValue {
         operand: LoweredLocalId,
     },

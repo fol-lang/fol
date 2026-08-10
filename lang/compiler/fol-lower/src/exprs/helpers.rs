@@ -391,13 +391,26 @@ pub(crate) fn lower_assignment_target(
         .get(&resolved_symbol.id)
         .copied()
     {
-        cursor.push_instr(
-            None,
+        // A guard binding aliases the mutex local, so this store cannot be told
+        // apart from initialising the mutex by its shape -- only the symbol
+        // knows. Writing through the held guard is what assigning to a guard
+        // means; re-taking the lock here would deadlock against itself.
+        let through_guard = typed_package
+            .program
+            .typed_symbol(resolved_symbol.id)
+            .is_some_and(|symbol| symbol.is_mutex_guard);
+        let kind = if through_guard {
+            LoweredInstrKind::StoreMutexValue {
+                mutex: local_id,
+                value: lowered_value.local_id,
+            }
+        } else {
             LoweredInstrKind::StoreLocal {
                 local: local_id,
                 value: lowered_value.local_id,
-            },
-        )?;
+            }
+        };
+        cursor.push_instr(None, kind)?;
         return Ok(lowered_value);
     }
 

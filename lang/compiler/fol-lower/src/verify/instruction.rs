@@ -207,6 +207,10 @@ pub(super) fn verify_instruction(
         | crate::LoweredInstrKind::MutexUnlock { mutex } => {
             verify_local_reference(routine, instr.id.0, "mutex", *mutex, errors);
         }
+        crate::LoweredInstrKind::StoreMutexValue { mutex, value } => {
+            verify_local_reference(routine, instr.id.0, "mutex", *mutex, errors);
+            verify_local_reference(routine, instr.id.0, "mutex value", *value, errors);
+        }
         crate::LoweredInstrKind::IntrinsicCall { intrinsic, args } => {
             if fol_intrinsics::intrinsic_by_id(*intrinsic).is_none() {
                 errors.push(LoweringError::with_kind(

@@ -345,6 +345,13 @@ pub fn render_core_instruction_in_workspace(
             let guard = render_mutex_guard_name(*mutex);
             Ok(format!("drop({guard}.take());"))
         }
+        LoweredInstrKind::StoreMutexValue { mutex, value } => {
+            let guard = render_mutex_guard_name(*mutex);
+            let value = render_transfer_expr(type_table, package_identity, routine, *value)?;
+            Ok(format!(
+                "**{guard}.as_mut().expect(\"mutex assignment requires .lock()\") = {value};"
+            ))
+        }
         LoweredInstrKind::OptionalHasValue { operand } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
             // This is the shell-present test behind `when ... on ... *`. An
