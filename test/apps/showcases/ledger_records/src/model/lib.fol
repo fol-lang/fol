@@ -10,9 +10,9 @@ typ[exp] Side: ent = {
     var CREDIT: int = 2;
 };
 
-// `Side.DEBIT` only carries its `int` member type where a declared type
-// coerces it, so the constants are re-exported through these accessors and
-// every other module compares against those.
+// `Side.DEBIT` narrows to the `int` it carries wherever an `int` is on the
+// other side, so it compares and matches directly. These accessors stay
+// because callers read better naming the side than the constant.
 fun[exp] debit_side(): int = {
     return Side.DEBIT;
 };

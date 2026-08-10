@@ -1238,6 +1238,7 @@ pub(crate) fn is_equality_type(typed: &TypedProgram, type_id: CheckedTypeId) -> 
             | Some(CheckedType::Builtin(crate::BuiltinType::Bool))
             | Some(CheckedType::Builtin(crate::BuiltinType::Char))
             | Some(CheckedType::Builtin(crate::BuiltinType::Str))
+            | Some(CheckedType::Entry { .. })
     )
 }
 

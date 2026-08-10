@@ -2825,6 +2825,32 @@ fn lower_short_circuit_expression(
     })
 }
 
+/// Whether `node` reads a variant off an entry type (`Status.OK`) rather than
+/// naming a value that happens to be one. Pure resolution -- emits nothing.
+fn is_entry_variant_access(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    current_identity: &PackageIdentity,
+    node: &AstNode,
+) -> bool {
+    let AstNode::FieldAccess { object, field } = node else {
+        return false;
+    };
+    crate::exprs::helpers::resolve_entry_variant_target(
+        typed_package,
+        type_table,
+        current_identity,
+        object,
+        field,
+        checked_type_map,
+    )
+    .ok()
+    .flatten()
+    .is_some()
+}
+
+#[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
 fn lower_binary_op(
     typed_package: &fol_typecheck::TypedPackage,
@@ -2839,28 +2865,78 @@ fn lower_binary_op(
     left: &AstNode,
     right: &AstNode,
 ) -> Result<LoweredValue, LoweringError> {
-    let left_val = lower_expression(
+    // A bare entry-variant read builds the entry, and only narrows to the value
+    // it carries when something expects that value. Comparing against a plain
+    // `int` is such an expectation, so the operand that is NOT a variant read
+    // supplies it -- lowering the variant read second when it has to. A variant
+    // read has no effects, so leading with the other operand reorders nothing
+    // observable.
+    let left_variant = is_entry_variant_access(
         typed_package,
         type_table,
         checked_type_map,
         current_identity,
-        decl_index,
-        cursor,
-        source_unit_id,
-        scope_id,
         left,
-    )?;
-    let right_val = lower_expression(
+    );
+    let right_variant = is_entry_variant_access(
         typed_package,
         type_table,
         checked_type_map,
         current_identity,
-        decl_index,
-        cursor,
-        source_unit_id,
-        scope_id,
         right,
-    )?;
+    );
+    let (left_val, right_val) = if left_variant && !right_variant {
+        let right_val = lower_expression(
+            typed_package,
+            type_table,
+            checked_type_map,
+            current_identity,
+            decl_index,
+            cursor,
+            source_unit_id,
+            scope_id,
+            right,
+        )?;
+        let left_val = lower_expression_expected(
+            typed_package,
+            type_table,
+            checked_type_map,
+            current_identity,
+            decl_index,
+            cursor,
+            source_unit_id,
+            scope_id,
+            Some(right_val.type_id),
+            left,
+        )?;
+        (left_val, right_val)
+    } else {
+        let left_val = lower_expression(
+            typed_package,
+            type_table,
+            checked_type_map,
+            current_identity,
+            decl_index,
+            cursor,
+            source_unit_id,
+            scope_id,
+            left,
+        )?;
+        let expected = (right_variant && !left_variant).then_some(left_val.type_id);
+        let right_val = lower_expression_expected(
+            typed_package,
+            type_table,
+            checked_type_map,
+            current_identity,
+            decl_index,
+            cursor,
+            source_unit_id,
+            scope_id,
+            expected,
+            right,
+        )?;
+        (left_val, right_val)
+    };
     let result_type = binary_op_result_type(
         typed_package,
         type_table,

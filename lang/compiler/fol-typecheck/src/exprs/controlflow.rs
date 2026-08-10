@@ -171,7 +171,16 @@ pub(crate) fn type_when(
                 value: condition,
                 body,
             } => {
-                let condition_raw = type_node(typed, resolved, context, condition)?;
+                // The scrutinee is what the arm is compared against, so it is
+                // also what the arm expects. An entry variant read needs that
+                // expectation to narrow to the value it stands for.
+                let condition_raw = type_node_with_expectation(
+                    typed,
+                    resolved,
+                    context,
+                    condition,
+                    Some(selector_type),
+                )?;
                 let condition_expr = plain_value_expr(
                     typed,
                     context,

@@ -7162,3 +7162,55 @@ fn eventual_types_cannot_hide_behind_names_or_routine_types() {
         );
     }
 }
+
+#[test]
+fn entry_variant_reads_compare_against_the_value_they_carry() {
+    // A bare variant read is an entry, which is what generic inference needs.
+    // Against a plain `int` it is the `int` it carries -- otherwise an entry
+    // could be assigned to an `int` binding but never compared with one.
+    for (shape, source) in [
+        (
+            "int on the left",
+            "typ Status: ent = { var OK: int = 1; var FAIL: int = 3; };\n\
+             fun[] main(): bol = {\n\
+                 var code: int = Status.FAIL;\n\
+                 return code == Status.FAIL;\n\
+             };\n",
+        ),
+        (
+            "int on the right",
+            "typ Status: ent = { var OK: int = 1; var FAIL: int = 3; };\n\
+             fun[] main(): bol = {\n\
+                 var code: int = Status.FAIL;\n\
+                 return Status.FAIL == code;\n\
+             };\n",
+        ),
+        (
+            "two entries",
+            "typ Status: ent = { var OK: int = 1; var FAIL: int = 3; };\n\
+             fun[] main(): bol = {\n\
+                 return Status.OK == Status.FAIL;\n\
+             };\n",
+        ),
+    ] {
+        let typed = typecheck_fixture_folder(&[("main.fol", source)]);
+        assert!(
+            typed
+                .typed_node(find_named_routine_syntax_id(&typed, "main"))
+                .is_some(),
+            "{shape} must typecheck"
+        );
+    }
+
+    let mismatched = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Status: ent = { var OK: int = 1; var FAIL: int = 3; };\n\
+         fun[] main(): bol = {\n\
+             return Status.OK == 'x';\n\
+         };\n",
+    )]);
+    assert!(
+        !mismatched.is_empty(),
+        "narrowing must not make an entry comparable with an unrelated type"
+    );
+}

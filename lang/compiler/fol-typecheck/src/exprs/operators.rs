@@ -12,6 +12,72 @@ use super::type_node;
 use super::type_node_with_expectation;
 use super::{TypeContext, TypedExpr};
 
+/// The value an entry stands for. A bare variant read keeps the entry as its
+/// natural type -- generic inference and assignability both need that -- but
+/// every variant carries a value of one type, and that value is what a
+/// comparison actually tests. `None` when the entry's variants disagree, which
+/// leaves the operand alone rather than picking one arbitrarily.
+fn entry_value_type(
+    typed: &TypedProgram,
+    type_id: crate::CheckedTypeId,
+) -> Option<crate::CheckedTypeId> {
+    let Some(CheckedType::Entry { variants }) = typed.type_table().get(type_id) else {
+        return None;
+    };
+    let mut shared: Option<crate::CheckedTypeId> = None;
+    for payload in variants.values() {
+        let payload = (*payload)?;
+        match shared {
+            None => shared = Some(payload),
+            Some(existing) if existing == payload => {}
+            Some(_) => return None,
+        }
+    }
+    shared
+}
+
+/// Narrow a bare entry-variant read to the value it stands for when the other
+/// operand is not itself an entry. Two entries compare as entries; an entry
+/// against an `int` compares as the `int` it carries, and lowering has to see
+/// that same narrowing or it emits the variant where a number belongs.
+fn narrow_entry_variant_reads(
+    typed: &TypedProgram,
+    left: &AstNode,
+    right: &AstNode,
+    left_apparent: crate::CheckedTypeId,
+    right_apparent: crate::CheckedTypeId,
+) -> (crate::CheckedTypeId, crate::CheckedTypeId) {
+    match (
+        entry_value_type(typed, left_apparent),
+        entry_value_type(typed, right_apparent),
+    ) {
+        (Some(value_type), None) => (
+            narrow_variant_read(left, value_type).unwrap_or(left_apparent),
+            right_apparent,
+        ),
+        (None, Some(value_type)) => (
+            left_apparent,
+            narrow_variant_read(right, value_type).unwrap_or(right_apparent),
+        ),
+        _ => (left_apparent, right_apparent),
+    }
+}
+
+/// Narrow `node` to `value_type`, but only when it really is a variant read
+/// (`Status.OK`). A binding that merely holds an entry stays an entry: it is a
+/// variant at runtime, and narrowing it would describe it as a bare number.
+/// Lowering makes the matching choice from the same shape.
+fn narrow_variant_read(
+    node: &AstNode,
+    value_type: crate::CheckedTypeId,
+) -> Option<crate::CheckedTypeId> {
+    matches!(
+        super::helpers::strip_comments(node),
+        AstNode::FieldAccess { .. }
+    )
+    .then_some(value_type)
+}
+
 pub(crate) fn type_binary_op(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
@@ -327,6 +393,8 @@ pub(crate) fn type_binary_op(
             )),
         },
         BinaryOperator::Eq | BinaryOperator::Ne => {
+            let (left_apparent, right_apparent) =
+                narrow_entry_variant_reads(typed, left, right, left_apparent, right_apparent);
             if left_apparent == right_apparent && is_equality_type(typed, left_apparent) {
                 Ok(TypedExpr::value(typed.builtin_types().bool_)
                     .with_optional_effect(merged_effect))
@@ -337,6 +405,8 @@ pub(crate) fn type_binary_op(
             }
         }
         BinaryOperator::Lt | BinaryOperator::Le | BinaryOperator::Gt | BinaryOperator::Ge => {
+            let (left_apparent, right_apparent) =
+                narrow_entry_variant_reads(typed, left, right, left_apparent, right_apparent);
             if left_apparent == right_apparent && is_ordered_type(typed, left_apparent) {
                 Ok(TypedExpr::value(typed.builtin_types().bool_)
                     .with_optional_effect(merged_effect))
