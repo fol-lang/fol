@@ -1,0 +1,28 @@
+// A `mux[T]` held in a LOCAL binding, locked from inside a loop. A routine with
+// more than one lowered block becomes a block machine, and the mutex guard
+// lives across the whole machine -- so initialising the local by assigning its
+// place is what the guard's borrow forbids. The handle is created once and the
+// guarded value is put in place instead, which is why this builds at all.
+
+use std: pkg = {"std"};
+
+typ Counter: rec = {
+    value: int,
+};
+
+fun[] main(): int = {
+    var counter: Counter = { value = 0 };
+    var state: mux[Counter] = [mov]counter;
+    var[mut] index: int = 0;
+    loop (index < 3) {
+        var[mut, bor] guard: Counter = ([bor]state).lock();
+        guard.value = guard.value + 1;
+        [end]guard;
+        index = index + 1;
+    };
+    var[mut, bor] final_guard: Counter = ([bor]state).lock();
+    var total: int = final_guard.value;
+    [end]final_guard;
+    var shown: int = std::io::echo_int(total);
+    return shown - total;
+};

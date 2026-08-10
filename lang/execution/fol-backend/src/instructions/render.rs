@@ -167,7 +167,7 @@ pub fn render_core_instruction_in_workspace(
                 routine.mutex_params.contains(local) && !routine.mutex_params.contains(value);
             let value = render_transfer_expr(type_table, package_identity, routine, *value)?;
             if wrap_mutex {
-                Ok(format!("{target} = rt::FolMutex::from_value({value});"))
+                Ok(format!("{target}.replace_value({value});"))
             } else {
                 Ok(format!("{target} = {value};"))
             }

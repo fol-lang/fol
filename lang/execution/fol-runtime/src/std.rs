@@ -350,6 +350,14 @@ impl<T> FolMutex<T> {
         self.value.lock().unwrap_or_else(|error| error.into_inner())
     }
 
+    /// Put `value` under the existing lock rather than swapping the handle.
+    /// A guard borrows the place its handle lives in, so assigning that place
+    /// is what a routine holding a guard elsewhere in its block graph cannot
+    /// do; replacing the guarded value leaves the place alone.
+    pub fn replace_value(&self, value: T) {
+        *self.lock() = value;
+    }
+
     pub fn with<R>(&self, read: impl FnOnce(&T) -> R) -> R {
         let value = self.lock();
         read(&value)

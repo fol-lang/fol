@@ -125,6 +125,7 @@ pub(crate) const V3_PROC_M3_POSITIVES: &[V3PositiveExample] = &[
     ("examples/proc_mutex_local_m3", Some("42\n")),
     ("examples/proc_mutex_guard_m3", Some("42\n")),
     ("examples/proc_mutex_guard_end_m3", Some("43\n")),
+    ("examples/proc_mutex_local_loop_m3", Some("3\n")),
     ("examples/proc_receiver_select_m3", Some("42\n")),
     // Build-only: draining a receiver blocks until every sender is gone, and
     // the surrounding channel binding still holds one.
@@ -957,6 +958,7 @@ pub(crate) const V3_NAVIGATION_PROBES: &[V3NavigationProbe] = &[
     ("examples/proc_mutex_local_m3", "state", 2, None),
     ("examples/proc_mutex_guard_m3", "bump", 2, None),
     ("examples/proc_mutex_guard_end_m3", "bump", 2, None),
+    ("examples/proc_mutex_local_loop_m3", "state", 2, None),
     ("examples/proc_async_await_m4", "work", 2, None),
     ("examples/proc_await_error_m4", "probe", 2, None),
     ("examples/proc_spawn_borrow_m1", "observed", 1, None),

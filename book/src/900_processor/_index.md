@@ -88,6 +88,7 @@ Positive:
 
 - `examples/proc_mutex_explicit_unlock_m3`
 - `examples/proc_mutex_local_m3`
+- `examples/proc_mutex_local_loop_m3`
 - `examples/proc_mutex_guard_m3`
 - `examples/proc_mutex_guard_end_m3`
 - `examples/proc_mutex_m3`
