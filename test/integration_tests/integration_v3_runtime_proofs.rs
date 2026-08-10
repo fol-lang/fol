@@ -935,3 +935,98 @@ fn deferred_blocks_run_inside_when_and_select_arms() {
     // own; the arm that never runs registers nothing.
     assert_successful_stdout(&root, "inner\nouter\n--\nouter\nselect-arm\n");
 }
+
+#[test]
+fn mux_guard_binding_reads_a_non_record_payload_through_the_lock() {
+    // A named guard binding aliases the mutex local, so reading it whole was
+    // rendered as a clone of the `FolMutex<T>` handle -- assigned into a
+    // `&mut T` slot. Records hid it (every access went through a field path);
+    // an `int` or `str` payload has no fields to hide behind, and rustc
+    // rejected the generated crate.
+    let root = write_hosted_app(
+        "v3_mux_guard_scalar_payload",
+        "use std: pkg = {\"std\"};\n\
+             typ Counter: rec = { n: int };\n\
+             fun[] peek_int(state: mux[int]): int = {\n\
+             \x20   var[mut, bor] guard: int = ([bor]state).lock();\n\
+             \x20   return std::io::echo_int(guard + guard);\n\
+             };\n\
+             fun[] peek_str(state: mux[str]): int = {\n\
+             \x20   var[bor] guard: str = ([bor]state).lock();\n\
+             \x20   std::io::echo_str(guard + \"!\");\n\
+             \x20   return 0;\n\
+             };\n\
+             fun[] peek_rec(state: mux[Counter]): int = {\n\
+             \x20   var[mut, bor] guard: Counter = ([bor]state).lock();\n\
+             \x20   guard.n = guard.n + 1;\n\
+             \x20   return std::io::echo_int(guard.n);\n\
+             };\n\
+             fun[] main(): int = {\n\
+             \x20   var v: int = 41;\n\
+             \x20   var s: str = \"guarded\";\n\
+             \x20   var c: Counter = { n = 7 };\n\
+             \x20   peek_int([mov]v);\n\
+             \x20   peek_str([mov]s);\n\
+             \x20   peek_rec([mov]c);\n\
+             \x20   return 0;\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "82\nguarded!\n8\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn borrowed_scalars_read_by_value_at_operators() {
+    // An operator result took the left operand's lowered type verbatim, so a
+    // borrowed operand produced a `&T` result slot that no arithmetic can fill,
+    // and the operands themselves were emitted as raw references. Both sides
+    // failed rustc on the generated crate.
+    let root = write_hosted_app(
+        "v3_borrowed_operands",
+        "use std: pkg = {\"std\"};\n\
+             fun[] bump(value: int[bor]): int = {\n\
+             \x20   return value + 1;\n\
+             };\n\
+             fun[] flip(value: int[bor]): int = {\n\
+             \x20   return -value;\n\
+             };\n\
+             fun[] shout(text: str[bor]): str = {\n\
+             \x20   return text + \"!\";\n\
+             };\n\
+             fun[] main(): int = {\n\
+             \x20   var v: int = 41;\n\
+             \x20   var t: str = \"hi\";\n\
+             \x20   std::io::echo_int(bump([bor]v));\n\
+             \x20   std::io::echo_int(flip([bor]v));\n\
+             \x20   std::io::echo_str(shout([bor]t));\n\
+             \x20   return 0;\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "42\n-41\nhi!\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn aggregates_holding_routine_values_build_and_run() {
+    // Routine values are `Rc<dyn Fn(..)>` handles, which implement no `Default`
+    // and no echo formatting. Zero-initializing a vec, array or record holding
+    // one used to reach for `Default::default()`, and the record's echo impl
+    // formatted the closure, so all three typechecked and then failed rustc on
+    // the generated crate.
+    let root = write_hosted_app(
+        "v3_routine_value_aggregates",
+        "use std: pkg = {\"std\"};\n\
+             typ Boxx: rec = { tag: str, f: {fun (n: int): int} };\n\
+             fun[] main(): int = {\n\
+             \x20   var hooks: vec[{fun (n: int): int}];\n\
+             \x20   var pending: seq[{fun (n: int): int}];\n\
+             \x20   var b: Boxx = { tag = \"hi\", f = fun(n: int)[]: int = { return n + 1; } };\n\
+             \x20   .echo(b);\n\
+             \x20   var f: {fun (n: int): int} = fun(n: int)[]: int = { return n + 2; };\n\
+             \x20   var slots: arr[{fun (n: int): int}, 1] = {[mov]f};\n\
+             \x20   return std::io::echo_int(.len(hooks) + .len(pending) + .len(slots));\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "Boxx { f: <routine>, tag: hi }\n1\n");
+    std::fs::remove_dir_all(root).ok();
+}

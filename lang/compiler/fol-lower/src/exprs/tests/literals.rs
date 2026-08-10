@@ -791,6 +791,7 @@ fn identifier_lowering_loads_parameter_locals_and_top_level_globals() {
         .lower_identifier_reference(
             lowered_workspace.entry_identity(),
             &decl_index,
+            lowered_workspace.type_table(),
             typed
                 .entry_program()
                 .resolved()
@@ -803,6 +804,7 @@ fn identifier_lowering_loads_parameter_locals_and_top_level_globals() {
         .lower_identifier_reference(
             lowered_workspace.entry_identity(),
             &decl_index,
+            lowered_workspace.type_table(),
             typed
                 .entry_program()
                 .resolved()

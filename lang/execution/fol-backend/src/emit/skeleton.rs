@@ -621,7 +621,12 @@ fn render_namespace_items(
             .and_then(|definition| {
                 Ok(format!(
                     "{definition}\n{}",
-                    render_record_trait_impl(&namespace_plan.package_identity, type_decl)?
+                    render_record_trait_impl(
+                        session.workspace(),
+                        &namespace_plan.package_identity,
+                        type_decl,
+                        session.workspace().type_table()
+                    )?
                 ))
             }),
             fol_lower::LoweredTypeDeclKind::Entry { .. } => render_entry_definition(
@@ -633,7 +638,12 @@ fn render_namespace_items(
             .and_then(|definition| {
                 Ok(format!(
                     "{definition}\n{}",
-                    render_entry_trait_impl(&namespace_plan.package_identity, type_decl)?
+                    render_entry_trait_impl(
+                        session.workspace(),
+                        &namespace_plan.package_identity,
+                        type_decl,
+                        session.workspace().type_table()
+                    )?
                 ))
             }),
             fol_lower::LoweredTypeDeclKind::Alias { .. } => Ok(String::new()),

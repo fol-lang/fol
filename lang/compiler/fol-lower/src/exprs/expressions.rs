@@ -1547,6 +1547,7 @@ fn lower_expression_observed_inner(
             cursor.lower_identifier_reference(
                 current_identity,
                 decl_index,
+                type_table,
                 resolved_symbol,
                 result_type,
             )
@@ -1623,6 +1624,7 @@ fn lower_expression_observed_inner(
             cursor.lower_identifier_reference(
                 current_identity,
                 decl_index,
+                type_table,
                 resolved_symbol,
                 result_type,
             )
@@ -2653,6 +2655,17 @@ fn binary_op_result_type(
     left_type: LoweredTypeId,
     right_type: LoweredTypeId,
 ) -> Option<LoweredTypeId> {
+    // An operator reads a borrowed operand by value, so the result carries the
+    // pointee's type. Keeping the borrow made the result slot a `&T` that no
+    // arithmetic could ever produce.
+    let value_type = |mut type_id: LoweredTypeId| {
+        while let Some(crate::LoweredType::Borrowed { inner, .. }) = type_table.get(type_id) {
+            type_id = *inner;
+        }
+        type_id
+    };
+    let left_type = value_type(left_type);
+    let right_type = value_type(right_type);
     let is_str = |type_id: LoweredTypeId| {
         matches!(
             type_table.get(type_id),
@@ -2776,7 +2789,15 @@ fn lower_unary_op(
         operand,
     )?;
     let result_type = match op {
-        LoweredUnaryOp::Neg => operand_val.type_id,
+        // Negation reads a borrowed operand by value, so the result is the
+        // pointee's type rather than the borrow's.
+        LoweredUnaryOp::Neg => {
+            let mut type_id = operand_val.type_id;
+            while let Some(crate::LoweredType::Borrowed { inner, .. }) = type_table.get(type_id) {
+                type_id = *inner;
+            }
+            type_id
+        }
         LoweredUnaryOp::Not => checked_type_map
             .get(&typed_package.program.builtin_types().bool_)
             .copied()

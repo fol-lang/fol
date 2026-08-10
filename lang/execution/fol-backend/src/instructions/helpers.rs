@@ -406,33 +406,47 @@ pub fn render_type_default_expr_in_workspace(
         LoweredType::Routine(routine_type) => {
             let rendered_type =
                 crate::types::render_rust_type_in_workspace(workspace, type_table, type_id)?;
-            let dummy_params = routine_type
-                .params
-                .iter()
-                .enumerate()
-                .map(|(i, param_id)| {
-                    crate::types::render_rust_type_in_workspace(workspace, type_table, *param_id)
-                        .map(|ty| format!("_p{i}: {ty}"))
-                })
-                .collect::<BackendResult<Vec<_>>>()?;
-            let return_clause = match (routine_type.return_type, routine_type.error_type) {
-                (Some(ret), Some(err)) => format!(
-                    " -> rt::FolRecover<{}, {}>",
-                    crate::types::render_rust_type_in_workspace(workspace, type_table, ret)?,
-                    crate::types::render_rust_type_in_workspace(workspace, type_table, err)?
-                ),
-                (Some(ret), None) => format!(
-                    " -> {}",
-                    crate::types::render_rust_type_in_workspace(workspace, type_table, ret)?
-                ),
-                _ => String::new(),
-            };
-            Ok(format!(
-                "{{ fn __fol_uninit({}){return_clause} {{ unreachable!(\"uninitialized function pointer\") }} __fol_uninit as {rendered_type} }}",
-                dummy_params.join(", ")
-            ))
+            render_uninit_routine_expr(workspace, type_table, routine_type, &rendered_type)
         }
     }
+}
+
+/// The placeholder a routine-typed slot holds before its real closure lands: a
+/// shared handle to a body that can never run. Routine values are
+/// `Rc<dyn Fn(..)>`, so there is no `Default` to fall back on, and the handle
+/// is bound to its named type so the unsizing coercion happens even where no
+/// surrounding annotation drives it (an array element, say).
+fn render_uninit_routine_expr(
+    workspace: Option<&LoweredWorkspace>,
+    type_table: &LoweredTypeTable,
+    routine_type: &fol_lower::LoweredRoutineType,
+    rendered_type: &str,
+) -> BackendResult<String> {
+    let dummy_params = routine_type
+        .params
+        .iter()
+        .enumerate()
+        .map(|(i, param_id)| {
+            crate::types::render_rust_type_in_workspace(workspace, type_table, *param_id)
+                .map(|ty| format!("_p{i}: {ty}"))
+        })
+        .collect::<BackendResult<Vec<_>>>()?;
+    let return_clause = match (routine_type.return_type, routine_type.error_type) {
+        (Some(ret), Some(err)) => format!(
+            " -> rt::FolRecover<{}, {}>",
+            crate::types::render_rust_type_in_workspace(workspace, type_table, ret)?,
+            crate::types::render_rust_type_in_workspace(workspace, type_table, err)?
+        ),
+        (Some(ret), None) => format!(
+            " -> {}",
+            crate::types::render_rust_type_in_workspace(workspace, type_table, ret)?
+        ),
+        _ => String::new(),
+    };
+    Ok(format!(
+        "{{ fn __fol_uninit({}){return_clause} {{ unreachable!(\"uninitialized routine value\") }} let __fol_uninit_value: {rendered_type} = std::rc::Rc::new(__fol_uninit); __fol_uninit_value }}",
+        dummy_params.join(", ")
+    ))
 }
 
 pub fn render_local_list(

@@ -153,9 +153,17 @@ impl fmt::Debug for FolStr {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct FolVec<T>(Vec<T>);
+
+// An empty container needs nothing of its element type. A derived `Default`
+// would demand `T: Default`, which no closure handle (`Rc<dyn Fn>`) can offer.
+impl<T> Default for FolVec<T> {
+    fn default() -> Self {
+        Self(Vec::new())
+    }
+}
 
 impl<T> FolVec<T> {
     pub fn new(values: Vec<T>) -> Self {
@@ -195,9 +203,15 @@ impl<T> From<FolVec<T>> for Vec<T> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct FolSeq<T>(Vec<T>);
+
+impl<T> Default for FolSeq<T> {
+    fn default() -> Self {
+        Self(Vec::new())
+    }
+}
 
 impl<T> FolSeq<T> {
     pub fn new(values: Vec<T>) -> Self {
@@ -237,9 +251,15 @@ impl<T> From<FolSeq<T>> for Vec<T> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct FolSet<T>(BTreeSet<T>);
+
+impl<T> Default for FolSet<T> {
+    fn default() -> Self {
+        Self(BTreeSet::new())
+    }
+}
 
 impl<T: Ord> FolSet<T> {
     pub fn new(values: BTreeSet<T>) -> Self {
@@ -283,9 +303,15 @@ impl<T: Ord> From<FolSet<T>> for BTreeSet<T> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct FolMap<K, V>(BTreeMap<K, V>);
+
+impl<K, V> Default for FolMap<K, V> {
+    fn default() -> Self {
+        Self(BTreeMap::new())
+    }
+}
 
 impl<K: Ord, V> FolMap<K, V> {
     pub fn new(values: BTreeMap<K, V>) -> Self {

@@ -305,6 +305,26 @@ fn type_transitively_contains(
     }
 }
 
+/// How a routine-valued field or variant payload prints: a closure handle has
+/// no printable contents.
+const ROUTINE_ECHO_PLACEHOLDER: &str = "<routine>";
+
+/// Whether a value of `type_id` reaches a routine value (`Rc<dyn Fn>`), which
+/// implements neither `Default`, `Debug`, `PartialEq` nor `FolEchoFormat`.
+pub fn type_transitively_contains_routine(
+    workspace: &LoweredWorkspace,
+    type_table: &LoweredTypeTable,
+    type_id: LoweredTypeId,
+) -> bool {
+    type_transitively_contains(
+        workspace,
+        type_table,
+        type_id,
+        &|ty| matches!(ty, LoweredType::Routine(_)),
+        &mut std::collections::BTreeSet::new(),
+    )
+}
+
 fn aggregate_derives(
     workspace: &LoweredWorkspace,
     type_table: &LoweredTypeTable,
@@ -327,13 +347,7 @@ fn aggregate_derives(
         ) {
             has_float = true;
         }
-        if type_transitively_contains(
-            workspace,
-            type_table,
-            type_id,
-            &|ty| matches!(ty, LoweredType::Routine(_)),
-            &mut std::collections::BTreeSet::new(),
-        ) {
+        if type_transitively_contains_routine(workspace, type_table, type_id) {
             has_routine = true;
         }
         if type_transitively_contains(
@@ -399,17 +413,45 @@ pub fn render_record_definition(
         fields.iter().map(|field| field.type_id),
         true,
     );
+    let type_name = mangle_type_name(package_identity, type_decl.runtime_type, &type_decl.name);
+    // A record holding a routine value cannot derive `Default` (an `Rc<dyn Fn>`
+    // has none), so hand-write one that builds every field from its own default
+    // expression. Callers still reach the record through `Default::default()`.
+    let default_impl = if fields
+        .iter()
+        .any(|field| type_transitively_contains_routine(workspace, type_table, field.type_id))
+    {
+        let rendered_defaults = fields
+            .iter()
+            .map(|field| {
+                Ok(format!(
+                    "            {}: {},",
+                    crate::escape_rust_field_ident(&field.name),
+                    crate::instructions::render_type_default_expr_in_workspace(
+                        Some(workspace),
+                        type_table,
+                        field.type_id
+                    )?
+                ))
+            })
+            .collect::<BackendResult<Vec<_>>>()?
+            .join("\n");
+        format!(
+            "\nimpl Default for {type_name} {{\n    fn default() -> Self {{\n        Self {{\n{rendered_defaults}\n        }}\n    }}\n}}\n"
+        )
+    } else {
+        String::new()
+    };
     Ok(format!(
-        "{}\npub struct {} {{\n{}\n}}\n",
-        derives,
-        mangle_type_name(package_identity, type_decl.runtime_type, &type_decl.name),
-        rendered_fields
+        "{derives}\npub struct {type_name} {{\n{rendered_fields}\n}}\n{default_impl}"
     ))
 }
 
 pub fn render_record_trait_impl(
+    workspace: &LoweredWorkspace,
     package_identity: &PackageIdentity,
     type_decl: &LoweredTypeDecl,
+    type_table: &LoweredTypeTable,
 ) -> BackendResult<String> {
     let LoweredTypeDeclKind::Record { fields } = &type_decl.kind else {
         return Err(BackendError::new(
@@ -424,6 +466,13 @@ pub fn render_record_trait_impl(
         .map(|field| {
             // Render through FolEchoFormat: containers (seq/vec/set/map) have
             // no Display impl, but every runtime value type formats for echo.
+            // A routine value has no printable form, so it renders as a marker.
+            if type_transitively_contains_routine(workspace, type_table, field.type_id) {
+                return format!(
+                    "            rt::FolNamedValue::new(\"{}\", \"{ROUTINE_ECHO_PLACEHOLDER}\"),",
+                    field.name
+                );
+            }
             format!(
                 "            rt::FolNamedValue::new(\"{}\", rt::FolEchoFormat::fol_echo_format(&self.{})),",
                 field.name,
@@ -474,8 +523,10 @@ pub fn render_entry_definition(
 }
 
 pub fn render_entry_trait_impl(
+    workspace: &LoweredWorkspace,
     package_identity: &PackageIdentity,
     type_decl: &LoweredTypeDecl,
+    type_table: &LoweredTypeTable,
 ) -> BackendResult<String> {
     let LoweredTypeDeclKind::Entry { variants } = &type_decl.kind else {
         return Err(BackendError::new(
@@ -497,7 +548,7 @@ pub fn render_entry_trait_impl(
         match_arms,
         variants
             .iter()
-            .map(render_entry_field_match_arm)
+            .map(|variant| render_entry_field_match_arm(workspace, type_table, variant))
             .collect::<Vec<_>>()
             .join("\n")
     ))
@@ -519,9 +570,9 @@ fn render_entry_variant(
 }
 
 fn render_entry_default_variant(
-    _workspace: &LoweredWorkspace,
+    workspace: &LoweredWorkspace,
     variants: &[LoweredVariantLayout],
-    _type_table: &LoweredTypeTable,
+    type_table: &LoweredTypeTable,
 ) -> BackendResult<String> {
     let default_variant = variants.first().ok_or_else(|| {
         BackendError::new(
@@ -530,6 +581,21 @@ fn render_entry_default_variant(
         )
     })?;
     Ok(match default_variant.payload_type {
+        // A routine payload has no `Default`, so the variant is built from the
+        // payload type's own default expression instead.
+        Some(payload_type)
+            if type_transitively_contains_routine(workspace, type_table, payload_type) =>
+        {
+            format!(
+                "Self::{}({})",
+                crate::escape_rust_field_ident(&default_variant.name),
+                crate::instructions::render_type_default_expr_in_workspace(
+                    Some(workspace),
+                    type_table,
+                    payload_type
+                )?
+            )
+        }
         Some(_payload_type) => format!(
             "Self::{}(Default::default())",
             crate::escape_rust_field_ident(&default_variant.name)
@@ -638,9 +704,20 @@ fn render_entry_trait_match_arm(variant: &LoweredVariantLayout) -> String {
     }
 }
 
-fn render_entry_field_match_arm(variant: &LoweredVariantLayout) -> String {
+fn render_entry_field_match_arm(
+    workspace: &LoweredWorkspace,
+    type_table: &LoweredTypeTable,
+    variant: &LoweredVariantLayout,
+) -> String {
     let ident = crate::escape_rust_field_ident(&variant.name);
     match variant.payload_type {
+        Some(payload_type)
+            if type_transitively_contains_routine(workspace, type_table, payload_type) =>
+        {
+            format!(
+                "            Self::{ident}(..) => vec![rt::FolNamedValue::new(\"payload\", \"{ROUTINE_ECHO_PLACEHOLDER}\")],"
+            )
+        }
         Some(_) => format!(
             "            Self::{}(payload) => vec![rt::FolNamedValue::new(\"payload\", rt::FolEchoFormat::fol_echo_format(payload))],",
             ident
@@ -842,7 +919,9 @@ mod tests {
         };
         let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
 
-        let rendered = render_record_trait_impl(&package_identity, &decl)
+        let workspace = sample_lowered_workspace();
+
+        let rendered = render_record_trait_impl(&workspace, &package_identity, &decl, &table)
             .expect("record trait impl should render");
 
         assert!(rendered.contains("impl rt::FolRecord for ty__pkg__entry__app__t"));
@@ -853,6 +932,63 @@ mod tests {
         ));
         assert!(rendered.contains("impl rt::FolEchoFormat for ty__pkg__entry__app__t"));
         assert!(rendered.contains("rt::render_record(self)"));
+    }
+
+    #[test]
+    fn record_with_a_routine_field_hand_writes_default_and_skips_routine_echo() {
+        let mut table = LoweredTypeTable::new();
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let str_id = table.intern_builtin(LoweredBuiltinType::Str);
+        let fn_id = table.intern(LoweredType::Routine(LoweredRoutineType {
+            params: vec![int_id],
+            return_type: Some(int_id),
+            error_type: None,
+        }));
+        let record_id = table.intern(LoweredType::Record {
+            fields: std::collections::BTreeMap::from([
+                ("hook".to_string(), fn_id),
+                ("tag".to_string(), str_id),
+            ]),
+            finalized: false,
+        });
+        let decl = LoweredTypeDecl {
+            symbol_id: SymbolId(12),
+            source_unit_id: SourceUnitId(0),
+            name: "Boxx".to_string(),
+            runtime_type: record_id,
+            kind: LoweredTypeDeclKind::Record {
+                fields: vec![
+                    LoweredFieldLayout {
+                        name: "tag".to_string(),
+                        type_id: str_id,
+                    },
+                    LoweredFieldLayout {
+                        name: "hook".to_string(),
+                        type_id: fn_id,
+                    },
+                ],
+            },
+        };
+        let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+        let workspace = sample_lowered_workspace();
+
+        let definition = render_record_definition(&workspace, &package_identity, &decl, &table)
+            .expect("record definition should render");
+        let trait_impl = render_record_trait_impl(&workspace, &package_identity, &decl, &table)
+            .expect("record trait impl should render");
+
+        // `Rc<dyn Fn>` implements none of these, so the record must not derive
+        // them, and its `Default` is written out by hand instead.
+        assert!(definition.contains("#[derive(Clone)]"));
+        assert!(definition.contains("impl Default for ty__pkg__entry__app__t"));
+        assert!(definition.contains("tag: rt_model::FolStr::new(\"\"),"));
+        assert!(definition.contains("unreachable!(\"uninitialized routine value\")"));
+        // A closure handle has no `FolEchoFormat`, so it prints as a marker.
+        assert!(trait_impl.contains("rt::FolNamedValue::new(\"hook\", \"<routine>\")"));
+        assert!(!trait_impl.contains("fol_echo_format(&self.hook)"));
+        assert!(trait_impl.contains(
+            "rt::FolNamedValue::new(\"tag\", rt::FolEchoFormat::fol_echo_format(&self.tag))"
+        ));
     }
 
     #[test]
@@ -938,7 +1074,9 @@ mod tests {
         };
         let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
 
-        let rendered = render_entry_trait_impl(&package_identity, &decl)
+        let workspace = sample_lowered_workspace();
+
+        let rendered = render_entry_trait_impl(&workspace, &package_identity, &decl, &table)
             .expect("entry trait impl should render");
 
         assert!(rendered.contains("impl rt::FolEntry for ty__pkg__entry__app__t"));
@@ -1019,11 +1157,11 @@ mod tests {
         let snapshot = [
             render_record_definition(&workspace, &package_identity, &record_decl, &table)
                 .expect("record definition should render"),
-            render_record_trait_impl(&package_identity, &record_decl)
+            render_record_trait_impl(&workspace, &package_identity, &record_decl, &table)
                 .expect("record trait impl should render"),
             render_entry_definition(&workspace, &package_identity, &entry_decl, &table)
                 .expect("entry definition should render"),
-            render_entry_trait_impl(&package_identity, &entry_decl)
+            render_entry_trait_impl(&workspace, &package_identity, &entry_decl, &table)
                 .expect("entry trait impl should render"),
         ]
         .join("\n");

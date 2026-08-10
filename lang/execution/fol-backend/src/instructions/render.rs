@@ -43,6 +43,30 @@ fn observed_storage_reference(
     (type_id, reference)
 }
 
+/// The name an operator site reads a local through. Rust has no arithmetic,
+/// comparison or cast on `&T`, so a borrowed slot is peeled down to the value
+/// it points at.
+fn render_operator_operand(
+    type_table: &LoweredTypeTable,
+    package_identity: &PackageIdentity,
+    routine: &LoweredRoutine,
+    local_id: fol_lower::LoweredLocalId,
+) -> BackendResult<String> {
+    let name = render_local_name(package_identity, routine, local_id)?;
+    let mut type_id = routine.locals.get(local_id).and_then(|local| local.type_id);
+    let mut depth = 0usize;
+    while let Some(LoweredType::Borrowed { inner, .. }) = type_id.and_then(|id| type_table.get(id))
+    {
+        depth += 1;
+        type_id = Some(*inner);
+    }
+    if depth == 0 {
+        Ok(name)
+    } else {
+        Ok(format!("({}{name}).clone()", "*".repeat(depth)))
+    }
+}
+
 fn render_call_arguments(
     type_table: &LoweredTypeTable,
     package_identity: &PackageIdentity,
@@ -93,6 +117,19 @@ pub fn render_core_instruction_in_workspace(
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let source_name = render_local_name(package_identity, routine, *local)?;
             let source_is_mutex = routine.mutex_params.contains(local);
+            // A guard binding reads the protected value out of the held guard,
+            // never out of the `FolMutex` handle. The result slot of a handle
+            // forward carries the `mux[T]` marking; a guard read does not.
+            if source_is_mutex
+                && instruction
+                    .result
+                    .is_some_and(|result| !routine.mutex_params.contains(&result))
+            {
+                let guard = render_mutex_guard_name(*local);
+                return Ok(format!(
+                    "{result} = (**{guard}.as_ref().expect(\"mutex guard read requires .lock()\")).clone();"
+                ));
+            }
             let source_moves = !source_is_mutex
                 && routine
                     .locals
@@ -892,8 +929,8 @@ pub fn render_core_instruction_in_workspace(
         LoweredInstrKind::BinaryOp { op, left, right } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let left_id = *left;
-            let left = render_local_name(package_identity, routine, left_id)?;
-            let right = render_local_name(package_identity, routine, *right)?;
+            let left = render_operator_operand(type_table, package_identity, routine, left_id)?;
+            let right = render_operator_operand(type_table, package_identity, routine, *right)?;
             let expression = match op {
                 LoweredBinaryOp::Add => format!("{left} + {right}"),
                 LoweredBinaryOp::Sub => format!("{left} - {right}"),
@@ -937,7 +974,7 @@ pub fn render_core_instruction_in_workspace(
         }
         LoweredInstrKind::UnaryOp { op, operand } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
-            let operand = render_local_name(package_identity, routine, *operand)?;
+            let operand = render_operator_operand(type_table, package_identity, routine, *operand)?;
             let expression = match op {
                 LoweredUnaryOp::Neg => format!("-{operand}"),
                 LoweredUnaryOp::Not => format!("!{operand}"),
@@ -949,7 +986,7 @@ pub fn render_core_instruction_in_workspace(
             target_type,
         } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
-            let operand = render_local_name(package_identity, routine, *operand)?;
+            let operand = render_operator_operand(type_table, package_identity, routine, *operand)?;
             let target =
                 crate::types::render_rust_type_in_workspace(workspace, type_table, *target_type)?;
             Ok(format!("{result} = {operand} as {target};"))

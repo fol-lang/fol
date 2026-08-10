@@ -539,32 +539,22 @@ fn render_local_declaration(
                 rendered_type,
             ));
         }
-        Some(fol_lower::LoweredType::Routine(routine_type)) => {
-            let dummy_params: Vec<String> = routine_type
-                .params
-                .iter()
-                .enumerate()
-                .map(|(i, param_id)| {
-                    render_rust_type_in_workspace(Some(workspace), type_table, *param_id)
-                        .map(|ty| format!("_p{i}: {ty}"))
-                })
-                .collect::<BackendResult<Vec<_>>>()?;
-            let return_clause = match (routine_type.return_type, routine_type.error_type) {
-                (Some(ret), Some(err)) => format!(
-                    " -> rt::FolRecover<{}, {}>",
-                    render_rust_type_in_workspace(Some(workspace), type_table, ret)?,
-                    render_rust_type_in_workspace(Some(workspace), type_table, err)?
-                ),
-                (Some(ret), None) => format!(
-                    " -> {}",
-                    render_rust_type_in_workspace(Some(workspace), type_table, ret)?
-                ),
-                _ => String::new(),
-            };
-            format!(
-                "{{ fn __fol_uninit({}){return_clause} {{ unreachable!(\"uninitialized routine value\") }} std::rc::Rc::new(__fol_uninit) }}",
-                dummy_params.join(", ")
-            )
+        // A slot that reaches a routine value has no `Default` to fall back on
+        // (`Rc<dyn Fn>` implements none), so it is built from its type's own
+        // zero expression instead.
+        Some(_)
+            if local.type_id.is_some_and(|type_id| {
+                crate::types::type_transitively_contains_routine(workspace, type_table, type_id)
+            }) =>
+        {
+            let type_id = local
+                .type_id
+                .expect("routine-bearing local retains its lowered type");
+            crate::instructions::render_type_default_expr_in_workspace(
+                Some(workspace),
+                type_table,
+                type_id,
+            )?
         }
         _ => "Default::default()".to_string(),
     };
@@ -966,5 +956,57 @@ mod tests {
         assert!(rendered.contains("l__pkg__entry__app__r5__l0__callback"));
         assert!(rendered.contains("unreachable!(\"uninitialized routine value\")"));
         assert!(rendered.contains("__fol_uninit"));
+    }
+
+    #[test]
+    fn routine_shell_rendering_builds_routine_bearing_aggregates_without_default() {
+        let mut table = LoweredTypeTable::new();
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let fn_type_id = table.intern(LoweredType::Routine(LoweredRoutineType {
+            params: vec![int_id],
+            return_type: Some(int_id),
+            error_type: None,
+        }));
+        let vec_id = table.intern(LoweredType::Vector {
+            element_type: fn_type_id,
+        });
+        let array_id = table.intern(LoweredType::Array {
+            element_type: fn_type_id,
+            size: Some(1),
+        });
+        let outer_sig = table.intern(LoweredType::Routine(LoweredRoutineType {
+            params: vec![],
+            return_type: Some(int_id),
+            error_type: None,
+        }));
+        let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+        let workspace = sample_lowered_workspace();
+        let mut routine = LoweredRoutine::new(LoweredRoutineId(6), "holder", LoweredBlockId(0));
+        routine.signature = Some(outer_sig);
+        routine.locals.push(LoweredLocal {
+            id: LoweredLocalId(0),
+            type_id: Some(vec_id),
+            name: Some("hooks".to_string()),
+        });
+        routine.locals.push(LoweredLocal {
+            id: LoweredLocalId(1),
+            type_id: Some(array_id),
+            name: Some("slots".to_string()),
+        });
+
+        let rendered = render_routine_shell(&workspace, &package_identity, &routine, &table)
+            .expect("routine shell with routine-bearing aggregates");
+
+        // `Rc<dyn Fn>` has no `Default`, so neither aggregate may lean on one.
+        assert!(rendered.contains(
+            "let mut l__pkg__entry__app__r6__l0__hooks: rt_model::FolVec<std::rc::Rc<dyn Fn(rt::FolInt) -> rt::FolInt>> = rt_model::FolVec::new(vec![]);"
+        ));
+        assert!(rendered.contains("l__pkg__entry__app__r6__l1__slots"));
+        assert!(rendered.contains("std::array::from_fn"));
+        assert!(!rendered.contains("__slots: rt::FolArray<std::rc::Rc<dyn Fn(rt::FolInt) -> rt::FolInt>, 1> = Default::default();"));
+        // The array element coerces to the named handle type on the way in.
+        assert!(rendered.contains(
+            "let __fol_uninit_value: std::rc::Rc<dyn Fn(rt::FolInt) -> rt::FolInt> = std::rc::Rc::new(__fol_uninit);"
+        ));
     }
 }
