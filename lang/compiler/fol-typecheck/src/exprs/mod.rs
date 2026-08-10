@@ -2369,6 +2369,17 @@ fn type_body_inner(
                 return Err(error);
             }
             let node_expr = node_result?;
+            // A trailing read is the block's value -- that is how a `when` arm
+            // yields one -- and a read of a move-only value is a deliberate
+            // discarded move. Everything else that only reads is dead code.
+            if stmt_index + 1 < nodes.len() {
+                let moves = node_expr
+                    .value_type
+                    .is_some_and(|type_id| bindings::ownership_moves_on_transfer(typed, type_id));
+                if !moves {
+                    reject_effectless_statement(resolved, node)?;
+                }
+            }
             if let Some(actual) = node_expr.value_type {
                 if let Some((previous_node, previous_expr)) = pending_value.take() {
                     reject_discarded_body_expr(typed, resolved, previous_node, previous_expr)?;
@@ -2412,6 +2423,33 @@ fn type_body_inner(
     typed.release_task_borrows_in_scope(context.scope_id);
     typed.release_recoverable_eventual_obligations_in_scope(context.scope_id);
     result
+}
+
+/// Reject a statement that cannot do anything.
+///
+/// A bare `5;` or `total;` is dead code, and letting it through hid worse: a
+/// parenthesized assignment parses as one of these, so `(total = 99);` silently
+/// did nothing and `(5 = 99);` was accepted without a word. Reads have no effect
+/// -- calls, assignments, declarations and control flow do, and none of them
+/// come through here.
+fn reject_effectless_statement(
+    resolved: &ResolvedProgram,
+    node: &AstNode,
+) -> Result<(), TypecheckError> {
+    let description = match node {
+        AstNode::Literal(_) => "a literal",
+        AstNode::Identifier { .. } | AstNode::QualifiedIdentifier { .. } => "a name",
+        AstNode::FieldAccess { .. } => "a field read",
+        _ => return Ok(()),
+    };
+    let message =
+        format!("this statement is {description}, so it does nothing; remove it, or use its value");
+    Err(match node_origin(resolved, node) {
+        Some(origin) => {
+            TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin)
+        }
+        None => TypecheckError::new(TypecheckErrorKind::Unsupported, message),
+    })
 }
 
 /// For each symbol referenced anywhere in `nodes`, record the highest index of

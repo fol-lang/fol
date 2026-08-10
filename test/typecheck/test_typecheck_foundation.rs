@@ -2158,7 +2158,9 @@ fn discarded_move_only_expressions_are_transfers() {
         "discarded generic values must be conservative for move-only instantiations: {generic_errors:#?}"
     );
 
-    let typed = typecheck_fixture_folder(&[(
+    // A copy-type read moves nothing, so there is no transfer to account for --
+    // it is dead code, and rejected as such rather than accepted silently.
+    let copy_errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "fun[] main(): int = {\n\
              var value: int = 7;\n\
@@ -2166,9 +2168,13 @@ fn discarded_move_only_expressions_are_transfers() {
              return value;\n\
          };\n",
     )]);
-    assert!(typed
-        .typed_node(find_named_routine_syntax_id(&typed, "main"))
-        .is_some());
+    assert!(
+        copy_errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error.message().contains("so it does nothing")
+        }),
+        "a discarded copy-type read is dead code, not a transfer: {copy_errors:#?}"
+    );
 }
 
 #[test]
