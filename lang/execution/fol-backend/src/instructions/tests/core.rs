@@ -232,6 +232,40 @@ fn core_loads_clone_mutex_handles_with_move_only_inner_values() {
 }
 
 #[test]
+fn core_loads_read_guard_bindings_through_the_held_lock() {
+    let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
+    let mut table = LoweredTypeTable::new();
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let mut routine = LoweredRoutine::new(LoweredRoutineId(0), "peek", LoweredBlockId(0));
+    let source = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(0),
+        type_id: Some(int_id),
+        name: Some("state".to_string()),
+    });
+    let result = routine.locals.push(LoweredLocal {
+        id: LoweredLocalId(1),
+        type_id: Some(int_id),
+        name: None,
+    });
+    routine.mutex_params.insert(source);
+    let instruction = LoweredInstr {
+        id: LoweredInstrId(0),
+        result: Some(result),
+        kind: LoweredInstrKind::LoadLocal { local: source },
+    };
+
+    let rendered = render_core_instruction(&package_identity, &table, &routine, &instruction)
+        .expect("guard binding load");
+    // Only a handle forward carries the mux marking onto its result; a guard
+    // read snapshots the protected value out of the held lock instead.
+    assert_eq!(
+        rendered,
+        "l__pkg__entry__app__r0__l1__tmp = (**__fol_mutex_guard_l0.as_ref().expect(\"mutex guard read requires .lock()\")).clone();"
+    );
+    assert!(!rendered.contains("l__pkg__entry__app__r0__l0__state.clone()"));
+}
+
+#[test]
 fn core_instruction_rendering_emits_plain_routine_calls_for_non_recoverable_sites() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();

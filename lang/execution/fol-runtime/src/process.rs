@@ -65,6 +65,18 @@ pub fn outcome_from_recoverable<T, E: FolEchoFormat>(value: FolRecover<T, E>) ->
     }
 }
 
+/// Same adapter for an entry whose success value is an `int`: that value IS
+/// the process exit status, so a recoverable entry and a plain one agree on
+/// what `return 3` from `main` means.
+pub fn outcome_from_recoverable_exit_status<T: Into<i64>, E: FolEchoFormat>(
+    value: FolRecover<T, E>,
+) -> FolProcessOutcome {
+    match value {
+        FolRecover::Ok(status) => FolProcessOutcome::new(status.into() as i32, None),
+        FolRecover::Err(error) => failure_outcome_from_error(error),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -83,6 +95,21 @@ mod tests {
         assert_eq!(failure, FolProcessOutcome::failure("bad-input"));
         assert!(failure.is_failure());
         assert_eq!(failure.message(), Some("bad-input"));
+    }
+
+    #[test]
+    fn recoverable_int_entry_results_carry_their_value_as_the_exit_status() {
+        let three = outcome_from_recoverable_exit_status(FolRecover::<i64, FolStr>::ok(3));
+        let zero = outcome_from_recoverable_exit_status(FolRecover::<i64, FolStr>::ok(0));
+        let reported = outcome_from_recoverable_exit_status(FolRecover::<i64, FolStr>::err(
+            FolStr::from("bad-input"),
+        ));
+
+        assert_eq!(three.exit_code(), 3);
+        assert_eq!(three.message(), None);
+        assert!(zero.is_success());
+        assert_eq!(reported.exit_code(), FOL_EXIT_FAILURE);
+        assert_eq!(reported.message(), Some("bad-input"));
     }
 
     #[test]

@@ -1,0 +1,8 @@
+[package]
+name = "fol-testkit"
+version.workspace = true
+edition = "2021"
+
+# Scratch-directory handling for the workspace's tests. Deliberately dependency
+# free: every crate here pulls it in as a dev-dependency, including the ones at
+# the bottom of the graph.

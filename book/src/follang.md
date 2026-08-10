@@ -105,9 +105,9 @@ fun[] main(): int = {
     std::io::echo_str(prefix);
     std::io::echo_int(add(3, 5));
     return 0;
-}
+};
 
 fun[exp] add(a, b: int): int = {
     return a + b;
-}
+};
 ```

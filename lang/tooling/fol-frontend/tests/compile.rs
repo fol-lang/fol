@@ -5,7 +5,7 @@ use fol_frontend::{
     FrontendConfig, FrontendWorkspace, PackageRoot, WorkspaceRoot,
 };
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 fn semantic_bin_build() -> String {
@@ -38,16 +38,8 @@ fn semantic_lib_build(name: &str) -> String {
     )
 }
 
-fn temp_root(label: &str) -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "fol_frontend_compile_{}_{}_{}",
-        label,
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time should be after epoch")
-            .as_nanos()
-    ))
+fn temp_root(label: &str) -> fol_testkit::TempFixture {
+    fol_testkit::TempFixture::new(&format!("fol_frontend_compile_{label}"))
 }
 
 fn host_machine_target() -> String {

@@ -17,7 +17,10 @@ fn test_function_return_parses_in_expression() {
             .find_map(|node| {
                 if let AstNode::FunDecl { body, .. } = node {
                     body.iter().find_map(|stmt| {
-                        if let AstNode::Return { value: Some(value) } = stmt {
+                        if let AstNode::Return {
+                            value: Some(value), ..
+                        } = stmt
+                        {
                             Some(value.as_ref().clone())
                         } else {
                             None
@@ -67,7 +70,10 @@ fn test_function_return_parses_has_expression() {
             .find_map(|node| {
                 if let AstNode::FunDecl { body, .. } = node {
                     body.iter().find_map(|stmt| {
-                        if let AstNode::Return { value: Some(value) } = stmt {
+                        if let AstNode::Return {
+                            value: Some(value), ..
+                        } = stmt
+                        {
                             Some(value.as_ref().clone())
                         } else {
                             None
@@ -117,7 +123,10 @@ fn test_function_return_parses_is_expression() {
             .find_map(|node| {
                 if let AstNode::FunDecl { body, .. } = node {
                     body.iter().find_map(|stmt| {
-                        if let AstNode::Return { value: Some(value) } = stmt {
+                        if let AstNode::Return {
+                            value: Some(value), ..
+                        } = stmt
+                        {
                             Some(value.as_ref().clone())
                         } else {
                             None
@@ -167,7 +176,10 @@ fn test_function_return_parses_as_expression() {
             .find_map(|node| {
                 if let AstNode::FunDecl { body, .. } = node {
                     body.iter().find_map(|stmt| {
-                        if let AstNode::Return { value: Some(value) } = stmt {
+                        if let AstNode::Return {
+                            value: Some(value), ..
+                        } = stmt
+                        {
                             Some(value.as_ref().clone())
                         } else {
                             None
@@ -212,7 +224,10 @@ fn test_function_return_parses_cast_expression() {
             .find_map(|node| {
                 if let AstNode::FunDecl { body, .. } = node {
                     body.iter().find_map(|stmt| {
-                        if let AstNode::Return { value: Some(value) } = stmt {
+                        if let AstNode::Return {
+                            value: Some(value), ..
+                        } = stmt
+                        {
                             Some(value.as_ref().clone())
                         } else {
                             None

@@ -1,18 +1,8 @@
 use super::*;
 use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn unique_temp_root(label: &str) -> std::path::PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after unix epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "fol_parser_literal_lowering_{}_{}_{}",
-        label,
-        std::process::id(),
-        stamp
-    ))
+fn unique_temp_root(label: &str) -> crate::fixture::TempFixture {
+    crate::fixture::TempFixture::new(&format!("fol_parser_literal_lowering_{label}"))
 }
 
 fn parse_first_error_from_source(label: &str, source: &str) -> fol_diagnostics::Diagnostic {

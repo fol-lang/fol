@@ -578,16 +578,8 @@ mod tests {
         std::fs::remove_dir_all(temp_root).ok();
     }
 
-    fn temp_root(label: &str) -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "fol_package_git_{}_{}_{}",
-            label,
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock should be stable enough for temp dirs")
-                .as_nanos()
-        ))
+    fn temp_root(label: &str) -> fol_testkit::TempFixture {
+        fol_testkit::TempFixture::new(&format!("fol_package_git_{label}"))
     }
 
     fn create_package_repo(root: &Path, version: &str) {

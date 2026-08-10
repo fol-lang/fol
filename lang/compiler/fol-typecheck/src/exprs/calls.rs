@@ -526,6 +526,17 @@ fn terminal_intrinsic_signature(
         "shell" => Some((vec![builtins.str_], builtins.int)),
         "dir_list" => Some((vec![builtins.str_], builtins.str_)),
         "read_file" => Some((vec![builtins.str_], builtins.str_)),
+        "arg_count" => Some((Vec::new(), builtins.int)),
+        "arg_at" => Some((vec![builtins.int], builtins.str_)),
+        "write_err" => Some((vec![builtins.str_], builtins.str_)),
+        "write_file" => Some((vec![builtins.str_, builtins.str_], builtins.int)),
+        "str_find" => Some((vec![builtins.str_, builtins.str_], builtins.int)),
+        "str_replace" => Some((
+            vec![builtins.str_, builtins.str_, builtins.str_],
+            builtins.str_,
+        )),
+        "parse_int" => Some((vec![builtins.str_, builtins.int], builtins.int)),
+        "float_to_str" => Some((vec![builtins.float, builtins.int], builtins.str_)),
         _ => None,
     }
 }
@@ -2381,6 +2392,55 @@ fn infer_generic_bindings_from_argument(
                 origin,
             )
         }
+        // Routine types are containers too: `fun(): T` against `fun(): int`
+        // binds T. Falling through to a plain assignability check instead left
+        // T unbound, and the call was then rejected for expecting `fun(): T`.
+        (
+            Some(CheckedType::Routine(expected_signature)),
+            Some(CheckedType::Routine(actual_signature)),
+        ) if expected_signature.params.len() == actual_signature.params.len() => {
+            let expected_signature = expected_signature.clone();
+            let actual_signature = actual_signature.clone();
+            for (expected_param, actual_param) in expected_signature
+                .params
+                .iter()
+                .zip(actual_signature.params.iter())
+            {
+                infer_generic_bindings_from_argument(
+                    typed,
+                    *expected_param,
+                    *actual_param,
+                    bindings,
+                    surface.clone(),
+                    origin.clone(),
+                )?;
+            }
+            if let (Some(expected_return), Some(actual_return)) =
+                (expected_signature.return_type, actual_signature.return_type)
+            {
+                infer_generic_bindings_from_argument(
+                    typed,
+                    expected_return,
+                    actual_return,
+                    bindings,
+                    surface.clone(),
+                    origin.clone(),
+                )?;
+            }
+            if let (Some(expected_error), Some(actual_error)) =
+                (expected_signature.error_type, actual_signature.error_type)
+            {
+                infer_generic_bindings_from_argument(
+                    typed,
+                    expected_error,
+                    actual_error,
+                    bindings,
+                    surface.clone(),
+                    origin.clone(),
+                )?;
+            }
+            Ok(())
+        }
         _ => ensure_assignable(typed, expected, actual_apparent, surface, origin),
     }
 }
@@ -2670,6 +2730,76 @@ fn substitute_generic_type(
                 }
             }
             Ok(instance)
+        }
+        // A routine type is a container of types like any other: without this
+        // the parameter stayed spelled `T` while the argument was `fun(): int`,
+        // so a higher-order generic routine could not be called at all -- not
+        // even with an explicit turbofish.
+        CheckedType::Routine(signature) => {
+            let params = signature
+                .params
+                .iter()
+                .map(|param| substitute_generic_type(typed, *param, bindings, callee, origin.clone()))
+                .collect::<Result<Vec<_>, _>>()?;
+            let return_type = signature
+                .return_type
+                .map(|return_type| {
+                    substitute_generic_type(typed, return_type, bindings, callee, origin.clone())
+                })
+                .transpose()?;
+            let error_type = signature
+                .error_type
+                .map(|error_type| {
+                    substitute_generic_type(typed, error_type, bindings, callee, origin.clone())
+                })
+                .transpose()?;
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::Routine(RoutineType {
+                    generic_params: Vec::new(),
+                    generic_constraints: BTreeMap::new(),
+                    param_names: signature.param_names.clone(),
+                    param_defaults: signature.param_defaults.clone(),
+                    variadic_index: signature.variadic_index,
+                    mutex_params: signature.mutex_params.clone(),
+                    params,
+                    return_type,
+                    error_type,
+                    env_lifetime: signature.env_lifetime,
+                })))
+        }
+        // The same fallthrough also swallowed these wrappers, so a generic
+        // inside any of them survived unsubstituted.
+        CheckedType::Owned { inner } => {
+            let inner = substitute_generic_type(typed, inner, bindings, callee, origin.clone())?;
+            Ok(typed.type_table_mut().intern(CheckedType::Owned { inner }))
+        }
+        CheckedType::Borrowed { inner, mutable } => {
+            let inner = substitute_generic_type(typed, inner, bindings, callee, origin.clone())?;
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::Borrowed { inner, mutable }))
+        }
+        CheckedType::Channel { element_type } => {
+            let element_type =
+                substitute_generic_type(typed, element_type, bindings, callee, origin.clone())?;
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::Channel { element_type }))
+        }
+        CheckedType::ChannelSender { element_type } => {
+            let element_type =
+                substitute_generic_type(typed, element_type, bindings, callee, origin.clone())?;
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::ChannelSender { element_type }))
+        }
+        CheckedType::ChannelReceiver { element_type } => {
+            let element_type =
+                substitute_generic_type(typed, element_type, bindings, callee, origin.clone())?;
+            Ok(typed
+                .type_table_mut()
+                .intern(CheckedType::ChannelReceiver { element_type }))
         }
         other => Ok(typed.type_table_mut().intern(other)),
     }

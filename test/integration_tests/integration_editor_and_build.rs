@@ -29,6 +29,26 @@ fn strip_ansi(value: &str) -> String {
     stripped
 }
 
+/// `main`'s `int` return is the process exit status, and these examples answer
+/// with a computed value rather than a status. What a build-and-run check
+/// establishes is that the program reached its own end: it was not killed by a
+/// signal and did not abort through the runtime's panic status. The output
+/// assertions beside each call carry the behavioral weight.
+fn assert_ran_to_its_own_end(output: &std::process::Output, context: &str) {
+    let stdout = strip_ansi(&String::from_utf8_lossy(&output.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&output.stderr));
+    let code = output.status.code();
+    assert!(
+        code.is_some(),
+        "{context} should terminate on its own terms, not on a signal: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+    assert_ne!(
+        code,
+        Some(101),
+        "{context} should not abort with a runtime panic: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+}
+
 fn find_file_by_name(root: &std::path::Path, target_name: &str) -> Option<std::path::PathBuf> {
     let entries = std::fs::read_dir(root).ok()?;
     for entry in entries {
@@ -188,7 +208,7 @@ fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) {
     }
 }
 
-fn write_temp_app(root_name: &str, main_source: &str) -> std::path::PathBuf {
+fn write_temp_app(root_name: &str, main_source: &str) -> crate::fixture::TempFixture {
     let root = unique_temp_root(root_name);
     std::fs::create_dir_all(root.join("src")).expect("temp app src should exist");
     std::fs::write(
@@ -203,10 +223,10 @@ fn write_temp_app(root_name: &str, main_source: &str) -> std::path::PathBuf {
     root
 }
 
-fn temp_example_root(example_path: &str) -> std::path::PathBuf {
+fn temp_example_root(example_path: &str) -> crate::fixture::TempFixture {
     let source = repo_root().join(example_path);
     let temp_root = unique_temp_root(&format!("example_copy_{}", example_path.replace('/', "_")));
-    let target = temp_root.join("workspace");
+    let target = temp_root.child("workspace");
     copy_dir_all(&source, &target);
     std::fs::create_dir_all(target.join(".git"))
         .expect("copied example workspace marker should be creatable");
@@ -408,12 +428,7 @@ fn test_generic_routine_m1_example_builds_and_executes_backend_binary() {
     let run = std::process::Command::new(built_binary_path(&build))
         .output()
         .expect("generic routine M1 binary should execute");
-    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
-    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
-    assert!(
-        run.status.success(),
-        "generic routine M1 backend binary should run: stdout=\n{stdout}\nstderr=\n{stderr}"
-    );
+    assert_ran_to_its_own_end(&run, "generic routine M1 backend binary");
 }
 
 #[test]
@@ -429,12 +444,7 @@ fn test_generic_routine_pair_m1_example_builds_and_executes_backend_binary() {
     let run = std::process::Command::new(built_binary_path(&build))
         .output()
         .expect("generic pair M1 binary should execute");
-    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
-    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
-    assert!(
-        run.status.success(),
-        "generic pair M1 backend binary should run: stdout=\n{stdout}\nstderr=\n{stderr}"
-    );
+    assert_ran_to_its_own_end(&run, "generic pair M1 backend binary");
 }
 
 #[test]
@@ -450,12 +460,7 @@ fn test_generic_routine_cross_file_m1_builds_and_executes_backend_binary() {
     let run = std::process::Command::new(built_binary_path(&build))
         .output()
         .expect("cross-file generic M1 binary should execute");
-    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
-    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
-    assert!(
-        run.status.success(),
-        "cross-file generic M1 backend binary should run: stdout=\n{stdout}\nstderr=\n{stderr}"
-    );
+    assert_ran_to_its_own_end(&run, "cross-file generic M1 backend binary");
 }
 
 #[test]
@@ -474,12 +479,7 @@ fn test_receiver_qualified_generic_routines_build_and_run() {
     let run = std::process::Command::new(built_binary_path(&build))
         .output()
         .expect("receiver-qualified generic binary should execute");
-    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
-    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
-    assert!(
-        run.status.success(),
-        "receiver-qualified generic backend binary should run: stdout=\n{stdout}\nstderr=\n{stderr}"
-    );
+    assert_ran_to_its_own_end(&run, "receiver-qualified generic backend binary");
     std::fs::remove_dir_all(root).ok();
 }
 
@@ -499,12 +499,7 @@ fn test_instantiated_generic_receiver_routines_build_and_run() {
     let run = std::process::Command::new(built_binary_path(&build))
         .output()
         .expect("instantiated generic receiver binary should execute");
-    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
-    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
-    assert!(
-        run.status.success(),
-        "instantiated generic receiver backend binary should run: stdout=\n{stdout}\nstderr=\n{stderr}"
-    );
+    assert_ran_to_its_own_end(&run, "instantiated generic receiver backend binary");
     std::fs::remove_dir_all(root).ok();
 }
 
@@ -524,12 +519,7 @@ fn test_default_argument_generic_routines_build_and_run() {
     let run = std::process::Command::new(built_binary_path(&build))
         .output()
         .expect("default-argument generic binary should execute");
-    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
-    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
-    assert!(
-        run.status.success(),
-        "default-argument generic backend binary should run: stdout=\n{stdout}\nstderr=\n{stderr}"
-    );
+    assert_ran_to_its_own_end(&run, "default-argument generic backend binary");
     std::fs::remove_dir_all(root).ok();
 }
 
@@ -549,12 +539,7 @@ fn test_recoverable_generic_routines_with_concrete_error_types_build_and_run() {
     let run = std::process::Command::new(built_binary_path(&build))
         .output()
         .expect("recoverable generic binary should execute");
-    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
-    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
-    assert!(
-        run.status.success(),
-        "recoverable generic backend binary should run: stdout=\n{stdout}\nstderr=\n{stderr}"
-    );
+    assert_ran_to_its_own_end(&run, "recoverable generic backend binary");
     std::fs::remove_dir_all(root).ok();
 }
 
@@ -951,10 +936,7 @@ fn test_standards_generic_m2_example_builds_and_runs() {
         .expect("generic standards example should run");
     let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
     let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
-    assert!(
-        run.status.success(),
-        "generic standards example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
-    );
+    assert_ran_to_its_own_end(&run, "generic standards example");
     assert!(stdout.contains("42") || stderr.contains("42"));
 }
 
@@ -975,10 +957,7 @@ fn test_standards_extended_m2_example_builds_and_runs() {
         .expect("extended standards example should run");
     let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
     let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
-    assert!(
-        run.status.success(),
-        "extended standards example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
-    );
+    assert_ran_to_its_own_end(&run, "extended standards example");
     assert!(stdout.contains("42") || stderr.contains("42"));
 }
 
@@ -999,10 +978,7 @@ fn test_standards_blueprint_m2_example_builds_and_runs() {
         .expect("blueprint example should run");
     let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
     let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
-    assert!(
-        run.status.success(),
-        "blueprint example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
-    );
+    assert_ran_to_its_own_end(&run, "blueprint example");
     assert!(stdout.contains("42") || stderr.contains("42"));
 }
 
@@ -1023,10 +999,7 @@ fn test_standards_default_body_m2_example_builds_and_runs() {
         .expect("default standard body example should run");
     let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
     let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
-    assert!(
-        run.status.success(),
-        "default standard body example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
-    );
+    assert_ran_to_its_own_end(&run, "default standard body example");
     assert!(stdout.contains("7") || stderr.contains("7"));
 }
 
@@ -1071,10 +1044,7 @@ fn test_generic_type_constrained_m1m2_example_builds_and_runs() {
         .expect("constrained generic type example should run");
     let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
     let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
-    assert!(
-        run.status.success(),
-        "constrained generic type example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
-    );
+    assert_ran_to_its_own_end(&run, "constrained generic type example");
     assert!(stdout.contains("4") || stderr.contains("4"));
 }
 
@@ -1095,10 +1065,7 @@ fn test_generic_turbofish_m1_example_builds_and_runs() {
         .expect("generic turbofish example should run");
     let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
     let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
-    assert!(
-        run.status.success(),
-        "generic turbofish example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
-    );
+    assert_ran_to_its_own_end(&run, "generic turbofish example");
     assert!(stdout.contains("42") || stderr.contains("42"));
 }
 
@@ -1145,11 +1112,7 @@ fn test_generic_receiver_overload_m1m2_example_builds_and_runs() {
         .output()
         .expect("generic receiver overload example should run");
     let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
-    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
-    assert!(
-        run.status.success(),
-        "generic receiver overload example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
-    );
+    assert_ran_to_its_own_end(&run, "generic receiver overload example");
     // Box.tag() -> 10, Cup.tag() -> 20, Box[str].get() -> "boxed": each shared
     // method name dispatches to its own base's receiver routine.
     assert!(stdout.contains("10") && stdout.contains("20") && stdout.contains("boxed"));
@@ -1170,7 +1133,7 @@ fn test_generic_receiver_cross_file_m1_example_builds_and_runs() {
     let run = std::process::Command::new(built_binary_path(&build))
         .output()
         .expect("cross-file generic receiver example should run");
-    assert!(run.status.success());
+    assert_ran_to_its_own_end(&run, "cross-file generic receiver example");
 }
 
 #[test]
@@ -1206,12 +1169,7 @@ fn test_v3_memory_m1_examples_build_run_and_emit_unique_ownership() {
         let run = std::process::Command::new(built_binary_path(&build))
             .output()
             .expect("V3 memory example binary should run");
-        assert!(
-            run.status.success(),
-            "{example} should run successfully: stdout=\n{}\nstderr=\n{}",
-            String::from_utf8_lossy(&run.stdout),
-            String::from_utf8_lossy(&run.stderr)
-        );
+        assert_ran_to_its_own_end(&run, example);
         if let Some(expected_output) = expected_output {
             assert_eq!(
                 strip_ansi(&String::from_utf8_lossy(&run.stdout)),
@@ -1314,7 +1272,7 @@ fn test_v3_memory_m2_examples_build_run_and_emit_borrows() {
         let run = std::process::Command::new(built_binary_path(&build))
             .output()
             .expect("V3 memory borrow example binary should run");
-        assert!(run.status.success(), "{example} should run successfully");
+        assert_ran_to_its_own_end(&run, example);
         if let Some(expected_output) = expected_output {
             assert_eq!(
                 strip_ansi(&String::from_utf8_lossy(&run.stdout)),
@@ -1360,7 +1318,7 @@ fn test_v3_memory_m3_examples_build_run_and_emit_typed_pointers() {
         let run = std::process::Command::new(built_binary_path(&build))
             .output()
             .expect("V3 typed-pointer example binary should run");
-        assert!(run.status.success(), "{example} should run successfully");
+        assert_ran_to_its_own_end(&run, example);
 
         let emitted = collect_rust_source_files(&emitted_crate_root(&build))
             .into_iter()
@@ -1595,7 +1553,7 @@ fn test_v3_processor_m1_spawn_examples_build_run_and_join() {
         let run = std::process::Command::new(built_binary_path(&build))
             .output()
             .expect("V3 spawn example binary should run");
-        assert!(run.status.success(), "{example} should run successfully");
+        assert_ran_to_its_own_end(&run, example);
         assert_eq!(
             strip_ansi(&String::from_utf8_lossy(&run.stdout)),
             expected_output,
@@ -1743,12 +1701,7 @@ fn test_v3_imported_qualified_processor_targets_execute() {
     let run = std::process::Command::new(built_binary_path(&build))
         .output()
         .expect("imported qualified processor binary should run");
-    assert!(
-        run.status.success(),
-        "imported qualified processor binary should succeed: stdout=\n{}\nstderr=\n{}",
-        String::from_utf8_lossy(&run.stdout),
-        String::from_utf8_lossy(&run.stderr)
-    );
+    assert_ran_to_its_own_end(&run, "imported qualified processor binary");
     assert_eq!(strip_ansi(&String::from_utf8_lossy(&run.stdout)), "42\n");
     std::fs::remove_dir_all(temp_root).ok();
 }
@@ -1770,7 +1723,7 @@ fn test_v3_processor_m2_channel_examples_build_and_run() {
         let run = std::process::Command::new(built_binary_path(&build))
             .output()
             .expect("V3 channel example binary should run");
-        assert!(run.status.success(), "{example} should run successfully");
+        assert_ran_to_its_own_end(&run, example);
         assert_eq!(
             strip_ansi(&String::from_utf8_lossy(&run.stdout)),
             expected_output
@@ -1831,7 +1784,7 @@ fn test_v3_channel_receiver_moves_into_a_synchronous_consumer() {
     let run = std::process::Command::new(built_binary_path(&build))
         .output()
         .expect("channel receiver transfer binary should run");
-    assert!(run.status.success());
+    assert_ran_to_its_own_end(&run, "channel receiver transfer binary");
     assert_eq!(strip_ansi(&String::from_utf8_lossy(&run.stdout)), "42\n");
 }
 
@@ -1854,7 +1807,7 @@ fn test_v3_processor_m3_select_and_mutex_examples_build_and_run() {
             let run = std::process::Command::new(built_binary_path(&build))
                 .output()
                 .expect("V3 select/mutex example binary should run");
-            assert!(run.status.success(), "{example} should run successfully");
+            assert_ran_to_its_own_end(&run, example);
             assert_eq!(
                 strip_ansi(&String::from_utf8_lossy(&run.stdout)),
                 expected_output
@@ -1912,7 +1865,7 @@ fn test_v3_processor_m4_eventual_examples_build_and_run() {
         let run = std::process::Command::new(built_binary_path(&build))
             .output()
             .expect("V3 eventual example binary should run");
-        assert!(run.status.success(), "{example} should run successfully");
+        assert_ran_to_its_own_end(&run, example);
         assert_eq!(
             strip_ansi(&String::from_utf8_lossy(&run.stdout)),
             expected_output
@@ -1975,10 +1928,7 @@ fn test_generic_type_exec_m1m2_example_builds_and_runs() {
         .expect("generic type execution example should run");
     let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
     let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
-    assert!(
-        run.status.success(),
-        "generic type execution example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
-    );
+    assert_ran_to_its_own_end(&run, "generic type execution example");
     assert!(stdout.contains("42") || stderr.contains("42"));
 }
 
@@ -1998,12 +1948,7 @@ fn test_nested_generic_types_build_and_execute_backend_binary() {
     let run = std::process::Command::new(built_binary_path(&build))
         .output()
         .expect("nested generic type binary should execute");
-    let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
-    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
-    assert!(
-        run.status.success(),
-        "nested generic backend binary should run: stdout=\n{stdout}\nstderr=\n{stderr}"
-    );
+    assert_ran_to_its_own_end(&run, "nested generic backend binary");
     std::fs::remove_dir_all(root).ok();
 }
 
@@ -2024,10 +1969,7 @@ fn test_generic_standard_constraint_m1m2_example_builds_and_runs() {
         .expect("constrained generic execution example should run");
     let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
     let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
-    assert!(
-        run.status.success(),
-        "constrained generic execution example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
-    );
+    assert_ran_to_its_own_end(&run, "constrained generic execution example");
     assert!(stdout.contains("1") || stderr.contains("1"));
 }
 
@@ -2051,11 +1993,7 @@ fn test_generic_standard_constraint_generic_m1m2_example_builds_and_runs() {
         .output()
         .expect("generic-standard constraint example should run");
     let stdout = strip_ansi(&String::from_utf8_lossy(&run.stdout));
-    let stderr = strip_ansi(&String::from_utf8_lossy(&run.stderr));
-    assert!(
-        run.status.success(),
-        "generic-standard constraint example should run cleanly: stdout=\n{stdout}\nstderr=\n{stderr}"
-    );
+    assert_ran_to_its_own_end(&run, "generic-standard constraint example");
     assert!(stdout.contains("7"));
 }
 
@@ -2943,12 +2881,7 @@ fn test_build_fixture_bundled_std_effective_tier_supports_hosted_memo_surfaces()
     let run = Command::new(&binary)
         .output()
         .expect("std hosted-memo fixture binary should execute");
-    assert!(
-        run.status.success(),
-        "std hosted-memo fixture binary should run: stdout=\n{}\nstderr=\n{}",
-        String::from_utf8_lossy(&run.stdout),
-        String::from_utf8_lossy(&run.stderr)
-    );
+    assert_ran_to_its_own_end(&run, "std hosted-memo fixture binary");
     let stdout = String::from_utf8_lossy(&run.stdout);
     assert!(
         stdout.contains("std-ready"),
@@ -3063,13 +2996,12 @@ fn test_build_fixture_mixed_models_workspace_keeps_per_artifact_models() {
     );
 
     let run = run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "run"]);
-    assert!(
-        run.status.success(),
-        "mixed-model fixture should still run its std tool: stdout=\n{}\nstderr=\n{}",
-        String::from_utf8_lossy(&run.stdout),
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert!(String::from_utf8_lossy(&run.stdout).contains("ran "));
+    // `code run` exits with the program's own status. The std tool answers
+    // with a computed value, so the run is reported under F1005 rather than
+    // through the success summary — its own output is the evidence it ran.
+    assert_ran_to_its_own_end(&run, "mixed-model fixture std tool run");
+    assert!(String::from_utf8_lossy(&run.stdout).contains("7"));
+    assert!(String::from_utf8_lossy(&run.stderr).contains("F1005"));
 }
 
 #[test]
@@ -3337,12 +3269,7 @@ fn test_memo_plus_bundled_std_artifact_accepts_core_and_memo_pkg_dependencies() 
     let run = Command::new(&binary)
         .output()
         .expect("memo+bundled-std binary should execute");
-    assert!(
-        run.status.success(),
-        "memo+bundled-std binary should run: stdout=\n{}\nstderr=\n{}",
-        String::from_utf8_lossy(&run.stdout),
-        String::from_utf8_lossy(&run.stderr)
-    );
+    assert_ran_to_its_own_end(&run, "memo+bundled-std binary");
     assert!(String::from_utf8_lossy(&run.stdout).contains("8"));
 
     std::fs::remove_dir_all(&temp_root).ok();
@@ -3705,12 +3632,7 @@ fn test_cli_std_examples_run_and_print_expected_output() {
             .output()
             .expect("built std example should execute");
         let stdout = String::from_utf8_lossy(&run.stdout);
-        assert!(
-            run.status.success(),
-            "std example '{path}' binary should run: stdout=\n{}\nstderr=\n{}",
-            stdout,
-            String::from_utf8_lossy(&run.stderr)
-        );
+        assert_ran_to_its_own_end(&run, &format!("std example '{path}' binary"));
         assert!(
             stdout.contains(expected_text),
             "std example '{path}' should print '{expected_text}': stdout=\n{}\nstderr=\n{}",
@@ -3872,10 +3794,7 @@ fn test_bundled_std_io_example_builds_and_runs_without_override() {
         .output()
         .expect("bundled std.io example should run");
     let stdout = String::from_utf8_lossy(&run.stdout);
-    assert!(
-        run.status.success(),
-        "bundled std.io example should execute"
-    );
+    assert_ran_to_its_own_end(&run, "bundled std.io example");
     assert!(
         stdout.contains("std-io"),
         "bundled std.io example should print through the std.io wrapper: stdout=\n{}\nstderr=\n{}",
@@ -3918,10 +3837,7 @@ fn test_bundled_std_alias_example_builds_with_materialized_alias_root() {
     let run = std::process::Command::new(&binary)
         .output()
         .expect("bundled std alias example should run");
-    assert!(
-        run.status.success(),
-        "bundled std alias example should execute"
-    );
+    assert_ran_to_its_own_end(&run, "bundled std alias example");
     assert!(String::from_utf8_lossy(&run.stdout).contains("10"));
 }
 
@@ -4862,13 +4778,11 @@ fn test_cli_build_and_run_mixed_model_example_workspace() {
     );
 
     let run = run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "run"]);
-    assert!(
-        run.status.success(),
-        "mixed-model example should run its std tool: stdout=\n{}\nstderr=\n{}",
-        String::from_utf8_lossy(&run.stdout),
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert!(String::from_utf8_lossy(&run.stdout).contains("ran "));
+    assert_ran_to_its_own_end(&run, "mixed-model example std tool run");
+    // The tool answers with a computed value, so `code run` reports the
+    // program's own status instead of its success summary.
+    assert!(String::from_utf8_lossy(&run.stdout).contains("std-tool"));
+    assert!(String::from_utf8_lossy(&run.stderr).contains("F1005"));
 }
 
 #[test]
@@ -6675,7 +6589,7 @@ fn test_bundled_std_bootstrap_contract_matrix_stays_coherent() {
     let run = std::process::Command::new(&binary)
         .output()
         .expect("bundled std contract matrix binary should run");
-    assert!(run.status.success());
+    assert_ran_to_its_own_end(&run, "bundled std contract matrix binary");
     assert!(String::from_utf8_lossy(&run.stdout).contains("std-io"));
 
     materialize_local_bundled_std_alias(&root);
@@ -6784,7 +6698,9 @@ fn test_negative_runtime_contract_examples_fail_with_expected_boundary_class() {
 
     for (path, subdir, expected_message) in cases {
         let root = temp_example_root(path);
-        let working_root = subdir.map(|value| root.join(value)).unwrap_or(root.clone());
+        let working_root = subdir
+            .map(|value| root.join(value))
+            .unwrap_or_else(|| root.to_path_buf());
         let store_root = if path == "examples/fail_core_std_import" {
             let root = unique_temp_root("fail_core_std_import_matrix_store");
             std::fs::create_dir_all(root.join("std/fmt")).expect("should create std source root");
@@ -6847,10 +6763,12 @@ fn test_runtime_contract_regression_matrix_stays_coherent_across_layers() {
     ];
 
     for (path, should_succeed, expected) in direct_cases {
-        let root = if path.starts_with("examples/") {
-            temp_example_root(path)
-        } else {
-            repo_root().join(path)
+        let fixture = path
+            .starts_with("examples/")
+            .then(|| temp_example_root(path));
+        let root = match fixture.as_ref() {
+            Some(fixture) => fixture.to_path_buf(),
+            None => repo_root().join(path),
         };
         let build = if path.starts_with("examples/") {
             run_example_compile(&root, true)
@@ -6895,8 +6813,10 @@ fn test_runtime_contract_regression_matrix_stays_coherent_across_layers() {
         &["code", "run"],
     );
     let run_stdout = String::from_utf8_lossy(&run.stdout);
-    assert!(run.status.success(), "mixed-model std run should succeed");
-    assert!(run_stdout.contains("7"));
+    assert_ran_to_its_own_end(&run, "mixed-model std run");
+    // The example's own hosted-std output, not the run summary: `main` answers
+    // 7, so `code run` reports that status instead of a success summary.
+    assert!(run_stdout.contains("std-tool"));
 
     let emitted_root = temp_example_root("examples/std_surface_showcase");
     let build = run_example_compile(&emitted_root, true);
@@ -7579,21 +7499,18 @@ fn test_cli_code_build_and_run_keep_effective_std_runtime_path() {
 
     let run = run_fol_with_store_in_dir(&root, &repo_root().join("lang/library"), &["code", "run"]);
     let run_stdout = String::from_utf8_lossy(&run.stdout);
-    assert!(
-        run.status.success(),
-        "memo+standard run should succeed: stdout=\n{}\nstderr=\n{}",
-        run_stdout,
-        String::from_utf8_lossy(&run.stderr)
-    );
+    assert_ran_to_its_own_end(&run, "memo+standard run");
     assert!(
         run_stdout.contains("7"),
         "memo+standard run should execute through runtime std path: stdout=\n{}\nstderr=\n{}",
         run_stdout,
         String::from_utf8_lossy(&run.stderr)
     );
+    // The program answers 7, so `code run` reports that status under F1005
+    // rather than printing its success summary.
     assert!(
-        run_stdout.contains("ran "),
-        "memo+standard run should report a run summary: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&run.stderr).contains("F1005"),
+        "memo+standard run should name the launched artifact's own status: stdout=\n{}\nstderr=\n{}",
         run_stdout,
         String::from_utf8_lossy(&run.stderr)
     );

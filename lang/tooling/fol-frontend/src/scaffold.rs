@@ -91,39 +91,33 @@ pub fn new_project_with_mode(
         command: "new".to_string(),
         summary: format!("created project '{}'", name),
         artifacts: result.artifacts,
+        payload: None,
     })
 }
 
 fn starter_source_template(target: PackageTargetKind) -> &'static str {
     match target {
-        PackageTargetKind::Bin => "fun[] main(): int = {\n    return 0\n};\n",
+        // The binary scaffold's build.fol declares bundled `std` and the `memo`
+        // model, so its source has to actually use a hosted API.
+        PackageTargetKind::Bin => concat!(
+            "use std: pkg = {\"std\"};\n",
+            "\n",
+            "fun[] main(): int = {\n",
+            "    std::io::echo_str(\"hello from fol\");\n",
+            "    return 0;\n",
+            "};\n",
+        ),
         PackageTargetKind::Lib => "fun[exp] demo(): int = {\n    return 0\n};\n",
     }
 }
 
+/// The manifest name has to be the identifier the package loader derives from
+/// the same directory, so both sides go through one sanitizer.
 fn starter_package_name(root: &Path) -> String {
-    let raw = root
-        .file_name()
+    root.file_name()
         .and_then(|name| name.to_str())
-        .unwrap_or("app");
-    let mut name = String::with_capacity(raw.len().max(3));
-
-    for (index, ch) in raw.chars().enumerate() {
-        let valid = ch.is_ascii_alphanumeric() || ch == '_';
-        let mapped = if valid { ch } else { '_' };
-        if index == 0 && mapped.is_ascii_digit() {
-            name.push('_');
-        }
-        if mapped.is_ascii() {
-            name.push(mapped);
-        }
-    }
-
-    if name.is_empty() {
-        "app".to_string()
-    } else {
-        name
-    }
+        .and_then(fol_stream::sanitize_package_name)
+        .unwrap_or_else(|| "app".to_string())
 }
 
 fn starter_build_file(root: &Path, target: PackageTargetKind) -> String {
@@ -183,8 +177,7 @@ mod tests {
 
     #[test]
     fn init_shell_creates_package_scaffold_in_current_directory() {
-        let root =
-            std::env::temp_dir().join(format!("fol_frontend_init_pkg_{}", std::process::id()));
+        let root = fol_testkit::TempFixture::new("fol_frontend_init_pkg");
         fs::create_dir_all(&root).unwrap();
 
         init_current_dir(&root).unwrap();
@@ -199,15 +192,18 @@ mod tests {
                     "// build.fol is the package build entry file.\n",
                     "pro[] build(): non = {{\n",
                     "    var build = .build();\n",
-                    "    build.meta({{ name = \"fol_frontend_init_pkg_{pid}\", version = \"0.1.0\" }});\n",
+                    "    build.meta({{ name = \"{package}\", version = \"0.1.0\" }});\n",
                     "    build.add_dep({{ alias = \"std\", source = \"internal\", target = \"standard\" }});\n",
                     "    var graph = build.graph();\n",
-                    "    var app = graph.add_exe({{ name = \"fol_frontend_init_pkg_{pid}\", root = \"src/main.fol\", fol_model = \"memo\" }});\n",
+                    "    var app = graph.add_exe({{ name = \"{package}\", root = \"src/main.fol\", fol_model = \"memo\" }});\n",
                     "    graph.install(app);\n",
                     "    graph.add_run(app);\n",
                     "}};\n",
                 ),
-                pid = std::process::id(),
+                package = root
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .expect("fixture directory name should be utf8"),
             )
         );
         assert!(
@@ -222,8 +218,7 @@ mod tests {
 
     #[test]
     fn bin_target_scaffolding_uses_main_entry_file() {
-        let root =
-            std::env::temp_dir().join(format!("fol_frontend_bin_target_{}", std::process::id()));
+        let root = fol_testkit::TempFixture::new("fol_frontend_bin_target");
         fs::create_dir_all(&root).unwrap();
 
         init_package_root(&root, PackageTargetKind::Bin).unwrap();
@@ -231,7 +226,44 @@ mod tests {
         assert!(root.join("src/main.fol").is_file());
         assert_eq!(
             fs::read_to_string(root.join("src/main.fol")).unwrap(),
-            "fun[] main(): int = {\n    return 0\n};\n"
+            concat!(
+                "use std: pkg = {\"std\"};\n",
+                "\n",
+                "fun[] main(): int = {\n",
+                "    std::io::echo_str(\"hello from fol\");\n",
+                "    return 0;\n",
+                "};\n",
+            )
+        );
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    // The scaffolded build.fol declares bundled `std`; the scaffolded source has
+    // to import and use it, or the dependency is unjustified.
+    #[test]
+    fn bin_scaffold_source_uses_the_declared_std_dependency() {
+        let root = fol_testkit::TempFixture::new("fol_frontend_bin_std_use");
+        fs::create_dir_all(&root).unwrap();
+
+        init_package_root(&root, PackageTargetKind::Bin).unwrap();
+
+        let build = fs::read_to_string(root.join("build.fol")).unwrap();
+        let source = fs::read_to_string(root.join("src/main.fol")).unwrap();
+
+        assert!(
+            build.contains(
+                "build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" });"
+            ),
+            "scaffolded build.fol should declare bundled std, got: {build}"
+        );
+        assert!(
+            source.contains("use std: pkg = {\"std\"};"),
+            "scaffolded main.fol should import the declared std alias, got: {source}"
+        );
+        assert!(
+            source.contains("std::io::"),
+            "scaffolded main.fol should call a hosted std API, got: {source}"
         );
 
         fs::remove_dir_all(root).ok();
@@ -239,8 +271,7 @@ mod tests {
 
     #[test]
     fn lib_target_scaffolding_uses_library_entry_file() {
-        let root =
-            std::env::temp_dir().join(format!("fol_frontend_lib_target_{}", std::process::id()));
+        let root = fol_testkit::TempFixture::new("fol_frontend_lib_target");
         fs::create_dir_all(&root).unwrap();
 
         init_package_root(&root, PackageTargetKind::Lib).unwrap();
@@ -256,10 +287,7 @@ mod tests {
 
     #[test]
     fn bin_target_scaffolding_locks_documented_build_file_template() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_frontend_bin_build_template_{}",
-            std::process::id()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_frontend_bin_build_template");
         fs::create_dir_all(&root).unwrap();
 
         init_package_root(&root, PackageTargetKind::Bin).unwrap();
@@ -271,15 +299,18 @@ mod tests {
                     "// build.fol is the package build entry file.\n",
                     "pro[] build(): non = {{\n",
                     "    var build = .build();\n",
-                    "    build.meta({{ name = \"fol_frontend_bin_build_template_{pid}\", version = \"0.1.0\" }});\n",
+                    "    build.meta({{ name = \"{package}\", version = \"0.1.0\" }});\n",
                     "    build.add_dep({{ alias = \"std\", source = \"internal\", target = \"standard\" }});\n",
                     "    var graph = build.graph();\n",
-                    "    var app = graph.add_exe({{ name = \"fol_frontend_bin_build_template_{pid}\", root = \"src/main.fol\", fol_model = \"memo\" }});\n",
+                    "    var app = graph.add_exe({{ name = \"{package}\", root = \"src/main.fol\", fol_model = \"memo\" }});\n",
                     "    graph.install(app);\n",
                     "    graph.add_run(app);\n",
                     "}};\n",
                 ),
-                pid = std::process::id(),
+                package = root
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .expect("fixture directory name should be utf8"),
             )
         );
 
@@ -288,10 +319,7 @@ mod tests {
 
     #[test]
     fn lib_target_scaffolding_locks_documented_build_file_template() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_frontend_lib_build_template_{}",
-            std::process::id()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_frontend_lib_build_template");
         fs::create_dir_all(&root).unwrap();
 
         init_package_root(&root, PackageTargetKind::Lib).unwrap();
@@ -303,13 +331,16 @@ mod tests {
                     "// build.fol is the package build entry file.\n",
                     "pro[] build(): non = {{\n",
                     "    var build = .build();\n",
-                    "    build.meta({{ name = \"fol_frontend_lib_build_template_{pid}\", version = \"0.1.0\" }});\n",
+                    "    build.meta({{ name = \"{package}\", version = \"0.1.0\" }});\n",
                     "    var graph = build.graph();\n",
-                    "    var lib = graph.add_static_lib({{ name = \"fol_frontend_lib_build_template_{pid}\", root = \"src/lib.fol\" }});\n",
+                    "    var lib = graph.add_static_lib({{ name = \"{package}\", root = \"src/lib.fol\" }});\n",
                     "    graph.install(lib);\n",
                     "}};\n",
                 ),
-                pid = std::process::id(),
+                package = root
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .expect("fixture directory name should be utf8"),
             )
         );
 
@@ -318,8 +349,7 @@ mod tests {
 
     #[test]
     fn workspace_init_creates_workspace_root_file() {
-        let root =
-            std::env::temp_dir().join(format!("fol_frontend_init_ws_{}", std::process::id()));
+        let root = fol_testkit::TempFixture::new("fol_frontend_init_ws");
         fs::create_dir_all(&root).unwrap();
 
         let result = init_workspace_root(&root).unwrap();
@@ -335,8 +365,7 @@ mod tests {
 
     #[test]
     fn new_project_creates_named_directory_and_package_scaffold() {
-        let parent =
-            std::env::temp_dir().join(format!("fol_frontend_new_parent_{}", std::process::id()));
+        let parent = fol_testkit::TempFixture::new("fol_frontend_new_parent");
         fs::create_dir_all(&parent).unwrap();
 
         let result = new_project(&parent, "demo").unwrap();
@@ -366,10 +395,8 @@ mod tests {
 
     #[test]
     fn workspace_mode_switches_init_and_new_into_workspace_roots() {
-        let init_root_dir =
-            std::env::temp_dir().join(format!("fol_frontend_init_mode_{}", std::process::id()));
-        let new_parent =
-            std::env::temp_dir().join(format!("fol_frontend_new_mode_{}", std::process::id()));
+        let init_root_dir = fol_testkit::TempFixture::new("fol_frontend_init_mode");
+        let new_parent = fol_testkit::TempFixture::new("fol_frontend_new_mode");
         fs::create_dir_all(&init_root_dir).unwrap();
         fs::create_dir_all(&new_parent).unwrap();
 
@@ -401,10 +428,8 @@ mod tests {
 
     #[test]
     fn package_mode_switches_init_and_new_into_library_roots() {
-        let init_root_dir =
-            std::env::temp_dir().join(format!("fol_frontend_init_lib_{}", std::process::id()));
-        let new_parent =
-            std::env::temp_dir().join(format!("fol_frontend_new_lib_{}", std::process::id()));
+        let init_root_dir = fol_testkit::TempFixture::new("fol_frontend_init_lib");
+        let new_parent = fol_testkit::TempFixture::new("fol_frontend_new_lib");
         fs::create_dir_all(&init_root_dir).unwrap();
         fs::create_dir_all(&new_parent).unwrap();
 
@@ -422,5 +447,31 @@ mod tests {
     fn package_manifest_sanitizes_names_from_root_directories() {
         let root = std::env::temp_dir().join("123-invalid-name");
         assert_eq!(starter_package_name(&root), "_123_invalid_name");
+    }
+
+    #[test]
+    fn scaffolded_manifest_name_matches_the_package_the_loader_derives() {
+        let parent = fol_testkit::TempFixture::new("fol_frontend_hyphen_scaffold");
+        fs::create_dir_all(&parent).unwrap();
+
+        new_project(&parent, "my-proj").unwrap();
+        let root = parent.join("my-proj");
+        let manifest = fs::read_to_string(root.join("build.fol")).unwrap();
+
+        let loader_name = fol_stream::Source::init(
+            root.join("build.fol").to_str().unwrap(),
+            fol_stream::SourceType::File,
+        )
+        .expect("a hyphenated package root must still load")[0]
+            .package
+            .clone();
+
+        assert_eq!(loader_name, "my_proj");
+        assert!(
+            manifest.contains(&format!("name = \"{loader_name}\"")),
+            "manifest and loader must agree on the package name: {manifest}"
+        );
+
+        fs::remove_dir_all(parent).ok();
     }
 }

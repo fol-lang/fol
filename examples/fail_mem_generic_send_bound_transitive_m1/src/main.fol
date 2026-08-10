@@ -1,18 +1,11 @@
 // Generic capability bounds are verified recursively (V3_MEM §4.1): `T: send`
-// requires the actual type to be transitively thread-safe. `Outer` holds a
-// `File` (a `fin` value, not `Send`) nested inside `Inner`, so passing it to a
-// `T: send` parameter is rejected even though the `fin` is two levels down.
-
-typ File()(fin): rec = {
-    descriptor: int,
-};
-
-pro (File)finalize(): non = {
-    return;
-};
+// requires the actual type to be transitively thread-safe. `Outer` holds an
+// `Rc`-backed `ptr[shared, int]` (not `Send`) nested inside `Inner`, so passing
+// it to a `T: send` parameter is rejected even though the pointer is two levels
+// down.
 
 typ Inner: rec = {
-    handle: File,
+    handle: ptr[shared, int],
 };
 
 typ Outer: rec = {
@@ -24,8 +17,8 @@ fun cross(T: send)(item: T): int = {
 };
 
 fun[] main(): int = {
-    var file: File = { descriptor = 1 };
-    var inner: Inner = { handle = [mov]file };
+    var value: int = 1;
+    var inner: Inner = { handle = [ref]value };
     var outer: Outer = { inner = [mov]inner };
     return cross([mov]outer);
 };

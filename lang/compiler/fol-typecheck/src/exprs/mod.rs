@@ -663,13 +663,31 @@ pub(crate) fn type_node_with_expectation(
     // Expression typing recurses with the AST; debug frames here are large
     // enough that ~18 nesting levels exhaust a 2 MB worker-thread stack.
     // Grow the stack in segments (rustc's ensure_sufficient_stack pattern).
+    // Every error leaving this node without a syntax origin is located at the
+    // node itself, so diagnostics about origin-less operands (bare literals,
+    // ranges, container literals) still carry a file, line and column.
     let result = stacker::maybe_grow(256 * 1024, 4 * 1024 * 1024, || {
         type_node_with_expectation_inner(typed, resolved, context, node, expected_type)
-    })?;
+    })
+    .map_err(|error| locate_error_at_node(resolved, node, error))?;
     if let Some(type_id) = result.value_type {
         helpers::reject_embedded_full_channel(typed, type_id, node_origin(resolved, node))?;
     }
     Ok(result)
+}
+
+fn locate_error_at_node(
+    resolved: &ResolvedProgram,
+    node: &AstNode,
+    error: TypecheckError,
+) -> TypecheckError {
+    if error.origin().is_some() {
+        return error;
+    }
+    match node_origin(resolved, node) {
+        Some(origin) => error.with_fallback_origin(origin),
+        None => error,
+    }
 }
 
 fn type_node_with_expectation_inner(
@@ -1763,7 +1781,7 @@ fn type_node_with_expectation_inner(
         AstNode::Select { arms, default, .. } => {
             controlflow::type_select(typed, resolved, context, node, arms, default.as_deref())
         }
-        AstNode::Return { value } => controlflow::type_return(
+        AstNode::Return { value, .. } => controlflow::type_return(
             typed,
             resolved,
             context,
@@ -2628,6 +2646,13 @@ fn apply_deferred_captures(
         match operation {
             OwnershipOption::Borrow => {}
             OwnershipOption::Move => {
+                // A delayed block does not carry the value out of the frame, so
+                // a `fin` capture is still finalized at scope exit — unless the
+                // block body itself moved it onward, which typed first and is
+                // visible here as an already-moved binding.
+                if typed.moved_binding_origin(outer_symbol).is_none() {
+                    typed.mark_binding_deferred_owned(outer_symbol);
+                }
                 if let Some(origin) = node_origin(resolved, node) {
                     typed.mark_binding_moved(outer_symbol, origin);
                 }

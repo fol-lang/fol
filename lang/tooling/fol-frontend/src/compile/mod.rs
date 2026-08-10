@@ -5,8 +5,6 @@ use crate::{
 use fol_build::{evaluate_build_source, BuildEvaluationInputs, BuildEvaluationRequest};
 use std::{fs, path::Path};
 
-use crate::process::forward_child_output;
-
 #[cfg(test)]
 mod tests;
 
@@ -902,25 +900,7 @@ pub fn run_workspace_with_args_and_config(
             "build result is missing a binary path",
         )
     })?;
-    let output = std::process::Command::new(&binary)
-        .args(args)
-        .output()
-        .map_err(|error| FrontendError::new(FrontendErrorKind::CommandFailed, error.to_string()))?;
-
-    // Forward the executed program's own output; `run` should be
-    // transparent to the child's stdout/stderr, not swallow it.
-    forward_child_output(&output.stdout, &output.stderr);
-
-    if !output.status.success() {
-        return Err(FrontendError::new(
-            FrontendErrorKind::CommandFailed,
-            format!(
-                "run command failed for '{}': status {}",
-                binary.display(),
-                output.status
-            ),
-        ));
-    }
+    crate::process::run_child(&binary, args, config.output.mode == crate::OutputMode::Json)?;
 
     let mut result = FrontendCommandResult::new(
         "run",
@@ -989,25 +969,7 @@ pub(crate) fn run_selected_artifact_with_args_and_config(
             "build result is missing a binary path",
         )
     })?;
-    let output = std::process::Command::new(&binary)
-        .args(args)
-        .output()
-        .map_err(|error| FrontendError::new(FrontendErrorKind::CommandFailed, error.to_string()))?;
-
-    // Forward the executed program's own output; `run` should be
-    // transparent to the child's stdout/stderr, not swallow it.
-    forward_child_output(&output.stdout, &output.stderr);
-
-    if !output.status.success() {
-        return Err(FrontendError::new(
-            FrontendErrorKind::CommandFailed,
-            format!(
-                "run command failed for '{}': status {}",
-                binary.display(),
-                output.status
-            ),
-        ));
-    }
+    crate::process::run_child(&binary, args, config.output.mode == crate::OutputMode::Json)?;
 
     let mut result = FrontendCommandResult::new(
         "run",
@@ -1085,13 +1047,7 @@ pub(crate) fn test_selected_artifacts_with_config(
             FrontendError::new(FrontendErrorKind::CommandFailed, error.to_string())
         })?;
         if !status.success() {
-            return Err(FrontendError::new(
-                FrontendErrorKind::CommandFailed,
-                format!(
-                    "test command failed for '{}': status {status}",
-                    path.display()
-                ),
-            ));
+            return Err(crate::process::artifact_status_error("test", path, status));
         }
     }
 
@@ -1297,10 +1253,11 @@ fn compile_member_source_scope_for_model(
     let display_name = package_root
         .file_name()
         .and_then(|name| name.to_str())
-        .unwrap_or("package");
+        .and_then(fol_stream::sanitize_package_name)
+        .unwrap_or_else(|| "package".to_string());
     let syntax = fol_package::parse_directory_package_syntax(
         source_scope,
-        display_name,
+        &display_name,
         fol_package::PackageSourceKind::Package,
     )
     .map_err(FrontendError::from)?;
@@ -1321,7 +1278,7 @@ fn compile_member_source_scope_for_model(
         fol_package::PackageIdentity {
             source_kind: fol_package::PackageSourceKind::Entry,
             canonical_root: canonical_package_root.display().to_string(),
-            display_name: display_name.to_string(),
+            display_name,
         },
         syntax,
     );

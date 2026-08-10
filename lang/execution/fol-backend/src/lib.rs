@@ -60,6 +60,7 @@ pub use emit::{
     emit_main_rs_for_config, emit_namespace_module_shells, emit_namespace_module_shells_for_config,
     emit_package_module_shells, prepare_backend_build_paths, prepare_backend_runtime_build_dir,
     prepare_generated_build_dir, summarize_emitted_artifact, write_generated_crate,
+    ENTRY_ARG_USAGE_EXIT_STATUS,
 };
 pub use error::{BackendError, BackendErrorKind};
 pub use identity::{stable_workspace_hash, BackendWorkspaceIdentity};

@@ -147,7 +147,7 @@ impl AstParser {
         if token.key().is_illegal() {
             return Err(ParseError::from_token(
                 &token,
-                format!("Parser encountered illegal token '{}'", token.con()),
+                illegal_token_message(&token),
             ));
         }
 

@@ -340,7 +340,7 @@ impl BuildBodyExecutor {
     ) -> Result<Option<ExecValue>, BuildEvaluationError> {
         for stmt in stmts {
             match stmt {
-                AstNode::Return { value } => {
+                AstNode::Return { value, .. } => {
                     if let Some(value) = value.as_deref() {
                         return self.eval_expr(value);
                     }
@@ -405,6 +405,17 @@ impl BuildBodyExecutor {
                 column: 1,
                 length: name.len(),
             },
+        )
+    }
+
+    pub(super) fn invalid_config(
+        &self,
+        method: &str,
+        detail: impl Into<String>,
+    ) -> BuildEvaluationError {
+        BuildEvaluationError::new(
+            BuildEvaluationErrorKind::InvalidInput,
+            format!("{method} config is invalid: {}", detail.into()),
         )
     }
 }
@@ -635,7 +646,9 @@ fn validate_node_public_surface(
         | AstNode::Unpack { value }
         | AstNode::Spawn { task: value, .. }
         | AstNode::Yield { value }
-        | AstNode::Return { value: Some(value) } => validate_node_public_surface(package, value)?,
+        | AstNode::Return {
+            value: Some(value), ..
+        } => validate_node_public_surface(package, value)?,
         AstNode::Assignment { target, value } => {
             validate_node_public_surface(package, target)?;
             validate_node_public_surface(package, value)?;
@@ -784,7 +797,7 @@ fn validate_node_public_surface(
             }
         }
         AstNode::Comment { .. }
-        | AstNode::Return { value: None }
+        | AstNode::Return { value: None, .. }
         | AstNode::Break
         | AstNode::AsyncStage
         | AstNode::AwaitStage

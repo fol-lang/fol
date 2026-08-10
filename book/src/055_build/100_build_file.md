@@ -54,7 +54,7 @@ pro[] build(): non = {
     var build = .build();
     var graph = build.graph();
     ...
-}
+};
 ```
 
 - `pro[]` — procedure with no receivers
@@ -103,7 +103,7 @@ pro[] build(): non = {
     });
     graph.install(app);
     graph.add_run(app);
-}
+};
 ```
 
 The public layering is:
@@ -157,7 +157,7 @@ Current boundary:
 ```fol
 fun[] make_lib(name: str, root: str): Artifact = {
     return .build().graph().add_static_lib({ name = name, root = root });
-}
+};
 
 pro[] build(): non = {
     var build = .build();
@@ -168,7 +168,7 @@ pro[] build(): non = {
     app.link(core);
     app.link(io);
     graph.install(app);
-}
+};
 ```
 
 Helpers may call `.build()` ambiently, but they do not name a public build or

@@ -5,7 +5,6 @@ use fol_package::{infer_package_root, PreparedPackage};
 use fol_parser::ast::AstParser;
 use fol_stream::FileStream;
 use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 fn parse_package(path: &str) -> fol_parser::ast::ParsedPackage {
     let mut stream = FileStream::from_folder(path).expect("Should open parser fixture folder");
@@ -16,17 +15,8 @@ fn parse_package(path: &str) -> fol_parser::ast::ParsedPackage {
         .expect("Fixture folder should parse as a package")
 }
 
-fn unique_temp_root(label: &str) -> std::path::PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after unix epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "fol_resolver_session_{}_{}_{}",
-        label,
-        std::process::id(),
-        stamp
-    ))
+fn unique_temp_root(label: &str) -> fol_testkit::TempFixture {
+    fol_testkit::TempFixture::new(&format!("fol_resolver_session_{label}"))
 }
 
 /// Builds a canonical modern `build.fol` body for a package `name`, optionally

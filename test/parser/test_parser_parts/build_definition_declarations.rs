@@ -1,18 +1,8 @@
 use super::*;
 use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn unique_temp_root(label: &str) -> std::path::PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after unix epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "fol_build_definition_decl_{}_{}_{}",
-        label,
-        std::process::id(),
-        stamp
-    ))
+fn unique_temp_root(label: &str) -> crate::fixture::TempFixture {
+    crate::fixture::TempFixture::new(&format!("fol_build_definition_decl_{label}"))
 }
 
 #[test]
@@ -20,11 +10,8 @@ fn test_package_parser_accepts_canonical_build_procedures() {
     let temp_root = unique_temp_root("canonical_build_procedure");
     fs::create_dir_all(&temp_root).expect("Should create temporary parser fixture root");
     let file_path = temp_root.join("build.fol");
-    fs::write(
-        &file_path,
-        "pro[] build(): non = {\n    return;\n};\n",
-    )
-    .expect("Should write the canonical build fixture");
+    fs::write(&file_path, "pro[] build(): non = {\n    return;\n};\n")
+        .expect("Should write the canonical build fixture");
 
     let parsed = parse_package_from_file(
         file_path

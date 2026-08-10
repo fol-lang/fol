@@ -12,9 +12,9 @@ fn parse_report_fixture(path: &str) -> AstNode {
 fn body_contains_report_call(body: &[AstNode]) -> bool {
     body.iter().any(|node| match node {
         AstNode::FunctionCall { name, .. } => name == "report",
-        AstNode::Return { value } => value
-            .as_deref()
-            .is_some_and(|inner| matches!(inner, AstNode::FunctionCall { name, .. } if name == "report")),
+        AstNode::Return { value, .. } => value.as_deref().is_some_and(
+            |inner| matches!(inner, AstNode::FunctionCall { name, .. } if name == "report"),
+        ),
         _ => false,
     })
 }
@@ -53,7 +53,9 @@ fn test_procedure_custom_error_report_expression_stays_syntax_only() {
 
 #[test]
 fn test_quoted_report_call_target_parses_without_forward_resolution() {
-    parse_report_fixture("test/parser/simple_fun_error_type_report_forward_quoted_call_result_ok.fol");
+    parse_report_fixture(
+        "test/parser/simple_fun_error_type_report_forward_quoted_call_result_ok.fol",
+    );
 }
 
 #[test]

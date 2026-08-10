@@ -54,7 +54,7 @@ fn test_when_matching_expression_parses_in_function_return() {
                 } if name == "someValue"
                     && body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                             if matches!(value.as_ref(), AstNode::When { cases, default, .. } if cases.len() == 2 && default.is_some())
                     ))
             ))

@@ -27,14 +27,20 @@ pub struct FrontendProfileArgs {
 }
 
 impl FrontendProfileArgs {
-    pub fn selected_profile(&self) -> FrontendProfile {
+    /// `None` when this position carried no profile flag, so callers can fall
+    /// through to the next layer instead of overwriting it with a default.
+    pub fn explicit_profile(&self) -> Option<FrontendProfile> {
         if self.release {
-            FrontendProfile::Release
+            Some(FrontendProfile::Release)
         } else if self.debug {
-            FrontendProfile::Debug
+            Some(FrontendProfile::Debug)
         } else {
-            self.profile.unwrap_or(FrontendProfile::Debug)
+            self.profile
         }
+    }
+
+    pub fn selected_profile(&self) -> FrontendProfile {
+        self.explicit_profile().unwrap_or(FrontendProfile::Debug)
     }
 }
 

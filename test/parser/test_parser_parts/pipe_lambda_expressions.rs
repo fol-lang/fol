@@ -18,7 +18,7 @@ fn test_pipe_lambda_expression_parsing() {
                 AstNode::FunDecl { body, .. }
                 if body.iter().any(|stmt| matches!(
                     stmt,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(value.as_ref(), AstNode::AnonymousFun { params, .. } if params.len() == 1 && params[0].name == "x")
                 ))
             )));
@@ -29,9 +29,8 @@ fn test_pipe_lambda_expression_parsing() {
 
 #[test]
 fn test_typed_pipe_lambda_expression_parsing() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_pipe_lambda_typed_expr.fol")
-            .expect("Should read typed pipe lambda fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_pipe_lambda_typed_expr.fol")
+        .expect("Should read typed pipe lambda fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -46,7 +45,7 @@ fn test_typed_pipe_lambda_expression_parsing() {
                 AstNode::FunDecl { body, .. }
                 if body.iter().any(|stmt| matches!(
                     stmt,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(
                         value.as_ref(),
                         AstNode::AnonymousFun { params, .. }
@@ -63,9 +62,8 @@ fn test_typed_pipe_lambda_expression_parsing() {
 
 #[test]
 fn test_zero_and_multi_param_pipe_lambda_parsing() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_pipe_lambda_multi_expr.fol")
-            .expect("Should read zero/multi pipe lambda fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_pipe_lambda_multi_expr.fol")
+        .expect("Should read zero/multi pipe lambda fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -80,12 +78,12 @@ fn test_zero_and_multi_param_pipe_lambda_parsing() {
                 AstNode::FunDecl { body, .. }
                 if body.iter().filter(|stmt| matches!(
                     stmt,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(value.as_ref(), AstNode::AnonymousFun { params, .. } if params.is_empty())
                 )).count() == 1
                     && body.iter().filter(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(value.as_ref(), AstNode::AnonymousFun { params, .. } if params.len() == 2)
                     )).count() == 1
             )));
@@ -96,9 +94,8 @@ fn test_zero_and_multi_param_pipe_lambda_parsing() {
 
 #[test]
 fn test_block_bodied_pipe_lambda_parsing() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_pipe_lambda_block.fol")
-            .expect("Should read block-bodied pipe lambda fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_pipe_lambda_block.fol")
+        .expect("Should read block-bodied pipe lambda fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -113,7 +110,7 @@ fn test_block_bodied_pipe_lambda_parsing() {
                 AstNode::FunDecl { body, .. }
                 if body.iter().any(|stmt| matches!(
                     stmt,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(value.as_ref(), AstNode::AnonymousFun { body, .. } if body.iter().any(|node| matches!(node, AstNode::Return { .. })))
                 ))
             )));
@@ -195,7 +192,7 @@ fn test_pipe_lambda_capture_lists_parsing() {
                 AstNode::FunDecl { body, .. }
                 if body.iter().any(|stmt| matches!(
                     stmt,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(
                         value.as_ref(),
                         AstNode::AnonymousFun { captures, params, .. }
@@ -229,7 +226,7 @@ fn test_pipe_lambda_capture_lists_accept_semicolon_separators() {
                 AstNode::FunDecl { body, .. }
                 if body.iter().any(|stmt| matches!(
                     stmt,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(
                         value.as_ref(),
                         AstNode::AnonymousFun { captures, params, .. }
@@ -262,7 +259,7 @@ fn test_pipe_lambda_inquiry_clauses_parsing() {
                 AstNode::FunDecl { body, .. }
                 if body.iter().any(|stmt| matches!(
                     stmt,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(
                         value.as_ref(),
                         AstNode::AnonymousFun { inquiries, .. }
@@ -295,7 +292,7 @@ fn test_expression_pipe_lambda_inquiry_clauses_parsing() {
                 if name == "make"
                     && body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(
                             value.as_ref(),
                             AstNode::AnonymousFun { inquiries, .. }
@@ -318,13 +315,12 @@ fn test_expression_pipe_lambda_rejects_canonical_duplicate_inquiries() {
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
-    let errors = parser
-        .parse(&mut lexer)
-        .expect_err("Parser should reject canonical duplicate inquiry clauses on expression pipe lambdas");
+    let errors = parser.parse(&mut lexer).expect_err(
+        "Parser should reject canonical duplicate inquiry clauses on expression pipe lambdas",
+    );
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -350,13 +346,10 @@ fn test_pipe_lambda_rejects_duplicate_parameters() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
-        parse_error
-            .message
-            .contains("Duplicate parameter name 'x'"),
+        parse_error.message.contains("Duplicate parameter name 'x'"),
         "Expected duplicate pipe lambda parameter error, got: {}",
         parse_error.message
     );
@@ -381,7 +374,7 @@ fn test_pipe_lambda_supports_grouped_parameters() {
                 AstNode::FunDecl { body, .. }
                 if body.iter().any(|stmt| matches!(
                     stmt,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(
                         value.as_ref(),
                         AstNode::AnonymousFun { params, .. }
@@ -416,7 +409,7 @@ fn test_pipe_lambda_supports_semicolon_parameter_groups() {
                 AstNode::FunDecl { body, .. }
                 if body.iter().any(|stmt| matches!(
                     stmt,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(
                         value.as_ref(),
                         AstNode::AnonymousFun { params, .. }
@@ -480,7 +473,7 @@ fn test_semicolon_pipe_lambda_parameters_in_call_args() {
                 AstNode::FunDecl { body, .. }
                 if body.iter().any(|stmt| matches!(
                     stmt,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(
                         value.as_ref(),
                         AstNode::FunctionCall { name, args, .. }
@@ -513,7 +506,7 @@ fn test_pipe_lambda_supports_trailing_parameter_separator() {
                 AstNode::FunDecl { body, .. }
                 if body.iter().any(|stmt| matches!(
                     stmt,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(value.as_ref(), AstNode::AnonymousFun { params, .. } if params.len() == 2)
                 ))
             )));
@@ -570,7 +563,7 @@ fn test_trailing_pipe_lambda_separator_in_call_args() {
                 AstNode::FunDecl { body, .. }
                 if body.iter().any(|stmt| matches!(
                     stmt,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(
                         value.as_ref(),
                         AstNode::FunctionCall { name, args, .. }
@@ -603,7 +596,7 @@ fn test_semicolon_pipe_lambda_parameters_with_return_types() {
                 AstNode::FunDecl { body, .. }
                 if body.iter().any(|stmt| matches!(
                     stmt,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(
                         value.as_ref(),
                         AstNode::AnonymousFun {
@@ -639,7 +632,7 @@ fn test_trailing_pipe_lambda_separator_with_return_types() {
                 AstNode::FunDecl { body, .. }
                 if body.iter().any(|stmt| matches!(
                     stmt,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(
                         value.as_ref(),
                         AstNode::AnonymousFun {
@@ -675,7 +668,7 @@ fn test_pipe_lambda_supports_default_parameters() {
                 AstNode::FunDecl { body, .. }
                 if body.iter().any(|stmt| matches!(
                     stmt,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(
                         value.as_ref(),
                         AstNode::AnonymousFun { params, .. }
@@ -710,7 +703,7 @@ fn test_pipe_lambda_supports_variadic_parameters() {
                 AstNode::FunDecl { body, .. }
                 if body.iter().any(|stmt| matches!(
                     stmt,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(
                         value.as_ref(),
                         AstNode::AnonymousFun { params, .. }
@@ -739,7 +732,6 @@ fn test_pipe_lambda_rejects_non_last_variadic_parameter() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -765,7 +757,6 @@ fn test_pipe_lambda_rejects_variadic_default_values() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -796,7 +787,7 @@ fn test_pipe_lambda_parameter_casing_has_no_borrow_semantics() {
                 AstNode::FunDecl { body, .. }
                 if body.iter().any(|stmt| matches!(
                     stmt,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(
                         value.as_ref(),
                         AstNode::AnonymousFun { params, .. }
@@ -814,9 +805,8 @@ fn test_pipe_lambda_parameter_casing_has_no_borrow_semantics() {
 
 #[test]
 fn test_pipe_lambda_supports_explicit_return_types() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_pipe_lambda_return_type.fol")
-            .expect("Should read pipe lambda return-type fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_pipe_lambda_return_type.fol")
+        .expect("Should read pipe lambda return-type fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -831,7 +821,7 @@ fn test_pipe_lambda_supports_explicit_return_types() {
                 AstNode::FunDecl { body, .. }
                 if body.iter().any(|stmt| matches!(
                     stmt,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(
                         value.as_ref(),
                         AstNode::AnonymousFun { return_type: Some(FolType::Int { .. }), .. }
@@ -845,9 +835,8 @@ fn test_pipe_lambda_supports_explicit_return_types() {
 
 #[test]
 fn test_pipe_lambda_supports_explicit_error_types() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_pipe_lambda_error_type.fol")
-            .expect("Should read pipe lambda error-type fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_pipe_lambda_error_type.fol")
+        .expect("Should read pipe lambda error-type fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -862,7 +851,7 @@ fn test_pipe_lambda_supports_explicit_error_types() {
                 AstNode::FunDecl { body, .. }
                 if body.iter().any(|stmt| matches!(
                     stmt,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(
                         value.as_ref(),
                         AstNode::AnonymousFun { error_type: Some(FolType::Error { .. }), .. }

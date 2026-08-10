@@ -36,3 +36,42 @@ fn completion_commands_dispatch_through_public_frontend_entrypoints() {
     assert_eq!(complete.command, "_complete");
     assert!(complete.summary.contains("rust"));
 }
+
+#[test]
+fn tool_completion_prints_a_real_script_for_every_supported_shell() {
+    for shell in ["bash", "zsh", "fish"] {
+        let (output, result) = run_command_from_args(["fol", "tool", "completion", shell])
+            .expect("completion command should run");
+        let rendered = output
+            .render_command_summary(&result)
+            .expect("completion output should render");
+
+        assert!(
+            rendered.lines().count() > 5,
+            "`tool completion {shell}` printed no script: {rendered:?}"
+        );
+        assert!(
+            !rendered.contains("Done:"),
+            "`tool completion {shell}` wrapped the script in a status envelope: {rendered}"
+        );
+        for subcommand in ["work", "pack", "code", "tool", "emit", "explain", "clean"] {
+            assert!(
+                rendered.contains(subcommand),
+                "`tool completion {shell}` never mentions '{subcommand}': {rendered}"
+            );
+        }
+    }
+}
+
+#[test]
+fn tool_completion_json_envelope_carries_the_script() {
+    let (output, result) =
+        run_command_from_args(["fol", "--output", "json", "tool", "completion", "zsh"])
+            .expect("completion command should run");
+    let rendered = output
+        .render_command_summary(&result)
+        .expect("completion output should render");
+
+    assert!(rendered.contains("\"payload\""), "rendered: {rendered}");
+    assert!(rendered.contains("#compdef fol"), "rendered: {rendered}");
+}

@@ -1,0 +1,4 @@
+fun broken(): int = {
+    var § = 1;
+    return 0;
+};

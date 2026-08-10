@@ -41,15 +41,15 @@ fn test_parser_name_surfaces_normalize_to_plain_strings() {
 
     match quoted_ast {
         AstNode::Program { declarations } => {
-            assert!(declarations.iter().any(|node| {
-                matches!(node, AstNode::SegDecl { name, .. } if name == "core")
-            }));
-            assert!(declarations.iter().any(|node| {
-                matches!(node, AstNode::UseDecl { name, .. } if name == "warn")
-            }));
-            assert!(declarations.iter().any(|node| {
-                matches!(node, AstNode::VarDecl { name, .. } if name == "state")
-            }));
+            assert!(declarations
+                .iter()
+                .any(|node| { matches!(node, AstNode::SegDecl { name, .. } if name == "core") }));
+            assert!(declarations
+                .iter()
+                .any(|node| { matches!(node, AstNode::UseDecl { name, .. } if name == "warn") }));
+            assert!(declarations
+                .iter()
+                .any(|node| { matches!(node, AstNode::VarDecl { name, .. } if name == "state") }));
         }
         _ => panic!("Expected program node"),
     }
@@ -57,9 +57,8 @@ fn test_parser_name_surfaces_normalize_to_plain_strings() {
 
 #[test]
 fn test_parser_name_and_path_ast_shapes_stay_distinct_by_surface() {
-    let mut value_stream =
-        FileStream::from_file("test/parser/simple_fun_qualified_path_expr.fol")
-            .expect("Should read qualified value-path expression fixture");
+    let mut value_stream = FileStream::from_file("test/parser/simple_fun_qualified_path_expr.fol")
+        .expect("Should read qualified value-path expression fixture");
     let mut value_lexer = Elements::init(&mut value_stream);
     let mut parser = AstParser::new();
     let value_ast = parser
@@ -74,7 +73,7 @@ fn test_parser_name_and_path_ast_shapes_stay_distinct_by_surface() {
                     AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(
                             value.as_ref(),
                             AstNode::QualifiedIdentifier { path }

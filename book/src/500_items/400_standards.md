@@ -133,7 +133,7 @@ std geo: pro = {
 std rect(geo): rec[] = {
     width: int[64];
     heigh: int[64];
-}
+};
 ```
 
 Under that design, `rect` would need matching receiver-qualified routines such

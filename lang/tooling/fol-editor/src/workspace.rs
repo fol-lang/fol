@@ -630,18 +630,10 @@ mod tests {
     use crate::{EditorConfig, EditorDocument, EditorDocumentUri};
     use fol_typecheck::TypecheckCapabilityModel;
     use std::fs;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
-    fn temp_root(label: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!(
-            "fol_editor_workspace_{}_{}_{}",
-            label,
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after epoch")
-                .as_nanos()
-        ));
+    fn temp_root(label: &str) -> fol_testkit::TempFixture {
+        let root = fol_testkit::TempFixture::new(&format!("fol_editor_workspace_{label}"));
         fs::create_dir_all(root.join(".git")).unwrap();
         root
     }
@@ -660,7 +652,7 @@ mod tests {
         }
     }
 
-    fn copied_example_root(example_path: &str) -> PathBuf {
+    fn copied_example_root(example_path: &str) -> fol_testkit::TempFixture {
         let source = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../..")
             .join(example_path)
@@ -689,8 +681,8 @@ mod tests {
             .expect("mapping should succeed");
 
         assert_eq!(mapping.package_root, Some(package.clone()));
-        assert_eq!(mapping.workspace_root, Some(root.clone()));
-        assert_eq!(mapping.analysis_root, root);
+        assert_eq!(mapping.workspace_root, Some(root.to_path_buf()));
+        assert_eq!(mapping.analysis_root, root.to_path_buf());
         assert_eq!(mapping.active_fol_model, None);
         assert_eq!(mapping.artifact_source_scope, None);
         assert!(mapping.fol_model_scope_unresolved);
@@ -765,7 +757,7 @@ mod tests {
         let mapping = map_document_workspace(&document, &EditorConfig::default())
             .expect("mapping should succeed");
 
-        assert_eq!(mapping.package_root, Some(root.clone()));
+        assert_eq!(mapping.package_root, Some(root.to_path_buf()));
         assert_eq!(
             mapping.active_fol_model,
             Some(TypecheckCapabilityModel::Std)
@@ -782,7 +774,7 @@ mod tests {
         let mapping = map_document_workspace(&document, &EditorConfig::default())
             .expect("mapping should succeed");
 
-        assert_eq!(mapping.package_root, Some(root.clone()));
+        assert_eq!(mapping.package_root, Some(root.to_path_buf()));
         assert_eq!(
             mapping.active_fol_model,
             Some(TypecheckCapabilityModel::Std)

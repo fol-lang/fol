@@ -679,12 +679,34 @@ impl<'a> RoutineCursor<'a> {
         &mut self,
         current_identity: &PackageIdentity,
         decl_index: &WorkspaceDeclIndex,
+        type_table: &crate::LoweredTypeTable,
         resolved_symbol: &ResolvedSymbol,
         result_type: LoweredTypeId,
     ) -> Result<LoweredValue, LoweringError> {
         if let Some(local_id) = self.routine.local_symbols.get(&resolved_symbol.id).copied() {
+            // A guard binding (`var[mut, bor] guard = ([bor]state).lock()`) shares
+            // the mutex local's slot, but reading it whole snapshots the protected
+            // value out of the held lock rather than handing over a second handle
+            // to the mutex (V3_MEM §8.3). The read is a value, so it neither keeps
+            // the binding's borrow type nor forwards the `mux[T]` marking.
+            let reads_guard_value = self.routine.mutex_params.contains(&local_id)
+                && matches!(
+                    type_table.get(result_type),
+                    Some(crate::types::LoweredType::Borrowed { .. })
+                );
+            let result_type = if reads_guard_value {
+                let mut peeled = result_type;
+                while let Some(crate::types::LoweredType::Borrowed { inner, .. }) =
+                    type_table.get(peeled)
+                {
+                    peeled = *inner;
+                }
+                peeled
+            } else {
+                result_type
+            };
             let result_local = self.allocate_local(result_type, None);
-            if self.routine.mutex_params.contains(&local_id) {
+            if self.routine.mutex_params.contains(&local_id) && !reads_guard_value {
                 self.routine.mutex_params.insert(result_local);
             }
             self.push_instr(

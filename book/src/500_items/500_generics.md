@@ -153,5 +153,5 @@ pro main: int = {
 
     barCall(2);
     barCall("go")
-}
+};
 ```

@@ -497,24 +497,32 @@ pub fn stdin_is_idle() -> bool {
     key_feed().idle()
 }
 
-/// The substring at a byte offset and length, clamped to the string and
-/// snapped outward to UTF-8 boundaries so it never panics.
+/// The substring at a byte offset and length, clamped to the string and snapped
+/// to UTF-8 boundaries.
+///
+/// Both ends move *forward* to a boundary: a start inside a character skips the
+/// partial character rather than emitting half of it, and a length that stops
+/// inside one takes the whole character. Moving them in opposite directions is
+/// what used to let the start overtake the end and panic the program on a slice
+/// like `sub("héllo", 2, 0)`, so the end is pinned to the start before it snaps.
 pub fn str_sub(text: FolStr, start: crate::value::FolInt, len: crate::value::FolInt) -> FolStr {
-    let bytes = text.as_str().as_bytes();
-    let total = bytes.len();
-    let from = start.clamp(0, total as i64) as usize;
-    let until = (start.max(0) as usize)
-        .saturating_add(len.max(0) as usize)
-        .min(total);
-    let mut from = from.min(until);
-    let mut until = until;
-    while from < total && !text.as_str().is_char_boundary(from) {
+    let source = text.as_str();
+    let total = source.len();
+
+    let mut from = start.clamp(0, total as i64) as usize;
+    while from < total && !source.is_char_boundary(from) {
         from += 1;
     }
-    while until > from && !text.as_str().is_char_boundary(until) {
-        until -= 1;
+
+    let mut until = (start.max(0) as usize)
+        .saturating_add(len.max(0) as usize)
+        .min(total)
+        .max(from);
+    while until < total && !source.is_char_boundary(until) {
+        until += 1;
     }
-    FolStr::new(&text.as_str()[from..until])
+
+    FolStr::new(&source[from..until])
 }
 
 /// The byte value at an index, or -1 outside the string.
@@ -716,9 +724,114 @@ pub fn read_file(path: FolStr) -> FolStr {
     FolStr::new(std::fs::read_to_string(path.as_str()).unwrap_or_default())
 }
 
+/// Writes text to a path: 0 on success, -1 when the write fails.
+pub fn write_file(path: FolStr, contents: FolStr) -> crate::value::FolInt {
+    match std::fs::write(path.as_str(), contents.as_str()) {
+        Ok(()) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// How many command-line arguments the program received, excluding the name it
+/// was invoked as.
+pub fn arg_count() -> crate::value::FolInt {
+    (std::env::args_os().count().saturating_sub(1)) as crate::value::FolInt
+}
+
+/// The command-line argument at an index, or the empty string when the index is
+/// out of range. Index 0 is the first argument after the program name.
+pub fn arg_at(index: crate::value::FolInt) -> FolStr {
+    if index < 0 {
+        return FolStr::new(String::new());
+    }
+    let argument = std::env::args_os()
+        .nth(index as usize + 1)
+        .map(|value| value.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    FolStr::new(argument)
+}
+
+/// Text written to standard error without a trailing newline, forwarded
+/// unchanged so it can be chained.
+pub fn write_err(value: FolStr) -> FolStr {
+    use std::io::Write as _;
+    let mut stream = std::io::stderr();
+    let _ = stream.write_all(value.as_str().as_bytes());
+    let _ = stream.flush();
+    value
+}
+
+/// The byte index where a needle first occurs, or -1 when it does not. An empty
+/// needle matches at the start, which is what `find` means everywhere else.
+pub fn str_find(haystack: FolStr, needle: FolStr) -> crate::value::FolInt {
+    match haystack.as_str().find(needle.as_str()) {
+        Some(index) => index as crate::value::FolInt,
+        None => -1,
+    }
+}
+
+/// Every occurrence of one substring replaced by another. An empty needle is
+/// returned unchanged rather than splicing the replacement between every byte.
+pub fn str_replace(text: FolStr, from: FolStr, to: FolStr) -> FolStr {
+    if from.as_str().is_empty() {
+        return text;
+    }
+    FolStr::new(text.as_str().replace(from.as_str(), to.as_str()))
+}
+
+/// A string parsed as an integer, or the caller's fallback.
+///
+/// The fallback is an argument rather than a fixed sentinel because every
+/// sentinel is also a legitimate parse result: -1 cannot mean both "the text
+/// said -1" and "the text was not a number".
+pub fn parse_int(text: FolStr, fallback: crate::value::FolInt) -> crate::value::FolInt {
+    text.as_str()
+        .trim()
+        .parse::<crate::value::FolInt>()
+        .unwrap_or(fallback)
+}
+
+/// A float rendered with a fixed number of decimal places, clamped to what
+/// f64 can actually distinguish.
+pub fn float_to_str(value: crate::value::FolFloat, decimals: crate::value::FolInt) -> FolStr {
+    let places = decimals.clamp(0, 17) as usize;
+    FolStr::new(format!("{value:.places$}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn str_sub_never_panics_on_a_start_inside_a_character() {
+        // Every interior offset of a 2-byte and a 4-byte character, at the
+        // lengths that used to invert the range.
+        for text in ["héllo", "a😀b"] {
+            for start in 0..=text.len() {
+                for len in 0..3 {
+                    let taken = str_sub(FolStr::new(text), start as i64, len as i64);
+                    assert!(
+                        text.contains(taken.as_str()),
+                        "sub({text:?}, {start}, {len}) should be a slice of the input"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn str_sub_snaps_both_ends_forward_to_character_boundaries() {
+        // A zero length stays empty instead of widening to a whole character.
+        assert_eq!(str_sub(FolStr::new("héllo"), 2, 0).as_str(), "");
+        // find() reports a byte index, so find-then-sub has to return the
+        // character that find located.
+        assert_eq!(str_sub(FolStr::new("unié"), 3, 1).as_str(), "é");
+        assert_eq!(str_sub(FolStr::new("hello"), 1, 3).as_str(), "ell");
+        // Out-of-range ends clamp rather than panicking.
+        assert_eq!(str_sub(FolStr::new("hi"), 0, 99).as_str(), "hi");
+        assert_eq!(str_sub(FolStr::new("hi"), 99, 1).as_str(), "");
+        assert_eq!(str_sub(FolStr::new("hi"), -5, 1).as_str(), "h");
+    }
 
     fn task_registry_test_guard() -> std::sync::MutexGuard<'static, ()> {
         static TEST_TASKS: std::sync::Mutex<()> = std::sync::Mutex::new(());

@@ -13,3 +13,4 @@ fol-stream = { path = "../../compiler/fol-stream" }
 fol-types = { path = "../../compiler/fol-types" }
 
 [dev-dependencies]
+fol-testkit = { path = "../../tooling/fol-testkit" }

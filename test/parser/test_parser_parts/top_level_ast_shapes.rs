@@ -81,10 +81,9 @@ fn test_type_member_routines_stay_nested_and_do_not_leak_to_root() {
     match &declarations[0] {
         AstNode::TypeDecl {
             name,
-            type_def:
-                TypeDefinition::Record {
-                    fields, members, ..
-                },
+            type_def: TypeDefinition::Record {
+                fields, members, ..
+            },
             ..
         } => {
             assert_eq!(name, "Computer", "Fixture should parse the Computer type");
@@ -92,7 +91,11 @@ fn test_type_member_routines_stay_nested_and_do_not_leak_to_root() {
                 matches!(fields.get("brand"), Some(FolType::Named { name, .. }) if name == "str"),
                 "Record field should remain on the type definition"
             );
-            assert_eq!(members.len(), 3, "All three routine members should stay nested");
+            assert_eq!(
+                members.len(),
+                3,
+                "All three routine members should stay nested"
+            );
             assert!(members.iter().any(|member| matches!(
                 member,
                 AstNode::FunDecl { name, .. } if name == "getBrand"
@@ -183,7 +186,7 @@ fn test_mixed_root_surface_keeps_declarations_statements_and_literals_in_order()
             &declarations[4],
             AstNode::ProDecl { name, body, .. }
                 if name == "main"
-                    && matches!(body.as_slice(), [AstNode::Return { value: None }])
+                    && matches!(body.as_slice(), [AstNode::Return { value: None, .. }])
         ),
         "Final root node should remain the routine declaration with its body nested"
     );

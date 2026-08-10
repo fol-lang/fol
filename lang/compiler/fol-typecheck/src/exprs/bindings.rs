@@ -73,6 +73,12 @@ pub(crate) fn type_binding_initializer(
             declared_type,
             binding_origin.clone(),
         )?;
+        super::helpers::reject_nested_fin_storage(
+            typed,
+            declared_type,
+            binding_origin.clone(),
+            &format!("binding '{name}'"),
+        )?;
     }
     // An anonymous routine that is the whole initializer becomes a local,
     // nonescaping closure binding; only there may its captures borrow (§5.3).
@@ -275,6 +281,12 @@ pub(crate) fn type_binding_initializer(
                 symbol_id,
                 inferred,
                 binding_origin.clone(),
+            )?;
+            super::helpers::reject_nested_fin_storage(
+                typed,
+                inferred,
+                binding_origin.clone(),
+                &format!("binding '{name}'"),
             )?;
             reject_nested_eventual_value(
                 typed,

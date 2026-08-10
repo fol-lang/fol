@@ -102,18 +102,65 @@ fn render_dependency_mode_summary(dependencies: &[ResolvedDependencyPackage]) ->
     ))
 }
 
+/// Resolve a path for comparison even when it does not exist yet.
+fn comparable_path(path: &Path) -> PathBuf {
+    if let Ok(resolved) = path.canonicalize() {
+        return resolved;
+    }
+    match (path.parent(), path.file_name()) {
+        (Some(parent), Some(name)) => match parent.canonicalize() {
+            Ok(parent) => parent.join(name),
+            Err(_) => path.to_path_buf(),
+        },
+        _ => path.to_path_buf(),
+    }
+}
+
+/// Materialize a dependency into its alias slot in the package store.
+///
+/// The slot is cleared before the copy, so the source has to be somewhere else
+/// entirely. When the store root is the directory that already holds the
+/// source -- `--package-store-root <dir>` where the std lives at `<dir>/std`,
+/// which is also the shipped toolchain's own layout -- clearing the slot
+/// deletes the very tree being copied, and the command then fails complaining
+/// that the source has no `build.fol`. Refusing here keeps a wrong flag a wrong
+/// flag instead of a destroyed standard library.
+fn project_dependency_into_store(alias_root: &Path, source_root: &Path) -> FrontendResult<()> {
+    let target = comparable_path(alias_root);
+    let source = comparable_path(source_root);
+
+    if target == source {
+        // Already materialized exactly where it belongs; copying it onto
+        // itself has nothing to add and clearing it would lose it.
+        return Ok(());
+    }
+    if source.starts_with(&target) || target.starts_with(&source) {
+        return Err(FrontendError::new(
+            crate::FrontendErrorKind::InvalidInput,
+            format!(
+                "refusing to materialize '{}' into '{}': one path contains the other, \
+                 so preparing the destination would delete the source",
+                source_root.display(),
+                alias_root.display()
+            ),
+        ));
+    }
+
+    if alias_root.is_dir() {
+        std::fs::remove_dir_all(alias_root).map_err(FrontendError::from)?;
+    } else if alias_root.exists() {
+        std::fs::remove_file(alias_root).map_err(FrontendError::from)?;
+    }
+    copy_package_projection(source_root, alias_root)
+}
+
 fn project_git_dependency_alias(
     package_store_root: &Path,
     alias: &str,
     materialized_root: &Path,
 ) -> FrontendResult<PathBuf> {
     let alias_root = package_store_root.join(alias);
-    if alias_root.is_dir() {
-        std::fs::remove_dir_all(&alias_root).map_err(FrontendError::from)?;
-    } else if alias_root.exists() {
-        std::fs::remove_file(&alias_root).map_err(FrontendError::from)?;
-    }
-    copy_package_projection(materialized_root, &alias_root)?;
+    project_dependency_into_store(&alias_root, materialized_root)?;
     Ok(alias_root)
 }
 
@@ -536,12 +583,7 @@ fn resolve_workspace_fetch(
                             )
                         })?;
                     let alias_root = package_store_root.join(&dependency.alias);
-                    if alias_root.is_dir() {
-                        std::fs::remove_dir_all(&alias_root).map_err(FrontendError::from)?;
-                    } else if alias_root.exists() {
-                        std::fs::remove_file(&alias_root).map_err(FrontendError::from)?;
-                    }
-                    copy_package_projection(&std_root, &alias_root)?;
+                    project_dependency_into_store(&alias_root, &std_root)?;
                     let loaded = package_session
                         .load_materialized_package(&alias_root)
                         .map_err(FrontendError::from)?;
@@ -797,28 +839,19 @@ mod tests {
         )
     }
 
-    fn temp_root(label: &str) -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "fol_frontend_fetch_{}_{}_{}",
-            label,
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after epoch")
-                .as_nanos()
-        ))
+    fn temp_root(label: &str) -> fol_testkit::TempFixture {
+        fol_testkit::TempFixture::new(&format!("fol_frontend_fetch_{label}"))
     }
 
     #[test]
     fn package_preparation_reads_formal_workspace_members() {
-        let root =
-            std::env::temp_dir().join(format!("fol_frontend_prepare_{}", std::process::id()));
+        let root = fol_testkit::TempFixture::new("fol_frontend_prepare");
         let app = root.join("app");
         fs::create_dir_all(&app).unwrap();
         fs::write(app.join("build.fol"), semantic_bin_build()).unwrap();
 
         let workspace = FrontendWorkspace {
-            root: WorkspaceRoot::new(root.clone()),
+            root: WorkspaceRoot::new(root.to_path_buf()),
             members: vec![PackageRoot::new(app.clone())],
             std_root_override: Some(root.join("std")),
             package_store_root_override: Some(root.join(".fol/pkg")),
@@ -843,15 +876,12 @@ mod tests {
 
     #[test]
     fn package_preparation_rejects_members_without_formal_build_files() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_frontend_prepare_missing_{}",
-            std::process::id()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_frontend_prepare_missing");
         let app = root.join("app");
         fs::create_dir_all(&app).unwrap();
 
         let workspace = FrontendWorkspace {
-            root: WorkspaceRoot::new(root.clone()),
+            root: WorkspaceRoot::new(root.to_path_buf()),
             members: vec![PackageRoot::new(app)],
             std_root_override: None,
             package_store_root_override: None,
@@ -871,13 +901,13 @@ mod tests {
 
     #[test]
     fn fetch_workspace_returns_a_command_result_for_prepared_members() {
-        let root = std::env::temp_dir().join(format!("fol_frontend_fetch_{}", std::process::id()));
+        let root = fol_testkit::TempFixture::new("fol_frontend_fetch");
         let app = root.join("app");
         fs::create_dir_all(&app).unwrap();
         fs::write(app.join("build.fol"), semantic_bin_build()).unwrap();
 
         let workspace = FrontendWorkspace {
-            root: WorkspaceRoot::new(root.clone()),
+            root: WorkspaceRoot::new(root.to_path_buf()),
             members: vec![PackageRoot::new(app.clone())],
             std_root_override: None,
             package_store_root_override: None,
@@ -924,7 +954,7 @@ mod tests {
         .unwrap();
 
         let workspace = FrontendWorkspace {
-            root: WorkspaceRoot::new(root.clone()),
+            root: WorkspaceRoot::new(root.to_path_buf()),
             members: vec![PackageRoot::new(app.clone())],
             std_root_override: None,
             package_store_root_override: Some(root.join(".fol/pkg")),
@@ -987,14 +1017,13 @@ mod tests {
 
     #[test]
     fn fetch_summary_prefers_configured_store_root_in_reported_artifacts() {
-        let root =
-            std::env::temp_dir().join(format!("fol_frontend_fetch_summary_{}", std::process::id()));
+        let root = fol_testkit::TempFixture::new("fol_frontend_fetch_summary");
         let app = root.join("app");
         fs::create_dir_all(&app).unwrap();
         fs::write(app.join("build.fol"), semantic_bin_build()).unwrap();
 
         let workspace = FrontendWorkspace {
-            root: WorkspaceRoot::new(root.clone()),
+            root: WorkspaceRoot::new(root.to_path_buf()),
             members: vec![PackageRoot::new(app.clone())],
             std_root_override: None,
             package_store_root_override: Some(root.join(".fol/ws-pkg")),
@@ -1047,7 +1076,7 @@ mod tests {
             .expect("should write app source");
 
         let workspace = FrontendWorkspace {
-            root: WorkspaceRoot::new(root.clone()),
+            root: WorkspaceRoot::new(root.to_path_buf()),
             members: vec![PackageRoot::new(app.clone())],
             std_root_override: None,
             package_store_root_override: Some(root.join(".fol/pkg")),

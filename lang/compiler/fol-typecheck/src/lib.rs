@@ -85,18 +85,15 @@ mod tests {
     use fol_resolver::resolve_package;
     use fol_stream::FileStream;
     use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn write_typecheck_fixture(contents: &str) -> std::path::PathBuf {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("fol_typecheck_lib_{stamp}"));
+    /// The returned value is the fixture *file*, but it owns the directory
+    /// around it, so callers keep it alive for as long as they read the file.
+    fn write_typecheck_fixture(contents: &str) -> fol_testkit::TempFixture {
+        let dir = fol_testkit::TempFixture::new("fol_typecheck_lib");
         fs::create_dir_all(&dir).expect("should create typecheck fixture dir");
-        let path = dir.join("main.fol");
-        fs::write(&path, contents).expect("should write typecheck fixture");
-        path
+        let fixture = dir.child("main.fol");
+        fs::write(&fixture, contents).expect("should write typecheck fixture");
+        fixture
     }
 
     fn typecheck_fixture_errors(contents: &str) -> Vec<TypecheckError> {

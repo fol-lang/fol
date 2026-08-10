@@ -1,0 +1,5 @@
+fun[] main(): int = {
+    tool.first("a").second("b");
+    make().read();
+    return 0;
+};

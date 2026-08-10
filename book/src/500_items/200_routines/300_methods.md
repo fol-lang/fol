@@ -33,11 +33,11 @@ Current parser-supported receiver declaration syntax is:
 ```fol
 fun (parser)parse_msg(code: int): str = {
     return "ok";
-}
+};
 
 pro (parser)update(code: int): int = {
     return code;
-}
+};
 ```
 
 The receiver type appears in parentheses right after `fun` or `pro`, followed by the method name.
@@ -58,7 +58,7 @@ Invalid example:
 ```fol
 fun (any)parse_msg(code: int): str = {
     return "ok";
-}
+};
 ```
 
 This form reports: `Method receiver type cannot be any, non, or none`.
@@ -93,11 +93,11 @@ typ Counter: rec = {
 
 fun (Counter)shift(step: int = 2, extras: ... int): int = {
     return step;
-}
+};
 
 fun[] run(current: Counter, extras: seq[int]): int = {
     return current.shift(step = 3, ...extras);
-}
+};
 ```
 
 `V1` does not support indexed pseudo-arguments such as
@@ -115,7 +115,7 @@ typ Counter: rec = {
 
 fun (Counter)read(): int = {
     return self.total;
-}
+};
 ```
 
 Generic receiver types participate too: `fun (Box[T])get(T)(): T` can return
@@ -133,10 +133,10 @@ Custom error routines also support reporting method call results when receiver-q
 ```fol
 fun (parser)parse_err(code: int): str = {
     return "bad-input";
-}
+};
 
 fun run(tool: parser, code: int): int / str = {
     report tool.parse_err(code)
     return 0
-}
+};
 ```

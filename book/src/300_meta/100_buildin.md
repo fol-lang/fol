@@ -200,21 +200,85 @@ dependency):
 - `.dir_list(path)` — the sorted entries of a directory, directories suffixed
   with `/`
 - `.read_file(path)` — a file's contents
+- `.write_file(path, contents)` — write text to a path, yielding `0` on success
+  and `-1` when the write fails
+- `.arg_count()` / `.arg_at(index)` — the command-line arguments, excluding the
+  program name; an index past the end reads as the empty string
+- `.write_err(text)` — write to standard error without a trailing newline
+- `.str_find(text, needle)` — the byte index of the first occurrence, or `-1`
+- `.str_replace(text, from, to)` — replace every occurrence
+- `.parse_int(text, fallback)` — parse an integer, or the caller's fallback; the
+  fallback is an argument because every sentinel is also a valid parse result
+- `.float_to_str(value, decimals)` — a float at a fixed number of decimals
 
 The bundled `std` package wraps them as `std::io::write`, `std::io::read_key`,
 `std::io::read_key_ms`, `std::term::raw_mode`, `std::term::cols`,
 `std::term::rows`, `std::time::sleep_ms`, `std::time::now_ms`,
 `std::fmt::int_to_str`, `std::strn::sub`, `std::strn::byte_at`,
-`std::strn::from_byte`, `std::os::env`, `std::os::shell`, `std::fs::dir_list`,
-and `std::fs::read_file`.
+`std::strn::from_byte`, `std::strn::find`, `std::strn::replace`,
+`std::strn::to_int`, `std::fmt::float_to_str`, `std::os::env`,
+`std::os::shell`, `std::os::arg_count`, `std::os::arg`, `std::io::write_err`,
+`std::fs::dir_list`, `std::fs::read_file`, and `std::fs::write_file`.
 
 With that build contract, this is valid:
 
 ```fol
 fun[] main(flag: bol): bol = {
     return .echo(flag)
-}
+};
 ```
+
+### The entry point's command line and exit status
+
+An entry routine's parameters are bound, in order, to the command-line
+arguments that follow the program name. Only the scalar builtins are bound
+this way: `int`, `flt`, `bol`, `chr`, and `str`. `bol` accepts
+`true`/`1`/`yes`/`on` and `false`/`0`/`no`/`off`.
+
+A command line that does not satisfy the signature is a usage error, not a
+default. A missing argument, or one that does not parse as the declared type,
+writes a message naming the position and the expected type to standard error
+and exits with status `2`. Nothing silently becomes `0` or `""`.
+
+```fol
+fun[] main(count: int, label: str): int = {
+    return .echo(count);
+};
+```
+
+```text
+$ ./program notanumber hello
+fol: command-line argument #1 is not a valid `int`: `notanumber`
+$ echo $?
+2
+```
+
+A parameter of any other type is not bound from the command line; it is
+constructed empty. Read the command line yourself with `.arg_count()` and
+`.arg_at(index)` when you need anything richer than a scalar.
+
+The entry's `int` return value **is** the process exit status:
+
+```fol
+fun[] main(): int = {
+    return 3;
+};
+```
+
+```text
+$ ./program; echo $?
+3
+```
+
+This holds on both channels. A plain `fun[] main(): int` exits with the value
+it returns, and a recoverable `fun[] main(): int / E` exits with the returned
+value when it returns and with `1`, after printing the error, when it reports.
+An entry declared `: non` always exits `0`. Exit statuses are truncated to
+their low 8 bits by the operating system, so keep them in `0..=255`; `0` means
+success by convention.
+
+Because `main`'s return is the exit status, `return .echo(value)` makes the
+echoed value the status too. Return `0` explicitly when a program succeeds.
 
 ### Recoverable and control intrinsics
 
@@ -310,11 +374,11 @@ ali Failure: err[str]
 
 fun[] unwrap_optional(value: MaybeText): str = {
     return [uwp]value
-}
+};
 
 fun[] unwrap_failure(value: Failure): str = {
     return [uwp]value
-}
+};
 ```
 
 That `!` surface is part of shell typing, not the intrinsic registry.

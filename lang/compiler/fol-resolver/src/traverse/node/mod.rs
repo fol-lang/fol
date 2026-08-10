@@ -345,7 +345,9 @@ fn traverse_node_inner(
         AstNode::NamedArgument { value, .. }
         | AstNode::Unpack { value }
         | AstNode::Spawn { task: value, .. }
-        | AstNode::Return { value: Some(value) } => {
+        | AstNode::Return {
+            value: Some(value), ..
+        } => {
             traverse_node(
                 session,
                 program,
@@ -376,7 +378,7 @@ fn traverse_node_inner(
                 routine_context,
             )?;
         }
-        AstNode::Return { value: None }
+        AstNode::Return { value: None, .. }
         | AstNode::Break
         | AstNode::AsyncStage
         | AstNode::AwaitStage => {}

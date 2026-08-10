@@ -3,24 +3,16 @@ use super::super::{
     LspPublishDiagnosticsParams, LspTextDocumentItem,
 };
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-pub(super) fn temp_root(label: &str) -> PathBuf {
-    let root = std::env::temp_dir().join(format!(
-        "fol_editor_lsp_{}_{}_{}",
-        label,
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time should be after epoch")
-            .as_nanos()
-    ));
+pub(super) fn temp_root(label: &str) -> fol_testkit::TempFixture {
+    let root = fol_testkit::TempFixture::new(&format!("fol_editor_lsp_{label}"));
     std::fs::create_dir_all(&root).expect("test root should be creatable");
     std::fs::create_dir_all(root.join(".git")).expect("test workspace marker should be creatable");
     root
 }
 
-pub(super) fn sample_package_root(label: &str) -> (PathBuf, String) {
+pub(super) fn sample_package_root(label: &str) -> (fol_testkit::TempFixture, String) {
     let root = temp_root(label);
     let src = root.join("src");
     fs::create_dir_all(&src).unwrap();
@@ -38,7 +30,7 @@ pub(super) fn sample_package_root(label: &str) -> (PathBuf, String) {
 
 /// A single-package fixture whose build declares the bundled internal std
 /// dependency, so hosted intrinsics such as `.echo` are legal completions.
-pub(super) fn hosted_sample_package_root(label: &str) -> (PathBuf, String) {
+pub(super) fn hosted_sample_package_root(label: &str) -> (fol_testkit::TempFixture, String) {
     let (root, uri) = sample_package_root(label);
     fs::write(
         root.join("build.fol"),
@@ -57,7 +49,7 @@ pub(super) fn hosted_sample_package_root(label: &str) -> (PathBuf, String) {
     (root, uri)
 }
 
-pub(super) fn sample_loc_workspace_root(label: &str) -> (PathBuf, String) {
+pub(super) fn sample_loc_workspace_root(label: &str) -> (fol_testkit::TempFixture, String) {
     let root = temp_root(label);
     let app_src = root.join("app/src");
     let shared_src = root.join("shared");
@@ -111,7 +103,9 @@ fn copy_dir_all(src: &Path, dst: &Path) {
     }
 }
 
-pub(super) fn copied_example_package_root(example_path: &str) -> (PathBuf, String) {
+pub(super) fn copied_example_package_root(
+    example_path: &str,
+) -> (fol_testkit::TempFixture, String) {
     let source = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../..")
         .join(example_path)

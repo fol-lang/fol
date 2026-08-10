@@ -107,13 +107,16 @@ impl std::error::Error for ParseError {}
 
 impl From<fol_lexer::LexerError> for ParseError {
     fn from(e: fol_lexer::LexerError) -> Self {
+        let location = e.location();
         Self {
             kind: ParseErrorKind::Syntax,
             message: e.to_string(),
-            file: None,
-            line: 0,
-            column: 0,
-            length: 0,
+            file: location
+                .and_then(|loc| loc.source())
+                .map(|src| src.path(true)),
+            line: location.map_or(0, |loc| loc.row()),
+            column: location.map_or(0, |loc| loc.col()),
+            length: location.map_or(0, |loc| loc.len()),
         }
     }
 }
@@ -276,6 +279,46 @@ pub(super) fn canonical_identifier_key(name: &str) -> String {
     fol_types::canonical_identifier_key(name)
 }
 
+/// Longest lexeme excerpt an illegal-token message may quote.
+const ILLEGAL_TOKEN_EXCERPT: usize = 24;
+
+/// Build the user-facing message for an illegal token.
+///
+/// An unterminated string, character literal or comment runs to the end of the
+/// file, so its lexeme is the whole remainder of the source. Those cases are
+/// named instead of quoted, and any other lexeme is quoted as a single-line,
+/// length-capped excerpt; the error's own span carries the position.
+pub(super) fn illegal_token_message(token: &fol_lexer::lexer::stage3::element::Element) -> String {
+    let lexeme = token.con();
+    let unterminated = if lexeme.starts_with('"') {
+        Some("unterminated string literal")
+    } else if lexeme.starts_with('\'') {
+        Some("unterminated character literal")
+    } else if lexeme.starts_with('`') {
+        Some("unterminated backtick comment")
+    } else if lexeme.starts_with("/*") {
+        Some("unterminated block comment")
+    } else {
+        None
+    };
+    match unterminated {
+        Some(detail) => format!("Parser encountered illegal token: {detail}"),
+        None => format!(
+            "Parser encountered illegal token '{}'",
+            illegal_token_excerpt(lexeme)
+        ),
+    }
+}
+
+fn illegal_token_excerpt(lexeme: &str) -> String {
+    let single_line = lexeme.lines().next().unwrap_or_default().trim_end();
+    let mut excerpt: String = single_line.chars().take(ILLEGAL_TOKEN_EXCERPT).collect();
+    if excerpt.chars().count() < single_line.chars().count() || single_line.len() < lexeme.len() {
+        excerpt.push('…');
+    }
+    excerpt
+}
+
 #[cfg(test)]
 mod tests {
     use super::{ParseErrorKind, *};
@@ -283,14 +326,7 @@ mod tests {
     use fol_types::canonical_identifier_key;
 
     fn parse_string(input: &str) -> Result<crate::ParsedPackage, Vec<Diagnostic>> {
-        let dir = std::env::temp_dir().join(format!(
-            "fol_parser_recovery_test_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let dir = fol_testkit::TempFixture::new("fol_parser_recovery_test");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("test.fol"), input).unwrap();
         let mut stream =

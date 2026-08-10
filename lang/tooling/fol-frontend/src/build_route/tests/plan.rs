@@ -26,15 +26,8 @@ fn plan_member_execution(
 pub(super) fn absorbed_build_workspace_fixture(
     label: &str,
     with_bundled_std: bool,
-) -> FrontendWorkspace {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_{label}_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+) -> (fol_testkit::TempFixture, FrontendWorkspace) {
+    let root = fol_testkit::TempFixture::new(&format!("fol_frontend_build_route_{label}"));
     let app = root.join("app");
     fs::create_dir_all(app.join("src")).unwrap();
     let bundled_std_dependency = if with_bundled_std {
@@ -65,8 +58,8 @@ pub(super) fn absorbed_build_workspace_fixture(
     )
     .unwrap();
 
-    FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+    let workspace = FrontendWorkspace {
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app)],
         std_root_override: None,
         package_store_root_override: None,
@@ -74,7 +67,8 @@ pub(super) fn absorbed_build_workspace_fixture(
         cache_root: root.join(".fol/cache"),
         git_cache_root: root.join(".fol/cache/git"),
         install_prefix: root.join(".fol/install"),
-    }
+    };
+    (root, workspace)
 }
 
 #[test]
@@ -229,7 +223,7 @@ fn projected_step_plans_keep_step_descriptions() {
 
 #[test]
 fn semantic_member_planning_uses_graph_projected_build_run_and_check_steps() {
-    let workspace = absorbed_build_workspace_fixture("compat_graph_plan", false);
+    let (_fixture, workspace) = absorbed_build_workspace_fixture("compat_graph_plan", false);
 
     let plan = plan_member_execution(
         &FrontendMemberBuildRoute {
@@ -250,7 +244,8 @@ fn semantic_member_planning_uses_graph_projected_build_run_and_check_steps() {
 
 #[test]
 fn semantic_member_planning_carries_target_optimize_c_import_and_graph_binding_exactly() {
-    let workspace = absorbed_build_workspace_fixture("artifact_target_selection", false);
+    let (_fixture, workspace) =
+        absorbed_build_workspace_fixture("artifact_target_selection", false);
     let member_root = workspace.members[0].root.clone();
     fs::create_dir_all(member_root.join("native")).unwrap();
     fs::write(member_root.join("native/widget.h"), "int widget(void);\n").unwrap();
@@ -325,14 +320,7 @@ fn semantic_member_planning_carries_target_optimize_c_import_and_graph_binding_e
 
 #[test]
 fn semantic_member_planning_rejects_dependency_queries_for_missing_exports() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_missing_export_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_missing_export");
     let app = root.join("app");
     let shared = app.join("deps/shared");
     fs::create_dir_all(app.join("src")).unwrap();
@@ -379,7 +367,7 @@ fn semantic_member_planning_rejects_dependency_queries_for_missing_exports() {
     .unwrap();
 
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(app.clone())],
         std_root_override: None,
         package_store_root_override: None,
@@ -461,14 +449,7 @@ fn requested_workspace_step_prefers_explicit_override_and_falls_back_to_command_
 
 #[test]
 fn workspace_route_planner_accepts_only_semantic_members() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_plan_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_plan");
     let modern = root.join("modern");
     fs::create_dir_all(modern.join("src")).unwrap();
     fs::write(
@@ -489,7 +470,7 @@ fn workspace_route_planner_accepts_only_semantic_members() {
     .unwrap();
 
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(modern.clone())],
         std_root_override: None,
         package_store_root_override: None,
@@ -510,22 +491,15 @@ fn workspace_route_planner_accepts_only_semantic_members() {
 
 #[test]
 fn workspace_route_planner_rejects_old_build_members() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_old_build_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_old_build");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(root.join("build.fol"), "name: old\nversion: 0.1.0\n").unwrap();
     fs::write(root.join("build.fol"), "var[] answer: int = 42;\n").unwrap();
 
     let error = plan_workspace_build_route(
         &FrontendWorkspace {
-            root: WorkspaceRoot::new(root.clone()),
-            members: vec![PackageRoot::new(root.clone())],
+            root: WorkspaceRoot::new(root.to_path_buf()),
+            members: vec![PackageRoot::new(root.to_path_buf())],
             std_root_override: None,
             package_store_root_override: None,
             build_root: root.join(".fol/build"),
@@ -547,22 +521,15 @@ fn workspace_route_planner_rejects_old_build_members() {
 
 #[test]
 fn workspace_route_planner_rejects_broken_modern_builds() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_broken_modern_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_broken_modern");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(root.join("build.fol"), "name: modern\nversion: 0.1.0\n").unwrap();
     fs::write(root.join("build.fol"), "pro[] build(): non = {\n").unwrap();
 
     let error = plan_workspace_build_route(
         &FrontendWorkspace {
-            root: WorkspaceRoot::new(root.clone()),
-            members: vec![PackageRoot::new(root.clone())],
+            root: WorkspaceRoot::new(root.to_path_buf()),
+            members: vec![PackageRoot::new(root.to_path_buf())],
             std_root_override: None,
             package_store_root_override: None,
             build_root: root.join(".fol/build"),
@@ -584,14 +551,7 @@ fn workspace_route_planner_rejects_broken_modern_builds() {
 
 #[test]
 fn modern_members_plan_custom_steps_from_semantic_builds() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_modern_custom_steps_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_modern_custom_steps");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(root.join("build.fol"), "name: modern\nversion: 0.1.0\n").unwrap();
     fs::write(
@@ -617,8 +577,8 @@ fn modern_members_plan_custom_steps_from_semantic_builds() {
 
     let route = plan_workspace_build_route(
         &FrontendWorkspace {
-            root: WorkspaceRoot::new(root.clone()),
-            members: vec![PackageRoot::new(root.clone())],
+            root: WorkspaceRoot::new(root.to_path_buf()),
+            members: vec![PackageRoot::new(root.to_path_buf())],
             std_root_override: None,
             package_store_root_override: None,
             build_root: root.join(".fol/build"),
@@ -645,7 +605,7 @@ fn modern_members_plan_custom_steps_from_semantic_builds() {
 
 #[test]
 fn absorbed_build_executor_maps_build_steps_back_onto_existing_workspace_commands() {
-    let workspace = absorbed_build_workspace_fixture("compat_exec_build", false);
+    let (_fixture, workspace) = absorbed_build_workspace_fixture("compat_exec_build", false);
 
     let result = execute_workspace_build_route(
         &workspace,
@@ -668,7 +628,7 @@ fn absorbed_build_executor_maps_build_steps_back_onto_existing_workspace_command
 
 #[test]
 fn absorbed_build_executor_routes_run_steps_with_arguments() {
-    let workspace = absorbed_build_workspace_fixture("compat_exec_run", true);
+    let (_fixture, workspace) = absorbed_build_workspace_fixture("compat_exec_run", true);
 
     let result = execute_workspace_build_route(
         &workspace,
@@ -689,7 +649,7 @@ fn absorbed_build_executor_routes_run_steps_with_arguments() {
 
 #[test]
 fn absorbed_build_executor_rejects_unknown_named_steps() {
-    let workspace = absorbed_build_workspace_fixture("compat_exec_unknown", false);
+    let (_fixture, workspace) = absorbed_build_workspace_fixture("compat_exec_unknown", false);
 
     let error = execute_workspace_build_route(
         &workspace,
@@ -720,14 +680,7 @@ fn absorbed_build_executor_rejects_unknown_named_steps() {
 
 #[test]
 fn build_body_step_calls_flow_into_member_execution_plans() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_body_steps_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_body_steps");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(root.join("build.fol"), "name: demo\nversion: 0.1.0\n").unwrap();
     fs::write(
@@ -754,7 +707,7 @@ fn build_body_step_calls_flow_into_member_execution_plans() {
 
     let plan = plan_member_execution(
         &FrontendMemberBuildRoute {
-            member_root: root.clone(),
+            member_root: root.to_path_buf(),
             package_name: "demo".to_string(),
             mode: FrontendBuildWorkflowMode::Modern,
         },
@@ -770,14 +723,7 @@ fn build_body_step_calls_flow_into_member_execution_plans() {
 
 #[test]
 fn build_body_step_dependencies_are_accepted_during_member_planning() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_body_step_deps_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_body_step_deps");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(root.join("build.fol"), "name: demo\nversion: 0.1.0\n").unwrap();
     fs::write(
@@ -806,7 +752,7 @@ fn build_body_step_dependencies_are_accepted_during_member_planning() {
 
     let plan = plan_member_execution(
         &FrontendMemberBuildRoute {
-            member_root: root.clone(),
+            member_root: root.to_path_buf(),
             package_name: "demo".to_string(),
             mode: FrontendBuildWorkflowMode::Modern,
         },
@@ -823,14 +769,7 @@ fn build_body_step_dependencies_are_accepted_during_member_planning() {
 
 #[test]
 fn custom_build_steps_plan_as_build_execution() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_custom_step_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_custom_step");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(root.join("build.fol"), "name: demo\nversion: 0.1.0\n").unwrap();
     fs::write(
@@ -853,7 +792,7 @@ fn custom_build_steps_plan_as_build_execution() {
     .unwrap();
     let plan = plan_member_execution(
         &FrontendMemberBuildRoute {
-            member_root: root.clone(),
+            member_root: root.to_path_buf(),
             package_name: "demo".to_string(),
             mode: FrontendBuildWorkflowMode::Modern,
         },

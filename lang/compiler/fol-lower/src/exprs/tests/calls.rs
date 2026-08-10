@@ -29,13 +29,8 @@ fn int_constants_for_args(
 
 #[test]
 fn routine_body_lowering_keeps_local_initializers_and_final_expression_results() {
-    let fixture = super::safe_temp_dir().join(format!(
-        "fol_lower_body_exprs_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture =
+        fol_testkit::TempFixture::new("fol_lower_body_exprs").with_file("fol_lower_body_exprs.fol");
     std::fs::write(
         &fixture,
         "fun[] main(): non = {\n    var value: int = 1;\n    value;\n};",
@@ -101,13 +96,8 @@ fn routine_body_lowering_keeps_local_initializers_and_final_expression_results()
 
 #[test]
 fn assignment_lowering_emits_local_store_instructions() {
-    let fixture = super::safe_temp_dir().join(format!(
-        "fol_lower_assignment_exprs_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_assignment_exprs")
+        .with_file("fol_lower_assignment_exprs.fol");
     std::fs::write(
         &fixture,
         "fun[] main(): int = {\n    var value: int = 1;\n    value = 2;\n    return [mov]value;\n};",
@@ -353,13 +343,8 @@ fn returned_owned_and_shelled_locals_drop_only_source_slots() {
 #[test]
 fn call_lowering_emits_direct_callee_calls_for_plain_and_qualified_forms() {
     use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock should be monotonic enough for tmp path")
-        .as_nanos();
-    let root = super::safe_temp_dir().join(format!("fol_lower_call_exprs_{stamp}"));
+    let root = fol_testkit::TempFixture::new("fol_lower_call_exprs");
     let app_dir = root.join("app");
     let math_dir = app_dir.join("math");
     fs::create_dir_all(&math_dir).expect("should create nested namespace dir");
@@ -406,13 +391,8 @@ fn call_lowering_emits_direct_callee_calls_for_plain_and_qualified_forms() {
 
 #[test]
 fn method_call_lowering_rewrites_receivers_into_direct_call_arguments() {
-    let fixture = super::safe_temp_dir().join(format!(
-        "fol_lower_method_exprs_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_method_exprs")
+        .with_file("fol_lower_method_exprs.fol");
     std::fs::write(
         &fixture,
         "fun (int)double(): int = { return 2; };\nfun[] main(): int = {\n    var value: int = 1;\n    return value.double();\n};",
@@ -1137,13 +1117,8 @@ fn standalone_panic_lowering_uses_keyword_intrinsic_terminators() {
 
 #[test]
 fn field_access_lowering_emits_explicit_extraction_instructions() {
-    let fixture = super::safe_temp_dir().join(format!(
-        "fol_lower_field_exprs_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_field_exprs")
+        .with_file("fol_lower_field_exprs.fol");
     std::fs::write(
         &fixture,
         "typ Point: rec = { x: int, y: int };\nfun[] main(point: Point): int = {\n    return point.x;\n};",
@@ -1183,13 +1158,8 @@ fn field_access_lowering_emits_explicit_extraction_instructions() {
 
 #[test]
 fn index_access_lowering_emits_explicit_container_access_instructions() {
-    let fixture = super::safe_temp_dir().join(format!(
-        "fol_lower_index_exprs_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_index_exprs")
+        .with_file("fol_lower_index_exprs.fol");
     std::fs::write(
         &fixture,
         "fun[] head(values: vec[int]): int = {\n    return values[0];\n};",
@@ -1263,13 +1233,8 @@ fn map_index_observes_move_only_receiver_and_key_without_transfer_loads() {
 
 #[test]
 fn slice_access_lowering_emits_explicit_slice_instructions() {
-    let fixture = super::safe_temp_dir().join(format!(
-        "fol_lower_slice_exprs_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_slice_exprs")
+        .with_file("fol_lower_slice_exprs.fol");
     std::fs::write(
         &fixture,
         "fun[] mid(values: vec[int]): vec[int] = {\n    return values[1:3];\n};",

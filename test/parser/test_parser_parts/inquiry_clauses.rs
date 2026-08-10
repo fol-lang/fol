@@ -1,18 +1,8 @@
 use super::*;
 use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn unique_temp_root(label: &str) -> std::path::PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after unix epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "fol_inquiry_clause_{}_{}_{}",
-        label,
-        std::process::id(),
-        stamp
-    ))
+fn unique_temp_root(label: &str) -> crate::fixture::TempFixture {
+    crate::fixture::TempFixture::new(&format!("fol_inquiry_clause_{label}"))
 }
 
 #[test]
@@ -83,11 +73,13 @@ fn test_duplicate_function_inquiry_clause_rejected() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
-        parse_error.message.clone().contains("Duplicate inquiry clause for 'self'"),
+        parse_error
+            .message
+            .clone()
+            .contains("Duplicate inquiry clause for 'self'"),
         "Expected duplicate inquiry error, got: {}",
         parse_error.message
     );
@@ -107,11 +99,13 @@ fn test_duplicate_procedure_inquiry_clause_rejected() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
-        parse_error.message.clone().contains("Duplicate inquiry clause for 'self'"),
+        parse_error
+            .message
+            .clone()
+            .contains("Duplicate inquiry clause for 'self'"),
         "Expected duplicate inquiry error, got: {}",
         parse_error.message
     );
@@ -132,7 +126,6 @@ fn test_duplicate_trailing_function_inquiry_clause_rejected_canonically() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -288,11 +281,13 @@ fn test_duplicate_inquiry_target_in_single_clause_rejected() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
-        parse_error.message.clone().contains("Duplicate inquiry clause for 'self'"),
+        parse_error
+            .message
+            .clone()
+            .contains("Duplicate inquiry clause for 'self'"),
         "Expected duplicate inquiry target error, got: {}",
         parse_error.message
     );
@@ -423,8 +418,9 @@ fn test_qualified_inquiry_targets_parsing() {
 
 #[test]
 fn test_inquiry_clause_accepts_statement_bodies() {
-    let mut file_stream = FileStream::from_file("test/parser/simple_fun_inquiry_statement_body.fol")
-        .expect("Should read inquiry statement-body fixture");
+    let mut file_stream =
+        FileStream::from_file("test/parser/simple_fun_inquiry_statement_body.fol")
+            .expect("Should read inquiry statement-body fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();

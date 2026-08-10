@@ -24,3 +24,6 @@ fol-editor = { path = "../fol-editor" }
 fol-diagnostics = { path = "../../compiler/fol-diagnostics" }
 fol-types = { path = "../../compiler/fol-types" }
 fol-interop = { path = "../fol-interop" }
+
+[dev-dependencies]
+fol-testkit = { path = "../fol-testkit" }

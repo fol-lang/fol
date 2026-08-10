@@ -15,13 +15,6 @@ use super::core::BuildBodyExecutor;
 use super::types::ExecValue;
 
 impl BuildBodyExecutor {
-    fn invalid_config(&self, method: &str, detail: impl Into<String>) -> BuildEvaluationError {
-        BuildEvaluationError::new(
-            crate::eval::BuildEvaluationErrorKind::InvalidInput,
-            format!("{method} config is invalid: {}", detail.into()),
-        )
-    }
-
     fn validate_export_name(&self, method: &str, name: &str) -> Result<(), BuildEvaluationError> {
         if !super::core::is_valid_identifier(name) {
             return Err(self.invalid_config(

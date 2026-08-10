@@ -1,18 +1,8 @@
 use super::*;
 use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn unique_temp_root(label: &str) -> std::path::PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after unix epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "fol_test_block_{}_{}_{}",
-        label,
-        std::process::id(),
-        stamp
-    ))
+fn unique_temp_root(label: &str) -> crate::fixture::TempFixture {
+    crate::fixture::TempFixture::new(&format!("fol_test_block_{label}"))
 }
 
 #[test]
@@ -167,9 +157,8 @@ fn test_test_block_labels_preserve_inner_opposite_quote_chars() {
 
 #[test]
 fn test_test_block_rejects_quoted_access_argument() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_def_bad_test_block_access.fol")
-            .expect("Should read malformed tst def test file");
+    let mut file_stream = FileStream::from_file("test/parser/simple_def_bad_test_block_access.fol")
+        .expect("Should read malformed tst def test file");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -179,7 +168,6 @@ fn test_test_block_rejects_quoted_access_argument() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(

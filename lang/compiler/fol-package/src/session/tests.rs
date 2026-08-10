@@ -7,7 +7,6 @@ use fol_parser::ast::{AstParser, ParsedPackage, UsePathSegment};
 use fol_stream::FileStream;
 use std::fs;
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 fn parse_fixture_package() -> ParsedPackage {
     let fixture_path = concat!(
@@ -22,17 +21,8 @@ fn parse_fixture_package() -> ParsedPackage {
         .expect("Package fixture should parse as a package")
 }
 
-fn unique_temp_root(label: &str) -> std::path::PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after unix epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "fol_package_session_{}_{}_{}",
-        label,
-        std::process::id(),
-        stamp
-    ))
+fn unique_temp_root(label: &str) -> fol_testkit::TempFixture {
+    fol_testkit::TempFixture::new(&format!("fol_package_session_{label}"))
 }
 
 fn formal_build_fixture(name: &str, deps: &[(&str, &str, &str)]) -> String {

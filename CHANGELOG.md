@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.2.6] - 2026-08-10
+
+### <!-- 0 -->⛰️  Features
+
+- Add the CLI primitives programs need
+
+### <!-- 1 -->🐛 Bug Fixes
+
+- Higher-order generics, json stdout, explain
+- Make --release actually reach the build
+- Reject stray args and honor --help
+- Fin-finalizers
+- Codegen-aggregates
+- Report the program's own exit status
+- Give every error a real location
+- Hyphenated package names and real completions
+- Make .print work and reject empty ent
+- Let dfr live in when and select arms
+- Stop pack fetch deleting std and two crashes
+- Give the program the real terminal
+
+### <!-- 3 -->📚 Documentation
+
+- Make the book's examples actually compile
+
+### <!-- 6 -->🧪 Testing
+
+- Delete temp fixtures on the unwind path
+
+### Build
+
+- Use the standard workspace package version
+- Pin the tree-sitter CLI to 0.26.8
+
 ## [0.2.5] - 2026-07-30
 
 ### <!-- 1 -->🐛 Bug Fixes

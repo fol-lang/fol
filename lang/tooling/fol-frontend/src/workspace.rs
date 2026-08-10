@@ -377,8 +377,7 @@ mod tests {
 
     #[test]
     fn workspace_member_enumeration_loads_declared_package_roots() {
-        let root =
-            std::env::temp_dir().join(format!("fol_frontend_members_{}", std::process::id()));
+        let root = fol_testkit::TempFixture::new("fol_frontend_members");
         let app = root.join("app");
         let lib = root.join("lib");
         fs::create_dir_all(&app).unwrap();
@@ -396,7 +395,7 @@ mod tests {
         .unwrap();
 
         let members = enumerate_member_packages(
-            &WorkspaceRoot::new(root.clone()),
+            &WorkspaceRoot::new(root.to_path_buf()),
             &[PathBuf::from("app"), PathBuf::from("lib")],
         )
         .unwrap();
@@ -410,16 +409,15 @@ mod tests {
 
     #[test]
     fn workspace_member_enumeration_rejects_missing_package_roots() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_frontend_missing_member_{}",
-            std::process::id()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_frontend_missing_member");
         fs::create_dir_all(&root).unwrap();
         fs::write(root.join("fol.work.yaml"), "members:\n  - app\n").unwrap();
 
-        let error =
-            enumerate_member_packages(&WorkspaceRoot::new(root.clone()), &[PathBuf::from("app")])
-                .unwrap_err();
+        let error = enumerate_member_packages(
+            &WorkspaceRoot::new(root.to_path_buf()),
+            &[PathBuf::from("app")],
+        )
+        .unwrap_err();
 
         assert_eq!(error.kind(), crate::FrontendErrorKind::InvalidInput);
         assert!(error.message().contains("missing 'build.fol'"));
@@ -429,10 +427,7 @@ mod tests {
 
     #[test]
     fn workspace_config_loading_extracts_declared_member_paths() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_frontend_config_members_{}",
-            std::process::id()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_frontend_config_members");
         fs::create_dir_all(&root).unwrap();
         fs::write(
             root.join("fol.work.yaml"),
@@ -440,7 +435,7 @@ mod tests {
         )
         .unwrap();
 
-        let config = load_workspace_config(&WorkspaceRoot::new(root.clone())).unwrap();
+        let config = load_workspace_config(&WorkspaceRoot::new(root.to_path_buf())).unwrap();
 
         assert_eq!(
             config,
@@ -455,14 +450,11 @@ mod tests {
 
     #[test]
     fn workspace_config_loading_rejects_inline_members_scalars() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_frontend_config_invalid_{}",
-            std::process::id()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_frontend_config_invalid");
         fs::create_dir_all(&root).unwrap();
         fs::write(root.join("fol.work.yaml"), "members: app\n").unwrap();
 
-        let error = load_workspace_config(&WorkspaceRoot::new(root.clone())).unwrap_err();
+        let error = load_workspace_config(&WorkspaceRoot::new(root.to_path_buf())).unwrap_err();
 
         assert_eq!(error.kind(), crate::FrontendErrorKind::InvalidInput);
         assert!(error.message().contains("must declare members as a list"));
@@ -472,10 +464,7 @@ mod tests {
 
     #[test]
     fn workspace_from_config_resolves_std_and_package_store_overrides() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_frontend_config_overrides_{}",
-            std::process::id()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_frontend_config_overrides");
         let app = root.join("app");
         fs::create_dir_all(&app).unwrap();
         fs::write(
@@ -485,7 +474,7 @@ mod tests {
         .unwrap();
 
         let workspace = FrontendWorkspace::from_config(
-            WorkspaceRoot::new(root.clone()),
+            WorkspaceRoot::new(root.to_path_buf()),
             &FrontendWorkspaceConfig {
                 members: vec![PathBuf::from("app")],
                 std_root_override: Some(PathBuf::from("std")),
@@ -511,10 +500,7 @@ mod tests {
 
     #[test]
     fn workspace_config_loading_extracts_std_and_package_store_overrides() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_frontend_config_std_pkg_{}",
-            std::process::id()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_frontend_config_std_pkg");
         fs::create_dir_all(&root).unwrap();
         fs::write(
             root.join("fol.work.yaml"),
@@ -522,7 +508,7 @@ mod tests {
         )
         .unwrap();
 
-        let config = load_workspace_config(&WorkspaceRoot::new(root.clone())).unwrap();
+        let config = load_workspace_config(&WorkspaceRoot::new(root.to_path_buf())).unwrap();
 
         assert_eq!(config.std_root_override, Some(PathBuf::from("std")));
         assert_eq!(
@@ -535,10 +521,7 @@ mod tests {
 
     #[test]
     fn workspace_config_loading_extracts_build_and_cache_overrides() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_frontend_config_build_cache_{}",
-            std::process::id()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_frontend_config_build_cache");
         fs::create_dir_all(&root).unwrap();
         fs::write(
             root.join("fol.work.yaml"),
@@ -546,7 +529,7 @@ mod tests {
         )
         .unwrap();
 
-        let config = load_workspace_config(&WorkspaceRoot::new(root.clone())).unwrap();
+        let config = load_workspace_config(&WorkspaceRoot::new(root.to_path_buf())).unwrap();
 
         assert_eq!(
             config.build_root_override,
@@ -567,10 +550,7 @@ mod tests {
 
     #[test]
     fn workspace_from_config_prefers_explicit_build_and_cache_roots() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_frontend_workspace_paths_{}",
-            std::process::id()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_frontend_workspace_paths");
         let app = root.join("app");
         fs::create_dir_all(&app).unwrap();
         fs::write(
@@ -580,7 +560,7 @@ mod tests {
         .unwrap();
 
         let workspace = FrontendWorkspace::from_config(
-            WorkspaceRoot::new(root.clone()),
+            WorkspaceRoot::new(root.to_path_buf()),
             &FrontendWorkspaceConfig {
                 members: vec![PathBuf::from("app")],
                 build_root_override: Some(PathBuf::from(".artifacts/build")),
@@ -639,10 +619,7 @@ mod tests {
 
     #[test]
     fn explicit_root_overrides_win_over_workspace_config_roots() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_frontend_workspace_precedence_{}",
-            std::process::id()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_frontend_workspace_precedence");
         let app = root.join("app");
         fs::create_dir_all(&app).unwrap();
         fs::write(
@@ -657,7 +634,7 @@ mod tests {
         .unwrap();
 
         let workspace = load_frontend_workspace(
-            &DiscoveredRoot::Workspace(WorkspaceRoot::new(root.clone())),
+            &DiscoveredRoot::Workspace(WorkspaceRoot::new(root.to_path_buf())),
             &FrontendConfig {
                 std_root_override: Some(root.join("env-std")),
                 package_store_root_override: Some(root.join("env-pkg")),
@@ -686,8 +663,7 @@ mod tests {
 
     #[test]
     fn loading_single_package_workspace_applies_frontend_root_overrides() {
-        let root =
-            std::env::temp_dir().join(format!("fol_frontend_package_load_{}", std::process::id()));
+        let root = fol_testkit::TempFixture::new("fol_frontend_package_load");
         fs::create_dir_all(&root).unwrap();
         fs::write(
             root.join("build.fol"),
@@ -696,7 +672,7 @@ mod tests {
         .unwrap();
 
         let workspace = load_frontend_workspace(
-            &DiscoveredRoot::Package(PackageRoot::new(root.clone())),
+            &DiscoveredRoot::Package(PackageRoot::new(root.to_path_buf())),
             &FrontendConfig {
                 std_root_override: Some(root.join("std")),
                 package_store_root_override: Some(root.join(".fol/pkg")),

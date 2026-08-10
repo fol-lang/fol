@@ -25,3 +25,6 @@ tree-sitter = "0.26"
 
 [build-dependencies]
 cc = "1"
+
+[dev-dependencies]
+fol-testkit = { path = "../fol-testkit" }

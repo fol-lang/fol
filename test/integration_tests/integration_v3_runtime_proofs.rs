@@ -28,7 +28,7 @@ fn strip_ansi(value: &str) -> String {
     stripped
 }
 
-fn write_hosted_app(name: &str, source: &str) -> std::path::PathBuf {
+fn write_hosted_app(name: &str, source: &str) -> crate::fixture::TempFixture {
     let root = unique_temp_root(name);
     std::fs::create_dir_all(root.join("src")).expect("V3 runtime proof src should exist");
     std::fs::write(
@@ -178,9 +178,20 @@ fn assert_successful_stdout(root: &std::path::Path, expected: &str) {
         String::from_utf8_lossy(&run.output.stdout),
         String::from_utf8_lossy(&run.output.stderr)
     );
+    // `main`'s int return is the process exit status, and these proofs answer
+    // with the value they computed rather than with a status. What must hold
+    // is that the program reached its own end — the exact stdout below is the
+    // proof's real content.
     assert!(
-        run.output.status.success(),
-        "V3 runtime proof should run successfully: stdout=\n{}\nstderr=\n{}",
+        run.output.status.code().is_some(),
+        "V3 runtime proof should terminate on its own terms, not on a signal: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&run.output.stdout),
+        String::from_utf8_lossy(&run.output.stderr)
+    );
+    assert_ne!(
+        run.output.status.code(),
+        Some(101),
+        "V3 runtime proof should not abort with a runtime panic: stdout=\n{}\nstderr=\n{}",
         String::from_utf8_lossy(&run.output.stdout),
         String::from_utf8_lossy(&run.output.stderr)
     );
@@ -733,4 +744,351 @@ fn filesystem_hooks_list_and_read() {
     assert_successful_stdout(&root, "inner/\nnote.txt\n1\n0\n");
     std::fs::remove_dir_all(root).ok();
     std::fs::remove_dir_all(staging).ok();
+}
+
+#[test]
+fn cli_run_hands_the_terminal_to_the_program_it_launches() {
+    // `fol code run` must not capture the child's streams. Capturing gives the
+    // program a null stdin, so anything interactive -- a prompt, a key reader,
+    // a full-screen TUI -- sees end of input immediately and can never work
+    // through the tool that is supposed to launch it.
+    let root = write_hosted_app(
+        "v3_run_stdin_forwarding",
+        "use std: pkg = {\"std\"};\n\
+         \n\
+         fun[] main(): int = {\n\
+         \x20   var key: int = std::io::read_key();\n\
+         \x20   std::io::echo_int(key);\n\
+         \x20   return 0;\n\
+         };\n",
+    );
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_folc"))
+        .args(["--package-store-root"])
+        .arg(repo_root().join("lang/library"))
+        .args(["code", "run"])
+        .current_dir(&root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("run should start the FOL CLI");
+    {
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .expect("run should expose a stdin pipe")
+            .write_all(b"A")
+            .expect("run should accept piped input");
+    }
+    let output = child.wait_with_output().expect("run should finish");
+
+    let stdout = strip_ansi(&String::from_utf8_lossy(&output.stdout));
+    assert!(
+        output.status.success(),
+        "run should succeed: stdout=\n{stdout}\nstderr=\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // 65 is 'A'; -1 is the end-of-input a captured stdin would produce.
+    assert!(
+        stdout.contains("65"),
+        "the program should have received the byte typed into `fol code run`, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn string_number_and_write_hooks_back_real_cli_work() {
+    // The primitives a command-line program cannot be written without:
+    // searching and rewriting text, turning an argument into a number,
+    // formatting a float, and writing a file back out.
+    let staging = unique_temp_root("v3_cli_hooks_data");
+    std::fs::create_dir_all(&staging).expect("cli hook staging dir");
+    let target = staging.join("written.txt");
+    let root = write_hosted_app(
+        "v3_cli_hooks",
+        &("use std: pkg = {\"std\"};\n".to_string()
+            + &format!(
+                "fun[] main(): int = {{\n\
+             \x20   std::io::echo_int(std::strn::find(\"hello world\", \"world\"));\n\
+             \x20   std::io::echo_int(std::strn::find(\"hello\", \"absent\"));\n\
+             \x20   std::io::echo_str(std::strn::replace(\"a-b-c\", \"-\", \"+\"));\n\
+             \x20   std::io::echo_int(std::strn::to_int(\"42\", 0));\n\
+             \x20   std::io::echo_int(std::strn::to_int(\"not a number\", -7));\n\
+             \x20   std::io::echo_str(std::fmt::float_to_str(3.14159, 2));\n\
+             \x20   std::io::echo_int(std::fs::write_file(\"{path}\", \"written\"));\n\
+             \x20   std::io::echo_str(std::fs::read_file(\"{path}\"));\n\
+             \x20   std::io::echo_int(std::fs::write_file(\"/no/such/dir/x\", \"nope\"));\n\
+             \x20   return 0;\n\
+             }};\n",
+                path = target.display()
+            )),
+    );
+    assert_successful_stdout(&root, "6\n-1\na+b+c\n42\n-7\n3.14\n0\nwritten\n-1\n");
+    assert_eq!(
+        std::fs::read_to_string(&target).expect("the program should have written the file"),
+        "written"
+    );
+}
+
+#[test]
+fn command_line_arguments_reach_the_program() {
+    let root = write_hosted_app(
+        "v3_argv_hooks",
+        "use std: pkg = {\"std\"};\n\
+         \n\
+         fun[] main(): int = {\n\
+         \x20   std::io::echo_int(std::os::arg_count());\n\
+         \x20   std::io::echo_str(std::os::arg(0));\n\
+         \x20   std::io::echo_str(std::os::arg(1));\n\
+         \x20   std::io::echo_str(std::os::arg(9));\n\
+         \x20   return 0;\n\
+         };\n",
+    );
+    let build = assert_build_succeeds(&root);
+    let output = Command::new(built_binary_path(&build))
+        .args(["first", "second"])
+        .output()
+        .expect("argv proof binary should run");
+
+    assert!(output.status.success(), "argv proof should exit cleanly");
+    // Index 0 is the first real argument, not the program name, and an index
+    // past the end reads as empty rather than crashing.
+    assert_eq!(
+        strip_ansi(&String::from_utf8_lossy(&output.stdout)),
+        "2\nfirst\nsecond\n\n"
+    );
+}
+
+#[test]
+fn standard_error_stays_separate_from_standard_output() {
+    let root = write_hosted_app(
+        "v3_stderr_hook",
+        "use std: pkg = {\"std\"};\n\
+         \n\
+         fun[] main(): int = {\n\
+         \x20   std::io::echo_str(\"out\");\n\
+         \x20   std::io::write_err(\"err\");\n\
+         \x20   return 0;\n\
+         };\n",
+    );
+    let build = assert_build_succeeds(&root);
+    let run = run_with_timeout(&built_binary_path(&build), Duration::from_secs(5));
+
+    assert!(
+        run.output.status.success(),
+        "stderr proof should exit cleanly"
+    );
+    assert_eq!(
+        strip_ansi(&String::from_utf8_lossy(&run.output.stdout)),
+        "out\n"
+    );
+    assert_eq!(
+        strip_ansi(&String::from_utf8_lossy(&run.output.stderr)),
+        "err"
+    );
+}
+
+#[test]
+fn deferred_blocks_run_inside_when_and_select_arms() {
+    // A `when`/`select` arm body is its own scope, but it carries no syntax id
+    // of its own, so the arm scope was inferred from the bindings the body
+    // declared -- and an arm whose only statement is `dfr { ... }` declares
+    // none. It fell back to the enclosing scope and the deferred block was then
+    // rejected for belonging to the wrong parent. This is the book's own
+    // "Nested scopes" example (book/src/700_sugar/250_dfr.md).
+    let root = write_hosted_app(
+        "v3_dfr_in_arms",
+        "use std: pkg = {\"std\"};\n\
+         \n\
+         pro[] guarded(flag: bol): non = {\n\
+         \x20   dfr { std::io::echo_str(\"outer\"); };\n\
+         \x20   when(flag) {\n\
+         \x20       case(true) {\n\
+         \x20           dfr { std::io::echo_str(\"inner\"); };\n\
+         \x20           return;\n\
+         \x20       }\n\
+         \x20       * { }\n\
+         \x20   }\n\
+         \x20   return;\n\
+         };\n\
+         \n\
+         pro[] selected(): non = {\n\
+         \x20   var ch: chn[int];\n\
+         \x20   select {\n\
+         \x20       * {\n\
+         \x20           dfr { std::io::echo_str(\"select-arm\"); };\n\
+         \x20       }\n\
+         \x20   }\n\
+         \x20   return;\n\
+         };\n\
+         \n\
+         fun[] main(): int = {\n\
+         \x20   guarded(true);\n\
+         \x20   std::io::echo_str(\"--\");\n\
+         \x20   guarded(false);\n\
+         \x20   selected();\n\
+         \x20   return 0;\n\
+         };\n",
+    );
+    // The arm's deferred block runs when the arm exits, before the routine's
+    // own; the arm that never runs registers nothing.
+    assert_successful_stdout(&root, "inner\nouter\n--\nouter\nselect-arm\n");
+}
+
+#[test]
+fn mux_guard_binding_reads_a_non_record_payload_through_the_lock() {
+    // A named guard binding aliases the mutex local, so reading it whole was
+    // rendered as a clone of the `FolMutex<T>` handle -- assigned into a
+    // `&mut T` slot. Records hid it (every access went through a field path);
+    // an `int` or `str` payload has no fields to hide behind, and rustc
+    // rejected the generated crate.
+    let root = write_hosted_app(
+        "v3_mux_guard_scalar_payload",
+        "use std: pkg = {\"std\"};\n\
+             typ Counter: rec = { n: int };\n\
+             fun[] peek_int(state: mux[int]): int = {\n\
+             \x20   var[mut, bor] guard: int = ([bor]state).lock();\n\
+             \x20   return std::io::echo_int(guard + guard);\n\
+             };\n\
+             fun[] peek_str(state: mux[str]): int = {\n\
+             \x20   var[bor] guard: str = ([bor]state).lock();\n\
+             \x20   std::io::echo_str(guard + \"!\");\n\
+             \x20   return 0;\n\
+             };\n\
+             fun[] peek_rec(state: mux[Counter]): int = {\n\
+             \x20   var[mut, bor] guard: Counter = ([bor]state).lock();\n\
+             \x20   guard.n = guard.n + 1;\n\
+             \x20   return std::io::echo_int(guard.n);\n\
+             };\n\
+             fun[] main(): int = {\n\
+             \x20   var v: int = 41;\n\
+             \x20   var s: str = \"guarded\";\n\
+             \x20   var c: Counter = { n = 7 };\n\
+             \x20   peek_int([mov]v);\n\
+             \x20   peek_str([mov]s);\n\
+             \x20   peek_rec([mov]c);\n\
+             \x20   return 0;\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "82\nguarded!\n8\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn borrowed_scalars_read_by_value_at_operators() {
+    // An operator result took the left operand's lowered type verbatim, so a
+    // borrowed operand produced a `&T` result slot that no arithmetic can fill,
+    // and the operands themselves were emitted as raw references. Both sides
+    // failed rustc on the generated crate.
+    let root = write_hosted_app(
+        "v3_borrowed_operands",
+        "use std: pkg = {\"std\"};\n\
+             fun[] bump(value: int[bor]): int = {\n\
+             \x20   return value + 1;\n\
+             };\n\
+             fun[] flip(value: int[bor]): int = {\n\
+             \x20   return -value;\n\
+             };\n\
+             fun[] shout(text: str[bor]): str = {\n\
+             \x20   return text + \"!\";\n\
+             };\n\
+             fun[] main(): int = {\n\
+             \x20   var v: int = 41;\n\
+             \x20   var t: str = \"hi\";\n\
+             \x20   std::io::echo_int(bump([bor]v));\n\
+             \x20   std::io::echo_int(flip([bor]v));\n\
+             \x20   std::io::echo_str(shout([bor]t));\n\
+             \x20   return 0;\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "42\n-41\nhi!\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn aggregates_holding_routine_values_build_and_run() {
+    // Routine values are `Rc<dyn Fn(..)>` handles, which implement no `Default`
+    // and no echo formatting. Zero-initializing a vec, array or record holding
+    // one used to reach for `Default::default()`, and the record's echo impl
+    // formatted the closure, so all three typechecked and then failed rustc on
+    // the generated crate.
+    let root = write_hosted_app(
+        "v3_routine_value_aggregates",
+        "use std: pkg = {\"std\"};\n\
+             typ Boxx: rec = { tag: str, f: {fun (n: int): int} };\n\
+             fun[] main(): int = {\n\
+             \x20   var hooks: vec[{fun (n: int): int}];\n\
+             \x20   var pending: seq[{fun (n: int): int}];\n\
+             \x20   var b: Boxx = { tag = \"hi\", f = fun(n: int)[]: int = { return n + 1; } };\n\
+             \x20   .echo(b);\n\
+             \x20   var f: {fun (n: int): int} = fun(n: int)[]: int = { return n + 2; };\n\
+             \x20   var slots: arr[{fun (n: int): int}, 1] = {[mov]f};\n\
+             \x20   return std::io::echo_int(.len(hooks) + .len(pending) + .len(slots));\n\
+             };\n",
+    );
+    assert_successful_stdout(&root, "Boxx { f: <routine>, tag: hi }\n1\n");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn higher_order_generic_routines_can_be_called() {
+    // `T` was never substituted inside a routine type, so the parameter stayed
+    // spelled `fun(): T` while the argument was `fun(): int` and the call was
+    // rejected -- even with an explicit turbofish. Inference had the same hole,
+    // and the generated Rust then used a nested `fn` for the placeholder, which
+    // cannot name the enclosing routine's generic parameter.
+    let root = write_hosted_app(
+        "v3_generic_routine_types",
+        "use std: pkg = {\"std\"};\n\
+         \n\
+         fun[] seven(): int = {\n\
+         \x20   return 7;\n\
+         };\n\
+         \n\
+         fun[] apply(T)(f: {fun (): T}): T = {\n\
+         \x20   return f();\n\
+         };\n\
+         \n\
+         fun[] main(): int = {\n\
+         \x20   var g: {fun (): int} = [mov]seven;\n\
+         \x20   std::io::echo_int(apply([mov]g));\n\
+         \x20   return 0;\n\
+         };\n",
+    );
+    assert_successful_stdout(&root, "7\n");
+}
+
+#[test]
+fn json_mode_keeps_stdout_parseable_when_the_program_prints() {
+    // The child inherited the same stdout the envelope is written to, so any
+    // program that printed made `--output json` unparseable for a tool.
+    let root = write_hosted_app(
+        "v3_json_run_stream",
+        "use std: pkg = {\"std\"};\n\
+         \n\
+         fun[] main(): int = {\n\
+         \x20   std::io::echo_int(41);\n\
+         \x20   return 0;\n\
+         };\n",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_folc"))
+        .args(["--package-store-root"])
+        .arg(repo_root().join("lang/library"))
+        .args(["--output", "json", "code", "run"])
+        .current_dir(&root)
+        .output()
+        .expect("json run should start");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        serde_json::from_str::<serde_json::Value>(stdout.trim()).is_ok(),
+        "stdout must stay valid JSON, got:\n{stdout}"
+    );
+    // The program's own output is still delivered, on the other stream.
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("41"),
+        "the program's output must not be discarded"
+    );
 }

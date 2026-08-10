@@ -1571,14 +1571,80 @@ fn reopened_v1_nil_diagnostics_keep_binding_site_locations() {
         .expect("Expected nil diagnostic location");
 
     assert_eq!(location.line, 2);
-    assert_eq!(location.column, 1);
-    assert_eq!(location.length, Some(3));
+    // The binding site is the declared name (`label`), not the `var` keyword.
+    assert_eq!(location.column, 5);
+    assert_eq!(location.length, Some(5));
     assert!(
         location
             .file
             .as_deref()
             .is_some_and(|file| file.ends_with("/main.fol")),
         "Expected nil diagnostic file to point at main.fol, got: {location:?}"
+    );
+}
+
+fn mismatch_location(source: &str, needle: &str) -> fol_diagnostics::DiagnosticLocation {
+    let errors = typecheck_fixture_folder_errors(&[("main.fol", source)]);
+    let error = errors
+        .iter()
+        .find(|error| error.message().contains(needle))
+        .unwrap_or_else(|| panic!("Expected a '{needle}' mismatch diagnostic, got: {errors:?}"));
+    error
+        .diagnostic_location()
+        .unwrap_or_else(|| panic!("Mismatch diagnostic '{needle}' lost its source location"))
+}
+
+#[test]
+fn literal_initializer_mismatches_keep_binding_site_locations() {
+    let location = mismatch_location(
+        "fun[] main(): int = {\n    var x: int = \"hello\";\n    return 0;\n};\n",
+        "initializer for 'x'",
+    );
+
+    assert_eq!(location.line, 2);
+    assert_eq!(location.column, 9);
+    assert!(
+        location
+            .file
+            .as_deref()
+            .is_some_and(|file| file.ends_with("/main.fol")),
+        "Literal initializer mismatch should name the source file, got: {location:?}"
+    );
+}
+
+#[test]
+fn literal_return_mismatches_keep_return_statement_locations() {
+    let location = mismatch_location(
+        "fun[] main(): int = {\n    return \"hello\";\n};\n",
+        "return expects",
+    );
+
+    assert_eq!(location.line, 2);
+    assert_eq!(location.column, 5);
+    assert!(
+        location
+            .file
+            .as_deref()
+            .is_some_and(|file| file.ends_with("/main.fol")),
+        "Literal return mismatch should name the source file, got: {location:?}"
+    );
+}
+
+#[test]
+fn literal_assignment_mismatches_keep_target_site_locations() {
+    let location = mismatch_location(
+        "fun[] main(): int = {\n    var x: int = 1;\n    x = \"hello\";\n    return 0;\n};\n",
+        "assignment expects",
+    );
+
+    assert_eq!(location.line, 3);
+    assert_eq!(location.column, 5);
+    assert!(
+        location
+            .file
+            .as_deref()
+            .is_some_and(|file| file.ends_with("/main.fol")),
+        "Literal assignment mismatch should name the source file, got: {location:?}"
     );
 }
 

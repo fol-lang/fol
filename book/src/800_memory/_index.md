@@ -45,6 +45,7 @@ Positive:
 - `examples/mem_fin_finalizer_m1`
 - `examples/mem_fin_move_m1`
 - `examples/mem_fin_early_m1`
+- `examples/mem_fin_deferred_m1`
 
 Negative:
 
@@ -61,6 +62,7 @@ Negative:
 - `examples/fail_mem_fin_partial_move_m1`
 - `examples/fail_mem_fin_fun_finalizer_m1`
 - `examples/fail_mem_fin_reuse_m1`
+- `examples/fail_mem_fin_nested_m1`
 - `examples/fail_mem_clone_fin_m1`
 - `examples/fail_mem_clone_fin_claim_m1`
 - `examples/fail_mem_generic_copy_bound_m1`

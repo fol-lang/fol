@@ -177,19 +177,13 @@ mod tests {
     };
     use std::fs;
     use std::path::PathBuf;
-    use std::sync::atomic::{AtomicU64, Ordering};
 
-    fn temp_build_package(source: &str) -> (PathBuf, PathBuf) {
-        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
-
-        let package_root = std::env::temp_dir().join(format!(
-            "fol_pkg_lib_eval_{}_{}",
-            std::process::id(),
-            NEXT_ID.fetch_add(1, Ordering::Relaxed)
-        ));
+    fn temp_build_package(source: &str) -> (fol_testkit::TempFixture, PathBuf) {
+        let package_root = fol_testkit::TempFixture::new("fol_pkg_lib_eval");
         fs::create_dir_all(&package_root).expect("temp package root should be created");
         fs::write(package_root.join("build.fol"), source).expect("build source should be written");
-        (package_root.clone(), package_root.join("build.fol"))
+        let build_path = package_root.join("build.fol");
+        (package_root, build_path)
     }
 
     #[test]

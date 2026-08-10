@@ -1,18 +1,8 @@
 use super::*;
 use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn unique_temp_root(label: &str) -> std::path::PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after unix epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "fol_named_generics_{}_{}_{}",
-        label,
-        std::process::id(),
-        stamp
-    ))
+fn unique_temp_root(label: &str) -> crate::fixture::TempFixture {
+    crate::fixture::TempFixture::new(&format!("fol_named_generics_{label}"))
 }
 
 #[test]
@@ -91,9 +81,8 @@ fn test_single_quoted_generic_headers_parse() {
 
 #[test]
 fn test_named_generic_constraints_accept_quoted_type_references() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_named_generic_constraints.fol")
-            .expect("Should read named generic constraints fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_named_generic_constraints.fol")
+        .expect("Should read named generic constraints fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -131,9 +120,12 @@ fn test_generic_headers_preserve_inner_opposite_quote_chars() {
     )
     .expect("Should write temp generic fixture");
 
-    let mut file_stream =
-        FileStream::from_file(fixture.to_str().expect("Generic fixture path should be UTF-8"))
-            .expect("Should read temp generic fixture");
+    let mut file_stream = FileStream::from_file(
+        fixture
+            .to_str()
+            .expect("Generic fixture path should be UTF-8"),
+    )
+    .expect("Should read temp generic fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -146,9 +138,7 @@ fn test_generic_headers_preserve_inner_opposite_quote_chars() {
     match ast {
         AstNode::Program { declarations } => {
             let has_expected_generics = |generics: &Vec<fol_parser::ast::Generic>| {
-                generics.len() == 2
-                    && generics[0].name == "g'et"
-                    && generics[1].name == "it\"em"
+                generics.len() == 2 && generics[0].name == "g'et" && generics[1].name == "it\"em"
             };
 
             assert!(declarations.iter().any(|node| {

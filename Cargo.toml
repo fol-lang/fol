@@ -1,5 +1,4 @@
 [workspace]
-package.version = "0.2.5"
 # Every member, so a bare `cargo build`/`cargo test` at the root covers the
 # whole workspace instead of silently skipping 16 crates' suites.
 default-members = [
@@ -21,6 +20,7 @@ default-members = [
     "lang/tooling/fol-editor",
     "lang/tooling/fol-interop",
     "lang/tooling/fol-self",
+    "lang/tooling/fol-testkit",
 ]
 members = [
     "lang/compiler/fol-types",
@@ -40,7 +40,11 @@ members = [
     "lang/tooling/fol-editor",
     "lang/tooling/fol-interop",
     "lang/tooling/fol-self",
+    "lang/tooling/fol-testkit",
 ]
+
+[workspace.package]
+version = "0.2.6"
 
 [package]
 name = "fol"
@@ -71,4 +75,5 @@ fol-typecheck = { path = "lang/compiler/fol-typecheck" }
 fol-intrinsics = { path = "lang/compiler/fol-intrinsics" }
 fol-editor = { path = "lang/tooling/fol-editor" }
 fol-runtime = { path = "lang/execution/fol-runtime" }
+fol-testkit = { path = "lang/tooling/fol-testkit" }
 serde_json = "1"

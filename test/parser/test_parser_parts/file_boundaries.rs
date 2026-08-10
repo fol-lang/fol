@@ -1,18 +1,8 @@
 use super::*;
 use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn unique_temp_root(label: &str) -> std::path::PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after unix epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "fol_parser_file_boundaries_{}_{}_{}",
-        label,
-        std::process::id(),
-        stamp
-    ))
+fn unique_temp_root(label: &str) -> crate::fixture::TempFixture {
+    crate::fixture::TempFixture::new(&format!("fol_parser_file_boundaries_{label}"))
 }
 
 fn parse_program_from_folder(
@@ -41,7 +31,9 @@ fn parse_decl_package_from_folder(
     parser.parse_package(&mut lexer)
 }
 
-fn parse_decl_package_errors_from_folder(root: &std::path::Path) -> Vec<fol_diagnostics::Diagnostic> {
+fn parse_decl_package_errors_from_folder(
+    root: &std::path::Path,
+) -> Vec<fol_diagnostics::Diagnostic> {
     parse_decl_package_from_folder(root)
         .expect_err("Folder fixture should fail declaration-only package parsing")
 }
@@ -180,7 +172,9 @@ fn test_decl_package_split_binding_reports_boundary_then_second_file_locations()
         "Expected the first error to anchor at the synthetic file-boundary token, got: {}",
         errors[0].message
     );
-    let loc = errors[0].primary_location().expect("diagnostic should have primary location");
+    let loc = errors[0]
+        .primary_location()
+        .expect("diagnostic should have primary location");
     assert!(
         loc.file
             .as_deref()
@@ -211,17 +205,19 @@ fn test_decl_package_split_use_path_reports_boundary_then_second_file_locations(
         "Split use paths should report at least one boundary-token failure"
     );
     assert!(
-        errors[0].message.contains("Expected '}' after quoted import target")
+        errors[0]
+            .message
+            .contains("Expected '}' after quoted import target")
             || errors[0]
                 .message
                 .contains("Import targets must be quoted string literals inside braces")
-            || errors[0]
-                .message
-                .contains("Expected '}' to close use path"),
+            || errors[0].message.contains("Expected '}' to close use path"),
         "Expected a quoted-import boundary diagnostic first, got: {}",
         errors[0].message
     );
-    let loc = errors[0].primary_location().expect("diagnostic should have primary location");
+    let loc = errors[0]
+        .primary_location()
+        .expect("diagnostic should have primary location");
     assert!(
         loc.file
             .as_deref()

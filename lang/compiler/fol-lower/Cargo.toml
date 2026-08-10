@@ -17,6 +17,7 @@ fol-typecheck = { path = "../fol-typecheck" }
 stacker = "0.1.24"
 
 [dev-dependencies]
+fol-testkit = { path = "../../tooling/fol-testkit" }
 fol-lexer = { path = "../fol-lexer" }
 fol-package = { path = "../fol-package" }
 fol-stream = { path = "../fol-stream" }

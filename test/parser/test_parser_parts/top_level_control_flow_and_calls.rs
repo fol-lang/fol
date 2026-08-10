@@ -784,7 +784,7 @@ fn test_call_and_method_call_with_unary_plus_arguments_parsing() {
             let has_emit_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                     matches!(
                         node,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(
                             value.as_ref(),
                             AstNode::FunctionCall { name, args, .. }

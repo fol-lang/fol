@@ -19,7 +19,7 @@ fn test_spawn_routine_call_expression_parsing() {
                     AstNode::FunDecl { body, .. } | AstNode::ProDecl { body, .. }
                         if body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Return { value: Some(value) }
+                            AstNode::Return { value: Some(value), .. }
                                 if matches!(value.as_ref(), AstNode::Spawn { task, .. }
                                     if matches!(task.as_ref(), AstNode::FunctionCall { name, .. } if name == "doItFast"))
                         ))
@@ -49,7 +49,7 @@ fn test_spawn_anonymous_function_expression_parsing() {
                     AstNode::FunDecl { body, .. } | AstNode::ProDecl { body, .. }
                         if body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Return { value: Some(value) }
+                            AstNode::Return { value: Some(value), .. }
                                 if matches!(value.as_ref(), AstNode::Spawn { task, .. }
                                     if matches!(task.as_ref(), AstNode::AnonymousFun { .. }))
                         ))

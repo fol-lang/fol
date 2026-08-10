@@ -1,18 +1,8 @@
 use super::*;
 use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn unique_temp_root(label: &str) -> std::path::PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after unix epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "fol_quoted_routine_{}_{}_{}",
-        label,
-        std::process::id(),
-        stamp
-    ))
+fn unique_temp_root(label: &str) -> crate::fixture::TempFixture {
+    crate::fixture::TempFixture::new(&format!("fol_quoted_routine_{label}"))
 }
 
 #[test]
@@ -28,12 +18,12 @@ fn test_quoted_routine_names_parse_in_function_declarations() {
 
     match ast {
         AstNode::Program { declarations } => {
-            assert!(declarations.iter().any(|node| {
-                matches!(node, AstNode::FunDecl { name, .. } if name == "$")
-            }));
-            assert!(declarations.iter().any(|node| {
-                matches!(node, AstNode::FunDecl { name, .. } if name == "%")
-            }));
+            assert!(declarations
+                .iter()
+                .any(|node| { matches!(node, AstNode::FunDecl { name, .. } if name == "$") }));
+            assert!(declarations
+                .iter()
+                .any(|node| { matches!(node, AstNode::FunDecl { name, .. } if name == "%") }));
         }
         _ => panic!("Expected program node"),
     }
@@ -67,12 +57,12 @@ fn test_quoted_routine_names_preserve_inner_opposite_quote_chars() {
 
     match ast {
         AstNode::Program { declarations } => {
-            assert!(declarations.iter().any(|node| {
-                matches!(node, AstNode::FunDecl { name, .. } if name == "'$'")
-            }));
-            assert!(declarations.iter().any(|node| {
-                matches!(node, AstNode::FunDecl { name, .. } if name == "\"%\"")
-            }));
+            assert!(declarations
+                .iter()
+                .any(|node| { matches!(node, AstNode::FunDecl { name, .. } if name == "'$'") }));
+            assert!(declarations
+                .iter()
+                .any(|node| { matches!(node, AstNode::FunDecl { name, .. } if name == "\"%\"") }));
         }
         _ => panic!("Expected program node"),
     }

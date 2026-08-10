@@ -397,8 +397,106 @@ fn main_rs_emission_parses_bool_entry_params_from_cli_args() {
     assert!(emitted.contents.contains("__fol_parse_bool"));
     assert!(emitted
         .contents
-        .contains("__fol_cli_arg(0).and_then(|raw| __fol_parse_bool(&raw)).unwrap_or_default()"));
+        .contains("let raw = __fol_entry_arg_raw(0, \"bol\");"));
     assert!(emitted.contents.contains("let _ = packages::"));
+    let _ = fs::remove_dir_all(&fixture_root);
+}
+
+#[test]
+fn entry_params_reject_missing_and_unparseable_command_line_arguments() {
+    let fixture_root = temp_root("entry_arg_usage_errors");
+    let fixture = write_fixture(
+        &fixture_root,
+        "fun[] main(count: int, label: str): non = {\n    return;\n};\n",
+    );
+    let lowered = lowered_workspace_from_entry_path(&fixture);
+    let session = BackendSession::new(lowered);
+
+    let emitted = emit_main_rs(&session).expect("scalar entry params should emit");
+
+    // A command line that does not satisfy the entry signature must be a
+    // reported usage error, never the type's silent default.
+    assert!(
+        !emitted.contents.contains("unwrap_or_default"),
+        "entry arguments must not fall back to a default:\n{}",
+        emitted.contents
+    );
+    assert!(emitted
+        .contents
+        .contains("missing command-line argument #{} for entry parameter"));
+    assert!(emitted.contents.contains("is not a valid `{}`"));
+    assert!(emitted.contents.contains(&format!(
+        "const __FOL_ENTRY_ARG_USAGE_EXIT: i32 = {};",
+        crate::ENTRY_ARG_USAGE_EXIT_STATUS
+    )));
+    assert!(emitted
+        .contents
+        .contains("__fol_entry_arg_invalid(0, \"int\", &raw)"));
+    assert!(emitted
+        .contents
+        .contains("rt_model::FolStr::from(__fol_entry_arg_raw(1, \"str\"))"));
+
+    let _ = fs::remove_dir_all(&fixture_root);
+}
+
+#[test]
+fn plain_int_entry_return_becomes_the_process_exit_status() {
+    let fixture_root = temp_root("int_entry_exit_status");
+    let fixture = write_fixture(&fixture_root, "fun[] main(): int = {\n    return 3;\n};\n");
+    let lowered = lowered_workspace_from_entry_path(&fixture);
+    let session = BackendSession::new(lowered);
+
+    let emitted = emit_main_rs(&session).expect("int entry should emit");
+
+    assert!(
+        !emitted.contents.contains("let _ = packages::"),
+        "an int-returning entry must not have its result discarded:\n{}",
+        emitted.contents
+    );
+    assert!(emitted
+        .contents
+        .contains("let __fol_exit_status: rt::FolInt = packages::"));
+    assert!(emitted
+        .contents
+        .contains("std::process::exit(__fol_exit_status as i32);"));
+
+    let _ = fs::remove_dir_all(&fixture_root);
+}
+
+#[test]
+fn recoverable_int_entry_return_becomes_the_process_exit_status() {
+    let fixture_root = temp_root("recoverable_int_entry_exit_status");
+    let fixture = write_fixture(
+        &fixture_root,
+        "fun[] main(flag: bol): int / str = {\n    when(flag) {\n        case(true) { report \"boom\"; }\n        * { return 3; }\n    }\n};\n",
+    );
+    let lowered = lowered_workspace_from_entry_path(&fixture);
+    let session = BackendSession::new(lowered);
+
+    let emitted = emit_main_rs(&session).expect("recoverable int entry should emit");
+
+    assert!(emitted
+        .contents
+        .contains("fol_runtime::process::outcome_from_recoverable_exit_status"));
+    assert!(emitted
+        .contents
+        .contains("std::process::exit(__fol_outcome.exit_code());"));
+
+    let _ = fs::remove_dir_all(&fixture_root);
+}
+
+#[test]
+fn non_returning_entry_keeps_its_result_discarded() {
+    let fixture_root = temp_root("non_entry_exit_status");
+    let fixture = write_fixture(&fixture_root, "fun[] main(): non = {\n    return;\n};\n");
+    let lowered = lowered_workspace_from_entry_path(&fixture);
+    let session = BackendSession::new(lowered);
+
+    let emitted = emit_main_rs(&session).expect("non entry should emit");
+
+    assert!(emitted.contents.contains("let _ = packages::"));
+    assert!(!emitted.contents.contains("__fol_exit_status"));
+
     let _ = fs::remove_dir_all(&fixture_root);
 }
 
@@ -1399,7 +1497,8 @@ fn rustc_backend_build_mode_runs_runtime_helper_programs() {
         "};\n",
     ));
 
-    assert!(output.status.success());
+    // `main`'s int return is the process exit status.
+    assert_eq!(output.status.code(), Some(3));
     assert!(String::from_utf8_lossy(&output.stdout).contains("3"));
 }
 
@@ -1664,7 +1763,7 @@ fn rustc_backend_build_mode_runs_multi_package_workspace_programs() {
         },
     );
 
-    assert!(output.status.success());
+    assert_eq!(output.status.code(), Some(9));
 
     let _ = fs::remove_dir_all(&fixture_root);
 }
@@ -1692,7 +1791,7 @@ fn generated_crate_artifact_file_order_stays_deterministic() {
 fn executable_backend_runs_scalar_entry_routines_successfully() {
     let output = build_and_run_fixture("fun[] main(): int = {\n    return 7;\n};\n");
 
-    assert!(output.status.success());
+    assert_eq!(output.status.code(), Some(7));
     assert_eq!(String::from_utf8_lossy(&output.stdout), "");
     assert_eq!(String::from_utf8_lossy(&output.stderr), "");
 }
@@ -1750,7 +1849,7 @@ fn executable_backend_runs_container_length_programs() {
         "};\n",
     ));
 
-    assert!(output.status.success());
+    assert_eq!(output.status.code(), Some(3));
     assert!(String::from_utf8_lossy(&output.stdout).contains("3"));
 }
 
@@ -1856,8 +1955,9 @@ fn bare_generic_forwarding_moves_unknowns_but_clones_copy_safe_callers() {
 
     let output = build_and_run_fixture(source);
     let _ = fs::remove_dir_all(&fixture_root);
-    assert!(
-        output.status.success(),
+    assert_eq!(
+        output.status.code(),
+        Some(24),
         "owned, pointer, and scalar generic forwarding should build and run: {}",
         String::from_utf8_lossy(&output.stderr)
     );
@@ -1888,8 +1988,9 @@ fn executable_backend_preserves_move_only_mux_identity_when_forwarded() {
         "};\n",
     ));
 
-    assert!(
-        output.status.success(),
+    assert_eq!(
+        output.status.code(),
+        Some(42),
         "forwarding a move-only mux[T] value should build and run: {}",
         String::from_utf8_lossy(&output.stderr)
     );
@@ -1911,8 +2012,9 @@ fn executable_backend_reinitializes_move_only_aggregates_in_loops() {
         "};\n",
     ));
 
-    assert!(
-        output.status.success(),
+    assert_eq!(
+        output.status.code(),
+        Some(3),
         "move-only aggregates should reinitialize on every loop iteration: {}",
         String::from_utf8_lossy(&output.stderr)
     );
@@ -1979,8 +2081,9 @@ fn executable_backend_runs_check_programs() {
         "};\n",
     ));
 
-    assert!(output.status.success());
-    assert_eq!(output.status.code(), Some(0));
+    // `check` saw the reported failure, so `main` returned 1 — and that IS
+    // the process exit status.
+    assert_eq!(output.status.code(), Some(1));
 }
 
 #[test]
@@ -1995,8 +2098,7 @@ fn executable_backend_runs_pipe_or_fallback_programs() {
         "};\n",
     ));
 
-    assert!(output.status.success());
-    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.status.code(), Some(9));
 }
 
 #[test]
@@ -2075,7 +2177,7 @@ fn executable_backend_runs_across_loc_std_and_pkg_package_graphs() {
 
     let _ = fs::remove_dir_all(&fixture_root);
 
-    assert!(output.status.success());
+    assert_eq!(output.status.code(), Some(9));
 }
 
 #[test]
@@ -2106,8 +2208,9 @@ fn backend_emit_accepts_quoted_loc_imports_through_the_full_workspace_chain() {
 
     let _ = fs::remove_dir_all(&fixture_root);
 
-    assert!(
-        output.status.success(),
+    assert_eq!(
+        output.status.code(),
+        Some(7),
         "Quoted loc imports should survive parse, resolve, lower, typecheck, and backend emit"
     );
 }
@@ -2157,8 +2260,9 @@ fn backend_emit_accepts_quoted_pkg_imports_through_the_full_workspace_chain() {
 
     let _ = fs::remove_dir_all(&fixture_root);
 
-    assert!(
-        output.status.success(),
+    assert_eq!(
+        output.status.code(),
+        Some(9),
         "Quoted pkg imports should survive parse, resolve, lower, typecheck, and backend emit"
     );
 }

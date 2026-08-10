@@ -193,14 +193,32 @@ fn build_workspace_source_map(
 
 fn translate_checked_type(
     lowered_types: &mut LoweredTypeTable,
-    cache: &mut BTreeMap<(PackageIdentity, CheckedTypeId), LoweredTypeId>,
+    cache: &mut BTreeMap<(PackageIdentity, CheckedTypeId), Option<LoweredTypeId>>,
     package_identity: &PackageIdentity,
     program: &fol_typecheck::TypedProgram,
     checked_type_id: CheckedTypeId,
 ) -> Result<LoweredTypeId, Vec<LoweringError>> {
-    if let Some(existing) = cache.get(&(package_identity.clone(), checked_type_id)) {
-        return Ok(*existing);
+    let cache_key = (package_identity.clone(), checked_type_id);
+    match cache.get(&cache_key) {
+        Some(Some(existing)) => return Ok(*existing),
+        // Already on the stack: the type expands to itself. Recursing again is
+        // what overflowed the stack and killed the process with no diagnostic,
+        // so report it as the type error it is.
+        Some(None) => {
+            let name = match program.type_table().get(checked_type_id) {
+                Some(CheckedType::Declared { name, .. }) => format!("'{name}'"),
+                _ => format!("checked type {}", checked_type_id.0),
+            };
+            return Err(vec![LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!(
+                    "type {name} is defined in terms of itself; a type name cannot expand to itself, directly or through a cycle"
+                ),
+            )]);
+        }
+        None => {}
     }
+    cache.insert(cache_key.clone(), None);
 
     let checked_type = program
         .type_table()
@@ -220,7 +238,7 @@ fn translate_checked_type(
         } => {
             if kind == DeclaredTypeKind::GenericParameter {
                 let lowered = lowered_types.intern(LoweredType::GenericParameter { name });
-                cache.insert((package_identity.clone(), checked_type_id), lowered);
+                cache.insert(cache_key.clone(), Some(lowered));
                 return Ok(lowered);
             }
             // Apparent overrides are authoritative structural shapes. They
@@ -237,7 +255,7 @@ fn translate_checked_type(
                     program,
                     apparent,
                 )?;
-                cache.insert((package_identity.clone(), checked_type_id), lowered);
+                cache.insert(cache_key.clone(), Some(lowered));
                 return Ok(lowered);
             }
             let typed_symbol = program.typed_symbol(symbol);
@@ -548,7 +566,7 @@ fn translate_checked_type(
         }
     };
 
-    cache.insert((package_identity.clone(), checked_type_id), lowered_type_id);
+    cache.insert(cache_key, Some(lowered_type_id));
     Ok(lowered_type_id)
 }
 
@@ -573,12 +591,6 @@ mod tests {
     };
     use fol_stream::FileStream;
     use fol_typecheck::Typechecker;
-
-    fn safe_temp_dir() -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join("fol_test");
-        std::fs::create_dir_all(&dir).expect("should create test temp root");
-        dir
-    }
 
     #[test]
     fn lowering_session_keeps_typed_workspace_identity_and_size() {
@@ -650,13 +662,8 @@ mod tests {
     #[test]
     fn lowering_session_translates_loaded_package_identity_boundaries() {
         use std::fs;
-        use std::time::{SystemTime, UNIX_EPOCH};
 
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock should be monotonic enough for tmp path")
-            .as_nanos();
-        let root = safe_temp_dir().join(format!("fol_lower_workspace_{stamp}"));
+        let root = fol_testkit::TempFixture::new("fol_lower_workspace");
         let app_dir = root.join("app");
         let shared_dir = root.join("shared");
         fs::create_dir_all(&app_dir).expect("should create app dir");
@@ -727,13 +734,8 @@ mod tests {
             PreparedPackage,
         };
         use std::fs;
-        use std::time::{SystemTime, UNIX_EPOCH};
 
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock should be monotonic enough for tmp path")
-            .as_nanos();
-        let root = safe_temp_dir().join(format!("fol_lower_pkg_exports_{stamp}"));
+        let root = fol_testkit::TempFixture::new("fol_lower_pkg_exports");
         let json_root = root.join("json");
         fs::create_dir_all(json_root.join("src/fmt")).expect("should create package source dirs");
         fs::write(
@@ -817,13 +819,8 @@ mod tests {
     #[test]
     fn lowering_session_marks_entry_package_main_routines_as_entry_candidates() {
         use std::fs;
-        use std::time::{SystemTime, UNIX_EPOCH};
 
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock should be monotonic enough for tmp path")
-            .as_nanos();
-        let root = safe_temp_dir().join(format!("fol_lower_entry_candidates_{stamp}"));
+        let root = fol_testkit::TempFixture::new("fol_lower_entry_candidates");
         let app_dir = root.join("app");
         let shared_dir = root.join("shared");
         fs::create_dir_all(&app_dir).expect("should create app dir");
@@ -867,13 +864,8 @@ mod tests {
     #[test]
     fn lowering_session_dedupes_packages_mounted_multiple_times() {
         use std::fs;
-        use std::time::{SystemTime, UNIX_EPOCH};
 
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock should be monotonic enough for tmp path")
-            .as_nanos();
-        let root = safe_temp_dir().join(format!("fol_lower_duplicate_mounts_{stamp}"));
+        let root = fol_testkit::TempFixture::new("fol_lower_duplicate_mounts");
         let app_dir = root.join("app");
         let shared_dir = root.join("shared");
         fs::create_dir_all(&app_dir).expect("should create app dir");
@@ -916,13 +908,8 @@ mod tests {
     #[test]
     fn lowering_session_keeps_loc_std_and_pkg_packages_in_one_workspace() {
         use std::fs;
-        use std::time::{SystemTime, UNIX_EPOCH};
 
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock should be monotonic enough for tmp path")
-            .as_nanos();
-        let root = safe_temp_dir().join(format!("fol_lower_all_package_kinds_{stamp}"));
+        let root = fol_testkit::TempFixture::new("fol_lower_all_package_kinds");
         let app_dir = root.join("app");
         let shared_dir = root.join("shared");
         let store_root = root.join("store");
@@ -1013,13 +1000,8 @@ mod tests {
     #[test]
     fn lowering_session_excludes_build_source_units_from_runtime_outputs() {
         use std::fs;
-        use std::time::{SystemTime, UNIX_EPOCH};
 
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock should be monotonic enough for tmp path")
-            .as_nanos();
-        let root = safe_temp_dir().join(format!("fol_lower_build_units_{stamp}"));
+        let root = fol_testkit::TempFixture::new("fol_lower_build_units");
         fs::create_dir_all(root.join("src")).expect("should create temp source dir");
         fs::write(root.join("build.fol"), "`build`\n").expect("should write build file");
         fs::write(

@@ -9,3 +9,15 @@ fun[exp] byte_at(text: str, index: int): int = {
 fun[exp] from_byte(value: int): str = {
     return .byte_to_str(value);
 };
+
+fun[exp] find(text: str, needle: str): int = {
+    return .str_find(text, needle);
+};
+
+fun[exp] replace(text: str, from: str, to: str): str = {
+    return .str_replace(text, from, to);
+};
+
+fun[exp] to_int(text: str, fallback: int): int = {
+    return .parse_int(text, fallback);
+};

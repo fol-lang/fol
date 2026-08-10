@@ -13,21 +13,10 @@ use fol_resolver::resolve_package_workspace;
 use fol_stream::FileStream;
 use fol_typecheck::Typechecker;
 
-fn safe_temp_dir() -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join("fol_test");
-    std::fs::create_dir_all(&dir).expect("should create test temp root");
-    dir
-}
-
 #[test]
 fn declaration_lowering_maps_top_level_routine_signatures_to_lowered_types() {
-    let fixture = safe_temp_dir().join(format!(
-        "fol_lower_routine_sig_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_routine_sig")
+        .with_file("fol_lower_routine_sig.fol");
     std::fs::write(
         &fixture,
         "fun[] greet(count: int): str = { return \"ok\"; };",
@@ -85,13 +74,8 @@ fn declaration_lowering_maps_top_level_routine_signatures_to_lowered_types() {
 
 #[test]
 fn declaration_lowering_supports_generic_routines_in_the_lowered_workspace() {
-    let fixture = safe_temp_dir().join(format!(
-        "fol_lower_generic_routine_m1_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_generic_routine_m1")
+        .with_file("fol_lower_generic_routine_m1.fol");
     std::fs::write(
         &fixture,
         "fun pick(T)(value: T): T = { return value; };\nfun[] main(): int = { return pick(7); };",
@@ -121,13 +105,8 @@ fn declaration_lowering_supports_generic_routines_in_the_lowered_workspace() {
 
 #[test]
 fn declaration_lowering_supports_multi_param_generic_routines_in_the_lowered_workspace() {
-    let fixture = safe_temp_dir().join(format!(
-        "fol_lower_generic_routine_pair_m1_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_generic_routine_pair_m1")
+        .with_file("fol_lower_generic_routine_pair_m1.fol");
     std::fs::write(
         &fixture,
         "fun pair(T)(left: T, right: T): T = { return right; };\nfun[] main(): int = { return pair(1, 2); };",
@@ -162,13 +141,8 @@ fn declaration_lowering_supports_multi_param_generic_routines_in_the_lowered_wor
 
 #[test]
 fn declaration_lowering_supports_return_only_generic_routines_in_the_lowered_workspace() {
-    let fixture = safe_temp_dir().join(format!(
-        "fol_lower_generic_return_only_m1_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_generic_return_only_m1")
+        .with_file("fol_lower_generic_return_only_m1.fol");
     std::fs::write(
         &fixture,
         "fun make(T)(): T = { panic(\"boom\"); };\nfun[] main(): int = { return 0; };",
@@ -194,13 +168,8 @@ fn declaration_lowering_supports_return_only_generic_routines_in_the_lowered_wor
 
 #[test]
 fn declaration_lowering_supports_generic_routines_with_default_params_in_the_lowered_workspace() {
-    let fixture = safe_temp_dir().join(format!(
-        "fol_lower_generic_defaults_m1_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_generic_defaults_m1")
+        .with_file("fol_lower_generic_defaults_m1.fol");
     std::fs::write(
         &fixture,
         "fun pick(T)(value: T, fallback: int = 1): T = { return value; };\nfun[] main(): int = { return pick(7); };",
@@ -226,13 +195,8 @@ fn declaration_lowering_supports_generic_routines_with_default_params_in_the_low
 
 #[test]
 fn declaration_lowering_records_protocol_standards_and_conformances() {
-    let fixture = safe_temp_dir().join(format!(
-        "fol_lower_standard_protocol_m2_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_standard_protocol_m2")
+        .with_file("fol_lower_standard_protocol_m2.fol");
     std::fs::write(
         &fixture,
         concat!(
@@ -283,13 +247,8 @@ fn declaration_lowering_records_protocol_standards_and_conformances() {
 
 #[test]
 fn declaration_lowering_records_aliases_as_erased_runtime_shapes() {
-    let fixture = safe_temp_dir().join(format!(
-        "fol_lower_alias_decl_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture =
+        fol_testkit::TempFixture::new("fol_lower_alias_decl").with_file("fol_lower_alias_decl.fol");
     std::fs::write(
         &fixture,
         "ali Counter: int;\nfun[] main(value: Counter): Counter = { return value; };",
@@ -338,13 +297,8 @@ fn declaration_lowering_records_aliases_as_erased_runtime_shapes() {
 
 #[test]
 fn declaration_lowering_records_explicit_record_field_layouts() {
-    let fixture = safe_temp_dir().join(format!(
-        "fol_lower_record_decl_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_record_decl")
+        .with_file("fol_lower_record_decl.fol");
     std::fs::write(
         &fixture,
         "typ Point: rec = { x: int, y: str };\nfun[] main(): int = { return 0; };",
@@ -419,16 +373,11 @@ fn declaration_lowering_records_explicit_record_field_layouts() {
 
 #[test]
 fn declaration_lowering_records_explicit_entry_variant_layouts() {
-    let fixture = safe_temp_dir().join(format!(
-        "fol_lower_entry_decl_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture =
+        fol_testkit::TempFixture::new("fol_lower_entry_decl").with_file("fol_lower_entry_decl.fol");
     std::fs::write(
         &fixture,
-        "typ Outcome: ent = { var Ok: int; var Err: str };\nfun[] main(): int = { return 0; };",
+        "typ Outcome: ent = { var Ok: int = 1; var Err: str = \"broken\" };\nfun[] main(): int = { return 0; };",
     )
     .expect("should write lowering entry fixture");
 
@@ -506,13 +455,8 @@ fn declaration_lowering_records_explicit_entry_variant_layouts() {
 
 #[test]
 fn declaration_lowering_synthesizes_runtime_decls_for_instantiated_generic_records() {
-    let fixture = safe_temp_dir().join(format!(
-        "fol_lower_generic_type_record_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_generic_type_record")
+        .with_file("fol_lower_generic_type_record.fol");
     std::fs::write(
         &fixture,
         "typ Box(T): rec = {\n    value: T\n};\nfun[] read(value: Box[int]): int = { return value.value; };\nfun[] main(): int = { return 0; };",
@@ -579,13 +523,8 @@ fn declaration_lowering_synthesizes_runtime_decls_for_instantiated_generic_recor
 
 #[test]
 fn generic_owned_and_pointer_fields_only_emit_concrete_runtime_decls() {
-    let fixture = safe_temp_dir().join(format!(
-        "fol_lower_generic_memory_fields_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_generic_memory_fields")
+        .with_file("fol_lower_generic_memory_fields.fol");
     std::fs::write(
         &fixture,
         "typ OwnedBox(T): rec = { value: @T };\n\
@@ -640,13 +579,8 @@ fn generic_owned_and_pointer_fields_only_emit_concrete_runtime_decls() {
 
 #[test]
 fn declaration_lowering_records_top_level_globals_with_storage_types() {
-    let fixture = safe_temp_dir().join(format!(
-        "fol_lower_globals_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture =
+        fol_testkit::TempFixture::new("fol_lower_globals").with_file("fol_lower_globals.fol");
     std::fs::write(&fixture, "var count: int = 1;\nlab label: str = \"ok\";")
         .expect("should write lowering global fixture");
 
@@ -700,13 +634,8 @@ fn declaration_lowering_records_top_level_globals_with_storage_types() {
 
 #[test]
 fn declaration_lowering_records_routine_shells_with_parameter_locals() {
-    let fixture = safe_temp_dir().join(format!(
-        "fol_lower_routines_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture =
+        fol_testkit::TempFixture::new("fol_lower_routines").with_file("fol_lower_routines.fol");
     std::fs::write(
         &fixture,
         "fun[] add(left: int, right: int): int = { return left; };",
@@ -761,13 +690,8 @@ fn declaration_lowering_records_routine_shells_with_parameter_locals() {
 
 #[test]
 fn declaration_lowering_reports_missing_parameter_symbol_matches_explicitly() {
-    let fixture = safe_temp_dir().join(format!(
-        "fol_lower_missing_param_{}.fol",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be monotonic enough for tmp names")
-            .as_nanos()
-    ));
+    let fixture = fol_testkit::TempFixture::new("fol_lower_missing_param")
+        .with_file("fol_lower_missing_param.fol");
     std::fs::write(&fixture, "fun[] add(left: int): int = { return left; };")
         .expect("should write lowering routine fixture");
 
@@ -848,13 +772,8 @@ fn declaration_lowering_reports_missing_parameter_symbol_matches_explicitly() {
 #[test]
 fn declaration_lowering_keeps_local_and_imported_packages_separate() {
     use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock should be monotonic enough for tmp path")
-        .as_nanos();
-    let root = safe_temp_dir().join(format!("fol_lower_decl_parity_{stamp}"));
+    let root = fol_testkit::TempFixture::new("fol_lower_decl_parity");
     let app_dir = root.join("app");
     let shared_dir = root.join("shared");
     fs::create_dir_all(&app_dir).expect("should create app dir");

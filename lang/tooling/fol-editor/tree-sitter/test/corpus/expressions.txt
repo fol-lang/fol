@@ -1,4 +1,51 @@
 ==================
+Chained Call Statements
+==================
+
+fun demo(): non = {
+    tool.first("a").second("b");
+    make().read();
+};
+
+---
+
+(source_file
+  (fun_decl
+    (plain_fun_decl
+      (identifier)
+      (params)
+      (return_type
+        (type_expr
+          (identifier)))
+      (block
+        (stmt
+          (expr
+            (expr_atom
+              (call_expr
+                (field_access
+                  (call_expr
+                    (field_access
+                      (identifier)
+                      (identifier))
+                    (call_arg
+                      (expr
+                        (expr_atom
+                          (string_literal)))))
+                  (identifier))
+                (call_arg
+                  (expr
+                    (expr_atom
+                      (string_literal))))))))
+        (stmt
+          (expr
+            (expr_atom
+              (call_expr
+                (field_access
+                  (call_expr
+                    (identifier))
+                  (identifier))))))))))
+
+==================
 Expressions
 ==================
 

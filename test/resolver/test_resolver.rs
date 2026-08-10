@@ -5,7 +5,6 @@ use fol_resolver::{
     ResolvedProgram, ResolvedWorkspace, ResolverConfig, ResolverError,
 };
 use fol_stream::FileStream;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 fn resolve_package_from_file(path: &str) -> ResolvedProgram {
     let mut file_stream = FileStream::from_file(path).expect("Should read resolver test file");
@@ -61,19 +60,13 @@ fn resolve_workspace_from_folder_with_config(
         .expect("Resolver workspace fixture should resolve successfully")
 }
 
-fn unique_temp_root(label: &str) -> std::path::PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after unix epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "fol_resolver_{}_{}_{}",
-        label,
-        std::process::id(),
-        stamp
-    ))
+fn unique_temp_root(label: &str) -> crate::fixture::TempFixture {
+    crate::fixture::TempFixture::new(&format!("fol_resolver_{label}"))
 }
 
+#[cfg(test)]
+#[path = "test_resolver_parts/ambiguity_diagnostics.rs"]
+mod ambiguity_diagnostics;
 #[cfg(test)]
 #[path = "test_resolver_parts/block_scopes.rs"]
 mod block_scopes;
@@ -81,38 +74,44 @@ mod block_scopes;
 #[path = "test_resolver_parts/comment_transparency.rs"]
 mod comment_transparency;
 #[cfg(test)]
-#[path = "test_resolver_parts/ambiguity_diagnostics.rs"]
-mod ambiguity_diagnostics;
-#[cfg(test)]
 #[path = "test_resolver_parts/diagnostic_quality.rs"]
 mod diagnostic_quality;
 #[cfg(test)]
 #[path = "test_resolver_parts/file_private_visibility.rs"]
 mod file_private_visibility;
 #[cfg(test)]
-#[path = "test_resolver_parts/foundation.rs"]
-mod foundation;
-#[cfg(test)]
 #[path = "test_resolver_parts/forward_references.rs"]
 mod forward_references;
+#[cfg(test)]
+#[path = "test_resolver_parts/foundation.rs"]
+mod foundation;
 #[cfg(test)]
 #[path = "test_resolver_parts/free_calls.rs"]
 mod free_calls;
 #[cfg(test)]
+#[path = "test_resolver_parts/generic_routines.rs"]
+mod generic_routines;
+#[cfg(test)]
 #[path = "test_resolver_parts/identifier_resolution.rs"]
 mod identifier_resolution;
 #[cfg(test)]
-#[path = "test_resolver_parts/imports.rs"]
-mod imports;
-#[cfg(test)]
 #[path = "test_resolver_parts/import_exposure.rs"]
 mod import_exposure;
+#[cfg(test)]
+#[path = "test_resolver_parts/imports.rs"]
+mod imports;
 #[cfg(test)]
 #[path = "test_resolver_parts/inquiry_resolution.rs"]
 mod inquiry_resolution;
 #[cfg(test)]
 #[path = "test_resolver_parts/loop_binders.rs"]
 mod loop_binders;
+#[cfg(test)]
+#[path = "test_resolver_parts/pkg_resolution.rs"]
+mod pkg_resolution;
+#[cfg(test)]
+#[path = "test_resolver_parts/provider_boundary.rs"]
+mod provider_boundary;
 #[cfg(test)]
 #[path = "test_resolver_parts/qualified_calls.rs"]
 mod qualified_calls;
@@ -129,14 +128,17 @@ mod rolling_binders;
 #[path = "test_resolver_parts/routine_scopes.rs"]
 mod routine_scopes;
 #[cfg(test)]
+#[path = "test_resolver_parts/shadowing_contract.rs"]
+mod shadowing_contract;
+#[cfg(test)]
 #[path = "test_resolver_parts/source_units.rs"]
 mod source_units;
 #[cfg(test)]
-#[path = "test_resolver_parts/workspace.rs"]
-mod workspace;
+#[path = "test_resolver_parts/standards_m2.rs"]
+mod standards_m2;
 #[cfg(test)]
-#[path = "test_resolver_parts/shadowing_contract.rs"]
-mod shadowing_contract;
+#[path = "test_resolver_parts/std_resolution.rs"]
+mod std_resolution;
 #[cfg(test)]
 #[path = "test_resolver_parts/surface_audit.rs"]
 mod surface_audit;
@@ -150,23 +152,11 @@ mod top_level_duplicates;
 #[path = "test_resolver_parts/type_resolution.rs"]
 mod type_resolution;
 #[cfg(test)]
-#[path = "test_resolver_parts/generic_routines.rs"]
-mod generic_routines;
-#[cfg(test)]
-#[path = "test_resolver_parts/pkg_resolution.rs"]
-mod pkg_resolution;
-#[cfg(test)]
-#[path = "test_resolver_parts/provider_boundary.rs"]
-mod provider_boundary;
-#[cfg(test)]
-#[path = "test_resolver_parts/std_resolution.rs"]
-mod std_resolution;
-#[cfg(test)]
-#[path = "test_resolver_parts/standards_m2.rs"]
-mod standards_m2;
-#[cfg(test)]
 #[path = "test_resolver_parts/unsupported_imports.rs"]
 mod unsupported_imports;
 #[cfg(test)]
 #[path = "test_resolver_parts/use_loc_resolution.rs"]
 mod use_loc_resolution;
+#[cfg(test)]
+#[path = "test_resolver_parts/workspace.rs"]
+mod workspace;

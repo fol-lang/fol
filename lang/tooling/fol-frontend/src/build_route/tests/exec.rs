@@ -45,14 +45,7 @@ fn non_host_machine_target() -> String {
 
 #[test]
 fn cli_selected_custom_graph_steps_flow_into_the_routed_member_plan() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_cli_step_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_cli_step");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("build.fol"),
@@ -78,7 +71,7 @@ fn cli_selected_custom_graph_steps_flow_into_the_routed_member_plan() {
     );
     let plan = plan_member_execution(
         &FrontendMemberBuildRoute {
-            member_root: root.clone(),
+            member_root: root.to_path_buf(),
             package_name: "demo".to_string(),
             mode: FrontendBuildWorkflowMode::Modern,
         },
@@ -94,14 +87,7 @@ fn cli_selected_custom_graph_steps_flow_into_the_routed_member_plan() {
 
 #[test]
 fn custom_run_steps_plan_as_run_execution() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_custom_run_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_custom_run");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("build.fol"),
@@ -124,7 +110,7 @@ fn custom_run_steps_plan_as_run_execution() {
     .unwrap();
     let plan = plan_member_execution(
         &FrontendMemberBuildRoute {
-            member_root: root.clone(),
+            member_root: root.to_path_buf(),
             package_name: "demo".to_string(),
             mode: FrontendBuildWorkflowMode::Modern,
         },
@@ -151,14 +137,7 @@ fn custom_run_steps_plan_as_run_execution() {
 
 #[test]
 fn explicit_named_run_steps_select_the_requested_artifact_when_multiple_runnables_exist() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_multi_run_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_multi_run");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("build.fol"),
@@ -190,7 +169,7 @@ fn explicit_named_run_steps_select_the_requested_artifact_when_multiple_runnable
     .unwrap();
     let plan = plan_member_execution(
         &FrontendMemberBuildRoute {
-            member_root: root.clone(),
+            member_root: root.to_path_buf(),
             package_name: "demo".to_string(),
             mode: FrontendBuildWorkflowMode::Modern,
         },
@@ -217,14 +196,7 @@ fn explicit_named_run_steps_select_the_requested_artifact_when_multiple_runnable
 
 #[test]
 fn named_build_steps_can_target_matching_artifacts_when_multiple_builds_exist() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_multi_build_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_multi_build");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("build.fol"),
@@ -257,7 +229,7 @@ fn named_build_steps_can_target_matching_artifacts_when_multiple_builds_exist() 
 
     let plan = plan_member_execution(
         &FrontendMemberBuildRoute {
-            member_root: root.clone(),
+            member_root: root.to_path_buf(),
             package_name: "demo".to_string(),
             mode: FrontendBuildWorkflowMode::Modern,
         },
@@ -284,14 +256,7 @@ fn named_build_steps_can_target_matching_artifacts_when_multiple_builds_exist() 
 
 #[test]
 fn default_build_step_is_marked_ambiguous_when_multiple_executables_exist() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_ambiguous_build_plan_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_ambiguous_build_plan");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("build.fol"),
@@ -322,7 +287,7 @@ fn default_build_step_is_marked_ambiguous_when_multiple_executables_exist() {
 
     let plan = plan_member_execution(
         &FrontendMemberBuildRoute {
-            member_root: root.clone(),
+            member_root: root.to_path_buf(),
             package_name: "demo".to_string(),
             mode: FrontendBuildWorkflowMode::Modern,
         },
@@ -344,14 +309,7 @@ fn default_build_step_is_marked_ambiguous_when_multiple_executables_exist() {
 
 #[test]
 fn default_build_step_fans_out_over_every_executable() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_ambiguous_build_exec_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_ambiguous_build_exec");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("build.fol"),
@@ -380,8 +338,8 @@ fn default_build_step_fans_out_over_every_executable() {
     )
     .unwrap();
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
-        members: vec![PackageRoot::new(root.clone())],
+        root: WorkspaceRoot::new(root.to_path_buf()),
+        members: vec![PackageRoot::new(root.to_path_buf())],
         std_root_override: None,
         package_store_root_override: None,
         build_root: root.join(".fol/build"),
@@ -422,14 +380,7 @@ fn assert_routed_profile_case(
     expected_backend_profile: fol_backend::BackendBuildProfile,
     expected_output_profile: &str,
 ) {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_profile_{label}_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new(&format!("fol_frontend_build_route_profile_{label}"));
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("build.fol"),
@@ -452,8 +403,8 @@ fn assert_routed_profile_case(
     )
     .unwrap();
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
-        members: vec![PackageRoot::new(root.clone())],
+        root: WorkspaceRoot::new(root.to_path_buf()),
+        members: vec![PackageRoot::new(root.to_path_buf())],
         std_root_override: None,
         package_store_root_override: None,
         build_root: root.join(".fol/build"),
@@ -464,7 +415,7 @@ fn assert_routed_profile_case(
     let effective_config = super::super::execution_config_for_profile(&config, requested_profile);
     let plan = plan_member_execution(
         &FrontendMemberBuildRoute {
-            member_root: root.clone(),
+            member_root: root.to_path_buf(),
             package_name: "app".to_owned(),
             mode: FrontendBuildWorkflowMode::Modern,
         },
@@ -560,14 +511,7 @@ fn explicit_optimize_precedes_requested_profile_consistently() {
 
 #[test]
 fn configured_executable_roots_drive_default_build_and_run_step_planning() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_targeted_root_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_targeted_root");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("build.fol"),
@@ -591,7 +535,7 @@ fn configured_executable_roots_drive_default_build_and_run_step_planning() {
     .unwrap();
     let plan = plan_member_execution(
         &FrontendMemberBuildRoute {
-            member_root: root.clone(),
+            member_root: root.to_path_buf(),
             package_name: "demo".to_string(),
             mode: FrontendBuildWorkflowMode::Modern,
         },
@@ -632,14 +576,7 @@ fn configured_executable_roots_drive_default_build_and_run_step_planning() {
 
 #[test]
 fn object_style_artifact_build_bodies_drive_default_build_and_run_step_planning() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_object_root_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_object_root");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("build.fol"),
@@ -671,7 +608,7 @@ fn object_style_artifact_build_bodies_drive_default_build_and_run_step_planning(
     .unwrap();
     let plan = plan_member_execution(
         &FrontendMemberBuildRoute {
-            member_root: root.clone(),
+            member_root: root.to_path_buf(),
             package_name: "demo".to_string(),
             mode: FrontendBuildWorkflowMode::Modern,
         },
@@ -711,14 +648,7 @@ fn object_style_artifact_build_bodies_drive_default_build_and_run_step_planning(
 
 #[test]
 fn workspace_route_plans_modern_build_members_through_default_graph_planning() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_modern_exec_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_modern_exec");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("build.fol"),
@@ -740,7 +670,7 @@ fn workspace_route_plans_modern_build_members_through_default_graph_planning() {
     .unwrap();
     let plan = plan_member_execution(
         &FrontendMemberBuildRoute {
-            member_root: root.clone(),
+            member_root: root.to_path_buf(),
             package_name: "demo".to_string(),
             mode: FrontendBuildWorkflowMode::Modern,
         },
@@ -757,14 +687,7 @@ fn workspace_route_plans_modern_build_members_through_default_graph_planning() {
 
 #[test]
 fn workspace_route_plans_modern_check_steps_even_without_a_runnable_binary() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_modern_check_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_modern_check");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("build.fol"),
@@ -782,7 +705,7 @@ fn workspace_route_plans_modern_check_steps_even_without_a_runnable_binary() {
     fs::write(root.join("src/lib.fol"), "var[exp] answer: int = 42;\n").unwrap();
     let plan = plan_member_execution(
         &FrontendMemberBuildRoute {
-            member_root: root.clone(),
+            member_root: root.to_path_buf(),
             package_name: "demo".to_string(),
             mode: FrontendBuildWorkflowMode::Modern,
         },
@@ -803,14 +726,7 @@ fn workspace_route_plans_modern_check_steps_even_without_a_runnable_binary() {
 
 #[test]
 fn execute_workspace_build_route_rejects_echo_for_mem_model_artifacts() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_alloc_echo_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_alloc_echo");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("build.fol"),
@@ -836,8 +752,8 @@ fn execute_workspace_build_route_rejects_echo_for_mem_model_artifacts() {
     )
     .unwrap();
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
-        members: vec![PackageRoot::new(root.clone())],
+        root: WorkspaceRoot::new(root.to_path_buf()),
+        members: vec![PackageRoot::new(root.to_path_buf())],
         std_root_override: None,
         package_store_root_override: None,
         build_root: root.join(".fol/build"),
@@ -872,14 +788,7 @@ fn execute_workspace_build_route_rejects_echo_for_mem_model_artifacts() {
 
 #[test]
 fn execute_workspace_build_route_rejects_heap_backed_types_for_core_model_artifacts() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_core_heap_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_core_heap");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("build.fol"),
@@ -905,8 +814,8 @@ fn execute_workspace_build_route_rejects_heap_backed_types_for_core_model_artifa
     )
     .unwrap();
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
-        members: vec![PackageRoot::new(root.clone())],
+        root: WorkspaceRoot::new(root.to_path_buf()),
+        members: vec![PackageRoot::new(root.to_path_buf())],
         std_root_override: None,
         package_store_root_override: None,
         build_root: root.join(".fol/build"),
@@ -937,14 +846,7 @@ fn execute_workspace_build_route_rejects_heap_backed_types_for_core_model_artifa
 
 #[test]
 fn execute_workspace_build_route_rejects_dynamic_len_for_core_model_artifacts() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_core_len_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_core_len");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("build.fol"),
@@ -970,8 +872,8 @@ fn execute_workspace_build_route_rejects_dynamic_len_for_core_model_artifacts() 
     )
     .unwrap();
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
-        members: vec![PackageRoot::new(root.clone())],
+        root: WorkspaceRoot::new(root.to_path_buf()),
+        members: vec![PackageRoot::new(root.to_path_buf())],
         std_root_override: None,
         package_store_root_override: None,
         build_root: root.join(".fol/build"),
@@ -1002,14 +904,7 @@ fn execute_workspace_build_route_rejects_dynamic_len_for_core_model_artifacts() 
 
 #[test]
 fn execute_workspace_build_route_accepts_dynamic_len_for_mem_model_artifacts() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_alloc_len_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_alloc_len");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("build.fol"),
@@ -1039,8 +934,8 @@ fn execute_workspace_build_route_accepts_dynamic_len_for_mem_model_artifacts() {
     )
     .unwrap();
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
-        members: vec![PackageRoot::new(root.clone())],
+        root: WorkspaceRoot::new(root.to_path_buf()),
+        members: vec![PackageRoot::new(root.to_path_buf())],
         std_root_override: None,
         package_store_root_override: None,
         build_root: root.join(".fol/build"),
@@ -1065,14 +960,7 @@ fn execute_workspace_build_route_accepts_dynamic_len_for_mem_model_artifacts() {
 
 #[test]
 fn execute_workspace_build_route_emits_core_runtime_module_imports() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_emit_core_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_emit_core");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("build.fol"),
@@ -1098,8 +986,8 @@ fn execute_workspace_build_route_emits_core_runtime_module_imports() {
     )
     .unwrap();
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
-        members: vec![PackageRoot::new(root.clone())],
+        root: WorkspaceRoot::new(root.to_path_buf()),
+        members: vec![PackageRoot::new(root.to_path_buf())],
         std_root_override: None,
         package_store_root_override: None,
         build_root: root.join(".fol/build"),
@@ -1130,14 +1018,7 @@ fn execute_workspace_build_route_emits_core_runtime_module_imports() {
 
 #[test]
 fn execute_workspace_build_route_emits_mem_runtime_module_imports() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_emit_alloc_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_emit_alloc");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("build.fol"),
@@ -1167,8 +1048,8 @@ fn execute_workspace_build_route_emits_mem_runtime_module_imports() {
     )
     .unwrap();
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
-        members: vec![PackageRoot::new(root.clone())],
+        root: WorkspaceRoot::new(root.to_path_buf()),
+        members: vec![PackageRoot::new(root.to_path_buf())],
         std_root_override: None,
         package_store_root_override: None,
         build_root: root.join(".fol/build"),
@@ -1199,14 +1080,7 @@ fn execute_workspace_build_route_emits_mem_runtime_module_imports() {
 
 #[test]
 fn execute_workspace_build_route_emits_std_runtime_module_imports() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_emit_std_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_emit_std");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("build.fol"),
@@ -1239,8 +1113,8 @@ fn execute_workspace_build_route_emits_std_runtime_module_imports() {
     )
     .unwrap();
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
-        members: vec![PackageRoot::new(root.clone())],
+        root: WorkspaceRoot::new(root.to_path_buf()),
+        members: vec![PackageRoot::new(root.to_path_buf())],
         std_root_override: None,
         package_store_root_override: None,
         build_root: root.join(".fol/build"),
@@ -1273,14 +1147,7 @@ fn execute_workspace_build_route_emits_std_runtime_module_imports() {
 
 #[test]
 fn execute_workspace_build_route_runs_selected_core_model_artifacts_without_std() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_core_run_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_core_run");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("build.fol"),
@@ -1306,8 +1173,8 @@ fn execute_workspace_build_route_runs_selected_core_model_artifacts_without_std(
     )
     .unwrap();
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
-        members: vec![PackageRoot::new(root.clone())],
+        root: WorkspaceRoot::new(root.to_path_buf()),
+        members: vec![PackageRoot::new(root.to_path_buf())],
         std_root_override: None,
         package_store_root_override: None,
         build_root: root.join(".fol/build"),
@@ -1348,14 +1215,7 @@ fn execute_workspace_build_route_runs_selected_core_model_artifacts_without_std(
 
 #[test]
 fn execute_workspace_build_route_tests_selected_memo_model_artifacts_without_std() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_mem_test_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_mem_test");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("build.fol"),
@@ -1380,8 +1240,8 @@ fn execute_workspace_build_route_tests_selected_memo_model_artifacts_without_std
     )
     .unwrap();
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
-        members: vec![PackageRoot::new(root.clone())],
+        root: WorkspaceRoot::new(root.to_path_buf()),
+        members: vec![PackageRoot::new(root.to_path_buf())],
         std_root_override: None,
         package_store_root_override: None,
         build_root: root.join(".fol/build"),
@@ -1412,14 +1272,7 @@ fn execute_workspace_build_route_tests_selected_memo_model_artifacts_without_std
 
 #[test]
 fn execute_workspace_build_route_runs_step_specific_artifacts_in_mixed_routes() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_mixed_model_step_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_mixed_model_step");
     // Capability models are declared per package, so a mixed-model route is
     // a workspace of one hosted member and one core member; named run steps
     // route to the member that defines them.
@@ -1465,7 +1318,7 @@ fn execute_workspace_build_route_runs_step_specific_artifacts_in_mixed_routes() 
     )
     .unwrap();
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![
             PackageRoot::new(root.join("host")),
             PackageRoot::new(root.join("blink")),
@@ -1514,14 +1367,7 @@ fn execute_workspace_build_route_runs_step_specific_artifacts_in_mixed_routes() 
 
 #[test]
 fn execute_workspace_build_route_build_summary_lists_all_models_for_mixed_workspace() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_mixed_model_build_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_mixed_model_build");
     let core_pkg = root.join("core_pkg");
     let memo_pkg = root.join("memo_pkg");
     fs::create_dir_all(core_pkg.join("src")).unwrap();
@@ -1565,7 +1411,7 @@ fn execute_workspace_build_route_build_summary_lists_all_models_for_mixed_worksp
     )
     .unwrap();
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
+        root: WorkspaceRoot::new(root.to_path_buf()),
         members: vec![PackageRoot::new(core_pkg), PackageRoot::new(memo_pkg)],
         std_root_override: None,
         package_store_root_override: None,
@@ -1593,14 +1439,7 @@ fn execute_workspace_build_route_build_summary_lists_all_models_for_mixed_worksp
 
 #[test]
 fn execute_workspace_build_route_run_selection_stays_std_with_same_root_core_tests() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_same_root_models_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_same_root_models");
     fs::create_dir_all(root.join("app")).unwrap();
     fs::create_dir_all(root.join("tests")).unwrap();
     fs::write(
@@ -1630,8 +1469,8 @@ fn execute_workspace_build_route_run_selection_stays_std_with_same_root_core_tes
     )
     .unwrap();
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
-        members: vec![PackageRoot::new(root.clone())],
+        root: WorkspaceRoot::new(root.to_path_buf()),
+        members: vec![PackageRoot::new(root.to_path_buf())],
         std_root_override: None,
         package_store_root_override: None,
         build_root: root.join(".fol/build"),
@@ -1660,14 +1499,7 @@ fn execute_workspace_build_route_run_selection_stays_std_with_same_root_core_tes
 
 #[test]
 fn routed_isolation_uses_the_same_option_evaluation_as_selection() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_build_route_option_scope_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_build_route_option_scope");
     fs::create_dir_all(root.join("core")).unwrap();
     fs::create_dir_all(root.join("memo")).unwrap();
     fs::write(
@@ -1703,8 +1535,8 @@ fn routed_isolation_uses_the_same_option_evaluation_as_selection() {
     )
     .unwrap();
     let workspace = FrontendWorkspace {
-        root: WorkspaceRoot::new(root.clone()),
-        members: vec![PackageRoot::new(root.clone())],
+        root: WorkspaceRoot::new(root.to_path_buf()),
+        members: vec![PackageRoot::new(root.to_path_buf())],
         std_root_override: None,
         package_store_root_override: None,
         build_root: root.join(".fol/build"),
@@ -1736,14 +1568,7 @@ fn routed_isolation_uses_the_same_option_evaluation_as_selection() {
 
 #[test]
 fn routed_hosted_tier_uses_the_evaluated_dependency_set() {
-    let root = std::env::temp_dir().join(format!(
-        "fol_frontend_route_conditional_std_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time before epoch")
-            .as_nanos()
-    ));
+    let root = fol_testkit::TempFixture::new("fol_frontend_route_conditional_std");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("build.fol"),
@@ -1768,7 +1593,7 @@ fn routed_hosted_tier_uses_the_evaluated_dependency_set() {
     )
     .unwrap();
     let member = FrontendMemberBuildRoute {
-        member_root: root.clone(),
+        member_root: root.to_path_buf(),
         package_name: "demo".to_string(),
         mode: FrontendBuildWorkflowMode::Modern,
     };

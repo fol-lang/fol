@@ -26,14 +26,14 @@ Use `|` when you want to continue transforming a normal value:
 ```fol
 fun add(x: int, y: int): int = {
     return x + y
-}
+};
 
 fun main(): int = {
     return add(4, 5) | when(this > 8) {
         case(true) { 6 }
         * { 0 }
     }
-}
+};
 ```
 
 This is ordinary value flow. The pipe itself does not create a special error
@@ -49,7 +49,7 @@ fun read_code(path: str): int / str = {
         case(true) { report "missing path" }
         * { return 7 }
     }
-}
+};
 ```
 
 For these calls, the current `V1` compiler does **not** treat plain `|` as the
@@ -76,7 +76,7 @@ fun main(path: str): int / str = {
         case(true) { report "read failed" }
         * { return 0 }
     }
-}
+};
 ```
 
 This is the current inspection surface for direct V1 recoverable calls and V3
@@ -92,11 +92,11 @@ fun read_code(path: str): int / str = {
         case(true) { report "missing path" }
         * { return 7 }
     }
-}
+};
 
 fun with_default(path: str): int = {
     return read_code(path) || 5
-}
+};
 ```
 
 Meaning:
@@ -115,15 +115,15 @@ Examples:
 ```fol
 fun recover(path: str): int = {
     return read_code(path) || 5
-}
+};
 
 fun re_report(path: str): int / str = {
     return read_code(path) || report "read failed"
-}
+};
 
 fun must_succeed(path: str): int = {
     return read_code(path) || panic "read failed"
-}
+};
 ```
 
 ## V3 async and await stages
@@ -134,12 +134,12 @@ V3 ships two exact processor pipe stages:
 fun[] load_async(path: str): int = {
     var pending = read_code(path) | async;
     return (pending | await) || 0;
-}
+};
 
 fun[] async_failed(path: str): bol = {
     var pending = read_code(path) | async;
     return check(pending | await);
-}
+};
 ```
 
 `| async` starts a direct named call on an OS thread and produces an internal

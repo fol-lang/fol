@@ -47,7 +47,9 @@ Current `V1` note:
 Procedure parameters are ordinary typed inputs unless the parameter has an
 explicit ownership option. Values passed to ordinary parameters follow the
 type's transfer rule. A parameter written as `name[bor]: T` borrows its
-argument for the call without taking ownership.
+argument for the call without taking ownership. The borrow is explicit on both
+sides: the call site must pass `[bor]argument` or an existing borrow binding,
+otherwise the borrow checker rejects the call with `O2002`.
 
 Simple example:
 
@@ -58,7 +60,7 @@ pro[] inspect(value[bor]: int): int = {
 
 pro[] main(): int = {
     var value: int = 7;
-    return inspect(value);
+    return inspect([bor]value);
 };
 ```
 

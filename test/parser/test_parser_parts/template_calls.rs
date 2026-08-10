@@ -19,7 +19,7 @@ fn test_template_call_expression_parsing() {
                     AstNode::FunDecl { body, .. }
                         if body.iter().any(|stmt| matches!(
                             stmt,
-                            AstNode::Return { value: Some(value) }
+                            AstNode::Return { value: Some(value), .. }
                                 if matches!(value.as_ref(), AstNode::TemplateCall { template, .. } if template == "$")
                         ))
                 )
@@ -31,9 +31,8 @@ fn test_template_call_expression_parsing() {
 
 #[test]
 fn test_template_call_argument_parsing() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_template_call_arg.fol")
-            .expect("Should read template call argument fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_template_call_arg.fol")
+        .expect("Should read template call argument fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();

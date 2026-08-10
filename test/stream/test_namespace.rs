@@ -6,14 +6,9 @@ use fol_stream::{Source, SourceType};
 mod namespace_tests {
     use super::*;
     use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn unique_temp_root(label: &str) -> std::path::PathBuf {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("System time should be after unix epoch")
-            .as_nanos();
-        std::env::temp_dir().join(format!("fol_stream_{}_{}_{}", label, std::process::id(), stamp))
+    fn unique_temp_root(label: &str) -> crate::fixture::TempFixture {
+        crate::fixture::TempFixture::new(&format!("fol_stream_{label}"))
     }
 
     #[test]
@@ -62,8 +57,8 @@ mod namespace_tests {
     #[test]
     fn test_subdirectory_namespace() {
         // Test files in subdirectories get proper namespace
-        let sources =
-            Source::init("test/stream/fixture/main", SourceType::Folder).expect("Should create sources");
+        let sources = Source::init("test/stream/fixture/main", SourceType::Folder)
+            .expect("Should create sources");
 
         // Find sources in subdirectories
         let subdir_sources: Vec<_> = sources
@@ -180,8 +175,8 @@ mod namespace_tests {
     #[test]
     fn test_mod_directories_excluded_from_namespace() {
         // Test that .mod directories don't appear in namespaces
-        let sources =
-            Source::init("test/stream/fixture/main", SourceType::Folder).expect("Should create sources");
+        let sources = Source::init("test/stream/fixture/main", SourceType::Folder)
+            .expect("Should create sources");
 
         // No namespace should contain ".mod"
         for source in &sources {
@@ -205,8 +200,8 @@ mod namespace_tests {
     #[test]
     fn test_namespace_consistency() {
         // Test that all files in the same directory have the same namespace
-        let sources =
-            Source::init("test/stream/fixture/main", SourceType::Folder).expect("Should create sources");
+        let sources = Source::init("test/stream/fixture/main", SourceType::Folder)
+            .expect("Should create sources");
 
         use std::collections::HashMap;
         let mut dir_to_namespace: HashMap<String, String> = HashMap::new();
@@ -238,13 +233,12 @@ mod namespace_tests {
     #[test]
     fn test_explicit_package_name() {
         // Test using explicit package name
-        let sources =
-            Source::init_with_package(
-                "test/stream/fixture/main/main.fol",
-                SourceType::File,
-                "custom_package",
-            )
-            .expect("Should create source with custom package");
+        let sources = Source::init_with_package(
+            "test/stream/fixture/main/main.fol",
+            SourceType::File,
+            "custom_package",
+        )
+        .expect("Should create source with custom package");
 
         assert_eq!(sources.len(), 1, "Should have one source");
         let source = &sources[0];
@@ -316,58 +310,86 @@ mod namespace_tests {
     }
 
     #[test]
-    fn test_detached_folder_with_invalid_name_is_rejected_as_package() {
-        let temp_root = unique_temp_root("invalid_folder_package");
-        let invalid_root = temp_root.join("bad-dir");
-        fs::create_dir_all(&invalid_root).expect("Should create invalid package directory");
-        fs::write(invalid_root.join("main.fol"), "var answer = 42")
+    fn test_detached_folder_with_non_identifier_name_is_sanitized_into_a_package() {
+        let temp_root = unique_temp_root("sanitized_folder_package");
+        let hyphenated_root = temp_root.join("bad-dir");
+        fs::create_dir_all(&hyphenated_root).expect("Should create hyphenated package directory");
+        fs::write(hyphenated_root.join("main.fol"), "var answer = 42")
             .expect("Should create detached fol file");
 
-        let result = Source::init(
-            invalid_root
+        let sources = Source::init(
+            hyphenated_root
                 .to_str()
-                .expect("Invalid package directory should be utf-8"),
+                .expect("Hyphenated package directory should be utf-8"),
             SourceType::Folder,
-        );
+        )
+        .expect("Hyphenated directory names should still produce a package");
 
-        assert!(result.is_err(), "Invalid derived package names should be rejected");
-        let error = format!(
-            "{}",
-            result.expect_err("Invalid package root should fail source discovery")
+        assert_eq!(
+            sources[0].package, "bad_dir",
+            "Hyphens are ordinary in directory names and must be folded into the identifier"
         );
-        assert!(
-            error.contains("Invalid package name 'bad-dir'"),
-            "Package validation error should mention the invalid derived folder name: {}",
-            error
+        assert_eq!(sources[0].namespace, "bad_dir");
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn test_detached_file_with_non_identifier_parent_name_is_sanitized_into_a_package() {
+        let temp_root = unique_temp_root("sanitized_file_package");
+        let leading_digit_root = temp_root.join("123bad");
+        fs::create_dir_all(&leading_digit_root).expect("Should create leading-digit parent");
+        let file_path = leading_digit_root.join("main.fol");
+        fs::write(&file_path, "var answer = 42").expect("Should create detached fol file");
+
+        let sources = Source::init(
+            file_path
+                .to_str()
+                .expect("Leading-digit package file path should be utf-8"),
+            SourceType::File,
+        )
+        .expect("Leading-digit parent directories should still produce a package");
+
+        assert_eq!(
+            sources[0].package, "_123bad",
+            "A directory that cannot start an identifier must be prefixed, not rejected"
         );
 
         fs::remove_dir_all(&temp_root).ok();
     }
 
     #[test]
-    fn test_detached_file_with_invalid_parent_name_is_rejected_as_package() {
-        let temp_root = unique_temp_root("invalid_file_package");
-        let invalid_root = temp_root.join("123bad");
-        fs::create_dir_all(&invalid_root).expect("Should create invalid parent directory");
-        let file_path = invalid_root.join("main.fol");
+    fn test_relative_and_absolute_spellings_derive_the_same_package() {
+        let temp_root = unique_temp_root("path_spelling_package");
+        let package_root = temp_root.join("has-hyphen");
+        fs::create_dir_all(&package_root).expect("Should create hyphenated package directory");
+        let file_path = package_root.join("main.fol");
         fs::write(&file_path, "var answer = 42").expect("Should create detached fol file");
 
-        let result = Source::init(
-            file_path
-                .to_str()
-                .expect("Invalid package file path should be utf-8"),
-            SourceType::File,
-        );
+        let cwd = std::env::current_dir().expect("Should read the current directory");
+        let mut relative = std::path::PathBuf::new();
+        for _ in cwd.components().skip(1) {
+            relative.push("..");
+        }
+        for component in file_path.components().skip(1) {
+            relative.push(component.as_os_str());
+        }
 
-        assert!(result.is_err(), "Invalid parent-derived package names should be rejected");
-        let error = format!(
-            "{}",
-            result.expect_err("Invalid parent package root should fail source discovery")
-        );
-        assert!(
-            error.contains("Invalid package name '123bad'"),
-            "Package validation error should mention the invalid derived parent folder name: {}",
-            error
+        let absolute = Source::init(
+            file_path.to_str().expect("Absolute path should be utf-8"),
+            SourceType::File,
+        )
+        .expect("Absolute spelling should produce a source");
+        let traversed = Source::init(
+            relative.to_str().expect("Relative path should be utf-8"),
+            SourceType::File,
+        )
+        .expect("Relative spelling should produce a source");
+
+        assert_eq!(
+            (absolute[0].package.as_str(), traversed[0].package.as_str()),
+            ("has_hyphen", "has_hyphen"),
+            "Different spellings of one file must agree on the package they belong to"
         );
 
         fs::remove_dir_all(&temp_root).ok();
@@ -391,7 +413,10 @@ mod namespace_tests {
 
         assert_eq!(file_main.call, "test/stream/fixture/main/main.fol");
         assert_eq!(folder_main.call, "test/stream/fixture/main");
-        assert_eq!(file_main.path, canonical, "File source path should be canonical");
+        assert_eq!(
+            file_main.path, canonical,
+            "File source path should be canonical"
+        );
         assert_eq!(
             folder_main.path, canonical,
             "Folder and file source discovery should agree on canonical identity"
@@ -465,7 +490,9 @@ mod namespace_tests {
         fs::write(&before_file, "fun main() => 1\n").expect("Should write initial entry file");
 
         let before = Source::init_with_package(
-            before_file.to_str().expect("Initial file path should be UTF-8"),
+            before_file
+                .to_str()
+                .expect("Initial file path should be UTF-8"),
             SourceType::File,
             "fixed_pkg",
         )
@@ -474,7 +501,9 @@ mod namespace_tests {
         fs::rename(&before_dir, &after_dir).expect("Should rename entry folder");
 
         let after = Source::init_with_package(
-            after_file.to_str().expect("Renamed file path should be UTF-8"),
+            after_file
+                .to_str()
+                .expect("Renamed file path should be UTF-8"),
             SourceType::File,
             "fixed_pkg",
         )
@@ -517,8 +546,11 @@ mod namespace_tests {
             let case_root = temp_root.join(label);
             fs::create_dir_all(case_root.join(relative_dir))
                 .expect("Should create invalid namespace directory");
-            fs::write(case_root.join(relative_dir).join("value.fol"), "var value = 1")
-                .expect("Should write invalid namespace source");
+            fs::write(
+                case_root.join(relative_dir).join("value.fol"),
+                "var value = 1",
+            )
+            .expect("Should write invalid namespace source");
 
             let result = Source::init_with_package(
                 case_root.to_str().expect("Case root should be utf-8"),
@@ -536,7 +568,10 @@ mod namespace_tests {
                 result.expect_err("Invalid namespace component should be rejected")
             );
             assert!(
-                error.contains(&format!("Invalid namespace component '{}'", invalid_component)),
+                error.contains(&format!(
+                    "Invalid namespace component '{}'",
+                    invalid_component
+                )),
                 "Namespace validation error should mention the offending component: {}",
                 error
             );
@@ -572,7 +607,8 @@ mod namespace_tests {
     #[test]
     fn test_non_ascii_namespace_components_are_rejected() {
         let temp_root = unique_temp_root("namespace_non_ascii_components");
-        fs::create_dir_all(temp_root.join("ascii/café")).expect("Should create mixed ascii/unicode dirs");
+        fs::create_dir_all(temp_root.join("ascii/café"))
+            .expect("Should create mixed ascii/unicode dirs");
         fs::write(temp_root.join("ascii/café/value.fol"), "var unicode = 1")
             .expect("Should write unicode-path file");
 
@@ -608,8 +644,11 @@ mod namespace_tests {
 
         fs::write(temp_root.join("alpha/value.fol"), "var visible = 1")
             .expect("Should write regular source");
-        fs::write(temp_root.join("alpha.mod/hidden/value.fol"), "var hidden = 1")
-            .expect("Should write skipped source");
+        fs::write(
+            temp_root.join("alpha.mod/hidden/value.fol"),
+            "var hidden = 1",
+        )
+        .expect("Should write skipped source");
 
         let sources = Source::init_with_package(
             temp_root.to_str().expect("Temp root should be utf-8"),
@@ -653,10 +692,16 @@ mod namespace_tests {
 
     #[test]
     fn test_invalid_explicit_package_override_is_rejected() {
-        let result =
-            Source::init_with_package("test/stream/fixture/main/main.fol", SourceType::File, "bad-dir");
+        let result = Source::init_with_package(
+            "test/stream/fixture/main/main.fol",
+            SourceType::File,
+            "bad-dir",
+        );
 
-        assert!(result.is_err(), "Invalid explicit package overrides should be rejected");
+        assert!(
+            result.is_err(),
+            "Invalid explicit package overrides should be rejected"
+        );
         let error = format!(
             "{}",
             result.expect_err("Invalid explicit package override should fail")
@@ -676,12 +721,17 @@ mod namespace_tests {
         let input_dir = inner_dir.join("src");
 
         fs::create_dir_all(&input_dir).expect("Should create nested manifest tree");
-        fs::write(outer_dir.join("Cargo.toml"), "[package]\nname = \"outer_pkg\"\n")
-            .expect("Should write outer manifest");
-        fs::write(inner_dir.join("Cargo.toml"), "[package]\nname = \"inner_pkg\"\n")
-            .expect("Should write inner manifest");
-        fs::write(input_dir.join("main.fol"), "var answer = 42")
-            .expect("Should write fol source");
+        fs::write(
+            outer_dir.join("Cargo.toml"),
+            "[package]\nname = \"outer_pkg\"\n",
+        )
+        .expect("Should write outer manifest");
+        fs::write(
+            inner_dir.join("Cargo.toml"),
+            "[package]\nname = \"inner_pkg\"\n",
+        )
+        .expect("Should write inner manifest");
+        fs::write(input_dir.join("main.fol"), "var answer = 42").expect("Should write fol source");
 
         let sources = Source::init(
             input_dir.to_str().expect("Input directory should be utf-8"),
@@ -707,10 +757,16 @@ mod namespace_tests {
 
         fs::create_dir_all(input_file.parent().expect("Input file should have parent"))
             .expect("Should create nested manifest tree");
-        fs::write(outer_dir.join("Cargo.toml"), "[package]\nname = \"outer_pkg\"\n")
-            .expect("Should write outer manifest");
-        fs::write(inner_dir.join("Cargo.toml"), "[package]\nname = \"inner_pkg\"\n")
-            .expect("Should write inner manifest");
+        fs::write(
+            outer_dir.join("Cargo.toml"),
+            "[package]\nname = \"outer_pkg\"\n",
+        )
+        .expect("Should write outer manifest");
+        fs::write(
+            inner_dir.join("Cargo.toml"),
+            "[package]\nname = \"inner_pkg\"\n",
+        )
+        .expect("Should write inner manifest");
         fs::write(&input_file, "var answer = 42").expect("Should write fol source");
 
         let sources = Source::init(
@@ -730,8 +786,11 @@ mod namespace_tests {
 
     #[test]
     fn test_single_file_input_keeps_root_namespace_even_in_nested_folders() {
-        let sources = Source::init("test/stream/fixture/main/single/subpak/input1.fol", SourceType::File)
-            .expect("Should create single nested file source");
+        let sources = Source::init(
+            "test/stream/fixture/main/single/subpak/input1.fol",
+            SourceType::File,
+        )
+        .expect("Should create single nested file source");
 
         assert_eq!(sources.len(), 1);
         assert_eq!(
@@ -742,11 +801,15 @@ mod namespace_tests {
 
     #[test]
     fn test_folder_input_uses_nested_namespace_segments_for_nested_files() {
-        let sources =
-            Source::init("test/stream/fixture/main", SourceType::Folder).expect("Should create sources");
+        let sources = Source::init("test/stream/fixture/main", SourceType::Folder)
+            .expect("Should create sources");
         let nested = sources
             .iter()
-            .find(|source| source.path.ends_with("test/stream/fixture/main/single/subpak/input1.fol"))
+            .find(|source| {
+                source
+                    .path
+                    .ends_with("test/stream/fixture/main/single/subpak/input1.fol")
+            })
             .expect("Folder input should include nested file");
 
         assert_eq!(
@@ -758,8 +821,8 @@ mod namespace_tests {
     #[test]
     fn test_namespace_output_integration() {
         // Test that the namespace information is properly integrated
-        let sources =
-            Source::init("test/stream/fixture/main", SourceType::Folder).expect("Should create sources");
+        let sources = Source::init("test/stream/fixture/main", SourceType::Folder)
+            .expect("Should create sources");
 
         // Verify all expected properties are present
         for source in &sources {

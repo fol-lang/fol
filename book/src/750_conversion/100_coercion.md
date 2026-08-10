@@ -39,11 +39,11 @@ var ratio: flt = 1.5
 
 fun[] take_int(value: int): int = {
     return value;
-}
+};
 
 fun[] take_float(value: flt): flt = {
     return value;
-}
+};
 ```
 
 Examples that are rejected in `V1`:
@@ -56,11 +56,11 @@ var ratio: flt = 1
 ```fol
 fun[] take_float(value: flt): flt = {
     return value;
-}
+};
 
 fun[] bad(): flt = {
     return take_float(1);
-}
+};
 ```
 
 Later versions may widen this contract, but `V1` keeps coercion intentionally

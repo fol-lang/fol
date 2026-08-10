@@ -66,13 +66,13 @@ Routine names are unique: declaring two routines with the same name in one
 scope is rejected, so there is no overload-resolution step. Give the variants
 distinct names, or take a generic parameter when the bodies are the same shape:
 
-```
-fun[] lower_chr(c: chr): chr = {
-    return .to_lower(c);
+```fol
+fun[] twice_int(value: int): int = {
+    return value + value;
 };
 
-fun[] lower_str(s: str): str = {
-    return .to_lower(s);
+fun[] twice_str(value: str): str = {
+    return value + value;
 };
 ```
 
@@ -132,12 +132,12 @@ But this is valid in `V1` when the last parameter is variadic:
 ```fol
 fun[] score(base: int, step: int = 2, extras: ... int): int = {
     return base;
-}
+};
 
 fun[] run(): int = {
     var extras: seq[int] = {4, 5};
     return score(base = 3, ...extras);
-}
+};
 ```
 
 ### Default arguments
@@ -183,13 +183,13 @@ Call-site unpack is the companion feature to variadics. It forwards an existing
 sequence into the final variadic parameter:
 
 ```fol
-fun[] calc(rise: bool; ints: ... int): int = {
+fun[] calc(rise: bol; ints: ... int): int = {
     return ints[0];
-}
+};
 
 fun[] run(values: seq[int]): int = {
     return calc(true, ...values);
-}
+};
 ```
 
 This also works after named arguments:
@@ -197,11 +197,11 @@ This also works after named arguments:
 ```fol
 fun[] score(base: int, step: int = 2, extras: ... int): int = {
     return base;
-}
+};
 
 fun[] run(values: seq[int]): int = {
     return score(base = 3, ...values);
-}
+};
 ```
 
 `V1` intentionally does not support pseudo-arguments such as

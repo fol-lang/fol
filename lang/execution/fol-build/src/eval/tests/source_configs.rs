@@ -5,23 +5,14 @@ use super::super::{
 use crate::artifact::BuildArtifactFolModel;
 use crate::option::{BuildOptimizeMode, BuildTargetTriple};
 use crate::runtime::{BuildRuntimeDependencyQueryKind, BuildRuntimeGeneratedFileKind};
-use std::{
-    fs,
-    path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::{fs, path::PathBuf};
 
-fn temp_build_package(source: &str) -> (PathBuf, PathBuf) {
-    static NEXT_ID: AtomicU64 = AtomicU64::new(0);
-
-    let package_root = std::env::temp_dir().join(format!(
-        "fol_build_eval_src_{}_{}",
-        std::process::id(),
-        NEXT_ID.fetch_add(1, Ordering::Relaxed)
-    ));
+fn temp_build_package(source: &str) -> (fol_testkit::TempFixture, PathBuf) {
+    let package_root = fol_testkit::TempFixture::new("fol_build_eval_src");
     fs::create_dir_all(&package_root).expect("temp package root should be created");
     fs::write(package_root.join("build.fol"), source).expect("build source should be written");
-    (package_root.clone(), package_root.join("build.fol"))
+    let build_path = package_root.join("build.fol");
+    (package_root, build_path)
 }
 
 #[test]
@@ -1521,6 +1512,36 @@ fn build_source_evaluator_rejects_copy_file_with_source_dir_handle() {
     assert_eq!(
         error.message(),
         "copy_file config is invalid: 'source' must be a source-file handle, not a source-dir handle"
+    );
+}
+
+#[test]
+fn build_source_evaluator_names_the_missing_copy_file_destination_field() {
+    let source = concat!(
+        "pro[] build(): non = {\n",
+        "    var graph = .build().graph();\n",
+        "    var logo = graph.file_from_root(\"assets/logo.svg\");\n",
+        "    graph.copy_file({ name = \"asset\", source = logo, dest = \"gen/logo.svg\" });\n",
+        "    return;\n",
+        "};\n",
+    );
+    let (package_root, build_path) = temp_build_package(source);
+    let request = BuildEvaluationRequest {
+        package_root: package_root.display().to_string(),
+        inputs: BuildEvaluationInputs {
+            working_directory: package_root.display().to_string(),
+            ..BuildEvaluationInputs::default()
+        },
+        operations: Vec::new(),
+    };
+
+    let error = evaluate_build_source(&request, &build_path, source)
+        .expect_err("copy_file without a destination field should fail");
+
+    assert_eq!(
+        error.message(),
+        "copy_file config is invalid: graph.copy_file requires a destination field: 'path' \
+         (also accepted: 'destination', 'destination_path')"
     );
 }
 

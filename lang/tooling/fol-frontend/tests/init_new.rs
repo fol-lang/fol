@@ -1,17 +1,8 @@
 use fol_frontend::{init_root, new_project_with_mode, FrontendArtifactKind, PackageTargetKind};
 use std::fs;
-use std::path::PathBuf;
 
-fn temp_root(label: &str) -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "fol_frontend_integration_{}_{}_{}",
-        label,
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time should be after epoch")
-            .as_nanos()
-    ))
+fn temp_root(label: &str) -> fol_testkit::TempFixture {
+    fol_testkit::TempFixture::new(&format!("fol_frontend_integration_{label}"))
 }
 
 #[test]
@@ -25,7 +16,14 @@ fn init_root_scaffolds_binary_packages_through_public_api() {
     assert_eq!(result.artifacts[0].kind, FrontendArtifactKind::PackageRoot);
     assert_eq!(
         fs::read_to_string(root.join("src/main.fol")).expect("should read main"),
-        "fun[] main(): int = {\n    return 0\n};\n"
+        concat!(
+            "use std: pkg = {\"std\"};\n",
+            "\n",
+            "fun[] main(): int = {\n",
+            "    std::io::echo_str(\"hello from fol\");\n",
+            "    return 0;\n",
+            "};\n",
+        )
     );
     assert_eq!(
         fs::read_to_string(root.join("build.fol")).expect("should read build file"),

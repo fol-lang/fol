@@ -1,23 +1,14 @@
 use super::super::{evaluate_build_source, BuildEvaluationInputs, BuildEvaluationRequest};
 use crate::executor::BuildBodyExecutor;
 use crate::option::BuildOptimizeMode;
-use std::{
-    fs,
-    path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::{fs, path::PathBuf};
 
-fn temp_build_package(source: &str) -> (PathBuf, PathBuf) {
-    static NEXT_ID: AtomicU64 = AtomicU64::new(0);
-
-    let package_root = std::env::temp_dir().join(format!(
-        "fol_build_eval_grph_{}_{}",
-        std::process::id(),
-        NEXT_ID.fetch_add(1, Ordering::Relaxed)
-    ));
+fn temp_build_package(source: &str) -> (fol_testkit::TempFixture, PathBuf) {
+    let package_root = fol_testkit::TempFixture::new("fol_build_eval_grph");
     fs::create_dir_all(&package_root).expect("temp package root should be created");
     fs::write(package_root.join("build.fol"), source).expect("build source should be written");
-    (package_root.clone(), package_root.join("build.fol"))
+    let build_path = package_root.join("build.fol");
+    (package_root, build_path)
 }
 
 #[test]
@@ -430,6 +421,45 @@ fn build_source_evaluator_records_run_add_arg_in_graph() {
         .expect("run config should exist");
     assert_eq!(config.args.len(), 1);
     assert!(matches!(&config.args[0], crate::graph::BuildRunArg::Literal(s) if s == "--release"));
+}
+
+#[test]
+fn build_source_evaluator_records_chained_run_add_arg_in_graph() {
+    let source = concat!(
+        "pro[] build(): non = {\n",
+        "    var graph = .build().graph();\n",
+        "    var app = graph.add_exe({ name = \"app\", root = \"src/app.fol\" });\n",
+        "    var r = graph.add_run(app);\n",
+        "    r.add_arg(\"--config\").add_arg(\"config/default.toml\");\n",
+        "    return;\n",
+        "};\n",
+    );
+    let (package_root, build_path) = temp_build_package(source);
+    let request = BuildEvaluationRequest {
+        package_root: package_root.display().to_string(),
+        inputs: BuildEvaluationInputs {
+            working_directory: package_root.display().to_string(),
+            ..BuildEvaluationInputs::default()
+        },
+        operations: Vec::new(),
+    };
+
+    let evaluated = evaluate_build_source(&request, &build_path, source)
+        .expect("chained run.add_arg should evaluate")
+        .expect("build body should produce operations");
+
+    let steps = evaluated.result.graph.steps();
+    let run_step = steps.iter().find(|s| s.name == "run").expect("run step");
+    let config = evaluated
+        .result
+        .graph
+        .run_config_for(run_step.id)
+        .expect("run config should exist");
+    assert_eq!(config.args.len(), 2);
+    assert!(matches!(&config.args[0], crate::graph::BuildRunArg::Literal(s) if s == "--config"));
+    assert!(
+        matches!(&config.args[1], crate::graph::BuildRunArg::Literal(s) if s == "config/default.toml")
+    );
 }
 
 #[test]

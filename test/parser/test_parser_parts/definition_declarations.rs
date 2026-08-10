@@ -1,19 +1,9 @@
 use super::*;
 use fol_parser::ast::DeclOption;
 use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn unique_temp_root(label: &str) -> std::path::PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after unix epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "fol_definition_decl_{}_{}_{}",
-        label,
-        std::process::id(),
-        stamp
-    ))
+fn unique_temp_root(label: &str) -> crate::fixture::TempFixture {
+    crate::fixture::TempFixture::new(&format!("fol_definition_decl_{label}"))
 }
 
 #[test]
@@ -405,7 +395,6 @@ fn test_def_rejects_non_empty_option_brackets() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let message = parse_error.message.clone();
@@ -721,7 +710,6 @@ fn test_def_invalid_type_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -757,7 +745,6 @@ fn test_def_module_without_body_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();

@@ -114,9 +114,8 @@ fn test_leading_dot_not_builtin_call_expression() {
 
 #[test]
 fn test_leading_dot_builtin_calls_in_inquiry_bodies() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_dot_builtin_inquiry.fol")
-            .expect("Should read leading-dot inquiry fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_dot_builtin_inquiry.fol")
+        .expect("Should read leading-dot inquiry fixture");
     let mut tokens = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
 
@@ -196,7 +195,7 @@ fn test_leading_dot_builtin_calls_in_pipe_stages() {
                 AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                             if matches!(
                                 value.as_ref(),
                                 AstNode::BinaryOp { right, .. }

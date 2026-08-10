@@ -57,19 +57,38 @@ pub fn emit_main_rs_for_config(
             ),
         })
         .unwrap_or_default();
+    // `main`'s `int` return IS the process exit status, on both the plain and
+    // the recoverable channel.
     let entry_wrapper = match resolve_entry_callable(session, entry_candidate, config.runtime_tier())? {
         EntryCallable {
             rust_path,
             call_args,
             recoverable: false,
+            returns_int: false,
         } => format!("    let _ = {rust_path}({call_args});{join_tasks}"),
         EntryCallable {
             rust_path,
             call_args,
-            recoverable: true,
+            recoverable: false,
+            returns_int: true,
         } => format!(
-            "    let __fol_outcome = fol_runtime::process::outcome_from_recoverable({rust_path}({call_args}));{join_tasks}\n    if let Some(__fol_message) = fol_runtime::process::printable_outcome_message(&__fol_outcome) {{\n        eprintln!(\"{{}}\", __fol_message);\n    }}\n    std::process::exit(__fol_outcome.exit_code());"
+            "    let __fol_exit_status: rt::FolInt = {rust_path}({call_args});{join_tasks}\n    std::process::exit(__fol_exit_status as i32);"
         ),
+        EntryCallable {
+            rust_path,
+            call_args,
+            recoverable: true,
+            returns_int,
+        } => {
+            let adapter = if returns_int {
+                "outcome_from_recoverable_exit_status"
+            } else {
+                "outcome_from_recoverable"
+            };
+            format!(
+                "    let __fol_outcome = fol_runtime::process::{adapter}({rust_path}({call_args}));{join_tasks}\n    if let Some(__fol_message) = fol_runtime::process::printable_outcome_message(&__fol_outcome) {{\n        eprintln!(\"{{}}\", __fol_message);\n    }}\n    std::process::exit(__fol_outcome.exit_code());"
+            )
+        }
     };
     let runtime_tier = config.runtime_tier();
 
@@ -301,9 +320,64 @@ fn runtime_use_block(runtime_tier: BackendRuntimeTier) -> String {
     )
 }
 
+/// Exit status a generated binary uses when its own command line does not
+/// satisfy the entry signature. Distinct from any status the program itself
+/// can return so a caller can tell a usage error from a program failure.
+pub const ENTRY_ARG_USAGE_EXIT_STATUS: i32 = 2;
+
+const ENTRY_ARG_PRELUDE: &str = r#"
+fn __fol_cli_arg(index: usize) -> Option<String> {
+    std::env::args().nth(index + 1)
+}
+
+fn __fol_entry_arg_raw(index: usize, expected: &str) -> String {
+    match __fol_cli_arg(index) {
+        Some(raw) => raw,
+        None => {
+            eprintln!(
+                "fol: missing command-line argument #{} for entry parameter of type `{}`",
+                index + 1,
+                expected
+            );
+            std::process::exit(__FOL_ENTRY_ARG_USAGE_EXIT);
+        }
+    }
+}
+
+fn __fol_entry_arg_invalid(index: usize, expected: &str, raw: &str) -> ! {
+    eprintln!(
+        "fol: command-line argument #{} is not a valid `{}`: `{}`",
+        index + 1,
+        expected,
+        raw
+    );
+    std::process::exit(__FOL_ENTRY_ARG_USAGE_EXIT);
+}
+
+fn __fol_parse_bool(raw: &str) -> Option<rt::FolBool> {
+    match raw {
+        "true" | "1" | "yes" | "on" => Some(true),
+        "false" | "0" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
+fn __fol_parse_char(raw: &str) -> Option<rt::FolChar> {
+    let mut chars = raw.chars();
+    let first = chars.next()?;
+    if chars.next().is_some() {
+        None
+    } else {
+        Some(first)
+    }
+}
+"#;
+
 fn runtime_main_use_block(runtime_tier: BackendRuntimeTier) -> String {
+    let usage_exit_status =
+        format!("\nconst __FOL_ENTRY_ARG_USAGE_EXIT: i32 = {ENTRY_ARG_USAGE_EXIT_STATUS};\n");
     format!(
-        "use {} as rt;\nuse {} as rt_model;\n\nfn __fol_cli_arg(index: usize) -> Option<String> {{\n    std::env::args().nth(index + 1)\n}}\n\nfn __fol_parse_bool(raw: &str) -> Option<rt::FolBool> {{\n    match raw {{\n        \"true\" | \"1\" | \"yes\" | \"on\" => Some(true),\n        \"false\" | \"0\" | \"no\" | \"off\" => Some(false),\n        _ => None,\n    }}\n}}\n\nfn __fol_parse_char(raw: &str) -> Option<rt::FolChar> {{\n    let mut chars = raw.chars();\n    let first = chars.next()?;\n    if chars.next().is_some() {{\n        None\n    }} else {{\n        Some(first)\n    }}\n}}\n",
+        "use {} as rt;\nuse {} as rt_model;\n{usage_exit_status}{ENTRY_ARG_PRELUDE}",
         runtime_tier.runtime_module_path(),
         runtime_tier.runtime_module_path()
     )
@@ -314,6 +388,7 @@ struct EntryCallable {
     rust_path: String,
     call_args: String,
     recoverable: bool,
+    returns_int: bool,
 }
 
 fn resolve_entry_callable(
@@ -436,6 +511,12 @@ fn resolve_entry_callable(
         ),
         call_args: render_entry_call_args(session, &signature.params, runtime_tier)?,
         recoverable: signature.error_type.is_some(),
+        returns_int: signature.return_type.is_some_and(|return_type| {
+            matches!(
+                session.workspace().type_table().get(return_type),
+                Some(LoweredType::Builtin(LoweredBuiltinType::Int))
+            )
+        }),
     })
 }
 
@@ -471,25 +552,23 @@ fn render_entry_arg_expr(
             ),
         ));
     };
+    // A command line that does not satisfy the entry signature is a usage
+    // error, never a silent default.
     let expr = match ty {
         LoweredType::Builtin(LoweredBuiltinType::Int) => {
-            format!("__fol_cli_arg({index}).and_then(|raw| raw.parse::<rt::FolInt>().ok()).unwrap_or_default()")
+            render_parsed_entry_arg(index, "int", "raw.parse::<rt::FolInt>().ok()")
         }
         LoweredType::Builtin(LoweredBuiltinType::Float) => {
-            format!("__fol_cli_arg({index}).and_then(|raw| raw.parse::<rt::FolFloat>().ok()).unwrap_or_default()")
+            render_parsed_entry_arg(index, "flt", "raw.parse::<rt::FolFloat>().ok()")
         }
         LoweredType::Builtin(LoweredBuiltinType::Bool) => {
-            format!(
-                "__fol_cli_arg({index}).and_then(|raw| __fol_parse_bool(&raw)).unwrap_or_default()"
-            )
+            render_parsed_entry_arg(index, "bol", "__fol_parse_bool(&raw)")
         }
         LoweredType::Builtin(LoweredBuiltinType::Char) => {
-            format!(
-                "__fol_cli_arg({index}).and_then(|raw| __fol_parse_char(&raw)).unwrap_or_default()"
-            )
+            render_parsed_entry_arg(index, "chr", "__fol_parse_char(&raw)")
         }
         LoweredType::Builtin(LoweredBuiltinType::Str) => {
-            format!("__fol_cli_arg({index}).map(rt_model::FolStr::from).unwrap_or_default()")
+            format!("rt_model::FolStr::from(__fol_entry_arg_raw({index}, \"str\"))")
         }
         LoweredType::Builtin(LoweredBuiltinType::Never) => "rt::impossible()".to_string(),
         _ => {
@@ -500,6 +579,12 @@ fn render_entry_arg_expr(
         }
     };
     Ok(expr)
+}
+
+fn render_parsed_entry_arg(index: usize, spelling: &str, parse_expr: &str) -> String {
+    format!(
+        "{{ let raw = __fol_entry_arg_raw({index}, \"{spelling}\"); match {parse_expr} {{ Some(value) => value, None => __fol_entry_arg_invalid({index}, \"{spelling}\", &raw) }} }}"
+    )
 }
 
 fn render_namespace_items(
@@ -536,7 +621,12 @@ fn render_namespace_items(
             .and_then(|definition| {
                 Ok(format!(
                     "{definition}\n{}",
-                    render_record_trait_impl(&namespace_plan.package_identity, type_decl)?
+                    render_record_trait_impl(
+                        session.workspace(),
+                        &namespace_plan.package_identity,
+                        type_decl,
+                        session.workspace().type_table()
+                    )?
                 ))
             }),
             fol_lower::LoweredTypeDeclKind::Entry { .. } => render_entry_definition(
@@ -548,7 +638,12 @@ fn render_namespace_items(
             .and_then(|definition| {
                 Ok(format!(
                     "{definition}\n{}",
-                    render_entry_trait_impl(&namespace_plan.package_identity, type_decl)?
+                    render_entry_trait_impl(
+                        session.workspace(),
+                        &namespace_plan.package_identity,
+                        type_decl,
+                        session.workspace().type_table()
+                    )?
                 ))
             }),
             fol_lower::LoweredTypeDeclKind::Alias { .. } => Ok(String::new()),

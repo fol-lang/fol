@@ -113,7 +113,7 @@ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
 name = "fol"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "fol-diagnostics",
  "fol-editor",
@@ -125,6 +125,7 @@ dependencies = [
  "fol-resolver",
  "fol-runtime",
  "fol-stream",
+ "fol-testkit",
  "fol-typecheck",
  "fol-types",
  "serde_json",
@@ -132,7 +133,7 @@ dependencies = [
 
 [[package]]
 name = "fol-backend"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "fol-intrinsics",
  "fol-lexer",
@@ -142,24 +143,26 @@ dependencies = [
  "fol-resolver",
  "fol-runtime",
  "fol-stream",
+ "fol-testkit",
  "fol-typecheck",
  "fol-types",
 ]
 
 [[package]]
 name = "fol-build"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "fol-diagnostics",
  "fol-lexer",
  "fol-parser",
  "fol-stream",
+ "fol-testkit",
  "fol-types",
 ]
 
 [[package]]
 name = "fol-diagnostics"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "serde",
  "serde_json",
@@ -167,7 +170,7 @@ dependencies = [
 
 [[package]]
 name = "fol-editor"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "cc",
  "fol-diagnostics",
@@ -177,6 +180,7 @@ dependencies = [
  "fol-parser",
  "fol-resolver",
  "fol-stream",
+ "fol-testkit",
  "fol-typecheck",
  "fol-types",
  "serde",
@@ -186,7 +190,7 @@ dependencies = [
 
 [[package]]
 name = "fol-frontend"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "fol-backend",
  "fol-build",
@@ -199,6 +203,7 @@ dependencies = [
  "fol-parser",
  "fol-resolver",
  "fol-stream",
+ "fol-testkit",
  "fol-typecheck",
  "fol-types",
  "serde_json",
@@ -206,9 +211,10 @@ dependencies = [
 
 [[package]]
 name = "fol-interop"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "fol-build",
+ "fol-testkit",
  "fol-types",
  "follang-gerc",
  "follang-linc",
@@ -217,11 +223,11 @@ dependencies = [
 
 [[package]]
 name = "fol-intrinsics"
-version = "0.2.5"
+version = "0.2.6"
 
 [[package]]
 name = "fol-lexer"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "fol-stream",
  "fol-types",
@@ -229,7 +235,7 @@ dependencies = [
 
 [[package]]
 name = "fol-lower"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "fol-diagnostics",
  "fol-intrinsics",
@@ -238,35 +244,38 @@ dependencies = [
  "fol-parser",
  "fol-resolver",
  "fol-stream",
+ "fol-testkit",
  "fol-typecheck",
  "stacker",
 ]
 
 [[package]]
 name = "fol-package"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "fol-build",
  "fol-diagnostics",
  "fol-lexer",
  "fol-parser",
  "fol-stream",
+ "fol-testkit",
 ]
 
 [[package]]
 name = "fol-parser"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "fol-diagnostics",
  "fol-lexer",
  "fol-stream",
+ "fol-testkit",
  "fol-types",
  "stacker",
 ]
 
 [[package]]
 name = "fol-resolver"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "fol-build",
  "fol-diagnostics",
@@ -274,25 +283,36 @@ dependencies = [
  "fol-package",
  "fol-parser",
  "fol-stream",
+ "fol-testkit",
  "fol-types",
  "stacker",
 ]
 
 [[package]]
 name = "fol-runtime"
-version = "0.2.5"
+version = "0.2.6"
 
 [[package]]
 name = "fol-self"
-version = "0.2.5"
+version = "0.2.6"
+dependencies = [
+ "fol-testkit",
+]
 
 [[package]]
 name = "fol-stream"
-version = "0.2.5"
+version = "0.2.6"
+dependencies = [
+ "fol-testkit",
+]
+
+[[package]]
+name = "fol-testkit"
+version = "0.2.6"
 
 [[package]]
 name = "fol-typecheck"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "fol-diagnostics",
  "fol-intrinsics",
@@ -300,12 +320,13 @@ dependencies = [
  "fol-parser",
  "fol-resolver",
  "fol-stream",
+ "fol-testkit",
  "stacker",
 ]
 
 [[package]]
 name = "fol-types"
-version = "0.2.5"
+version = "0.2.6"
 
 [[package]]
 name = "follang-gerc"

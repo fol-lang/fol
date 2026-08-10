@@ -1,17 +1,7 @@
 use super::*;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn unique_temp_root(label: &str) -> std::path::PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after unix epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "fol_parser_{}_{}_{}",
-        label,
-        std::process::id(),
-        stamp
-    ))
+fn unique_temp_root(label: &str) -> crate::fixture::TempFixture {
+    crate::fixture::TempFixture::new(&format!("fol_parser_{label}"))
 }
 
 #[test]
@@ -221,7 +211,6 @@ fn test_special_type_forms_accept_semicolon_type_arguments() {
                         [FolType::Location { name: left }, FolType::Package { name: right }]
                         if left == "std" && right == "web")
             )));
-
         }
         _ => panic!("Expected program node"),
     }
@@ -324,9 +313,12 @@ fn test_generic_type_instantiations_parse_in_alias_and_qualified_signature_posit
     )
     .expect("Should write generic type instantiation parser fixture");
 
-    let mut file_stream =
-        FileStream::from_file(fixture.to_str().expect("Generic parser fixture path should be UTF-8"))
-            .expect("Should read generic type instantiation parser fixture");
+    let mut file_stream = FileStream::from_file(
+        fixture
+            .to_str()
+            .expect("Generic parser fixture path should be UTF-8"),
+    )
+    .expect("Should read generic type instantiation parser fixture");
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
     let ast = parser
@@ -381,9 +373,8 @@ fn test_generic_type_instantiations_parse_in_alias_and_qualified_signature_posit
 
 #[test]
 fn test_array_types_accept_semicolon_separator() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_typ_array_types_semicolon.fol")
-            .expect("Should read semicolon array-type fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_typ_array_types_semicolon.fol")
+        .expect("Should read semicolon array-type fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -444,10 +435,9 @@ fn test_matrix_types_accept_semicolon_separators() {
 
 #[test]
 fn test_numeric_container_types_accept_trailing_separators() {
-    let mut file_stream = FileStream::from_file(
-        "test/parser/simple_typ_numeric_types_trailing_separator.fol",
-    )
-    .expect("Should read trailing numeric-type fixture");
+    let mut file_stream =
+        FileStream::from_file("test/parser/simple_typ_numeric_types_trailing_separator.fol")
+            .expect("Should read trailing numeric-type fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();

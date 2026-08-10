@@ -164,7 +164,7 @@ Tooling commands:
 - `fol tool semantic-tokens <PATH>`
 - `fol tool tree generate <PATH>`
 - `fol tool clean`
-- `fol tool completion`
+- `fol tool completion <bash|zsh|fish>`
 
 Examples:
 
@@ -187,6 +187,31 @@ Use `tool` for:
 - Tree-sitter debugging
 - LSP serving
 - generated tool assets
+
+### Shell Completion
+
+`fol tool completion <bash|zsh|fish>` writes the completion script to stdout and
+nothing else, so it can be sourced directly. The script registers both `fol` and
+`folc`.
+
+```bash
+# bash: source it for the current session
+eval "$(fol tool completion bash)"
+# or install it
+fol tool completion bash > ~/.local/share/bash-completion/completions/fol
+```
+
+```zsh
+# zsh: install into a directory on $fpath
+fol tool completion zsh > ~/.zfunc/_fol
+```
+
+```fish
+fol tool completion fish > ~/.config/fish/completions/fol.fish
+```
+
+With `--output json` the script is carried in the envelope's `payload` field
+instead, alongside `command` and `summary`.
 
 ### Parse And Query Results
 

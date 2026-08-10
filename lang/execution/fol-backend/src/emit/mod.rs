@@ -20,4 +20,5 @@ pub use skeleton::{
     emit_cargo_toml, emit_generated_crate_skeleton, emit_generated_crate_skeleton_for_config,
     emit_main_rs, emit_main_rs_for_config, emit_namespace_module_shells,
     emit_namespace_module_shells_for_config, emit_package_module_shells,
+    ENTRY_ARG_USAGE_EXIT_STATUS,
 };

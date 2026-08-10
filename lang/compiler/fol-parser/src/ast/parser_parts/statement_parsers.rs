@@ -903,7 +903,9 @@ impl AstParser {
             self.parse_call_expr(tokens)?
         };
 
-        Ok(call)
+        // A call in statement position keeps its postfix chain: `a.b(x).c(y);`
+        // and `f().g();` are single statements, matching expression position.
+        self.parse_postfix_expression(tokens, call)
     }
 
     pub(super) fn parse_invoke_stmt(

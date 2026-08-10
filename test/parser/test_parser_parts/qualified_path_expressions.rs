@@ -19,7 +19,7 @@ fn test_qualified_path_identifier_expression_parsing() {
                     AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(
                             value.as_ref(),
                             AstNode::QualifiedIdentifier { path }
@@ -57,7 +57,7 @@ fn test_qualified_path_method_chain_parsing() {
                     AstNode::FunDecl { body, .. }
                     if body.iter().any(|stmt| matches!(
                         stmt,
-                        AstNode::Return { value: Some(value) }
+                        AstNode::Return { value: Some(value), .. }
                         if matches!(
                             value.as_ref(),
                             AstNode::MethodCall { object, method, .. }

@@ -1,22 +1,8 @@
 use super::*;
 use std::fs;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn unique_temp_root(label: &str) -> std::path::PathBuf {
-    static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after unix epoch")
-        .as_nanos();
-    let sequence = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!(
-        "fol_parser_anon_log_{}_{}_{}_{}",
-        label,
-        std::process::id(),
-        stamp,
-        sequence
-    ))
+fn unique_temp_root(label: &str) -> crate::fixture::TempFixture {
+    crate::fixture::TempFixture::new(&format!("fol_parser_anon_log_{label}"))
 }
 
 fn parse_first_error_from_source(source: &str) -> fol_diagnostics::Diagnostic {
@@ -47,8 +33,9 @@ fn parse_first_error_from_source(source: &str) -> fol_diagnostics::Diagnostic {
 
 #[test]
 fn test_anonymous_logical_missing_open_paren_uses_logical_wording() {
-    let error =
-        parse_first_error_from_source("fun host(): bool = { return log[] value: bool => value; };\n");
+    let error = parse_first_error_from_source(
+        "fun host(): bool = { return log[] value: bool => value; };\n",
+    );
 
     assert!(
         error
@@ -94,5 +81,5 @@ fn unique_temp_root_produces_distinct_paths_for_rapid_calls() {
     let first = unique_temp_root("collision_check");
     let second = unique_temp_root("collision_check");
 
-    assert_ne!(first, second);
+    assert_ne!(first.path(), second.path());
 }

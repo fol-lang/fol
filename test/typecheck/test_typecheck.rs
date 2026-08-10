@@ -9,9 +9,7 @@ use fol_typecheck::{
 };
 use std::collections::BTreeMap;
 use std::fs::{create_dir_all, write};
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::path::Path;
 
 fn resolve_fixture(path: &str) -> fol_resolver::ResolvedProgram {
     let fixture_path = format!("{}/{}", env!("CARGO_MANIFEST_DIR"), path);
@@ -25,19 +23,8 @@ fn resolve_fixture(path: &str) -> fol_resolver::ResolvedProgram {
     resolve_package(syntax).expect("Typecheck fixture should resolve cleanly")
 }
 
-fn unique_temp_dir(prefix: &str) -> PathBuf {
-    static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after unix epoch")
-        .as_nanos();
-    let sequence = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!(
-        "fol_typecheck_{prefix}_{}_{}_{}",
-        std::process::id(),
-        nonce,
-        sequence
-    ))
+fn unique_temp_dir(prefix: &str) -> crate::fixture::TempFixture {
+    crate::fixture::TempFixture::new(&format!("fol_typecheck_{prefix}"))
 }
 
 fn write_fixture_files(root: &Path, files: &[(&str, &str)]) {
@@ -55,7 +42,7 @@ fn unique_temp_dir_produces_distinct_paths_for_rapid_calls() {
     let first = unique_temp_dir("collision_check");
     let second = unique_temp_dir("collision_check");
 
-    assert_ne!(first, second);
+    assert_ne!(first.path(), second.path());
 }
 
 fn typecheck_fixture_folder(files: &[(&str, &str)]) -> fol_typecheck::TypedProgram {
@@ -254,7 +241,7 @@ fn assert_imported_declared_count_binding_and_routine(
                 _ => DeclaredTypeKind::Type,
             },
             args: Vec::new(),
-})
+        })
     );
 
     let signature = match typed.type_table().get(
@@ -276,7 +263,7 @@ fn assert_imported_declared_count_binding_and_routine(
                 _ => DeclaredTypeKind::Type,
             },
             args: Vec::new(),
-})
+        })
     );
     assert_eq!(
         signature
@@ -290,7 +277,7 @@ fn assert_imported_declared_count_binding_and_routine(
                 _ => DeclaredTypeKind::Type,
             },
             args: Vec::new(),
-})
+        })
     );
 }
 
@@ -325,7 +312,6 @@ fn find_named_routine_syntax_id(
         .expect("named routine syntax id should exist")
 }
 
-
 #[cfg(test)]
 #[path = "test_typecheck_foundation.rs"]
 mod typecheck_foundation;
@@ -350,11 +336,11 @@ mod typecheck_workspace_imports;
 #[path = "test_typecheck_operators.rs"]
 mod typecheck_operators;
 
+#[path = "test_typecheck_generic_types_v2.rs"]
+mod typecheck_generic_types_v2;
 #[cfg(test)]
 #[path = "test_typecheck_generics_m1.rs"]
 mod typecheck_generics_m1;
-#[path = "test_typecheck_generic_types_v2.rs"]
-mod typecheck_generic_types_v2;
 #[cfg(test)]
 #[path = "test_typecheck_standards_m2.rs"]
 mod typecheck_standards_m2;

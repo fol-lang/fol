@@ -25,3 +25,7 @@ fun[exp] read_key(): int = {
 fun[exp] read_key_ms(timeout: int): int = {
     return .read_key_ms(timeout);
 };
+
+fun[exp] write_err(value: str): str = {
+    return .write_err(value);
+};

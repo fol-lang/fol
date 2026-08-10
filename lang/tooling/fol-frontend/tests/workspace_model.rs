@@ -18,16 +18,8 @@ fn package_build(name: &str) -> String {
     )
 }
 
-fn temp_root(label: &str) -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "fol_frontend_workspace_model_{}_{}_{}",
-        label,
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time should be after epoch")
-            .as_nanos()
-    ))
+fn temp_root(label: &str) -> fol_testkit::TempFixture {
+    fol_testkit::TempFixture::new(&format!("fol_frontend_workspace_model_{label}"))
 }
 
 #[test]
@@ -53,7 +45,7 @@ fn workspace_config_and_model_round_trip_through_public_api() {
     )
     .expect("should write workspace config");
 
-    let root_model = WorkspaceRoot::new(root.clone());
+    let root_model = WorkspaceRoot::new(root.to_path_buf());
     let config = load_workspace_config(&root_model).expect("config should load");
     let workspace =
         FrontendWorkspace::from_config(root_model, &config).expect("workspace should build");

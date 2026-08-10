@@ -14,27 +14,32 @@ fn test_container_literals_parse_in_assignment_and_return() {
 
     match ast {
         AstNode::Program { declarations } => {
-            let has_container_assignment = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::Assignment { value, .. }
-                    if matches!(
-                        value.as_ref(),
-                        AstNode::ContainerLiteral { elements, .. } if elements.len() == 3
+            let has_container_assignment = only_root_routine_body_nodes(&declarations)
+                .into_iter()
+                .any(|node| {
+                    matches!(
+                        node,
+                        AstNode::Assignment { value, .. }
+                        if matches!(
+                            value.as_ref(),
+                            AstNode::ContainerLiteral { elements, .. } if elements.len() == 3
+                        )
                     )
-                )
-            });
+                });
 
-            let has_container_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::Return { value: Some(value) }
-                    if matches!(
-                        value.as_ref(),
-                        AstNode::ContainerLiteral { elements, .. } if elements.len() == 2
-                    )
-                )
-            });
+            let has_container_return =
+                only_root_routine_body_nodes(&declarations)
+                    .into_iter()
+                    .any(|node| {
+                        matches!(
+                            node,
+                            AstNode::Return { value: Some(value), .. }
+                            if matches!(
+                                value.as_ref(),
+                                AstNode::ContainerLiteral { elements, .. } if elements.len() == 2
+                            )
+                        )
+                    });
 
             assert!(has_container_assignment);
             assert!(has_container_return);
@@ -58,27 +63,32 @@ fn test_semicolon_container_literals_parse_in_assignment_and_return() {
 
     match ast {
         AstNode::Program { declarations } => {
-            let has_container_assignment = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::Assignment { value, .. }
-                    if matches!(
-                        value.as_ref(),
-                        AstNode::ContainerLiteral { elements, .. } if elements.len() == 3
+            let has_container_assignment = only_root_routine_body_nodes(&declarations)
+                .into_iter()
+                .any(|node| {
+                    matches!(
+                        node,
+                        AstNode::Assignment { value, .. }
+                        if matches!(
+                            value.as_ref(),
+                            AstNode::ContainerLiteral { elements, .. } if elements.len() == 3
+                        )
                     )
-                )
-            });
+                });
 
-            let has_container_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::Return { value: Some(value) }
-                    if matches!(
-                        value.as_ref(),
-                        AstNode::ContainerLiteral { elements, .. } if elements.len() == 2
-                    )
-                )
-            });
+            let has_container_return =
+                only_root_routine_body_nodes(&declarations)
+                    .into_iter()
+                    .any(|node| {
+                        matches!(
+                            node,
+                            AstNode::Return { value: Some(value), .. }
+                            if matches!(
+                                value.as_ref(),
+                                AstNode::ContainerLiteral { elements, .. } if elements.len() == 2
+                            )
+                        )
+                    });
 
             assert!(has_container_assignment);
             assert!(has_container_return);
@@ -130,7 +140,7 @@ fn test_semicolon_container_literals_parse_in_call_args() {
         AstNode::Program { declarations } => {
             assert!(only_root_routine_body_nodes(&declarations).into_iter().any(|node| matches!(
                 node,
-                AstNode::Return { value: Some(value) }
+                AstNode::Return { value: Some(value), .. }
                 if matches!(
                     value.as_ref(),
                     AstNode::FunctionCall { name, args, .. }
@@ -158,27 +168,32 @@ fn test_trailing_separator_container_literals_parse_in_assignment_and_return() {
 
     match ast {
         AstNode::Program { declarations } => {
-            let has_container_assignment = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::Assignment { value, .. }
-                    if matches!(
-                        value.as_ref(),
-                        AstNode::ContainerLiteral { elements, .. } if elements.len() == 3
+            let has_container_assignment = only_root_routine_body_nodes(&declarations)
+                .into_iter()
+                .any(|node| {
+                    matches!(
+                        node,
+                        AstNode::Assignment { value, .. }
+                        if matches!(
+                            value.as_ref(),
+                            AstNode::ContainerLiteral { elements, .. } if elements.len() == 3
+                        )
                     )
-                )
-            });
+                });
 
-            let has_container_return = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::Return { value: Some(value) }
-                    if matches!(
-                        value.as_ref(),
-                        AstNode::ContainerLiteral { elements, .. } if elements.len() == 2
-                    )
-                )
-            });
+            let has_container_return =
+                only_root_routine_body_nodes(&declarations)
+                    .into_iter()
+                    .any(|node| {
+                        matches!(
+                            node,
+                            AstNode::Return { value: Some(value), .. }
+                            if matches!(
+                                value.as_ref(),
+                                AstNode::ContainerLiteral { elements, .. } if elements.len() == 2
+                            )
+                        )
+                    });
 
             assert!(has_container_assignment);
             assert!(has_container_return);
@@ -232,7 +247,7 @@ fn test_trailing_separator_container_literals_parse_in_call_args() {
         AstNode::Program { declarations } => {
             assert!(only_root_routine_body_nodes(&declarations).into_iter().any(|node| matches!(
                 node,
-                AstNode::Return { value: Some(value) }
+                AstNode::Return { value: Some(value), .. }
                 if matches!(
                     value.as_ref(),
                     AstNode::FunctionCall { name, args, .. }
@@ -259,7 +274,6 @@ fn test_container_literal_bad_separator_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();

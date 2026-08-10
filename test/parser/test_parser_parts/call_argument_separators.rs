@@ -13,26 +13,32 @@ fn test_call_argument_lists_accept_trailing_commas() {
 
     let (has_ping_two_args, has_run_one_arg, has_emit_one_arg) = match ast {
         AstNode::Program { declarations } => {
-            let has_ping_two_args = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::FunctionCall { name, args, .. }
-                    if name == "ping" && args.len() == 2
-                )
-            });
+            let has_ping_two_args =
+                only_root_routine_body_nodes(&declarations)
+                    .into_iter()
+                    .any(|node| {
+                        matches!(
+                            node,
+                            AstNode::FunctionCall { name, args, .. }
+                            if name == "ping" && args.len() == 2
+                        )
+                    });
 
-            let has_run_one_arg = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::MethodCall { method, args, .. }
-                    if method == "run" && args.len() == 1
-                )
-            });
+            let has_run_one_arg =
+                only_root_routine_body_nodes(&declarations)
+                    .into_iter()
+                    .any(|node| {
+                        matches!(
+                            node,
+                            AstNode::MethodCall { method, args, .. }
+                            if method == "run" && args.len() == 1
+                        )
+                    });
 
             let has_emit_one_arg = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(value.as_ref(), AstNode::FunctionCall { name, args, .. } if name == "emit" && args.len() == 1)
                 )
             });
@@ -60,26 +66,32 @@ fn test_call_argument_lists_accept_semicolons() {
 
     let (has_ping_two_args, has_run_one_arg, has_emit_two_args) = match ast {
         AstNode::Program { declarations } => {
-            let has_ping_two_args = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::FunctionCall { name, args, .. }
-                    if name == "ping" && args.len() == 2
-                )
-            });
+            let has_ping_two_args =
+                only_root_routine_body_nodes(&declarations)
+                    .into_iter()
+                    .any(|node| {
+                        matches!(
+                            node,
+                            AstNode::FunctionCall { name, args, .. }
+                            if name == "ping" && args.len() == 2
+                        )
+                    });
 
-            let has_run_one_arg = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::MethodCall { method, args, .. }
-                    if method == "run" && args.len() == 1
-                )
-            });
+            let has_run_one_arg =
+                only_root_routine_body_nodes(&declarations)
+                    .into_iter()
+                    .any(|node| {
+                        matches!(
+                            node,
+                            AstNode::MethodCall { method, args, .. }
+                            if method == "run" && args.len() == 1
+                        )
+                    });
 
             let has_emit_two_args = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(value.as_ref(), AstNode::FunctionCall { name, args, .. } if name == "emit" && args.len() == 2)
                 )
             });
@@ -96,9 +108,8 @@ fn test_call_argument_lists_accept_semicolons() {
 
 #[test]
 fn test_call_argument_lists_accept_mixed_separators() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_call_mixed_separators.fol")
-            .expect("Should read mixed-separator call test file");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_call_mixed_separators.fol")
+        .expect("Should read mixed-separator call test file");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -108,26 +119,32 @@ fn test_call_argument_lists_accept_mixed_separators() {
 
     let (has_ping_three_args, has_run_two_args, has_emit_three_args) = match ast {
         AstNode::Program { declarations } => {
-            let has_ping_three_args = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::FunctionCall { name, args, .. }
-                    if name == "ping" && args.len() == 3
-                )
-            });
+            let has_ping_three_args =
+                only_root_routine_body_nodes(&declarations)
+                    .into_iter()
+                    .any(|node| {
+                        matches!(
+                            node,
+                            AstNode::FunctionCall { name, args, .. }
+                            if name == "ping" && args.len() == 3
+                        )
+                    });
 
-            let has_run_two_args = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-                matches!(
-                    node,
-                    AstNode::MethodCall { method, args, .. }
-                    if method == "run" && args.len() == 2
-                )
-            });
+            let has_run_two_args =
+                only_root_routine_body_nodes(&declarations)
+                    .into_iter()
+                    .any(|node| {
+                        matches!(
+                            node,
+                            AstNode::MethodCall { method, args, .. }
+                            if method == "run" && args.len() == 2
+                        )
+                    });
 
             let has_emit_three_args = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(value.as_ref(), AstNode::FunctionCall { name, args, .. } if name == "emit" && args.len() == 3)
                 )
             });
@@ -199,7 +216,7 @@ fn test_nested_calls_with_trailing_commas_preserve_argument_shapes() {
             let has_done_one_arg = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(value.as_ref(), AstNode::FunctionCall { name, args, .. } if name == "done" && args.len() == 1)
                 )
             });
@@ -215,9 +232,8 @@ fn test_nested_calls_with_trailing_commas_preserve_argument_shapes() {
 
 #[test]
 fn test_nested_calls_with_semicolons_preserve_argument_shapes() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_call_nested_semicolon.fol")
-            .expect("Should read nested semicolon call test file");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_call_nested_semicolon.fol")
+        .expect("Should read nested semicolon call test file");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -245,7 +261,7 @@ fn test_nested_calls_with_semicolons_preserve_argument_shapes() {
             let has_done_one_arg = only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
                 matches!(
                     node,
-                    AstNode::Return { value: Some(value) }
+                    AstNode::Return { value: Some(value), .. }
                     if matches!(value.as_ref(), AstNode::FunctionCall { name, args, .. } if name == "done" && args.len() == 1)
                 )
             });

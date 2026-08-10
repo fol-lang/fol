@@ -147,6 +147,48 @@ fn test_release_workflow_ships_fetchable_toolchain_artifacts() {
 }
 
 #[test]
+fn test_tree_sitter_pin_is_the_same_in_ci_the_dev_shell_and_the_editor_guard() {
+    fn quoted_value_after<'a>(haystack: &'a str, marker: &str) -> &'a str {
+        let tail = haystack
+            .split(marker)
+            .nth(1)
+            .unwrap_or_else(|| panic!("'{marker}' should appear exactly once"));
+        let start = tail.find('"').expect("a quoted value should follow") + 1;
+        let rest = &tail[start..];
+        &rest[..rest.find('"').expect("the quote should close")]
+    }
+
+    let flake = std::fs::read_to_string(repo_root().join("flake.nix")).expect("flake.nix");
+    let workflow = std::fs::read_to_string(repo_root().join(".github/workflows/tests.yml"))
+        .expect("tests workflow should exist");
+    let guard =
+        std::fs::read_to_string(repo_root().join("lang/tooling/fol-editor/src/commands.rs"))
+            .expect("editor commands should exist");
+
+    // The editor regenerates the grammar with this CLI and then asserts on the
+    // bytes it emits, so a shell that hands over a different series fails ~33
+    // tests for reasons that look nothing like a version mismatch. Keep the
+    // three places that install or demand it from drifting apart.
+    let required_series = quoted_value_after(&guard, "REQUIRED_TREE_SITTER_VERSION: &str =");
+    let pinned = quoted_value_after(&flake, "treeSitterVersion =");
+    assert!(
+        pinned.starts_with(&format!("{required_series}.")),
+        "the dev shell pins tree-sitter {pinned}, but the editor requires {required_series}.x"
+    );
+    assert!(
+        workflow.contains(&format!("version={pinned}")),
+        "CI should install the same tree-sitter {pinned} the dev shell pins"
+    );
+
+    // A pinned version that is fetched without verification is a pin in name
+    // only; the release chain runs this workflow.
+    assert!(
+        workflow.contains("sha256sum --check --strict"),
+        "the CI tree-sitter download should be checksum-verified"
+    );
+}
+
+#[test]
 fn test_ci_verifies_the_default_branch_and_keeps_network_tests_out_of_the_gate() {
     let tests_workflow = std::fs::read_to_string(repo_root().join(".github/workflows/tests.yml"))
         .expect("tests workflow should exist");
@@ -3202,4 +3244,307 @@ fn test_pathological_nesting_rejects_instead_of_crashing() {
     );
 
     fs::remove_dir_all(&temp_root).ok();
+}
+
+// A FOL declaration ends with `};`. A book snippet that closes one with a bare
+// `}` cannot be copy-pasted: the parser rejects it with K1001/P1001.
+#[test]
+fn test_book_fol_snippets_terminate_declarations_with_semicolons() {
+    let mut chapters = Vec::new();
+    collect_files_with_suffixes(&repo_root().join("book/src"), &[".md"], &mut chapters);
+    chapters.sort();
+
+    let mut offenders = Vec::new();
+    for chapter in chapters {
+        let text = std::fs::read_to_string(&chapter).expect("Should read book chapter");
+        let mut in_fol_fence = false;
+        for (index, line) in text.lines().enumerate() {
+            let trimmed = line.trim();
+            if let Some(info) = trimmed.strip_prefix("```") {
+                in_fol_fence = !in_fol_fence && info.trim() == "fol";
+                continue;
+            }
+            if in_fol_fence && line == "}" {
+                offenders.push(format!("{}:{}", chapter.display(), index + 1));
+            }
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "```fol book snippets must close declarations with '}};', not a bare '}}':\n{}",
+        offenders.join("\n")
+    );
+}
+
+#[test]
+fn test_scaffolded_hyphenated_directory_is_a_buildable_package() {
+    use std::fs;
+
+    // Hyphens are ordinary in directory names, so `work init` reporting success
+    // must not hand back a package the loader then refuses to name.
+    let temp_root = unique_temp_root("hyphen_scaffold");
+    let package_root = temp_root.join("my-proj");
+    fs::create_dir_all(&package_root).expect("Should create hyphenated package directory");
+
+    let init = run_fol_in_dir(&package_root, &["work", "init"]);
+    assert!(
+        init.status.success(),
+        "work init should scaffold into a hyphenated directory: stderr=\n{}",
+        String::from_utf8_lossy(&init.stderr)
+    );
+
+    let manifest =
+        fs::read_to_string(package_root.join("build.fol")).expect("Should read scaffolded build");
+    assert!(
+        manifest.contains("name = \"my_proj\""),
+        "scaffolded manifest should carry the sanitized package name: {manifest}"
+    );
+
+    let check = run_fol_in_dir(&package_root, &["code", "check"]);
+    assert!(
+        check.status.success(),
+        "the scaffolded package should check: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+
+    fs::remove_dir_all(&temp_root).ok();
+}
+
+#[test]
+fn test_code_run_exits_with_the_programs_own_status() {
+    use std::fs;
+
+    // `main`'s int return used to be dropped on the floor (`let _ = main()`),
+    // so a program could not tell its caller anything and `code run` always
+    // exited 0.
+    let temp_root = unique_temp_root("code_run_exit_status");
+    fs::create_dir_all(temp_root.join("src")).expect("Should create exit-status fixture dirs");
+    fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"code_run_exit_status\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"code_run_exit_status\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write exit-status build file");
+    fs::write(
+        temp_root.join("src/main.fol"),
+        "fun[] main(): int = {\n    return 3;\n};\n",
+    )
+    .expect("Should write exit-status source");
+
+    let run = run_fol_in_dir(&temp_root, &["code", "run"]);
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert_eq!(
+        run.status.code(),
+        Some(3),
+        "code run must exit with the program's own status: stdout=\n{}\nstderr=\n{stderr}",
+        String::from_utf8_lossy(&run.stdout)
+    );
+    // A program that failed on its own terms is not a build problem.
+    assert!(
+        stderr.contains("F1005"),
+        "a launched program's failure needs its own code: {stderr}"
+    );
+    assert!(
+        !stderr.contains("F1004"),
+        "a launched program's failure must not be reported as a build failure: {stderr}"
+    );
+
+    let binary = installed_debug_host_binary(&temp_root);
+    let direct = std::process::Command::new(&binary)
+        .output()
+        .expect("built binary should execute");
+    assert_eq!(
+        direct.status.code(),
+        Some(3),
+        "the built binary itself must exit with main's return value"
+    );
+
+    fs::remove_dir_all(&temp_root).ok();
+}
+
+#[test]
+fn test_code_test_reports_a_failing_test_binary_as_failing() {
+    use std::fs;
+
+    // `code test` decides pass/fail from the test binary's status, so a
+    // discarded `return 1` used to report a failing test as passing.
+    let temp_root = unique_temp_root("code_test_failing_binary");
+    fs::create_dir_all(temp_root.join("src")).expect("Should create test-status fixture dirs");
+    fs::write(
+        temp_root.join("build.fol"),
+        concat!(
+            "pro[] build(): non = {\n",
+            "    var build = .build();\n",
+            "    build.meta({ name = \"code_test_failing_binary\", version = \"0.1.0\" });\n",
+            "    var graph = build.graph();\n",
+            "    var tests = graph.add_test({\n",
+            "        name = \"code-test-failing\",\n",
+            "        root = \"src/tests.fol\",\n",
+            "        fol_model = \"memo\",\n",
+            "    });\n",
+            "    return;\n",
+            "};\n",
+        ),
+    )
+    .expect("Should write test-status build file");
+    fs::write(
+        temp_root.join("src/tests.fol"),
+        "fun[] main(): int = {\n    return 1;\n};\n",
+    )
+    .expect("Should write test-status source");
+
+    let tested = run_fol_in_dir(&temp_root, &["code", "test"]);
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&tested.stdout),
+        String::from_utf8_lossy(&tested.stderr)
+    );
+    assert_eq!(
+        tested.status.code(),
+        Some(1),
+        "code test must fail when the test binary fails: {combined}"
+    );
+    assert!(
+        !combined.contains("tested 1 workspace artifact"),
+        "a failing test binary must not be summarized as tested: {combined}"
+    );
+    assert!(
+        combined.contains("F1005"),
+        "a failing test binary needs the launched-program code: {combined}"
+    );
+
+    fs::remove_dir_all(&temp_root).ok();
+}
+
+#[test]
+fn test_every_path_spelling_of_one_file_compiles_the_same() {
+    use std::fs;
+
+    let temp_root = unique_temp_root("hyphen_path_spelling");
+    let package_root = temp_root.join("has-hyphen");
+    fs::create_dir_all(&package_root).expect("Should create hyphenated source directory");
+    fs::write(
+        package_root.join("ok.fol"),
+        "fun[] main(): int = {\n    return 0;\n};\n",
+    )
+    .expect("Should write the single-file fixture");
+    let absolute_path = package_root.join("ok.fol");
+    let absolute = absolute_path
+        .to_str()
+        .expect("Fixture path should be utf-8");
+
+    for (label, dir, target) in [
+        ("bare", package_root.as_path(), "ok.fol"),
+        ("dotted", package_root.as_path(), "./ok.fol"),
+        ("nested", temp_root.path(), "has-hyphen/ok.fol"),
+        ("absolute", package_root.as_path(), absolute),
+    ] {
+        let output = run_fol_in_dir(dir, &["code", "check", target]);
+        assert!(
+            output.status.success(),
+            "the {label} spelling of a file under a hyphenated directory should check: stderr=\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fs::remove_dir_all(&temp_root).ok();
+}
+
+#[test]
+fn test_entry_arguments_reject_missing_and_unparseable_values() {
+    use std::fs;
+
+    // Entry parameters used to swallow a bad command line and hand `main` the
+    // type's default, so `notanumber` silently became 0.
+    let temp_root = unique_temp_root("entry_argument_usage");
+    fs::create_dir_all(temp_root.join("src")).expect("Should create entry-arg fixture dirs");
+    fs::write(
+            temp_root.join("build.fol"),
+            concat!(
+                "pro[] build(): non = {\n",
+                "    var build = .build();\n",
+                "    build.meta({ name = \"entry_argument_usage\", version = \"0.1.0\" });\n",
+                "    var graph = build.graph();\n",
+                "    var app = graph.add_exe({ name = \"entry_argument_usage\", root = \"src/main.fol\", fol_model = \"memo\" });\n",
+                "    graph.install(app);\n",
+                "    return;\n",
+                "};\n",
+            ),
+        )
+        .expect("Should write entry-arg build file");
+    fs::write(
+        temp_root.join("src/main.fol"),
+        "fun[] main(count: int): int = {\n    return count;\n};\n",
+    )
+    .expect("Should write entry-arg source");
+
+    let build = run_fol_in_dir(&temp_root, &["code", "build"]);
+    assert!(
+        build.status.success(),
+        "entry-arg fixture should build: stdout=\n{}\nstderr=\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let binary = installed_debug_host_binary(&temp_root);
+
+    let parsed = std::process::Command::new(&binary)
+        .arg("0")
+        .output()
+        .expect("built binary should execute with a valid argument");
+    assert_eq!(parsed.status.code(), Some(0));
+
+    let unparseable = std::process::Command::new(&binary)
+        .arg("notanumber")
+        .output()
+        .expect("built binary should execute with an invalid argument");
+    let unparseable_stderr = String::from_utf8_lossy(&unparseable.stderr);
+    assert_eq!(
+        unparseable.status.code(),
+        Some(2),
+        "an unparseable argument is a usage error: {unparseable_stderr}"
+    );
+    assert!(
+        unparseable_stderr.contains("notanumber") && unparseable_stderr.contains("int"),
+        "the usage error must name the value and the expected type: {unparseable_stderr}"
+    );
+
+    let missing = std::process::Command::new(&binary)
+        .output()
+        .expect("built binary should execute with no arguments");
+    let missing_stderr = String::from_utf8_lossy(&missing.stderr);
+    assert_eq!(
+        missing.status.code(),
+        Some(2),
+        "a missing argument is a usage error: {missing_stderr}"
+    );
+    assert!(
+        missing_stderr.contains("missing command-line argument"),
+        "the usage error must say what is missing: {missing_stderr}"
+    );
+
+    fs::remove_dir_all(&temp_root).ok();
+}
+
+#[test]
+fn every_printed_diagnostic_code_can_be_explained() {
+    // `explain` denying a code the compiler itself printed leaves the reader
+    // with nowhere to go.
+    for code in ["EUNKNOWN", "F1001", "F1004", "F1005"] {
+        let output = run_fol(&["code", "explain", code]);
+        assert!(
+            output.status.success(),
+            "`code explain {code}` should succeed: stderr=\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }

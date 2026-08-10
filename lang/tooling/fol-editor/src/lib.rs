@@ -155,7 +155,7 @@ mod tests {
         let path = repo_root().join("test/apps/fixtures/record_flow/main.fol");
 
         assert_eq!(editor_lsp_entrypoint().unwrap().command, "lsp");
-        let format_root = std::env::temp_dir().join("fol_editor_public_format_smoke");
+        let format_root = fol_testkit::TempFixture::new("fol_editor_public_format_smoke");
         std::fs::create_dir_all(&format_root).unwrap();
         let format_path = format_root.join("sample.fol");
         std::fs::write(&format_path, "fun[] main(): int = {\nreturn 0;\n};\n").unwrap();
@@ -180,14 +180,7 @@ mod tests {
         // real packages. The package-less `record_flow` fixture backs the other
         // file commands, so build a small self-contained package for the rename
         // smoke check.
-        let rename_root = std::env::temp_dir().join(format!(
-            "fol_editor_public_rename_pkg_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after epoch")
-                .as_nanos()
-        ));
+        let rename_root = fol_testkit::TempFixture::new("fol_editor_public_rename_pkg");
         std::fs::create_dir_all(rename_root.join("src")).unwrap();
         std::fs::create_dir_all(rename_root.join(".git")).unwrap();
         std::fs::write(
@@ -218,7 +211,7 @@ mod tests {
             editor_semantic_tokens_file(&path).unwrap().command,
             "semantic-tokens"
         );
-        let root = std::env::temp_dir().join("fol_editor_public_tree_bundle_smoke");
+        let root = fol_testkit::TempFixture::new("fol_editor_public_tree_bundle_smoke");
         assert_eq!(
             editor_tree_generate_bundle(&root).unwrap().command,
             "tree generate"
@@ -229,14 +222,7 @@ mod tests {
 
     #[test]
     fn lsp_and_workspace_shells_are_publicly_constructible() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_editor_public_lsp_workspace_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after epoch")
-                .as_nanos()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_editor_public_lsp_workspace");
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::create_dir_all(root.join(".git")).unwrap();
@@ -295,14 +281,7 @@ mod tests {
 
     #[test]
     fn lsp_stdio_loop_handles_completion_requests() {
-        let root = std::env::temp_dir().join(format!(
-            "fol_editor_stdio_completion_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after epoch")
-                .as_nanos()
-        ));
+        let root = fol_testkit::TempFixture::new("fol_editor_stdio_completion");
         let src = root.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::create_dir_all(root.join(".git")).unwrap();

@@ -29,11 +29,11 @@ Example:
 ```fol
 fun[] bad_as(value: int): int = {
     return value as text;
-}
+};
 
 fun[] bad_cast(value: int): int = {
     return value cast target;
-}
+};
 ```
 
 Both forms currently fail during typechecking.

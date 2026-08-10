@@ -6,3 +6,6 @@ edition = "2021"
 [[bin]]
 name = "fol"
 path = "src/main.rs"
+
+[dev-dependencies]
+fol-testkit = { path = "../fol-testkit" }

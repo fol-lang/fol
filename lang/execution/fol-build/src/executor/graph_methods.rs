@@ -412,15 +412,21 @@ impl BuildBodyExecutor {
                 let [AstNode::RecordInit { fields, .. }] = args else {
                     return Err(self.unsupported(method));
                 };
-                let name = self
-                    .resolve_field_string(fields, "name")
-                    .ok_or_else(|| self.unsupported(method))?;
+                let name = self.resolve_field_string(fields, "name").ok_or_else(|| {
+                    self.invalid_config(method, "graph.copy_file requires string field 'name'")
+                })?;
                 let source_path = self.resolve_source_file_config(method, fields, "source")?;
                 let destination_path = self
                     .resolve_field_string(fields, "path")
                     .or_else(|| self.resolve_field_string(fields, "destination"))
                     .or_else(|| self.resolve_field_string(fields, "destination_path"))
-                    .ok_or_else(|| self.unsupported(method))?;
+                    .ok_or_else(|| {
+                        self.invalid_config(
+                            method,
+                            "graph.copy_file requires a destination field: 'path' \
+                             (also accepted: 'destination', 'destination_path')",
+                        )
+                    })?;
                 self.output.operations.push(BuildEvaluationOperation {
                     origin,
                     kind: BuildEvaluationOperationKind::CopyFile(CopyFileRequest {

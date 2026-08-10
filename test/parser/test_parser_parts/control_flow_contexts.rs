@@ -1,18 +1,8 @@
 use super::*;
 use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn unique_temp_root(label: &str) -> std::path::PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time should be after unix epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "fol_parser_control_flow_{}_{}_{}",
-        label,
-        std::process::id(),
-        stamp
-    ))
+fn unique_temp_root(label: &str) -> crate::fixture::TempFixture {
+    crate::fixture::TempFixture::new(&format!("fol_parser_control_flow_{label}"))
 }
 
 fn parse_first_error_from_source(label: &str, source: &str) -> fol_diagnostics::Diagnostic {
@@ -52,7 +42,11 @@ fn test_top_level_return_is_rejected_outside_routine_context() {
         "Top-level return should fail with routine-context wording, got: {}",
         error.message
     );
-    assert_eq!(error.primary_location().unwrap().line, 1, "Top-level return should point at its own line");
+    assert_eq!(
+        error.primary_location().unwrap().line,
+        1,
+        "Top-level return should point at its own line"
+    );
     assert_eq!(
         error.primary_location().unwrap().column,
         1,
@@ -74,7 +68,11 @@ fn test_branch_body_return_is_rejected_without_routine_context() {
         "Branch-body return should fail with routine-context wording, got: {}",
         error.message
     );
-    assert_eq!(error.primary_location().unwrap().line, 3, "Branch-body return should report the return line");
+    assert_eq!(
+        error.primary_location().unwrap().line,
+        3,
+        "Branch-body return should report the return line"
+    );
     assert_eq!(
         error.primary_location().unwrap().column,
         9,
@@ -93,7 +91,11 @@ fn test_top_level_break_is_rejected_outside_loop_context() {
         "Top-level break should fail with loop-context wording, got: {}",
         error.message
     );
-    assert_eq!(error.primary_location().unwrap().line, 1, "Top-level break should point at its own line");
+    assert_eq!(
+        error.primary_location().unwrap().line,
+        1,
+        "Top-level break should point at its own line"
+    );
     assert_eq!(
         error.primary_location().unwrap().column,
         1,
@@ -103,10 +105,8 @@ fn test_top_level_break_is_rejected_outside_loop_context() {
 
 #[test]
 fn test_routine_break_is_rejected_without_loop_context() {
-    let error = parse_first_error_from_source(
-        "routine_break",
-        "fun bad(): int = {\n    break;\n};\n",
-    );
+    let error =
+        parse_first_error_from_source("routine_break", "fun bad(): int = {\n    break;\n};\n");
 
     assert!(
         error
@@ -115,7 +115,11 @@ fn test_routine_break_is_rejected_without_loop_context() {
         "Routine break should fail with loop-context wording, got: {}",
         error.message
     );
-    assert_eq!(error.primary_location().unwrap().line, 2, "Routine break should report the break line");
+    assert_eq!(
+        error.primary_location().unwrap().line,
+        2,
+        "Routine break should report the break line"
+    );
     assert_eq!(
         error.primary_location().unwrap().column,
         5,
@@ -134,7 +138,11 @@ fn test_top_level_yield_is_rejected_without_routine_or_loop_context() {
         "Top-level yield should fail with routine-or-loop wording, got: {}",
         error.message
     );
-    assert_eq!(error.primary_location().unwrap().line, 1, "Top-level yield should point at its own line");
+    assert_eq!(
+        error.primary_location().unwrap().line,
+        1,
+        "Top-level yield should point at its own line"
+    );
     assert_eq!(
         error.primary_location().unwrap().column,
         1,
@@ -156,7 +164,11 @@ fn test_branch_body_yield_is_rejected_without_routine_or_loop_context() {
         "Branch-body yield should fail with routine-or-loop wording, got: {}",
         error.message
     );
-    assert_eq!(error.primary_location().unwrap().line, 3, "Branch-body yield should report the yield line");
+    assert_eq!(
+        error.primary_location().unwrap().line,
+        3,
+        "Branch-body yield should report the yield line"
+    );
     assert_eq!(
         error.primary_location().unwrap().column,
         9,

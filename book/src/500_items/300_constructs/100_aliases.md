@@ -85,11 +85,11 @@ typ[ext] int: int;
 
 pro (int)print(): non = {
     .echo(self)
-}
+};
 
 pro main(): non = {
     5.print()
-}
+};
 ```
 
 The call `5.print()` is still just receiver sugar for `print(5)`.
