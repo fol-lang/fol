@@ -1,8 +1,9 @@
-// A `fin` value held in a record field is finalized through its owner (V3_MEM
-// §6.1): at scope exit the holder walks the field path and runs the finalizer,
-// so containment does not swallow the cleanup. Ownership still decides who
-// finalizes -- moving the holder hands the duty to the receiving routine, which
-// releases the fields in reverse order (§6.2).
+// A `fin` value a record field or a container holds is finalized through its
+// owner (V3_MEM §6.1): at scope exit the holder walks the field path, and a
+// container hands out each element, so containment does not swallow the
+// cleanup. Ownership still decides who finalizes -- moving the holder hands the
+// duty to the receiving routine -- and owners are released in reverse
+// declaration order (§6.2).
 
 use std: pkg = {"std"};
 
@@ -25,5 +26,6 @@ fun[] main(): int = {
     consume([mov]pair);
     var held: Pair = { left = { descriptor = 3 }, right = { descriptor = 4 }, tag = 8 };
     var shown: int = std::io::echo_int(held.tag);
+    var pool: vec[File] = { { descriptor = 5 }, { descriptor = 6 } };
     return 0;
 };

@@ -446,24 +446,35 @@ pub(crate) fn type_has_nested_fin(typed: &TypedProgram, type_id: CheckedTypeId) 
                     .flatten()
                     .any(|variant| type_contains_fin(typed, *variant))
             }
+            // A container whose elements are `fin` is finalized by iterating it
+            // at scope exit. One that merely *contains* a `fin` deeper down is
+            // not: reaching those would need a field walk per element, which
+            // scope-exit iteration does not express.
             Some(CheckedType::Array { element_type, .. })
             | Some(CheckedType::Vector { element_type })
             | Some(CheckedType::Sequence { element_type }) => {
-                return type_contains_fin(typed, *element_type)
+                let element_type = *element_type;
+                return !typed.type_resolves_to_fin(element_type)
+                    && type_contains_fin(typed, element_type);
             }
             Some(CheckedType::Set { member_types }) => {
-                return member_types
-                    .iter()
-                    .any(|member| type_contains_fin(typed, *member))
+                let member_types = member_types.clone();
+                return member_types.iter().any(|member| {
+                    !typed.type_resolves_to_fin(*member) && type_contains_fin(typed, *member)
+                });
             }
             Some(CheckedType::Map {
                 key_type,
                 value_type,
             }) => {
-                return type_contains_fin(typed, *key_type) || type_contains_fin(typed, *value_type)
+                let (key_type, value_type) = (*key_type, *value_type);
+                return [key_type, value_type].iter().any(|part| {
+                    !typed.type_resolves_to_fin(*part) && type_contains_fin(typed, *part)
+                });
             }
             Some(CheckedType::Optional { inner }) | Some(CheckedType::Owned { inner }) => {
-                return type_contains_fin(typed, *inner)
+                let inner = *inner;
+                return !typed.type_resolves_to_fin(inner) && type_contains_fin(typed, inner);
             }
             _ => return false,
         }
@@ -483,7 +494,7 @@ pub(crate) fn reject_nested_fin_storage(
         return Ok(());
     }
     let message = format!(
-        "{subject} holds a 'fin' value inside '{}'; a record field is finalized through its owner, but a container, entry variant, shell or generic argument has no scope-exit path to reach one, so the finalizer would never run — give the 'fin' value its own binding and transfer it with '[mov]'",
+        "{subject} holds a 'fin' value buried inside '{}'; a 'fin' binding, record field, or container *element* is finalized at scope exit, but reaching one nested deeper than that — inside a container's element, an entry variant, or a generic argument — would need a per-element walk the compiler cannot emit, so the finalizer would never run — hold the 'fin' value directly, or give it its own binding and transfer it with '[mov]'",
         describe_type(typed, type_id)
     );
     Err(match origin {

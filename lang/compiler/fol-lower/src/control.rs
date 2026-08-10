@@ -57,6 +57,25 @@ pub enum LoweredUnaryOp {
     Not,
 }
 
+/// How a container yields the `fin` values it owns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FinalizeEachForm {
+    /// `vec`/`seq`: `into_vec()`.
+    Linear,
+    /// `arr`: a plain Rust array.
+    Array,
+    /// `set`: `into_set()`.
+    Set,
+    /// `map`, finalizing the key side.
+    MapKey,
+    /// `map`, finalizing the value side.
+    MapValue,
+    /// `opt`: the present payload.
+    OptionalPayload,
+    /// `err`: the error payload.
+    ErrorPayload,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoweredInstrKind {
     Const(LoweredOperand),
@@ -241,6 +260,15 @@ pub enum LoweredInstrKind {
     FieldAccess {
         base: LoweredLocalId,
         field: String,
+    },
+    /// Run a `fin` element's finalizer for every value a container holds, at
+    /// scope exit. A record field can be named and called directly; a container
+    /// holds a runtime number of values, so releasing them needs iteration the
+    /// rest of the instruction set does not express.
+    FinalizeEach {
+        container: LoweredLocalId,
+        callee: LoweredRoutineId,
+        form: FinalizeEachForm,
     },
     IndexAccess {
         container: LoweredLocalId,

@@ -360,6 +360,43 @@ pub fn render_core_instruction_in_workspace(
             let probe = if is_error_shell { "is_err" } else { "is_some" };
             Ok(format!("{result} = {operand}.{probe}();"))
         }
+        LoweredInstrKind::FinalizeEach {
+            container,
+            callee,
+            form,
+        } => {
+            use fol_lower::FinalizeEachForm;
+            let (_callee_identity, callee_decl) = resolve_routine_decl(workspace, *callee)?;
+            let callee_name = render_routine_path(workspace, _callee_identity, callee_decl)?;
+            let source = render_local_name(package_identity, routine, *container)?;
+            // Consuming the container is what scope exit means here: nothing
+            // reads it afterwards, and each element has to be owned to be
+            // handed to a finalizer that consumes it.
+            let each = match form {
+                FinalizeEachForm::Linear => format!("{source}.into_vec()"),
+                FinalizeEachForm::Array => format!("{source}.into_iter()"),
+                FinalizeEachForm::Set => format!("{source}.into_set()"),
+                FinalizeEachForm::MapKey | FinalizeEachForm::MapValue => {
+                    format!("{source}.into_map()")
+                }
+                FinalizeEachForm::OptionalPayload | FinalizeEachForm::ErrorPayload => String::new(),
+            };
+            Ok(match form {
+                FinalizeEachForm::MapKey => format!(
+                    "for (__fol_fin, _) in {each} {{ {callee_name}(__fol_fin); }}"
+                ),
+                FinalizeEachForm::MapValue => format!(
+                    "for (_, __fol_fin) in {each} {{ {callee_name}(__fol_fin); }}"
+                ),
+                FinalizeEachForm::OptionalPayload => format!(
+                    "if let rt::FolOption::Some(__fol_fin) = {source} {{ {callee_name}(__fol_fin); }}"
+                ),
+                FinalizeEachForm::ErrorPayload => format!(
+                    "if let rt::FolError::Err(__fol_fin) = {source} {{ {callee_name}(__fol_fin); }}"
+                ),
+                _ => format!("for __fol_fin in {each} {{ {callee_name}(__fol_fin); }}"),
+            })
+        }
         LoweredInstrKind::FieldAccess { base, field } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let result_moves = instruction

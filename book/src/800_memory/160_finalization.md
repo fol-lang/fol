@@ -66,18 +66,31 @@ Ownership still decides who finalizes. Moving the holder moves the duty with it,
 so the receiving routine releases the fields at *its* scope exit and the
 original owner does not.
 
-A `fin` value in a *container* — a `vec`/`arr`/`seq` element, a `set`/`map`
-member, an `opt` or `err` payload, an entry variant, a generic argument — has no
-such name: releasing it would need per-element cleanup at scope exit, which the
-compiler cannot express today. Those positions are rejected rather than skipping
-the cleanup silently:
+A container finalizes what it holds too. It has no field name for each value,
+so at scope exit it hands out its elements one by one instead:
 
 ```fol
-var handles: vec[File] = { { descriptor = 3 } };
-// rejected: a 'fin' value in a container would never be finalized
+var pool: vec[File] = { { descriptor = 1 }, { descriptor = 2 } };
+// at scope exit: every element is finalized, in order
 ```
 
-Give such a value its own binding and transfer it with `[mov]`.
+That covers `vec`/`arr`/`seq` elements, `set` members, `map` keys and values,
+and `opt`/`err` payloads — including a container reached through a record field.
+
+What is still refused is a `fin` value buried *below* one of those positions:
+inside a container's element, an entry variant, or a generic argument. Reaching
+those would need a field walk per element at scope exit, which the compiler
+cannot emit, so the program is rejected rather than skipping the cleanup:
+
+```fol
+typ Holder: rec = { file: File };
+
+var many: vec[Holder] = { { file = { descriptor = 3 } } };
+// rejected: the 'fin' value sits below the element, out of reach
+```
+
+Hold such a value directly, or give it its own binding and transfer it with
+`[mov]`.
 
 ## Early finalization
 

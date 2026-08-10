@@ -1130,3 +1130,35 @@ fn fin_values_held_in_record_fields_are_finalized_through_their_owner() {
     // its scope exit (4, 3). Reverse field order in both, per V3_MEM 6.2.
     assert_successful_stdout(&root, "9\n2\n1\n8\n4\n3\n");
 }
+
+#[test]
+fn fin_values_held_in_containers_are_finalized_at_scope_exit() {
+    // A container holds a runtime number of values, so releasing them needs
+    // iteration rather than a named call -- the reason this was rejected
+    // outright until the IR grew a scope-exit finalize-each instruction.
+    let root = write_hosted_app(
+        "v3_fin_container",
+        "use std: pkg = {\"std\"};\n\
+         \n\
+         typ File()(fin): rec = { descriptor: int };\n\
+         \n\
+         pro (File)finalize(): non = {\n\
+         \x20   var shown: int = std::io::echo_int(self.descriptor);\n\
+         \x20   return;\n\
+         };\n\
+         \n\
+         typ Bag: rec = { files: vec[File] };\n\
+         \n\
+         fun[] main(): int = {\n\
+         \x20   var pool: vec[File] = { { descriptor = 1 }, { descriptor = 2 } };\n\
+         \x20   var lookup: map[int, File] = {{7, { descriptor = 3 }}};\n\
+         \x20   var bag: Bag = { files = { { descriptor = 4 } } };\n\
+         \x20   std::io::echo_str(\"scope end\");\n\
+         \x20   return 0;\n\
+         };\n",
+    );
+    // Owners release in reverse declaration order; a container hands out its
+    // elements in order. The bag proves a container reached through a field
+    // path works too.
+    assert_successful_stdout(&root, "scope end\n4\n3\n1\n2\n");
+}

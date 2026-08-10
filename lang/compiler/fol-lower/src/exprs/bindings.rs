@@ -143,14 +143,14 @@ pub(crate) fn lower_local_binding(
             .map(|checked| super::fin_paths::fin_field_paths(typed_package, checked))
             .unwrap_or_default()
     };
-    for (field_path, field_type) in &nested_fin_paths {
+    for fin_path in &nested_fin_paths {
         let (_callee_identity, callee) = super::calls::resolve_method_target(
             typed_package,
             checked_type_map,
             current_identity,
             decl_index,
             "finalize",
-            *checked_type_map.get(field_type).ok_or_else(|| {
+            *checked_type_map.get(&fin_path.type_id).ok_or_else(|| {
                 crate::LoweringError::with_kind(
                     crate::LoweringErrorKind::InvalidInput,
                     "a 'fin' record field has no lowered type",
@@ -162,7 +162,8 @@ pub(crate) fn lower_local_binding(
             local: local_id,
             symbol: symbol_id,
             callee,
-            path: field_path.clone(),
+            path: fin_path.path.clone(),
+            form: fin_path.form,
         })?;
     }
 
@@ -181,6 +182,7 @@ pub(crate) fn lower_local_binding(
             symbol: symbol_id,
             callee,
             path: Vec::new(),
+            form: None,
         })?;
     }
 

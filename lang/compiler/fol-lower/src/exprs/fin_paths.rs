@@ -7,6 +7,7 @@
 //! iteration in the IR -- so typecheck still refuses to store a `fin` value in
 //! one rather than skip its finalizer silently.
 
+use crate::FinalizeEachForm;
 use fol_typecheck::{CheckedType, CheckedTypeId, TypedPackage};
 
 /// Peel apparent-type overrides and declared aliases down to the structural
@@ -47,7 +48,7 @@ fn structural_type(typed_package: &TypedPackage, type_id: CheckedTypeId) -> Opti
 pub(crate) fn fin_field_paths(
     typed_package: &TypedPackage,
     type_id: CheckedTypeId,
-) -> Vec<(Vec<String>, CheckedTypeId)> {
+) -> Vec<FinPath> {
     let mut found = Vec::new();
     let mut visiting = std::collections::BTreeSet::new();
     collect(
@@ -65,23 +66,78 @@ pub(crate) fn has_fin_field(typed_package: &TypedPackage, type_id: CheckedTypeId
     !fin_field_paths(typed_package, type_id).is_empty()
 }
 
+/// A reachable `fin` value: the field path to it, its type, and -- when the
+/// value at the path is a container -- how to iterate what it holds.
+pub(crate) struct FinPath {
+    pub path: Vec<String>,
+    pub type_id: CheckedTypeId,
+    pub form: Option<FinalizeEachForm>,
+}
+
+/// The container form for a type whose elements are themselves `fin`, if any.
+fn container_form(
+    typed_package: &TypedPackage,
+    type_id: CheckedTypeId,
+) -> Option<(FinalizeEachForm, CheckedTypeId)> {
+    let resolves_to_fin = |candidate| typed_package.program.type_resolves_to_fin(candidate);
+    match structural_type(typed_package, type_id)? {
+        CheckedType::Vector { element_type } | CheckedType::Sequence { element_type } => {
+            resolves_to_fin(element_type).then_some((FinalizeEachForm::Linear, element_type))
+        }
+        CheckedType::Array { element_type, .. } => {
+            resolves_to_fin(element_type).then_some((FinalizeEachForm::Array, element_type))
+        }
+        CheckedType::Set { member_types } => member_types
+            .iter()
+            .find(|member| resolves_to_fin(**member))
+            .map(|member| (FinalizeEachForm::Set, *member)),
+        CheckedType::Map {
+            key_type,
+            value_type,
+        } => {
+            if resolves_to_fin(value_type) {
+                Some((FinalizeEachForm::MapValue, value_type))
+            } else {
+                resolves_to_fin(key_type).then_some((FinalizeEachForm::MapKey, key_type))
+            }
+        }
+        CheckedType::Optional { inner } => {
+            resolves_to_fin(inner).then_some((FinalizeEachForm::OptionalPayload, inner))
+        }
+        CheckedType::Error { inner } => inner
+            .filter(|inner| resolves_to_fin(*inner))
+            .map(|inner| (FinalizeEachForm::ErrorPayload, inner)),
+        _ => None,
+    }
+}
+
 fn collect(
     typed_package: &TypedPackage,
     type_id: CheckedTypeId,
     path: &mut Vec<String>,
     visiting: &mut std::collections::BTreeSet<CheckedTypeId>,
-    found: &mut Vec<(Vec<String>, CheckedTypeId)>,
+    found: &mut Vec<FinPath>,
 ) {
     // A record can reach itself through a pointer; the cycle carries no owned
     // value to finalize here.
     if !visiting.insert(type_id) {
         return;
     }
-    if let Some(CheckedType::Record { fields }) = structural_type(typed_package, type_id) {
+    if let Some((form, element_type)) = container_form(typed_package, type_id) {
+        found.push(FinPath {
+            path: path.clone(),
+            type_id: element_type,
+            form: Some(form),
+        });
+    } else if let Some(CheckedType::Record { fields }) = structural_type(typed_package, type_id) {
         for (name, field_type) in fields {
             path.push(name);
             if typed_package.program.type_resolves_to_fin(field_type) {
-                found.push((path.clone(), field_type));
+                found.push(FinPath {
+                    path: path.clone(),
+                    type_id: field_type,
+                    form: None,
+                });
             } else {
                 collect(typed_package, field_type, path, visiting, found);
             }

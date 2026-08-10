@@ -372,6 +372,7 @@ fn register_fin_params(
             symbol,
             callee,
             path: Vec::new(),
+            form: None,
         })?;
     }
 
@@ -403,8 +404,8 @@ fn register_fin_params(
         if typed_package.program.type_resolves_to_fin(checked) {
             continue;
         }
-        for (field_path, field_type) in super::fin_paths::fin_field_paths(typed_package, checked) {
-            let Some(lowered_field) = checked_type_map.get(&field_type) else {
+        for fin_path in super::fin_paths::fin_field_paths(typed_package, checked) {
+            let Some(lowered_field) = checked_type_map.get(&fin_path.type_id) else {
                 continue;
             };
             let (_callee_identity, callee) = super::calls::resolve_method_target(
@@ -420,7 +421,8 @@ fn register_fin_params(
                 local: param,
                 symbol,
                 callee,
-                path: field_path,
+                path: fin_path.path,
+                form: fin_path.form,
             })?;
         }
     }
@@ -485,14 +487,26 @@ fn lower_finalizations(
             )?;
             target = step;
         }
-        cursor.push_instr(
-            None,
-            crate::LoweredInstrKind::Call {
-                callee: entry.callee,
-                args: vec![target],
-                error_type: None,
-            },
-        )?;
+        match entry.form {
+            // A container holds a runtime number of values, so its elements are
+            // released by iteration rather than one named call.
+            Some(form) => drop(cursor.push_instr(
+                None,
+                crate::LoweredInstrKind::FinalizeEach {
+                    container: target,
+                    callee: entry.callee,
+                    form,
+                },
+            )?),
+            None => drop(cursor.push_instr(
+                None,
+                crate::LoweredInstrKind::Call {
+                    callee: entry.callee,
+                    args: vec![target],
+                    error_type: None,
+                },
+            )?),
+        }
     }
     Ok(())
 }

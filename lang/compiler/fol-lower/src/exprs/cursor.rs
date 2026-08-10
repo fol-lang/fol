@@ -62,6 +62,9 @@ pub(crate) struct FinalizeEntry {
     /// holder's structural lexical drop is suppressed (the partial move makes a
     /// whole-value drop invalid).
     pub path: Vec<String>,
+    /// Set when the value at the end of `path` is a container: its elements are
+    /// finalized by iteration rather than a direct call.
+    pub form: Option<crate::FinalizeEachForm>,
 }
 
 #[derive(Debug, Clone)]

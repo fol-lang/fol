@@ -1,7 +1,9 @@
-// Finalization is registered per directly owned value (V3_MEM §6.1): a binding,
-// a parameter, or a `dfr` capture. A `fin` value nested inside a container or a
-// record field has no such owner, so its finalizer would never run. Storing one
-// is rejected rather than silently skipping the cleanup.
+// Finalization reaches a `fin` value that something names: a binding, a
+// parameter, a `dfr` capture, a record field, or a container element (V3_MEM
+// §6.1). A `fin` value buried below that — here inside the *element* of a
+// container — would need a field walk per element at scope exit, which the
+// compiler cannot emit, so storing one is rejected rather than silently
+// skipping the cleanup.
 
 typ File()(fin): rec = { descriptor: int };
 
@@ -9,7 +11,9 @@ pro (File)finalize(): non = {
     return;
 };
 
+typ Holder: rec = { file: File };
+
 fun[] main(): int = {
-    var handles: vec[File] = { { descriptor = 3 } };
+    var many: vec[Holder] = { { file = { descriptor = 3 } } };
     return 0;
 };

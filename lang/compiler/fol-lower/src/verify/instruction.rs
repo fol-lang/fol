@@ -564,6 +564,15 @@ pub(super) fn verify_instruction(
         crate::LoweredInstrKind::FieldAccess { base, .. } => {
             verify_local_reference(routine, instr.id.0, "field base", *base, errors);
         }
+        crate::LoweredInstrKind::FinalizeEach { container, .. } => {
+            verify_local_reference(
+                routine,
+                instr.id.0,
+                "finalized container",
+                *container,
+                errors,
+            );
+        }
         crate::LoweredInstrKind::IndexAccess { container, index } => {
             verify_local_reference(routine, instr.id.0, "index container", *container, errors);
             verify_local_reference(routine, instr.id.0, "index value", *index, errors);
