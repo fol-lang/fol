@@ -2436,14 +2436,19 @@ fn reject_effectless_statement(
     resolved: &ResolvedProgram,
     node: &AstNode,
 ) -> Result<(), TypecheckError> {
+    // Describe what this node READS rather than what the statement "is": the
+    // parser can hand back a bare name for a longer line (`a + b;` arrives as
+    // just `a`), and claiming the whole statement is a name misreads the source
+    // back to the author.
     let description = match node {
-        AstNode::Literal(_) => "a literal",
-        AstNode::Identifier { .. } | AstNode::QualifiedIdentifier { .. } => "a name",
-        AstNode::FieldAccess { .. } => "a field read",
+        AstNode::Literal(_) => "reads a literal".to_string(),
+        AstNode::Identifier { name, .. } => format!("reads '{name}'"),
+        AstNode::QualifiedIdentifier { path } => format!("reads '{}'", path.joined()),
+        AstNode::FieldAccess { field, .. } => format!("reads the field '{field}'"),
         _ => return Ok(()),
     };
     let message =
-        format!("this statement is {description}, so it does nothing; remove it, or use its value");
+        format!("this statement {description} and discards it, so it does nothing; remove it, or use its value");
     Err(match node_origin(resolved, node) {
         Some(origin) => {
             TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin)

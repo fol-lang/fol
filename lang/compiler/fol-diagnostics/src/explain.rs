@@ -292,10 +292,14 @@ static REGISTRY: &[Explanation] = &[
         "A name matches more than one visible declaration, so the resolver cannot\n\
          pick a single meaning.\n\n\
          Why it happens:\n\
-         - two imported modules both export the same name\n\n\
+         - two imported modules both export the same name\n\
+         - or two declarations in ONE file differ only by case or underscores:\n\
+           name lookup folds both, so 'unitScale' and 'unit_scale' are one name\n\n\
          How to fix:\n\
          - qualify the reference to select the intended declaration\n\
-         - or rename/remove one of the conflicting imports"
+         - or rename/remove one of the conflicting imports\n\
+         - or rename one declaration so the two differ by more than case\n\
+           and underscores"
     ),
     explanation!(
         "R1006",

@@ -6,9 +6,12 @@ Fol has a number of restricted groups of keywords:
 
 ```
 
+BK_NOT             `not`
 BK_OR              `or`
 BK_XOR             `xor`
+BK_NOR             `nor`
 BK_AND             `and`
+BK_NAND            `nand`
 
 BK_IF              `if`
 BK_FOR             `for`
@@ -17,8 +20,11 @@ BK_EACH            `each`
 BK_LOOP            `loop`
 
 BK_IS              `is`
+BK_AT              `at`
 BK_HAS             `has`
 BK_IN              `in`
+BK_ON              `on`
+BK_OF              `of`
 
 BK_THIS            `this`
 BK_SELF            `self`
