@@ -398,8 +398,51 @@ resolution, so it can only carry plain data. See
   unpredictable and unrepeatable
 - `.random_bytes(count)` — raw entropy
 
-For a *repeatable* sequence, use `std::rand`, which is seeded and written in
-FOL. Same seed, same stream, every run.
+##### Two kinds of randomness
+
+The intrinsics above take entropy from the operating system, so they are
+unpredictable *and* unrepeatable. That second property is often the problem: a
+test, a simulation, or procedural generation needs to produce the same result
+twice.
+
+`std::rand` is the other tool — seeded, repeatable, and written in FOL over the
+bitwise intrinsics rather than reaching the OS at all:
+
+```fol
+var[mut] rng: std::rand::Rng = std::rand::seeded(2024);
+var roll: std::rand::Draw = std::rand::next_range(rng, 1, 7);
+// roll.value is the die; roll.rng is the advanced generator
+```
+
+The generator is a pure routine, so it returns the advanced state alongside the
+value and the caller threads it along. Seed from `std::rand::from_os()` when you
+want a different stream each run but still want to be able to log the seed and
+reproduce a failure.
+
+The algorithm is **xorshift64\***: Vigna's 12/25/27 shift triple over a full
+64-bit state, with the output passed through a multiplicative scrambler.
+
+That final multiply is not decoration. A plain xorshift is *linear over GF(2)* —
+every output is a linear function of the state — so its outputs are far more
+predictable than their frequency histogram suggests. Reading 96-bit vectors out
+of the two generators and taking the rank of a 96×96 binary matrix shows it
+plainly:
+
+```text
+plain xorshift, no scrambler:  rank 46 of 96   (on every seed)
+xorshift64* as shipped:        rank 95 of 96   (on every seed)
+```
+
+95 is the expected rank for a genuinely random binary matrix. A `%`-reduction
+test — die rolls, bucket indices, coin flips — cannot see the difference at
+all; both look uniform. This is why the scrambler is there.
+
+It is still **not cryptography**. The state is recoverable from the output,
+which is precisely what makes it repeatable. When unpredictability matters, use
+`.random_bytes(...)`.
+
+Seeds are ordinary 64-bit integers, negatives included. Only zero is special:
+it is a fixed point that would emit zeros forever, so it is replaced.
 
 #### Files and directories
 
