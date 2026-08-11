@@ -2479,6 +2479,11 @@ fn type_satisfies_capability(
                 && first_field_transitively_non_thread_safe(typed, type_id)?.is_none()
         }
         "fin" => claims_fin,
+        // Orderable when nothing blocks a total order — the same predicate that
+        // gates `set[T]` members and `map[K,_]` keys.
+        "ord" => {
+            !checked_type_blocks_ordering(typed, type_id, &mut std::collections::BTreeSet::new())
+        }
         _ => true,
     })
 }
@@ -2597,11 +2602,13 @@ fn lower_routine_generic_params(
         // `share`/`fin`) so call sites can verify the actual type (V3_MEM §4.1).
         for constraint in &generic.constraints {
             if let FolType::Named { name, .. } = constraint {
-                let base = name.split('[').next().unwrap_or(name);
-                if fol_parser::ast::is_compiler_owned_generic_constraint(base)
-                    && fol_parser::ast::is_capability_standard(base)
-                {
-                    typed.record_generic_capability_constraint(symbol_id, base.to_string());
+                for part in name.split('+') {
+                    let base = part.split('[').next().unwrap_or(part);
+                    if fol_parser::ast::is_compiler_owned_generic_constraint(base)
+                        && fol_parser::ast::is_capability_standard(base)
+                    {
+                        typed.record_generic_capability_constraint(symbol_id, base.to_string());
+                    }
                 }
             }
         }
@@ -2611,8 +2618,10 @@ fn lower_routine_generic_params(
             // Compiler-owned capability standards carry no standard symbol.
             .filter(|constraint| {
                 !matches!(constraint, FolType::Named { name, .. }
-                    if fol_parser::ast::is_compiler_owned_generic_constraint(
-                        name.split('[').next().unwrap_or(name)))
+                if name.split('+').all(|part| {
+                    fol_parser::ast::is_compiler_owned_generic_constraint(
+                        part.split('[').next().unwrap_or(part))
+                }))
             })
             .map(|constraint| {
                 lower_standard_constraint_for_contract(typed, resolved, signature_scope, constraint)
@@ -4933,9 +4942,11 @@ fn lower_generic_constraints_for_params(
         // capability (V3_MEM §4.1), then drop them from the symbol-based list.
         for constraint in &generic.constraints {
             if let FolType::Named { name, .. } = constraint {
-                let base = name.split('[').next().unwrap_or(name);
-                if fol_parser::ast::is_compiler_owned_generic_constraint(base) {
-                    typed.record_generic_capability_constraint(symbol_id, base.to_string());
+                for part in name.split('+') {
+                    let base = part.split('[').next().unwrap_or(part);
+                    if fol_parser::ast::is_compiler_owned_generic_constraint(base) {
+                        typed.record_generic_capability_constraint(symbol_id, base.to_string());
+                    }
                 }
             }
         }
@@ -4944,8 +4955,10 @@ fn lower_generic_constraints_for_params(
             .iter()
             .filter(|constraint| {
                 !matches!(constraint, FolType::Named { name, .. }
-                    if fol_parser::ast::is_compiler_owned_generic_constraint(
-                        name.split('[').next().unwrap_or(name)))
+                if name.split('+').all(|part| {
+                    fol_parser::ast::is_compiler_owned_generic_constraint(
+                        part.split('[').next().unwrap_or(part))
+                }))
             })
             .map(|constraint| {
                 lower_standard_constraint_for_contract(typed, resolved, scope_id, constraint)

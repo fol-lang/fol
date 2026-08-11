@@ -110,6 +110,44 @@ impl AstParser {
         ))
     }
 
+    /// Collect `a + b + c` after a declared bound. Only plain named types join —
+    /// a bound is a capability or a standard, never a container or shell.
+    fn parse_joined_bounds(
+        &self,
+        tokens: &mut fol_lexer::lexer::stage3::Elements,
+        first: FolType,
+    ) -> Result<FolType, ParseError> {
+        let FolType::Named { syntax_id, name } = first else {
+            return Ok(first);
+        };
+        let mut joined = name;
+        for _ in 0..8 {
+            self.skip_ignorable(tokens)?;
+            let Ok(next) = tokens.curr(false) else {
+                break;
+            };
+            if !matches!(next.key(), KEYWORD::Symbol(SYMBOL::Plus)) {
+                break;
+            }
+            let _ = tokens.bump();
+            self.skip_ignorable(tokens)?;
+            let FolType::Named { name: extra, .. } = self.parse_type_reference_tokens(tokens)?
+            else {
+                return Err(ParseError::from_token(
+                    &next,
+                    "Expected a capability or standard name after '+' in a generic bound"
+                        .to_string(),
+                ));
+            };
+            joined.push('+');
+            joined.push_str(&extra);
+        }
+        Ok(FolType::Named {
+            syntax_id,
+            name: joined,
+        })
+    }
+
     pub(super) fn parse_routine_header_list(
         &self,
         tokens: &mut fol_lexer::lexer::stage3::Elements,
@@ -191,6 +229,10 @@ impl AstParser {
                         }
                     }
                     let base_type = self.parse_type_reference_tokens(tokens)?;
+                    // Several capability bounds join with `+`. A comma cannot
+                    // serve: it already separates generic PARAMETERS, so
+                    // `(T: a, b)` reads as two parameters named `T` and `b`.
+                    let base_type = self.parse_joined_bounds(tokens, base_type)?;
                     if is_variadic {
                         FolType::Sequence {
                             element_type: Box::new(base_type),

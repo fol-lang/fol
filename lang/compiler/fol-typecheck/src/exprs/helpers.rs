@@ -1243,6 +1243,19 @@ pub(crate) fn is_equality_type(typed: &TypedProgram, type_id: CheckedTypeId) -> 
 }
 
 pub(crate) fn is_ordered_type(typed: &TypedProgram, type_id: CheckedTypeId) -> bool {
+    // A generic parameter is orderable exactly when it declares the `ord`
+    // capability bound; the call site re-checks the actual, so the body may
+    // rely on the promise.
+    if let Some(CheckedType::Declared {
+        kind: crate::DeclaredTypeKind::GenericParameter,
+        symbol,
+        ..
+    }) = typed.type_table().get(type_id)
+    {
+        return typed
+            .generic_capability_constraints(*symbol)
+            .is_some_and(|bounds| bounds.contains("ord"));
+    }
     matches!(
         typed.type_table().get(type_id),
         Some(CheckedType::Builtin(crate::BuiltinType::Int))

@@ -147,8 +147,12 @@ pub fn resolve_type_reference(
 /// directly and are not resolved as type references.
 pub fn constraint_is_capability_standard(constraint: &FolType) -> bool {
     if let FolType::Named { name, .. } = constraint {
-        let base = name.split('[').next().unwrap_or(name);
-        return fol_parser::ast::is_compiler_owned_generic_constraint(base);
+        // Bounds arrive joined with `+`; the run is compiler-owned only when
+        // every part is.
+        return name.split('+').all(|part| {
+            let base = part.split('[').next().unwrap_or(part);
+            fol_parser::ast::is_compiler_owned_generic_constraint(base)
+        });
     }
     false
 }
