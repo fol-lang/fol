@@ -628,6 +628,10 @@ fn terminal_intrinsic_signature(
             vec![builtins.int, builtins.str_, builtins.str_],
             builtins.int,
         )),
+        "cpu_count" | "thread_yield" | "thread_id" => Some((Vec::new(), builtins.int)),
+        "atomic_new" | "atomic_load" => Some((vec![builtins.int], builtins.int)),
+        "atomic_store" | "atomic_add" => Some((vec![builtins.int, builtins.int], builtins.int)),
+        "atomic_cas" => Some((vec![builtins.int, builtins.int, builtins.int], builtins.int)),
         "str_sub" => Some((
             vec![builtins.str_, builtins.int, builtins.int],
             builtins.str_,

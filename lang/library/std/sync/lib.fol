@@ -1,0 +1,86 @@
+// Shared counters and thread scheduling.
+//
+// A `Counter` is a single integer that many threads may read and update at
+// once. It is deliberately narrower than `mux[T]`: a mutex protects arbitrary
+// compound state and costs a lock, while these operations compile to one
+// instruction and cannot deadlock, because there is no window during which the
+// value is held. When the shared state is a tally, a flag, or a ticket number,
+// this is the cheaper and safer tool. Anything with two fields that must agree
+// wants `mux[T]` instead.
+//
+// The counter is a handle rather than a value, so passing it to a spawned task
+// shares it; copying a `Counter` does not copy the count. There is no way to
+// free one — they live until the process exits, which suits their intended use
+// as long-lived program-wide tallies.
+
+typ[exp] Counter: rec = {
+    handle: int,
+};
+
+fun[exp] counter(initial: int): Counter = {
+    return { handle = .atomic_new(initial) };
+};
+
+fun[exp] read(slot: Counter): int = {
+    return .atomic_load(slot.handle);
+};
+
+fun[exp] write(slot: Counter, value: int): int = {
+    return .atomic_store(slot.handle, value);
+};
+
+// Returns the value as it was BEFORE the addition, so concurrent callers each
+// receive a different number and can use it as an index or an id.
+fun[exp] add(slot: Counter, delta: int): int = {
+    return .atomic_add(slot.handle, delta);
+};
+
+fun[exp] next(slot: Counter): int = {
+    return .atomic_add(slot.handle, 1);
+};
+
+// Returns the value found. Equal to `expected` means the swap happened;
+// anything else is the current value to retry against.
+fun[exp] compare_swap(slot: Counter, expected: int, desired: int): int = {
+    return .atomic_cas(slot.handle, expected, desired);
+};
+
+fun[exp] swapped(slot: Counter, expected: int, desired: int): bol = {
+    return .atomic_cas(slot.handle, expected, desired) == expected;
+};
+
+// Retries until it wins, which is how a lock-free update is built from cas: read,
+// compute, swap, and start over if another thread moved the value in between.
+fun[exp] add_saturating(slot: Counter, delta: int, ceiling: int): int = {
+    var[mut] settled: int = 0;
+    loop (settled == 0) {
+        var seen: int = .atomic_load(slot.handle);
+        var[mut] wanted: int = seen + delta;
+        if (wanted > ceiling) {
+            wanted = ceiling;
+        } else {
+        };
+        if (.atomic_cas(slot.handle, seen, wanted) == seen) {
+            settled = wanted;
+            return wanted;
+        } else {
+        };
+    };
+    return settled;
+};
+
+// How many threads can genuinely run at once; sizing a worker pool above this
+// adds scheduling cost without adding throughput.
+fun[exp] cores(): int = {
+    return .cpu_count();
+};
+
+fun[exp] this_thread(): int = {
+    return .thread_id();
+};
+
+// Hands the rest of the time slice back. A spin loop without it starves the
+// thread it is waiting on, which on one core means it never finishes.
+fun[exp] relax(): int = {
+    return .thread_yield();
+};

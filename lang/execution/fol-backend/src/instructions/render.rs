@@ -866,6 +866,8 @@ pub fn render_core_instruction_in_workspace(
                 | ("udp_bind", [value])
                 | ("udp_recv_from", [value])
                 | ("dns_resolve", [value])
+                | ("atomic_new", [value])
+                | ("atomic_load", [value])
                 | ("set_current_dir", [value])
                 | ("raw_mode", [value])
                 | ("sleep_ms", [value])
@@ -892,6 +894,9 @@ pub fn render_core_instruction_in_workspace(
                 ("home_dir", []) => "rt::home_dir()".to_string(),
                 ("env_vars", []) => "rt::env_vars()".to_string(),
                 ("process_id", []) => "rt::process_id()".to_string(),
+                ("cpu_count", []) => "rt::cpu_count()".to_string(),
+                ("thread_yield", []) => "rt::thread_yield()".to_string(),
+                ("thread_id", []) => "rt::thread_id()".to_string(),
                 ("write_file", [path, contents])
                 | ("str_find", [path, contents])
                 | ("parse_int", [path, contents])
@@ -935,6 +940,8 @@ pub fn render_core_instruction_in_workspace(
                 | ("tcp_set_timeout", [path, contents])
                 | ("tcp_set_nodelay", [path, contents])
                 | ("tcp_shutdown", [path, contents])
+                | ("atomic_store", [path, contents])
+                | ("atomic_add", [path, contents])
                 | ("float_to_str", [path, contents]) => {
                     let first = render_transfer_expr(type_table, package_identity, routine, *path)?;
                     let second =
@@ -943,7 +950,8 @@ pub fn render_core_instruction_in_workspace(
                 }
                 ("str_replace", [text, from, to])
                 | ("flt_mul_add", [text, from, to])
-                | ("udp_send_to", [text, from, to]) => {
+                | ("udp_send_to", [text, from, to])
+                | ("atomic_cas", [text, from, to]) => {
                     let text = render_transfer_expr(type_table, package_identity, routine, *text)?;
                     let from = render_transfer_expr(type_table, package_identity, routine, *from)?;
                     let to = render_transfer_expr(type_table, package_identity, routine, *to)?;

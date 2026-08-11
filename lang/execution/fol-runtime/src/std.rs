@@ -613,6 +613,114 @@ pub fn str_valid_utf8(text: FolStr) -> crate::value::FolBool {
     std::str::from_utf8(text.as_str().as_bytes()).is_ok()
 }
 
+/// How many threads can actually run at once. Spawning more workers than this
+/// adds scheduling cost without adding throughput, so it is what a worker pool
+/// should size itself from. Falls back to 1 when the OS will not say.
+pub fn cpu_count() -> crate::value::FolInt {
+    std::thread::available_parallelism().map_or(1, |count| count.get() as crate::value::FolInt)
+}
+
+/// Hand the rest of this time slice back. A spin loop without it starves the
+/// thread it is waiting on, which on a single core means it never finishes.
+pub fn thread_yield() -> crate::value::FolInt {
+    std::thread::yield_now();
+    0
+}
+
+/// A small dense integer per thread. Rust's `ThreadId` is opaque and not an
+/// integer, so ids are handed out in first-call order — stable within a run,
+/// meaningless across runs, which is all a log line needs.
+pub fn thread_id() -> crate::value::FolInt {
+    static NEXT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
+    thread_local! {
+        static ID: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
+    }
+    ID.with(|slot| {
+        if slot.get() == 0 {
+            slot.set(NEXT.fetch_add(1, Ordering::Relaxed));
+        }
+        slot.get()
+    })
+}
+
+/// Shared counters as integer handles, the same shape as sockets. A `mux[T]`
+/// would also work and is the right tool for compound state, but a lock per
+/// counter is heavy when the only operation is an increment — that is exactly
+/// what atomics are for.
+///
+/// The `Arc` is cloned OUT of the registry before the operation, so the map lock
+/// is never held across one. Consistent with the socket rule, and it keeps
+/// contention on the counter rather than on the registry.
+fn atomics() -> &'static Mutex<
+    std::collections::HashMap<crate::value::FolInt, Arc<std::sync::atomic::AtomicI64>>,
+> {
+    static ATOMICS: OnceLock<
+        Mutex<std::collections::HashMap<crate::value::FolInt, Arc<std::sync::atomic::AtomicI64>>>,
+    > = OnceLock::new();
+    ATOMICS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+fn atomic_slot(handle: crate::value::FolInt) -> Option<Arc<std::sync::atomic::AtomicI64>> {
+    atomics()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .get(&handle)
+        .cloned()
+}
+
+pub fn atomic_new(initial: crate::value::FolInt) -> crate::value::FolInt {
+    static NEXT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
+    let handle = NEXT.fetch_add(1, Ordering::Relaxed);
+    atomics()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .insert(handle, Arc::new(std::sync::atomic::AtomicI64::new(initial)));
+    handle
+}
+
+pub fn atomic_load(handle: crate::value::FolInt) -> crate::value::FolInt {
+    atomic_slot(handle).map_or(0, |slot| slot.load(Ordering::SeqCst))
+}
+
+pub fn atomic_store(
+    handle: crate::value::FolInt,
+    value: crate::value::FolInt,
+) -> crate::value::FolInt {
+    match atomic_slot(handle) {
+        Some(slot) => {
+            slot.store(value, Ordering::SeqCst);
+            0
+        }
+        None => -1,
+    }
+}
+
+/// Adds and returns the value BEFORE the addition, so concurrent callers each
+/// get a distinct number — that is what makes it usable as a ticket dispenser.
+pub fn atomic_add(
+    handle: crate::value::FolInt,
+    delta: crate::value::FolInt,
+) -> crate::value::FolInt {
+    atomic_slot(handle).map_or(0, |slot| slot.fetch_add(delta, Ordering::SeqCst))
+}
+
+/// Compare-and-swap. Returns the value that was actually there: equal to
+/// `expected` means the swap happened, anything else means it did not and tells
+/// the caller what to retry against.
+pub fn atomic_cas(
+    handle: crate::value::FolInt,
+    expected: crate::value::FolInt,
+    desired: crate::value::FolInt,
+) -> crate::value::FolInt {
+    let Some(slot) = atomic_slot(handle) else {
+        return -1;
+    };
+    match slot.compare_exchange(expected, desired, Ordering::SeqCst, Ordering::SeqCst) {
+        Ok(previous) => previous,
+        Err(actual) => actual,
+    }
+}
+
 /// Binary file access. `read_file`/`write_file` assume UTF-8, which silently
 /// mangles anything that is not text; these carry bytes verbatim.
 pub fn read_bytes(path: FolStr) -> FolVec<crate::value::FolInt> {
