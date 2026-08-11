@@ -1203,24 +1203,12 @@ fn ownership_moves_on_transfer_inner(
             | Some(CheckedType::ChannelReceiver { .. }) => true,
             Some(CheckedType::Declared {
                 kind: crate::DeclaredTypeKind::GenericParameter,
-                symbol,
                 ..
             }) => {
-                // A `copy`/`clone` capability bound is the body's promise that
-                // every actual duplicates safely, and
-                // `check_generic_capability_constraints` enforces that against
-                // the concrete argument at each call site — including the `fin`
-                // conflict, which it silently missed until `662cbf86`. Honouring
-                // the bound here is what lets a generic routine read an element
-                // out of a container it owns.
-                //
-                // Without a bound the body cannot know, so transfers stay
-                // conservative; call-site checking still classifies the actual.
-                !typed
-                    .generic_capability_constraints(*symbol)
-                    .is_some_and(|bounds| {
-                        bounds.contains("copy") || bounds.contains("clone")
-                    })
+                // The generic body cannot know whether a future actual is
+                // copy-safe. Consume transfers conservatively here; call-site
+                // checking still classifies the concrete argument type.
+                true
             }
             Some(CheckedType::Declared { symbol, args, .. }) => {
                 args.iter()
