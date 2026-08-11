@@ -21,3 +21,218 @@ fun[exp] replace(text: str, from: str, to: str): str = {
 fun[exp] to_int(text: str, fallback: int): int = {
     return .parse_int(text, fallback);
 };
+
+// Everything below is written in FOL over the byte primitives above. Only the
+// wrappers at the top of this file reach an intrinsic.
+
+fun[exp] is_empty(text: str): bol = {
+    return .len(text) == 0;
+};
+
+fun[exp] starts_with(text: str, prefix: str): bol = {
+    var n: int = .len(prefix);
+    if (n > .len(text)) {
+        return false;
+    } else {
+    };
+    return .str_sub(text, 0, n) == prefix;
+};
+
+fun[exp] ends_with(text: str, suffix: str): bol = {
+    var n: int = .len(suffix);
+    var total: int = .len(text);
+    if (n > total) {
+        return false;
+    } else {
+    };
+    return .str_sub(text, total - n, n) == suffix;
+};
+
+fun[exp] contains(text: str, needle: str): bol = {
+    return .str_find(text, needle) >= 0;
+};
+
+fun[exp] is_space_byte(value: int): bol = {
+    return value == 32 or value == 9 or value == 10 or value == 13;
+};
+
+fun[exp] trim_start(text: str): str = {
+    var[mut] start: int = 0;
+    var total: int = .len(text);
+    loop (start < total and is_space_byte(.str_byte(text, start))) {
+        start = start + 1;
+    };
+    return .str_sub(text, start, total - start);
+};
+
+fun[exp] trim_end(text: str): str = {
+    var[mut] stop: int = .len(text);
+    loop (stop > 0 and is_space_byte(.str_byte(text, stop - 1))) {
+        stop = stop - 1;
+    };
+    return .str_sub(text, 0, stop);
+};
+
+fun[exp] trim(text: str): str = {
+    return trim_end(trim_start(text));
+};
+
+fun[exp] to_upper(text: str): str = {
+    var[mut] built: str = "";
+    var[mut] i: int = 0;
+    var total: int = .len(text);
+    loop (i < total) {
+        var byte: int = .str_byte(text, i);
+        if (byte >= 97 and byte <= 122) {
+            built = built + .byte_to_str(byte - 32);
+        } else {
+            built = built + .byte_to_str(byte);
+        };
+        i = i + 1;
+    };
+    return built;
+};
+
+fun[exp] to_lower(text: str): str = {
+    var[mut] built: str = "";
+    var[mut] i: int = 0;
+    var total: int = .len(text);
+    loop (i < total) {
+        var byte: int = .str_byte(text, i);
+        if (byte >= 65 and byte <= 90) {
+            built = built + .byte_to_str(byte + 32);
+        } else {
+            built = built + .byte_to_str(byte);
+        };
+        i = i + 1;
+    };
+    return built;
+};
+
+fun[exp] repeat(text: str, times: int): str = {
+    var[mut] built: str = "";
+    var[mut] i: int = 0;
+    loop (i < times) {
+        built = built + text;
+        i = i + 1;
+    };
+    return built;
+};
+
+fun[exp] pad_left(text: str, width: int, fill: str): str = {
+    var missing: int = width - .len(text);
+    if (missing <= 0) {
+        return text;
+    } else {
+    };
+    return repeat(fill, missing) + text;
+};
+
+fun[exp] pad_right(text: str, width: int, fill: str): str = {
+    var missing: int = width - .len(text);
+    if (missing <= 0) {
+        return text;
+    } else {
+    };
+    return text + repeat(fill, missing);
+};
+
+fun[exp] last_index_of(text: str, needle: str): int = {
+    var n: int = .len(needle);
+    var[mut] i: int = .len(text) - n;
+    loop (i >= 0) {
+        if (.str_sub(text, i, n) == needle) {
+            return i;
+        } else {
+        };
+        i = i - 1;
+    };
+    return 0 - 1;
+};
+
+fun[exp] strip_prefix(text: str, prefix: str): str = {
+    if (starts_with(text, prefix)) {
+        var n: int = .len(prefix);
+        return .str_sub(text, n, .len(text) - n);
+    } else {
+    };
+    return text;
+};
+
+fun[exp] strip_suffix(text: str, suffix: str): str = {
+    if (ends_with(text, suffix)) {
+        return .str_sub(text, 0, .len(text) - .len(suffix));
+    } else {
+    };
+    return text;
+};
+
+fun[exp] reverse(text: str): str = {
+    var[mut] built: str = "";
+    var[mut] i: int = .len(text) - 1;
+    loop (i >= 0) {
+        built = built + .byte_to_str(.str_byte(text, i));
+        i = i - 1;
+    };
+    return built;
+};
+
+// An empty separator would never advance, so it yields the whole text as one
+// part rather than looping forever.
+fun[exp] split(text: str, sep: str): vec[str] = {
+    var[mut] parts: vec[str] = {};
+    var width: int = .len(sep);
+    if (width == 0) {
+        parts.push(text);
+        return parts;
+    } else {
+    };
+    var[mut] rest: str = text;
+    var[mut] hit: int = .str_find(rest, sep);
+    loop (hit >= 0) {
+        parts.push(.str_sub(rest, 0, hit));
+        var used: int = hit + width;
+        rest = .str_sub(rest, used, .len(rest) - used);
+        hit = .str_find(rest, sep);
+    };
+    parts.push(rest);
+    return parts;
+};
+
+fun[exp] lines(text: str): vec[str] = {
+    return split(text, "
+");
+};
+
+fun[exp] join(parts: vec[str], sep: str): str = {
+    var[mut] built: str = "";
+    var[mut] i: int = 0;
+    var total: int = .len(parts);
+    loop (i < total) {
+        if (i > 0) {
+            built = built + sep;
+        } else {
+        };
+        built = built + parts[i];
+        i = i + 1;
+    };
+    return built;
+};
+
+fun[exp] count_matches(text: str, needle: str): int = {
+    var width: int = .len(needle);
+    if (width == 0) {
+        return 0;
+    } else {
+    };
+    var[mut] found: int = 0;
+    var[mut] rest: str = text;
+    var[mut] hit: int = .str_find(rest, needle);
+    loop (hit >= 0) {
+        found = found + 1;
+        var used: int = hit + width;
+        rest = .str_sub(rest, used, .len(rest) - used);
+        hit = .str_find(rest, needle);
+    };
+    return found;
+};
