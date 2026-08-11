@@ -5,16 +5,25 @@
 // sequence, every run — which is what tests, simulations and procedural
 // generation need. Seed it from `from_os()` when you want both.
 //
-// The generator is xorshift64 WITHOUT the usual final multiply, because
-// `wrapping_mul` does not exist yet (it is Phase F); plain xorshift is weaker
-// but adequate for everything short of cryptography, and `.random_bytes` is
-// there for the cases that are not.
+// The generator is xorshift64* — Vigna's shift triple 12/25/27 over a full
+// 64-bit state, with the output passed through a multiplicative scrambler.
+// That final multiply is the whole point: plain xorshift has visibly weak low
+// bits, so anything reduced with `%` (a die roll, a bucket index, a coin flip)
+// inherits the weakness. The multiply mixes the high bits down.
 //
-// State is kept non-negative by masking to 63 bits after every step: FOL's `shr`
-// is arithmetic, so a negative state would shift sign bits in and bias the
-// stream badly.
+// Not cryptography. Its state is recoverable from its output, which is exactly
+// what makes it repeatable. Use `.random_bytes` when unpredictability matters.
 
+con MULTIPLIER: int = 2685821657736338717;
 con MASK63: int = 9223372036854775807;
+con SEED_FALLBACK: int = 88172645463325252;
+
+// FOL's `shr` is arithmetic: it fills from the sign bit, so shifting a negative
+// state right would smear ones through the top. Masking away the bits the sign
+// filled in turns it into the logical shift the recurrence is defined over,
+// which is what lets the state use all 64 bits instead of only 63.
+con MASK_SHR12: int = 4503599627370495;
+con MASK_SHR27: int = 137438953471;
 
 typ[exp] Rng: rec = {
     state: int,
@@ -33,14 +42,14 @@ typ[exp] DrawVec: rec = {
 };
 
 // A zero seed is a fixed point for xorshift — it would emit zeros forever — so
-// it is replaced rather than silently producing a dead stream.
+// it is replaced rather than silently producing a dead stream. Any other seed
+// is taken as given, including a negative one: the state is genuinely 64-bit.
 fun[exp] seeded(seed: int): Rng = {
-    var safe: int = .bit_and(seed, MASK63);
-    if (safe == 0) {
-        return { state = 88172645463325252 };
+    if (seed == 0) {
+        return { state = SEED_FALLBACK };
     } else {
     };
-    return { state = safe };
+    return { state = seed };
 };
 
 fun[exp] from_os(): Rng = {
@@ -49,14 +58,19 @@ fun[exp] from_os(): Rng = {
 
 fun[exp] next(rng: Rng): Draw = {
     var[mut] x: int = rng.state;
-    x = .bit_and(.bit_xor(x, .shl(x, 13)), MASK63);
-    x = .bit_and(.bit_xor(x, .shr(x, 7)), MASK63);
-    x = .bit_and(.bit_xor(x, .shl(x, 17)), MASK63);
+    x = .bit_xor(x, .bit_and(.shr(x, 12), MASK_SHR12));
+    x = .bit_xor(x, .shl(x, 25));
+    x = .bit_xor(x, .bit_and(.shr(x, 27), MASK_SHR27));
     if (x == 0) {
-        x = 88172645463325252;
+        x = SEED_FALLBACK;
     } else {
     };
-    return { rng = { state = x }, value = x };
+    // The scrambler applies to the OUTPUT only; feeding it back would change
+    // the recurrence and cost the proven period. Masking to 63 bits drops just
+    // the sign bit, keeping the well-mixed high bits, so callers can reduce the
+    // value with `%` without meeting a negative.
+    var scrambled: int = .bit_and(.wrapping_mul(x, MULTIPLIER), MASK63);
+    return { rng = { state = x }, value = scrambled };
 };
 
 // Uniform in `[low, high)`. Uses rejection like the OS version rather than a
