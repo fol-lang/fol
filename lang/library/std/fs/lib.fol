@@ -24,14 +24,14 @@ fun[exp] write_file(path: str, contents: str): int = {
 // as `chr`, so `.file_open(path, "r")` does not typecheck. These names exist so
 // callers never have to remember which number is which.
 
-con MODE_READ: int = 0;
-con MODE_WRITE: int = 1;
-con MODE_APPEND: int = 2;
-con MODE_UPDATE: int = 3;
+con[exp] MODE_READ: int = 0;
+con[exp] MODE_WRITE: int = 1;
+con[exp] MODE_APPEND: int = 2;
+con[exp] MODE_UPDATE: int = 3;
 
-con FROM_START: int = 0;
-con FROM_HERE: int = 1;
-con FROM_END: int = 2;
+con[exp] FROM_START: int = 0;
+con[exp] FROM_HERE: int = 1;
+con[exp] FROM_END: int = 2;
 
 fun[exp] open_read(path: str): int = {
     return .file_open(path, MODE_READ);

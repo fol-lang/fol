@@ -234,10 +234,10 @@ fun[exp] count_matches(text: str, needle: str): int = {
 // is right for a search key and wrong for text handed back to the user,
 // because it discards distinctions the author made.
 
-con FORM_NFC: int = 0;
-con FORM_NFD: int = 1;
-con FORM_NFKC: int = 2;
-con FORM_NFKD: int = 3;
+con[exp] FORM_NFC: int = 0;
+con[exp] FORM_NFD: int = 1;
+con[exp] FORM_NFKC: int = 2;
+con[exp] FORM_NFKD: int = 3;
 
 fun[exp] nfc(text: str): str = {
     return .str_normalize(text, FORM_NFC);
