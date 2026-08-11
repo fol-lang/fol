@@ -240,6 +240,16 @@ fn type_comparison_intrinsic(
         [left_expr.recoverable_effect, right_expr.recoverable_effect],
     )?;
 
+    // `.eq(x, Side.A)` must narrow an entry-variant read to the value it carries
+    // exactly as `x == Side.A` does — the intrinsic and the operator are the
+    // same comparison, and only the operator was taught this.
+    let (left_apparent, right_apparent) = super::operators::narrow_entry_variant_reads(
+        typed,
+        &args[0],
+        &args[1],
+        left_apparent,
+        right_apparent,
+    );
     let valid = left_apparent == right_apparent
         && match comparison_operand_contract(entry) {
             Some(ComparisonOperandContract::EqualityScalar) => {

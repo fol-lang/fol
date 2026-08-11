@@ -40,7 +40,7 @@ fn entry_value_type(
 /// operand is not itself an entry. Two entries compare as entries; an entry
 /// against an `int` compares as the `int` it carries, and lowering has to see
 /// that same narrowing or it emits the variant where a number belongs.
-fn narrow_entry_variant_reads(
+pub(crate) fn narrow_entry_variant_reads(
     typed: &TypedProgram,
     left: &AstNode,
     right: &AstNode,

@@ -2874,7 +2874,7 @@ fn lower_short_circuit_expression(
 
 /// Whether `node` reads a variant off an entry type (`Status.OK`) rather than
 /// naming a value that happens to be one. Pure resolution -- emits nothing.
-fn is_entry_variant_access(
+pub(crate) fn is_entry_variant_access(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
     checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,

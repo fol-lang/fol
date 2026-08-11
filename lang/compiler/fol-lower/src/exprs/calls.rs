@@ -253,6 +253,18 @@ pub(crate) fn lower_default_call_argument(
     )
 }
 
+/// The lowered type typecheck gave this expression, if it kept one.
+fn checked_operand_lowered_type(
+    typed_package: &fol_typecheck::TypedPackage,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    node: &AstNode,
+) -> Option<LoweredTypeId> {
+    node.syntax_id()
+        .and_then(|syntax_id| typed_package.program.typed_node(syntax_id))
+        .and_then(|node| node.inferred_type)
+        .and_then(|checked| checked_type_map.get(&checked).copied())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_dot_intrinsic_call(
     typed_package: &fol_typecheck::TypedPackage,
@@ -353,10 +365,45 @@ pub(crate) fn lower_dot_intrinsic_call(
             recoverable_error_type: None,
         });
     }
+    // A two-operand comparison narrows an entry-variant read to the value it
+    // carries, exactly as the `==` operator does. Typecheck already agreed to
+    // the call; without the same narrowing here the operand lowers as the
+    // entry and the emitted Rust compares an enum against an int.
+    let comparison_expectations: [Option<LoweredTypeId>; 2] = match args {
+        [left, right] if canonical_name != "len" => {
+            let left_variant = super::expressions::is_entry_variant_access(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                left,
+            );
+            let right_variant = super::expressions::is_entry_variant_access(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                right,
+            );
+            match (left_variant, right_variant) {
+                (true, false) => [
+                    checked_operand_lowered_type(typed_package, checked_type_map, right),
+                    None,
+                ],
+                (false, true) => [
+                    None,
+                    checked_operand_lowered_type(typed_package, checked_type_map, left),
+                ],
+                _ => [None, None],
+            }
+        }
+        _ => [None, None],
+    };
     let lowered_args = args
         .iter()
-        .map(|arg| {
-            lower_expression(
+        .enumerate()
+        .map(|(index, arg)| {
+            lower_expression_expected(
                 typed_package,
                 type_table,
                 checked_type_map,
@@ -365,6 +412,7 @@ pub(crate) fn lower_dot_intrinsic_call(
                 cursor,
                 source_unit_id,
                 scope_id,
+                comparison_expectations.get(index).copied().flatten(),
                 arg,
             )
         })
