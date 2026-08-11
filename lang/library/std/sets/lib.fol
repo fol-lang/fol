@@ -1,0 +1,112 @@
+// Growable sets, represented as a SORTED vector with no duplicates.
+//
+// The builtin `set[...]` is the tuple-member form — one element per declared
+// member type, so `set[int]` holds exactly one value. That is a different thing
+// from a growable set, and rather than add a second builtin container type
+// (which would touch the parser, typecheck, the backend and the grammar), the
+// growable form is built here out of `vec` plus ordering.
+//
+// Keeping the representation sorted is what makes membership a halving search
+// and union/intersection a single merge pass.
+
+use vecs: loc = {"../vecs"};
+
+fun[exp] from_vec_int(values: vec[int]): vec[int] = {
+    return vecs::dedup_sorted_int(vecs::sort_int(values));
+};
+
+fun[exp] contains_int(members: vec[int], value: int): bol = {
+    return vecs::binary_search_int(members, value) >= 0;
+};
+
+// Inserting an element already present returns the set unchanged, so calling
+// this twice is the same as calling it once.
+fun[exp] insert_int(members: vec[int], value: int): vec[int] = {
+    if (contains_int(members, value)) {
+        return members;
+    } else {
+    };
+    var[mut] out: vec[int] = {};
+    var[mut] i: int = 0;
+    var total: int = .len(members);
+    var[mut] placed: bol = false;
+    loop (i < total) {
+        if (placed) {
+            out.push(members[i]);
+        } else {
+            if (members[i] > value) {
+                out.push(value);
+                out.push(members[i]);
+                placed = true;
+            } else {
+                out.push(members[i]);
+            };
+        };
+        i = i + 1;
+    };
+    if (placed) {
+        return out;
+    } else {
+    };
+    out.push(value);
+    return out;
+};
+
+fun[exp] remove_int(members: vec[int], value: int): vec[int] = {
+    var[mut] out: vec[int] = {};
+    var[mut] i: int = 0;
+    var total: int = .len(members);
+    loop (i < total) {
+        if (members[i] != value) {
+            out.push(members[i]);
+        } else {
+        };
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[exp] union_int(left: vec[int], right: vec[int]): vec[int] = {
+    return from_vec_int(vecs::concat_int(left, right));
+};
+
+fun[exp] intersect_int(left: vec[int], right: vec[int]): vec[int] = {
+    var[mut] out: vec[int] = {};
+    var[mut] i: int = 0;
+    var total: int = .len(left);
+    loop (i < total) {
+        if (contains_int(right, left[i])) {
+            out.push(left[i]);
+        } else {
+        };
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[exp] difference_int(left: vec[int], right: vec[int]): vec[int] = {
+    var[mut] out: vec[int] = {};
+    var[mut] i: int = 0;
+    var total: int = .len(left);
+    loop (i < total) {
+        if (contains_int(right, left[i])) {
+        } else {
+            out.push(left[i]);
+        };
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[exp] is_subset_int(inner: vec[int], outer: vec[int]): bol = {
+    var[mut] i: int = 0;
+    var total: int = .len(inner);
+    loop (i < total) {
+        if (contains_int(outer, inner[i])) {
+        } else {
+            return false;
+        };
+        i = i + 1;
+    };
+    return true;
+};
