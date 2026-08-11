@@ -849,6 +849,9 @@ pub fn render_core_instruction_in_workspace(
                 | ("chr_is_space", [value])
                 | ("str_trim", [value])
                 | ("random_bytes", [value])
+                | ("sleep_ns", [value])
+                | ("time_parts", [value])
+                | ("time_from_parts", [value])
                 | ("raw_mode", [value])
                 | ("sleep_ms", [value])
                 | ("byte_to_str", [value])
@@ -868,6 +871,8 @@ pub fn render_core_instruction_in_workspace(
                 ("read_all", []) => "rt::read_all()".to_string(),
                 ("current_dir", []) => "rt::current_dir()".to_string(),
                 ("random_flt", []) => "rt::random_flt()".to_string(),
+                ("now_ns", []) => "rt::now_ns()".to_string(),
+                ("mono_ns", []) => "rt::mono_ns()".to_string(),
                 ("write_file", [path, contents])
                 | ("str_find", [path, contents])
                 | ("parse_int", [path, contents])

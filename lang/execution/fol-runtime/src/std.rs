@@ -611,6 +611,99 @@ pub fn str_valid_utf8(text: FolStr) -> crate::value::FolBool {
     std::str::from_utf8(text.as_str().as_bytes()).is_ok()
 }
 
+/// Wall-clock nanoseconds since the Unix epoch. `now_ms` is too coarse to
+/// measure anything with; this is the same clock at full resolution.
+pub fn now_ns() -> crate::value::FolInt {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_nanos() as crate::value::FolInt)
+}
+
+/// A MONOTONIC reading, which is the one to subtract for durations: the wall
+/// clock jumps when the system time is set or NTP steps it, and a negative
+/// elapsed time is the classic result. The origin is arbitrary, so only
+/// differences are meaningful.
+pub fn mono_ns() -> crate::value::FolInt {
+    static ORIGIN: OnceLock<std::time::Instant> = OnceLock::new();
+    let origin = ORIGIN.get_or_init(std::time::Instant::now);
+    origin.elapsed().as_nanos() as crate::value::FolInt
+}
+
+pub fn sleep_ns(nanos: crate::value::FolInt) -> crate::value::FolInt {
+    if nanos > 0 {
+        std::thread::sleep(std::time::Duration::from_nanos(nanos as u64));
+    }
+    0
+}
+
+/// Days since the Unix epoch to a civil (year, month, day), and back. This is
+/// Howard Hinnant's algorithm: exact for the whole proleptic Gregorian calendar,
+/// no lookup tables, no leap-year special cases beyond the arithmetic itself.
+/// Rust's std has no calendar conversion at all, so it lives here.
+fn civil_from_days(days: i64) -> (i64, i64, i64) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = mp + if mp < 10 { 3 } else { -9 };
+    (y + i64::from(m <= 2), m, d)
+}
+
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let y = year - i64::from(month <= 2);
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let doy = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+/// Split epoch milliseconds into civil parts, in UTC:
+/// `[year, month, day, hour, minute, second, milli, weekday, yearday]`.
+/// Weekday is 0 = Sunday; yearday is 1-based. Milliseconds are included so the
+/// value round-trips exactly through `time_from_parts`.
+///
+/// UTC only. Local time needs the OS timezone database, which is a TZif parse
+/// this runtime has no dependency for — see `PLAN.md`.
+pub fn time_parts(millis: crate::value::FolInt) -> FolVec<crate::value::FolInt> {
+    let days = millis.div_euclid(86_400_000);
+    let rest = millis.rem_euclid(86_400_000);
+    let (year, month, day) = civil_from_days(days);
+    let weekday = (days + 4).rem_euclid(7);
+    let yearday = days - days_from_civil(year, 1, 1) + 1;
+    FolVec::from_items(vec![
+        year,
+        month,
+        day,
+        rest / 3_600_000,
+        (rest / 60_000) % 60,
+        (rest / 1_000) % 60,
+        rest % 1_000,
+        weekday,
+        yearday,
+    ])
+}
+
+/// The inverse. Reads `[year, month, day, hour, minute, second, milli]`;
+/// trailing entries (weekday, yearday) are ignored so a `time_parts` result can
+/// be handed straight back. Missing entries default to the start of the period,
+/// so `[2026, 8, 11]` is midnight on that date.
+pub fn time_from_parts(parts: FolVec<crate::value::FolInt>) -> crate::value::FolInt {
+    let field = |index: usize, fallback: i64| -> i64 {
+        parts.as_slice().get(index).copied().unwrap_or(fallback)
+    };
+    let days = days_from_civil(field(0, 1970), field(1, 1), field(2, 1));
+    days * 86_400_000
+        + field(3, 0) * 3_600_000
+        + field(4, 0) * 60_000
+        + field(5, 0) * 1_000
+        + field(6, 0)
+}
+
 /// OS entropy, read from `/dev/urandom`. FOL is Linux-only, so this is the
 /// source rather than a portability shim, and it is what makes a seeded PRNG in
 /// FOL possible at all — nothing in the language can invent unpredictability.

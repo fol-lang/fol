@@ -160,7 +160,14 @@ pub(crate) fn type_dot_intrinsic_call(
                     expected_type,
                 )?,
                 None if terminal_intrinsic_signature(typed, entry.name).is_some()
-                    || matches!(entry.name, "str_chars" | "str_from_chars" | "random_bytes") =>
+                    || matches!(
+                        entry.name,
+                        "str_chars"
+                            | "str_from_chars"
+                            | "random_bytes"
+                            | "time_parts"
+                            | "time_from_parts"
+                    ) =>
                 {
                     type_terminal_intrinsic(typed, resolved, context, entry, args, syntax_id)?
                 }
@@ -575,6 +582,8 @@ fn terminal_intrinsic_signature(
         }
         "random_int" => Some((vec![builtins.int, builtins.int], builtins.int)),
         "random_flt" => Some((Vec::new(), builtins.float)),
+        "now_ns" | "mono_ns" => Some((Vec::new(), builtins.int)),
+        "sleep_ns" => Some((vec![builtins.int], builtins.int)),
         "str_sub" => Some((
             vec![builtins.str_, builtins.int, builtins.int],
             builtins.str_,
@@ -616,6 +625,17 @@ fn type_terminal_intrinsic(
     let (params, result) = match entry.name {
         // `vec[chr]` and `vec[int]` have to be interned, which the shared
         // signature table cannot do from a shared borrow.
+        "time_parts" | "time_from_parts" => {
+            let int_ = typed.builtin_types().int;
+            let parts = typed
+                .type_table_mut()
+                .intern(crate::CheckedType::Vector { element_type: int_ });
+            if entry.name == "time_parts" {
+                (vec![int_], parts)
+            } else {
+                (vec![parts], int_)
+            }
+        }
         "random_bytes" => {
             let int_ = typed.builtin_types().int;
             let bytes = typed
