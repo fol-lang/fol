@@ -338,6 +338,11 @@ fn emit_has_direct_target(command: &EmitCommand) -> bool {
 }
 
 pub fn code_has_direct_target(command: &cli::CodeCommand) -> bool {
+    // A package directory goes through the workspace route so its build graph
+    // decides which artifact to build.
+    if package_directory_target(command).is_some() {
+        return false;
+    }
     match &command.command {
         CodeSubcommand::Build(command) => command.target.input.is_some(),
         CodeSubcommand::Run(command) => command.target.input.is_some(),
@@ -374,18 +379,42 @@ pub fn discovered_root_for_command(
     working_directory: &std::path::Path,
 ) -> FrontendResult<DiscoveredRoot> {
     let explicit = match command {
-        FrontendCommand::Work(command) => command.path.as_deref(),
+        FrontendCommand::Work(command) => command.path.as_deref().map(std::path::PathBuf::from),
         FrontendCommand::Code(command) => match &command.command {
-            CodeSubcommand::Test(command) => command.path.as_deref(),
-            _ => None,
+            CodeSubcommand::Test(command) => command.path.as_deref().map(std::path::PathBuf::from),
+            _ => package_directory_target(command),
         },
         _ => None,
     };
-    if let Some(path) = explicit {
-        crate::require_discovered_root(std::path::Path::new(path))
-    } else {
-        crate::require_discovered_root(working_directory)
+    match explicit {
+        // Absolute, because the generated crate is addressed from this root
+        // while the process keeps its own current directory — a relative root
+        // makes rustc look for the crate beside the caller instead.
+        Some(path) => crate::require_discovered_root(
+            &path
+                .canonicalize()
+                .unwrap_or_else(|_| working_directory.join(&path)),
+        ),
+        None => crate::require_discovered_root(working_directory),
     }
+}
+
+/// The package directory a `code` command names, if it names one.
+///
+/// `code run <dir>` used to take the direct route, which reads every `.fol`
+/// beneath the path and never looks at `build.fol` — so a package declaring more
+/// than one artifact, or holding `.fol` fixtures, failed with "expects exactly
+/// one entry routine". A directory carrying a build file is a PACKAGE, and the
+/// workspace route already knows how to pick the artifact's entry.
+pub(crate) fn package_directory_target(command: &cli::CodeCommand) -> Option<std::path::PathBuf> {
+    let input = match &command.command {
+        CodeSubcommand::Build(command) => command.target.input.as_deref(),
+        CodeSubcommand::Run(command) => command.target.input.as_deref(),
+        CodeSubcommand::Check(command) => command.target.input.as_deref(),
+        _ => None,
+    }?;
+    let path = std::path::PathBuf::from(input);
+    (path.is_dir() && path.join("build.fol").is_file()).then_some(path)
 }
 
 fn parse_completion_shell(shell: crate::CompletionShellArg) -> CompletionShell {
