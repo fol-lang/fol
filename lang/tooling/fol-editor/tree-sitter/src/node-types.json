@@ -1303,7 +1303,7 @@
     "named": true,
     "fields": {
       "constraint": {
-        "multiple": false,
+        "multiple": true,
         "required": false,
         "types": [
           {

@@ -1,19 +1,19 @@
 // Ordering and search over vectors, written in FOL over indexed reads, indexed
 // writes and `.len`. Nothing here reaches an intrinsic.
 //
-// These are spelled per element type rather than generically: a generic `T` is
-// conservatively move-only, so `values[i] > values[j]` inside a generic routine
-// is refused as a move-only indexed projection (O1001). When generics gain a
-// comparable bound these collapse into one routine each.
+// Capability bounds make these generic: `ord` promises a total order, `clone`
+// promises the element duplicates safely, and each call site re-checks the
+// actual type. The `_int`/`_str` names are kept as thin forwarders so existing
+// callers do not move.
 
-fun[exp] sort_int(values: vec[int]): vec[int] = {
-    var[mut] out: vec[int] = [mov]values;
+fun[exp] sort(T: ord + clone)(values: vec[T]): vec[T] = {
+    var[mut] out: vec[T] = [mov]values;
     var[mut] i: int = 1;
     var total: int = .len(out);
     loop (i < total) {
         var[mut] j: int = i;
         loop (j > 0 and out[j - 1] > out[j]) {
-            var hold: int = out[j - 1];
+            var hold: T = out[j - 1];
             out[j - 1] = out[j];
             out[j] = hold;
             j = j - 1;
@@ -23,21 +23,12 @@ fun[exp] sort_int(values: vec[int]): vec[int] = {
     return out;
 };
 
+fun[exp] sort_int(values: vec[int]): vec[int] = {
+    return sort([mov]values);
+};
+
 fun[exp] sort_str(values: vec[str]): vec[str] = {
-    var[mut] out: vec[str] = [mov]values;
-    var[mut] i: int = 1;
-    var total: int = .len(out);
-    loop (i < total) {
-        var[mut] j: int = i;
-        loop (j > 0 and out[j - 1] > out[j]) {
-            var hold: str = out[j - 1];
-            out[j - 1] = out[j];
-            out[j] = hold;
-            j = j - 1;
-        };
-        i = i + 1;
-    };
-    return out;
+    return sort([mov]values);
 };
 
 fun[exp] reverse_int(values: vec[int]): vec[int] = {

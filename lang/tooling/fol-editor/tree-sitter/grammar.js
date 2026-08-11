@@ -103,7 +103,7 @@ module.exports = grammar({
     method_decl: $ => seq($.receiver, field('name', $.identifier), optional(field('generics', $.generic_params)), $.params, optional($.return_type), optional($.error_type), '=', $.block),
     receiver: $ => seq('(', $.type_expr, ')'),
     generic_params: $ => seq('(', optional(commaSep($.generic_param)), ')'),
-    generic_param: $ => seq(field('name', $.identifier), optional(seq(':', field('constraint', $.type_expr)))),
+    generic_param: $ => seq(field('name', $.identifier), optional(seq(':', field('constraint', $.type_expr), repeat(seq('+', field('constraint', $.type_expr)))))),
     type_contract_claims: $ => seq('(', optional(commaSep($.type_expr)), ')'),
     params: $ => seq('(', optional(commaSep($.param)), ')'),
     param: $ => seq(
