@@ -15,3 +15,4 @@ use grid: loc = {"grid"};
 use heap: loc = {"heap"};
 use csv: loc = {"csv"};
 use json: loc = {"json"};
+use maps: loc = {"maps"};

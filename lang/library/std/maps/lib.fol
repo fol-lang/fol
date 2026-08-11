@@ -1,0 +1,139 @@
+// Map iteration and set-like operations over `map[K,V]`, written in FOL.
+//
+// FOL has no tuple value, but it does have records, and a record IS a pair —
+// so key/value iteration needs no new language surface. `keys()` gives the key
+// order (sorted, because `FolMap` is a `BTreeMap`) and `get()` reads each value.
+//
+// Spelled per key/value type pair for the same reason `std::vecs` is: a generic
+// `T` is conservatively move-only, so indexing one inside a generic routine is
+// refused (O1001).
+
+typ[exp] StrIntPair: rec = {
+    key: str,
+    value: int,
+};
+
+typ[exp] StrPair: rec = {
+    key: str,
+    value: str,
+};
+
+fun[exp] pairs_str_int(source: map[str, int]): vec[StrIntPair] = {
+    var[mut] out: vec[StrIntPair] = {};
+    var names: vec[str] = source.keys();
+    var[mut] i: int = 0;
+    var total: int = .len(names);
+    loop (i < total) {
+        var found: opt[int] = source.get(names[i]);
+        when(found) {
+            on(value) { out.push({ key = names[i], value = value }); }
+            * { }
+        }
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[exp] pairs_str_str(source: map[str, str]): vec[StrPair] = {
+    var[mut] out: vec[StrPair] = {};
+    var names: vec[str] = source.keys();
+    var[mut] i: int = 0;
+    var total: int = .len(names);
+    loop (i < total) {
+        var found: opt[str] = source.get(names[i]);
+        when(found) {
+            on(value) { out.push({ key = names[i], value = value }); }
+            * { }
+        }
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[exp] get_or(source: map[str, int], key: str, fallback: int): int = {
+    var found: opt[int] = source.get(key);
+    when(found) {
+        on(value) { return value; }
+        * { return fallback; }
+    }
+};
+
+fun[exp] get_or_str(source: map[str, str], key: str, fallback: str): str = {
+    var found: opt[str] = source.get(key);
+    when(found) {
+        on(value) { return value; }
+        * { return fallback; }
+    }
+};
+
+// Add `amount` to the value at `key`, starting from zero when it is absent.
+// This is the counting idiom every word-frequency and histogram pass wants.
+fun[exp] bump(source: map[str, int], key: str, amount: int): map[str, int] = {
+    var[mut] out: map[str, int] = [mov]source;
+    var current: int = get_or(out, key, 0);
+    out.insert(key, current + amount);
+    return out;
+};
+
+fun[exp] count_words(words: vec[str]): map[str, int] = {
+    var[mut] out: map[str, int] = {};
+    var[mut] i: int = 0;
+    var total: int = .len(words);
+    loop (i < total) {
+        out = bump([mov]out, words[i], 1);
+        i = i + 1;
+    };
+    return out;
+};
+
+// Later entries win, matching how `insert` behaves on a duplicate key.
+fun[exp] merge_str_int(left: map[str, int], right: map[str, int]): map[str, int] = {
+    var[mut] out: map[str, int] = [mov]left;
+    var names: vec[str] = right.keys();
+    var[mut] i: int = 0;
+    var total: int = .len(names);
+    loop (i < total) {
+        out.insert(names[i], get_or(right, names[i], 0));
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[exp] invert_str_str(source: map[str, str]): map[str, str] = {
+    var[mut] out: map[str, str] = {};
+    var names: vec[str] = source.keys();
+    var[mut] i: int = 0;
+    var total: int = .len(names);
+    loop (i < total) {
+        out.insert(get_or_str(source, names[i], ""), names[i]);
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[exp] keys_where(source: map[str, int], least: int): vec[str] = {
+    var[mut] out: vec[str] = {};
+    var names: vec[str] = source.keys();
+    var[mut] i: int = 0;
+    var total: int = .len(names);
+    loop (i < total) {
+        if (get_or(source, names[i], 0) >= least) {
+            out.push(names[i]);
+        } else {
+        };
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[exp] sum_values(source: map[str, int]): int = {
+    var[mut] total: int = 0;
+    var names: vec[str] = source.keys();
+    var[mut] i: int = 0;
+    var count: int = .len(names);
+    loop (i < count) {
+        total = total + get_or(source, names[i], 0);
+        i = i + 1;
+    };
+    return total;
+};

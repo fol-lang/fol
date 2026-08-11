@@ -78,6 +78,31 @@ fun[exp] pow_int(base: int, exponent: int): int = {
     return out;
 };
 
+con[exp] INT_MAX: int = 9223372036854775807;
+
+// Overflow reported as a value plus a flag. The intrinsic surface cannot return
+// two things, but a record can — no tuple type is needed. `.checked_add` faults
+// on overflow, so the condition is tested BEFORE the addition and the result
+// comes from `.wrapping_add`.
+typ[exp] Overflowed: rec = {
+    value: int,
+    overflowed: bol,
+};
+
+fun[exp] overflowing_add(left: int, right: int): Overflowed = {
+    var low: int = 0 - INT_MAX - 1;
+    var over: bol = (right > 0 and left > INT_MAX - right)
+    or (right < 0 and left < low - right);
+    return { value = .wrapping_add(left, right), overflowed = over };
+};
+
+fun[exp] overflowing_sub(left: int, right: int): Overflowed = {
+    var low: int = 0 - INT_MAX - 1;
+    var over: bol = (right < 0 and left > INT_MAX + right)
+    or (right > 0 and left < low + right);
+    return { value = .wrapping_sub(left, right), overflowed = over };
+};
+
 fun[exp] degrees_to_radians(value: flt): flt = {
     return value * PI / 180.0;
 };
