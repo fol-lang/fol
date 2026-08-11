@@ -32,7 +32,12 @@ fun[exp] dedup_sorted_int(values: vec[int]): vec[int]
 
 `sort` is generic over any `ord + clone` element and delegates to the container
 method, so it is a real sort rather than an insertion sort written in FOL.
-`sort_int` and `sort_str` are thin named forms of the same thing.
+`sort_int` and `sort_str` are thin forwarders to it.
+
+**Call the suffixed names.** The generic `sort` cannot be called from outside
+`std` — a generic routine does not cross a package boundary — so it is there to
+implement the two wrappers, not to be used directly. The index chapter explains
+why.
 
 `index_of_int` scans and `binary_search_int` bisects; both return `-1` when
 absent, and the bisecting one requires a sorted input, which `is_sorted_int`

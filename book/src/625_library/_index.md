@@ -59,17 +59,39 @@ record pairing the new state with the value.
 ### `_int` and `_str` suffixes
 
 Most container routines are spelled per element type: `sort_int`, `sort_str`,
-`contains_int`. This is not a style choice. A `[bor]` generic does not
-monomorphize, so a generic routine over borrowed containers cannot be emitted;
-the concrete spellings are what the language can currently express.
+`contains_int`. This is not a style choice, and it is not laziness either — it
+is forced.
 
-`std::vecs::sort` is the exception and shows where this is going:
+**A generic routine cannot be called across a package boundary.** Imported
+signatures are translated without their generic parameter list, so the call
+would type as a bare `T`; the compiler stops it with a clear message rather
+than a baffling mismatch:
 
-```fol
-fun[exp] sort(T: ord + clone)(values: vec[T]): vec[T]
+```text
+imported routine 'sort' is generic; cross-package generic instantiation is
+not supported yet — export a non-generic wrapper and call that instead
 ```
 
-It works for any element type that is orderable and clonable.
+`std` is a package, and every program that uses it is a different one. So the
+exported surface has to be concrete, whatever the implementation does
+underneath. `std::vecs` is written the way that advice suggests:
+
+```fol
+fun[exp] sort(T: ord + clone)(values: vec[T]): vec[T] = { … };
+fun[exp] sort_int(values: vec[int]): vec[int] = { return sort([mov]values); };
+fun[exp] sort_str(values: vec[str]): vec[str] = { return sort([mov]values); };
+```
+
+One generic body, thin concrete forwarders. **Call the suffixed names** — the
+generic `sort` is reachable only from inside `std` itself.
+
+Within a single package the restriction does not apply, so your own generic
+routines over `vec[T]` work normally, including comparing elements when the
+parameter is bound by `ord`.
+
+A few routines are int-specific for a different and permanent reason: FOL has
+no numeric capability bound, so `+` is unavailable on a `T`. `sum_int` and
+`zip_add_int` could not be generic even if the boundary were lifted.
 
 ### A "set" here is a sorted vector
 

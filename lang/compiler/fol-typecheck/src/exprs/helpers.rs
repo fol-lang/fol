@@ -1231,6 +1231,21 @@ pub(crate) fn describe_type(typed: &TypedProgram, type_id: CheckedTypeId) -> Str
 }
 
 pub(crate) fn is_equality_type(typed: &TypedProgram, type_id: CheckedTypeId) -> bool {
+    // A generic parameter bound by `ord` is equatable, for the same reason it
+    // is orderable: the bound promises a total order, and a total order decides
+    // equality. Without this, `>` compiled on a `T: ord` while `==` did not,
+    // which is an asymmetry with no meaning behind it — and it blocked every
+    // generic container routine that has to compare elements.
+    if let Some(CheckedType::Declared {
+        kind: crate::DeclaredTypeKind::GenericParameter,
+        symbol,
+        ..
+    }) = typed.type_table().get(type_id)
+    {
+        return typed
+            .generic_capability_constraints(*symbol)
+            .is_some_and(|bounds| bounds.contains("ord"));
+    }
     matches!(
         typed.type_table().get(type_id),
         Some(CheckedType::Builtin(crate::BuiltinType::Int))
