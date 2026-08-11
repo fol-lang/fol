@@ -847,11 +847,7 @@ pub(crate) fn type_ownership_op(
                 .with_related_origin(conflict.origin, "conflicting borrow created here"));
             }
         }
-        if mutable
-            && !typed
-                .typed_symbol(symbol)
-                .is_some_and(|symbol| symbol.is_mutable)
-        {
+        if mutable && !super::helpers::symbol_allows_mutable_borrow(typed, symbol) {
             return Err(TypecheckError::with_origin(
                 TypecheckErrorKind::BorrowMutability,
                 "mutable borrow requires an owner declared with 'var[mut]'",

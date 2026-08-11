@@ -795,11 +795,7 @@ fn register_borrow_binding(
         let owner_is_mutex = typed
             .typed_symbol(*owner)
             .is_some_and(|symbol| symbol.is_mutex);
-        if mutable
-            && !typed
-                .typed_symbol(*owner)
-                .is_some_and(|symbol| symbol.is_mutable || symbol.is_mutex)
-        {
+        if mutable && !super::helpers::symbol_allows_mutable_borrow(typed, *owner) {
             return Err(TypecheckError::with_origin(
                 TypecheckErrorKind::BorrowMutability,
                 "mutable borrow requires an owner declared with 'var[mut]'",

@@ -1565,6 +1565,25 @@ fn ensure_binding_reassignable(
     Ok(())
 }
 
+/// Whether a mutable borrow may be taken from this symbol.
+///
+/// A `var[mut]` owner qualifies, and so does a binding that IS already a mutable
+/// loan — `self` inside a `pro (T[mut, bor])` method, which reborrows. Without
+/// the second case the author is told to declare the owner `var[mut]`, which is
+/// advice a receiver can never follow.
+pub(crate) fn symbol_allows_mutable_borrow(typed: &TypedProgram, symbol: SymbolId) -> bool {
+    typed.typed_symbol(symbol).is_some_and(|symbol| {
+        symbol.is_mutable
+            || symbol.is_mutex
+            || matches!(
+                symbol
+                    .declared_type
+                    .and_then(|type_id| typed.type_table().get(type_id)),
+                Some(CheckedType::Borrowed { mutable: true, .. })
+            )
+    })
+}
+
 /// Whether the value/label binding reachable under `name` in the scope chain was
 /// declared mutable. Bindings are immutable by default (variables chapter).
 fn binding_is_mutable_by_name(
