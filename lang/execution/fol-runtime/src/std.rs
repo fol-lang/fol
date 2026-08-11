@@ -812,6 +812,108 @@ pub fn str_replace(text: FolStr, from: FolStr, to: FolStr) -> FolStr {
 /// The fallback is an argument rather than a fixed sentinel because every
 /// sentinel is also a legitimate parse result: -1 cannot mean both "the text
 /// said -1" and "the text was not a number".
+/// One line of standard input, newline stripped. End of input is an empty
+/// string rather than a fault, so a read loop terminates on emptiness.
+pub fn read_line() -> FolStr {
+    let mut line = String::new();
+    match std::io::BufRead::read_line(&mut std::io::stdin().lock(), &mut line) {
+        Ok(0) | Err(_) => FolStr::new(String::new()),
+        Ok(_) => {
+            while line.ends_with('\n') || line.ends_with('\r') {
+                line.pop();
+            }
+            FolStr::new(line)
+        }
+    }
+}
+
+pub fn read_all() -> FolStr {
+    let mut buffer = String::new();
+    match std::io::Read::read_to_string(&mut std::io::stdin().lock(), &mut buffer) {
+        Ok(_) => FolStr::new(buffer),
+        Err(_) => FolStr::new(String::new()),
+    }
+}
+
+pub fn file_exists(path: FolStr) -> crate::value::FolBool {
+    std::path::Path::new(path.as_str()).exists()
+}
+
+pub fn is_file(path: FolStr) -> crate::value::FolBool {
+    std::path::Path::new(path.as_str()).is_file()
+}
+
+pub fn is_dir(path: FolStr) -> crate::value::FolBool {
+    std::path::Path::new(path.as_str()).is_dir()
+}
+
+/// Milliseconds since the epoch, or -1 when the file or its metadata cannot be
+/// read. A sentinel rather than a fault: staleness checks ask about files that
+/// legitimately may not exist yet.
+pub fn file_mtime(path: FolStr) -> crate::value::FolInt {
+    std::fs::metadata(path.as_str())
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(-1, |elapsed| elapsed.as_millis() as crate::value::FolInt)
+}
+
+pub fn file_size(path: FolStr) -> crate::value::FolInt {
+    std::fs::metadata(path.as_str()).map_or(-1, |meta| meta.len() as crate::value::FolInt)
+}
+
+/// The mutating filesystem hooks all report 0 for success and 1 for failure,
+/// matching `write_file`, which already reports that way.
+pub fn make_dir(path: FolStr) -> crate::value::FolInt {
+    std::fs::create_dir_all(path.as_str()).map_or(1, |()| 0)
+}
+
+pub fn remove_file(path: FolStr) -> crate::value::FolInt {
+    std::fs::remove_file(path.as_str()).map_or(1, |()| 0)
+}
+
+pub fn rename_file(from: FolStr, to: FolStr) -> crate::value::FolInt {
+    std::fs::rename(from.as_str(), to.as_str()).map_or(1, |()| 0)
+}
+
+pub fn copy_file(from: FolStr, to: FolStr) -> crate::value::FolInt {
+    std::fs::copy(from.as_str(), to.as_str()).map_or(1, |_| 0)
+}
+
+pub fn append_file(path: FolStr, contents: FolStr) -> crate::value::FolInt {
+    use std::io::Write;
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path.as_str())
+        .and_then(|mut file| file.write_all(contents.as_str().as_bytes()))
+        .map_or(1, |()| 0)
+}
+
+pub fn current_dir() -> FolStr {
+    std::env::current_dir().map_or_else(
+        |_| FolStr::new(String::new()),
+        |path| FolStr::new(path.display().to_string()),
+    )
+}
+
+pub fn exit_process(status: crate::value::FolInt) -> crate::value::FolNever {
+    std::process::exit(status as i32);
+}
+
+/// A command's standard output. `shell` reports only the exit status, which is
+/// why capturing needed its own hook rather than a flag.
+pub fn shell_out(command: FolStr) -> FolStr {
+    std::process::Command::new("sh")
+        .arg("-c")
+        .arg(command.as_str())
+        .output()
+        .map_or_else(
+            |_| FolStr::new(String::new()),
+            |output| FolStr::new(String::from_utf8_lossy(&output.stdout).into_owned()),
+        )
+}
+
 pub fn parse_int(text: FolStr, fallback: crate::value::FolInt) -> crate::value::FolInt {
     text.as_str()
         .trim()

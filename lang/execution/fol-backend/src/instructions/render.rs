@@ -806,6 +806,15 @@ pub fn render_core_instruction_in_workspace(
                 | ("pop_count", [value])
                 | ("clz", [value])
                 | ("ctz", [value])
+                | ("file_exists", [value])
+                | ("is_file", [value])
+                | ("is_dir", [value])
+                | ("file_mtime", [value])
+                | ("file_size", [value])
+                | ("make_dir", [value])
+                | ("remove_file", [value])
+                | ("exit_process", [value])
+                | ("shell_out", [value])
                 | ("raw_mode", [value])
                 | ("sleep_ms", [value])
                 | ("byte_to_str", [value])
@@ -821,6 +830,9 @@ pub fn render_core_instruction_in_workspace(
                     format!("rt::{}({value})", entry.name)
                 }
                 ("arg_count", []) => "rt::arg_count()".to_string(),
+                ("read_line", []) => "rt::read_line()".to_string(),
+                ("read_all", []) => "rt::read_all()".to_string(),
+                ("current_dir", []) => "rt::current_dir()".to_string(),
                 ("write_file", [path, contents])
                 | ("str_find", [path, contents])
                 | ("parse_int", [path, contents])
@@ -834,6 +846,9 @@ pub fn render_core_instruction_in_workspace(
                 | ("shr", [path, contents])
                 | ("rotl", [path, contents])
                 | ("rotr", [path, contents])
+                | ("rename_file", [path, contents])
+                | ("copy_file", [path, contents])
+                | ("append_file", [path, contents])
                 | ("float_to_str", [path, contents]) => {
                     let first = render_transfer_expr(type_table, package_identity, routine, *path)?;
                     let second =

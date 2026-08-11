@@ -542,6 +542,16 @@ fn terminal_intrinsic_signature(
             Some((vec![builtins.int, builtins.int], builtins.int))
         }
         "pop_count" | "clz" | "ctz" => Some((vec![builtins.int], builtins.int)),
+        "read_line" | "read_all" | "current_dir" => Some((Vec::new(), builtins.str_)),
+        "file_exists" | "is_file" | "is_dir" => Some((vec![builtins.str_], builtins.bool_)),
+        "file_mtime" | "file_size" | "make_dir" | "remove_file" => {
+            Some((vec![builtins.str_], builtins.int))
+        }
+        "rename_file" | "copy_file" | "append_file" => {
+            Some((vec![builtins.str_, builtins.str_], builtins.int))
+        }
+        "exit_process" => Some((vec![builtins.int], builtins.never)),
+        "shell_out" => Some((vec![builtins.str_], builtins.str_)),
         "str_sub" => Some((
             vec![builtins.str_, builtins.int, builtins.int],
             builtins.str_,
