@@ -848,6 +848,7 @@ pub fn render_core_instruction_in_workspace(
                 | ("chr_is_digit", [value])
                 | ("chr_is_space", [value])
                 | ("str_trim", [value])
+                | ("random_bytes", [value])
                 | ("raw_mode", [value])
                 | ("sleep_ms", [value])
                 | ("byte_to_str", [value])
@@ -866,6 +867,7 @@ pub fn render_core_instruction_in_workspace(
                 ("read_line", []) => "rt::read_line()".to_string(),
                 ("read_all", []) => "rt::read_all()".to_string(),
                 ("current_dir", []) => "rt::current_dir()".to_string(),
+                ("random_flt", []) => "rt::random_flt()".to_string(),
                 ("write_file", [path, contents])
                 | ("str_find", [path, contents])
                 | ("parse_int", [path, contents])
@@ -893,6 +895,7 @@ pub fn render_core_instruction_in_workspace(
                 | ("tcp_write", [path, contents])
                 | ("str_char", [path, contents])
                 | ("str_char_index", [path, contents])
+                | ("random_int", [path, contents])
                 | ("float_to_str", [path, contents]) => {
                     let first = render_transfer_expr(type_table, package_identity, routine, *path)?;
                     let second =

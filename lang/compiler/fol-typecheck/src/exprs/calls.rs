@@ -160,7 +160,7 @@ pub(crate) fn type_dot_intrinsic_call(
                     expected_type,
                 )?,
                 None if terminal_intrinsic_signature(typed, entry.name).is_some()
-                    || matches!(entry.name, "str_chars" | "str_from_chars") =>
+                    || matches!(entry.name, "str_chars" | "str_from_chars" | "random_bytes") =>
                 {
                     type_terminal_intrinsic(typed, resolved, context, entry, args, syntax_id)?
                 }
@@ -573,6 +573,8 @@ fn terminal_intrinsic_signature(
         "chr_is_alpha" | "chr_is_digit" | "chr_is_space" => {
             Some((vec![builtins.char_], builtins.bool_))
         }
+        "random_int" => Some((vec![builtins.int, builtins.int], builtins.int)),
+        "random_flt" => Some((Vec::new(), builtins.float)),
         "str_sub" => Some((
             vec![builtins.str_, builtins.int, builtins.int],
             builtins.str_,
@@ -612,6 +614,15 @@ fn type_terminal_intrinsic(
     // from a shared borrow, so the two container-typed char intrinsics are
     // resolved here instead.
     let (params, result) = match entry.name {
+        // `vec[chr]` and `vec[int]` have to be interned, which the shared
+        // signature table cannot do from a shared borrow.
+        "random_bytes" => {
+            let int_ = typed.builtin_types().int;
+            let bytes = typed
+                .type_table_mut()
+                .intern(crate::CheckedType::Vector { element_type: int_ });
+            (vec![int_], bytes)
+        }
         "str_chars" | "str_from_chars" => {
             let char_ = typed.builtin_types().char_;
             let str_ = typed.builtin_types().str_;

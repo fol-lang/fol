@@ -1,0 +1,106 @@
+// A seeded pseudo-random generator, written in FOL over the bitwise ops.
+//
+// `.random_int`/`.random_bytes` reach the operating system and are therefore
+// unpredictable and unrepeatable. This is the opposite tool: same seed, same
+// sequence, every run — which is what tests, simulations and procedural
+// generation need. Seed it from `from_os()` when you want both.
+//
+// The generator is xorshift64 WITHOUT the usual final multiply, because
+// `wrapping_mul` does not exist yet (it is Phase F); plain xorshift is weaker
+// but adequate for everything short of cryptography, and `.random_bytes` is
+// there for the cases that are not.
+//
+// State is kept non-negative by masking to 63 bits after every step: FOL's `shr`
+// is arithmetic, so a negative state would shift sign bits in and bias the
+// stream badly.
+
+con MASK63: int = 9223372036854775807;
+
+typ[exp] Rng: rec = {
+    state: int,
+};
+
+// Returning the advanced generator alongside the value is how a pure routine
+// carries state; a record is the pair.
+typ[exp] Draw: rec = {
+    rng: Rng,
+    value: int,
+};
+
+typ[exp] DrawVec: rec = {
+    rng: Rng,
+    values: vec[int],
+};
+
+// A zero seed is a fixed point for xorshift — it would emit zeros forever — so
+// it is replaced rather than silently producing a dead stream.
+fun[exp] seeded(seed: int): Rng = {
+    var safe: int = .bit_and(seed, MASK63);
+    if (safe == 0) {
+        return { state = 88172645463325252 };
+    } else {
+    };
+    return { state = safe };
+};
+
+fun[exp] from_os(): Rng = {
+    return seeded(.random_int(1, MASK63));
+};
+
+fun[exp] next(rng: Rng): Draw = {
+    var[mut] x: int = rng.state;
+    x = .bit_and(.bit_xor(x, .shl(x, 13)), MASK63);
+    x = .bit_and(.bit_xor(x, .shr(x, 7)), MASK63);
+    x = .bit_and(.bit_xor(x, .shl(x, 17)), MASK63);
+    if (x == 0) {
+        x = 88172645463325252;
+    } else {
+    };
+    return { rng = { state = x }, value = x };
+};
+
+// Uniform in `[low, high)`. Uses rejection like the OS version rather than a
+// modulo, so the low end is not favoured when the range does not divide evenly.
+fun[exp] next_range(rng: Rng, low: int, high: int): Draw = {
+    if (high <= low) {
+        return { rng = rng, value = low };
+    } else {
+    };
+    var span: int = high - low;
+    var limit: int = MASK63 - (MASK63 % span);
+    var[mut] step: Draw = next(rng);
+    loop (step.value >= limit) {
+        step = next(step.rng);
+    };
+    return { rng = step.rng, value = low + (step.value % span) };
+};
+
+fun[exp] next_bool(rng: Rng): Draw = {
+    var step: Draw = next(rng);
+    return { rng = step.rng, value = step.value % 2 };
+};
+
+// Fisher-Yates, which is why `swap` had to exist: it is the only shuffle that
+// visits every permutation with equal probability.
+fun[exp] shuffle_int(rng: Rng, values: vec[int]): DrawVec = {
+    var[mut] out: vec[int] = [mov]values;
+    var[mut] carried: Rng = rng;
+    var[mut] i: int = .len(out) - 1;
+    loop (i > 0) {
+        var step: Draw = next_range(carried, 0, i + 1);
+        carried = step.rng;
+        out.swap(i, step.value);
+        i = i - 1;
+    };
+    return { rng = carried, values = [mov]out };
+};
+
+fun[exp] choice_int(rng: Rng, values: vec[int], fallback: int): Draw = {
+    var total: int = .len(values);
+    if (total == 0) {
+        return { rng = rng, value = fallback };
+    } else {
+    };
+    var step: Draw = next_range(rng, 0, total);
+    return { rng = step.rng, value = values[step.value] };
+};

@@ -611,6 +611,80 @@ pub fn str_valid_utf8(text: FolStr) -> crate::value::FolBool {
     std::str::from_utf8(text.as_str().as_bytes()).is_ok()
 }
 
+/// OS entropy, read from `/dev/urandom`. FOL is Linux-only, so this is the
+/// source rather than a portability shim, and it is what makes a seeded PRNG in
+/// FOL possible at all — nothing in the language can invent unpredictability.
+///
+/// The handle is opened once and reused: opening per call would dominate the
+/// cost of drawing a few bytes.
+fn entropy_source() -> &'static Mutex<Option<std::fs::File>> {
+    static SOURCE: OnceLock<Mutex<Option<std::fs::File>>> = OnceLock::new();
+    SOURCE.get_or_init(|| Mutex::new(std::fs::File::open("/dev/urandom").ok()))
+}
+
+fn fill_entropy(buffer: &mut [u8]) -> bool {
+    use std::io::Read;
+    let mut guard = entropy_source()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let Some(file) = guard.as_mut() else {
+        return false;
+    };
+    file.read_exact(buffer).is_ok()
+}
+
+/// Random bytes as `vec[int]`, NOT `str`: a `str` is UTF-8 by construction and
+/// random bytes are not valid UTF-8. Faults when entropy is unavailable, because
+/// silently returning zeros would look like working randomness.
+pub fn random_bytes(count: crate::value::FolInt) -> FolVec<crate::value::FolInt> {
+    if count <= 0 {
+        return FolVec::from_items(Vec::new());
+    }
+    let mut buffer = vec![0u8; count as usize];
+    if !fill_entropy(&mut buffer) {
+        panic!("fol runtime fault: no entropy source available");
+    }
+    FolVec::from_items(
+        buffer
+            .into_iter()
+            .map(|byte| byte as crate::value::FolInt)
+            .collect(),
+    )
+}
+
+/// Uniform in `[low, high)`. Rejection sampling, not modulo: `x % range` is
+/// biased toward the low end whenever the range does not divide the word evenly,
+/// and that bias is exactly what breaks shuffles and samplers.
+pub fn random_int(low: crate::value::FolInt, high: crate::value::FolInt) -> crate::value::FolInt {
+    if high <= low {
+        return low;
+    }
+    let span = (high as i128 - low as i128) as u128;
+    let limit = u128::MAX - (u128::MAX % span);
+    let mut buffer = [0u8; 16];
+    loop {
+        if !fill_entropy(&mut buffer) {
+            panic!("fol runtime fault: no entropy source available");
+        }
+        let draw = u128::from_le_bytes(buffer);
+        if draw < limit {
+            return (low as i128 + (draw % span) as i128) as crate::value::FolInt;
+        }
+    }
+}
+
+/// Uniform in `[0.0, 1.0)`, built from 53 random bits — the number a `f64`
+/// mantissa can hold exactly, so every representable value in the range is
+/// reachable and none is favoured.
+pub fn random_flt() -> crate::value::FolFloat {
+    let mut buffer = [0u8; 8];
+    if !fill_entropy(&mut buffer) {
+        panic!("fol runtime fault: no entropy source available");
+    }
+    let draw = u64::from_le_bytes(buffer) >> 11;
+    draw as crate::value::FolFloat / ((1u64 << 53) as crate::value::FolFloat)
+}
+
 /// Unicode case mapping and categories. These are TABLES, not arithmetic: the
 /// ASCII trick of adding 32 is wrong for every alphabet with more than 26
 /// letters, and full case mapping is not even per-character (`ß` uppercases to

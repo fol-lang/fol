@@ -1665,6 +1665,42 @@ const INTRINSICS: &[IntrinsicEntry] = &[
         IntrinsicLoweringMode::RuntimeHook,
         "a string with leading and trailing Unicode whitespace removed",
     ),
+    IntrinsicEntry::new(
+        IntrinsicId::new(143),
+        "random_bytes",
+        &[],
+        IntrinsicCategory::Host,
+        IntrinsicSurface::DotRootCall,
+        IntrinsicAvailability::V1,
+        IntrinsicStatus::Implemented,
+        IntrinsicArity::Exactly(1),
+        IntrinsicLoweringMode::RuntimeHook,
+        "random bytes from the operating system, as byte values",
+    ),
+    IntrinsicEntry::new(
+        IntrinsicId::new(144),
+        "random_int",
+        &[],
+        IntrinsicCategory::Host,
+        IntrinsicSurface::DotRootCall,
+        IntrinsicAvailability::V1,
+        IntrinsicStatus::Implemented,
+        IntrinsicArity::Exactly(2),
+        IntrinsicLoweringMode::RuntimeHook,
+        "a uniform integer in [low, high), without modulo bias",
+    ),
+    IntrinsicEntry::new(
+        IntrinsicId::new(145),
+        "random_flt",
+        &[],
+        IntrinsicCategory::Host,
+        IntrinsicSurface::DotRootCall,
+        IntrinsicAvailability::V1,
+        IntrinsicStatus::Implemented,
+        IntrinsicArity::Exactly(0),
+        IntrinsicLoweringMode::RuntimeHook,
+        "a uniform float in [0.0, 1.0) built from 53 random bits",
+    ),
 ];
 
 pub const fn intrinsic_registry() -> &'static [IntrinsicEntry] {
@@ -1746,7 +1782,7 @@ pub fn backend_role_for_intrinsic(id: IntrinsicId) -> Option<IntrinsicBackendRol
         // their Deferred placeholders rather than shadowed by second entries.
         // 23-24 min/max, 30 abs, 36 sqrt, 37-46 bitwise and 49-54 the overflow
         // family were all promoted in place from Deferred placeholders.
-        8 | 23 | 24 | 30 | 36..=46 | 49..=54 | 57..=142 => Some(IntrinsicBackendRole::RuntimeHook),
+        8 | 23 | 24 | 30 | 36..=46 | 49..=54 | 57..=145 => Some(IntrinsicBackendRole::RuntimeHook),
         13 => Some(IntrinsicBackendRole::ControlEffect),
         _ => None,
     })

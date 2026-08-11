@@ -17,3 +17,4 @@ use csv: loc = {"csv"};
 use json: loc = {"json"};
 use maps: loc = {"maps"};
 use jsondoc: loc = {"jsondoc"};
+use rand: loc = {"rand"};
