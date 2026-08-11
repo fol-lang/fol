@@ -10,7 +10,9 @@ fn copy_tree(from: &Path, to: &Path) {
     fs::create_dir_all(to).expect("copy target root should be creatable");
     for entry in fs::read_dir(from).expect("copy source root should be readable") {
         let entry = entry.expect("copy entry should be readable");
-        let entry_type = entry.file_type().expect("copy entry type should be readable");
+        let entry_type = entry
+            .file_type()
+            .expect("copy entry type should be readable");
         let to_path = to.join(entry.file_name());
         if entry_type.is_dir() {
             copy_tree(&entry.path(), &to_path);
@@ -33,11 +35,12 @@ fn test_resolver_resolves_bundled_std_from_declared_pkg_alias() {
     let store_root = temp_root.join(".fol/pkg");
     fs::create_dir_all(&app_root)
         .expect("Should create the importing package root fixture directory");
-    fs::create_dir_all(&store_root).expect("Should create the package store root fixture directory");
+    fs::create_dir_all(&store_root)
+        .expect("Should create the package store root fixture directory");
     materialize_bundled_std_alias(&store_root, "std");
     fs::write(
         app_root.join("main.fol"),
-        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::answer();\n};\n",
+        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::digit_count(1234567);\n};\n",
     )
     .expect("Should write the bundled std pkg import fixture");
 
@@ -72,7 +75,7 @@ fn test_resolver_resolves_bundled_std_from_declared_pkg_alias() {
         resolved
             .symbols_in_scope(fmt_scope)
             .into_iter()
-            .any(|symbol| symbol.name == "answer" && symbol.kind == SymbolKind::Routine),
+            .any(|symbol| symbol.name == "digit_count" && symbol.kind == SymbolKind::Routine),
         "Mounted bundled std packages should expose public namespace symbols",
     );
 
@@ -87,7 +90,8 @@ fn test_resolver_reports_nested_bundled_std_namespaces_from_pkg_alias_root() {
     let store_root = temp_root.join(".fol/pkg");
     fs::create_dir_all(&app_root)
         .expect("Should create the importing package root fixture directory");
-    fs::create_dir_all(&store_root).expect("Should create the package store root fixture directory");
+    fs::create_dir_all(&store_root)
+        .expect("Should create the package store root fixture directory");
     materialize_bundled_std_alias(&store_root, "std");
     fs::write(
         app_root.join("main.fol"),
@@ -118,8 +122,10 @@ fn test_resolver_resolves_bundled_std_io_from_pkg_alias_root() {
     let temp_root = unique_temp_root("bundled_std_io_pkg_root");
     let app_root = temp_root.join("app");
     let store_root = temp_root.join(".fol/pkg");
-    fs::create_dir_all(&app_root).expect("Should create the importing package root fixture directory");
-    fs::create_dir_all(&store_root).expect("Should create the package store root fixture directory");
+    fs::create_dir_all(&app_root)
+        .expect("Should create the importing package root fixture directory");
+    fs::create_dir_all(&store_root)
+        .expect("Should create the package store root fixture directory");
     materialize_bundled_std_alias(&store_root, "std");
     fs::write(
         app_root.join("main.fol"),
@@ -171,11 +177,13 @@ fn test_resolver_reports_missing_bundled_std_dependency_alias_cleanly() {
     let temp_root = unique_temp_root("bundled_std_missing_pkg_alias");
     let app_root = temp_root.join("app");
     let store_root = temp_root.join(".fol/pkg");
-    fs::create_dir_all(&app_root).expect("Should create the importing package root fixture directory");
-    fs::create_dir_all(&store_root).expect("Should create the package store root fixture directory");
+    fs::create_dir_all(&app_root)
+        .expect("Should create the importing package root fixture directory");
+    fs::create_dir_all(&store_root)
+        .expect("Should create the package store root fixture directory");
     fs::write(
         app_root.join("main.fol"),
-        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::answer();\n};\n",
+        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::digit_count(1234567);\n};\n",
     )
     .expect("Should write the missing std dependency alias fixture");
 
@@ -207,12 +215,14 @@ fn test_resolver_reports_alias_mismatches_for_bundled_std_pkg_imports() {
     let temp_root = unique_temp_root("bundled_std_alias_mismatch");
     let app_root = temp_root.join("app");
     let store_root = temp_root.join(".fol/pkg");
-    fs::create_dir_all(&app_root).expect("Should create the importing package root fixture directory");
-    fs::create_dir_all(&store_root).expect("Should create the package store root fixture directory");
+    fs::create_dir_all(&app_root)
+        .expect("Should create the importing package root fixture directory");
+    fs::create_dir_all(&store_root)
+        .expect("Should create the package store root fixture directory");
     materialize_bundled_std_alias(&store_root, "standard_lib");
     fs::write(
         app_root.join("main.fol"),
-        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::answer();\n};\n",
+        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::digit_count(1234567);\n};\n",
     )
     .expect("Should write the bundled std alias mismatch fixture");
 
@@ -229,8 +239,7 @@ fn test_resolver_reports_alias_mismatches_for_bundled_std_pkg_imports() {
 
     assert!(
         errors.iter().any(|error| {
-            error.kind() == ResolverErrorKind::InvalidInput
-                && error.to_string().contains("std")
+            error.kind() == ResolverErrorKind::InvalidInput && error.to_string().contains("std")
         }),
         "Resolver should report alias mismatches as missing declared std dependency aliases",
     );

@@ -131,7 +131,7 @@ Then import from the `std` dependency alias with `pkg`:
 use std: pkg = {"std"};
 
 fun[] main(): int = {
-    return std::fmt::answer();
+    return std::fmt::digit_count(1234567);
 };
 ```
 To use only one namespace of `fmt`:

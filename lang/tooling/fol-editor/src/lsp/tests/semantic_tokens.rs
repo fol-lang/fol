@@ -190,7 +190,7 @@ fn lsp_server_tokens_v3_memory_and_processor_references_in_real_examples() {
         ("examples/proc_spawn_m1", "echo_int", 1),
         ("examples/proc_channel_m2", "channel", 6),
         ("examples/proc_async_await_m4", "transferred", 2),
-        ("examples/proc_async_await_m4", "double", 1),
+        ("examples/proc_async_await_m4", "sum_int", 1),
     ];
 
     for (index, (example, needle, ordinal)) in cases.into_iter().enumerate() {

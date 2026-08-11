@@ -1,9 +1,6 @@
 use std: pkg = {"std"};
 
 fun[] main(): int = {
-    var shown: int = std::io::echo_int(std::fmt::sum2(
-    std::fmt::answer(),
-    std::fmt::triple(2),
-    ));
+    var shown: int = std::io::echo_int(std::fmt::digit_count(1234567890123));
     return 0;
 };

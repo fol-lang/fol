@@ -349,7 +349,7 @@ mod tests {
         };\n\
         var channel: chn[int];\n\
         [>]std::io::echo_int(worker(channel[tx]));\n\
-        var pending = std::fmt::double(work(1)) | async;\n\
+        var pending = std::fmt::digit_count(work(1)) | async;\n\
         select {};\n\
         return pending | await;\n\
         };\n";
@@ -373,7 +373,7 @@ mod tests {
             "    };\n",
             "    var channel: chn[int];\n",
             "    [>]std::io::echo_int(worker(channel[tx]));\n",
-            "    var pending = std::fmt::double(work(1)) | async;\n",
+            "    var pending = std::fmt::digit_count(work(1)) | async;\n",
             "    select {};\n",
             "    return pending | await;\n",
             "};\n",

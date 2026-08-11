@@ -562,7 +562,7 @@ fn app_harness_root_helpers_support_std_and_pkg_layouts() {
             "use std: pkg = {\"std\"};\n",
             "use math: pkg = {\"math\"};\n",
             "fun[] main(): int = {\n",
-            "    return std::fmt::answer();\n",
+            "    return std::fmt::digit_count(1234567);\n",
             "};\n",
         ),
     )

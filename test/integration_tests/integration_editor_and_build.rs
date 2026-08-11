@@ -3960,7 +3960,7 @@ fn test_build_rejects_std_imports_without_declared_dependency() {
     .expect("should write app build");
     std::fs::write(
         app_root.join("src/main.fol"),
-        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::answer();\n};\n",
+        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::digit_count(1234567);\n};\n",
     )
     .expect("should write app source");
 
@@ -6328,10 +6328,6 @@ fn test_bundled_std_docs_and_readme_keep_the_shipped_surface_honest() {
         "std.strn",
         "std.os",
         "std.fs",
-        "fmt::answer(): int",
-        "fmt::double(int): int",
-        "fmt::triple(int): int",
-        "fmt::sum2(int, int): int",
         "fmt::int_to_str(int): str",
         "fmt::math::answer(): int",
         "io::echo_int(int): int",
@@ -6466,7 +6462,7 @@ fn test_standard_dependency_contract_matrix_holds() {
         concat!(
             "use std: pkg = {\"std\"};\n",
             "fun[] main(): int = {\n",
-            "    return std::fmt::double(21);\n",
+            "    return std::fmt::digit_count(21) + 21;\n",
             "};\n",
         ),
         false,
@@ -6489,7 +6485,7 @@ fn test_standard_dependency_contract_matrix_holds() {
         concat!(
             "use std: pkg = {\"std\"};\n",
             "fun[] main(): int = {\n",
-            "    return std::fmt::answer();\n",
+            "    return std::fmt::digit_count(1234567);\n",
             "};\n",
         ),
         false,

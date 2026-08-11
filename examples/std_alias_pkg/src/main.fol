@@ -1,6 +1,6 @@
 use standard: pkg = {"standard_lib"};
 
 fun[] main(): int = {
-    var shown: int = standard::io::echo_int(standard::fmt::double(5));
+    var shown: int = standard::io::echo_int(standard::fmt::digit_count(1234567890));
     return shown;
 };

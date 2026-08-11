@@ -1,5 +1,5 @@
 use std: pkg = {"std"};
 
 fun[] main(): int = {
-    return std::fmt::answer();
+    return std::fmt::digit_count(1234567);
 };

@@ -277,7 +277,7 @@ fn test_cli_resolves_std_imports_from_the_bundled_std_root_by_default() {
         .expect("Should write bundled std build fixture");
     fs::write(
         app_root.join("src/main.fol"),
-        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::answer();\n};\n",
+        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::digit_count(1234567);\n};\n",
     )
     .expect("Should write bundled std import fixture");
 
@@ -576,7 +576,7 @@ fn test_cli_dump_lowered_succeeds_for_std_import_graphs() {
         .expect("Should write the app build fixture");
     fs::write(
         app_root.join("src/main.fol"),
-        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::answer();\n};\n",
+        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::digit_count(1234567);\n};\n",
     )
     .expect("Should write the std import fixture");
 

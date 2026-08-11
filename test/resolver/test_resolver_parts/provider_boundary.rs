@@ -107,7 +107,7 @@ fn test_resolver_keeps_bundled_std_pkg_import_semantics_stable_through_package_p
     copy_tree(&bundled_std_root, &store_root.join("std"));
     fs::write(
         app_root.join("main.fol"),
-        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::answer();\n};\n",
+        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::digit_count(1234567);\n};\n",
     )
     .expect("Should write the importing bundled std pkg fixture");
 
@@ -142,7 +142,7 @@ fn test_resolver_keeps_bundled_std_pkg_import_semantics_stable_through_package_p
         resolved
             .symbols_in_scope(fmt_scope)
             .into_iter()
-            .any(|symbol| symbol.name == "answer" && symbol.kind == SymbolKind::Routine),
+            .any(|symbol| symbol.name == "digit_count" && symbol.kind == SymbolKind::Routine),
         "Bundled std pkg imports should expose public namespace symbols through the provider boundary",
     );
 

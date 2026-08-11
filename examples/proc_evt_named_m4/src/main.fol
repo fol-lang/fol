@@ -7,7 +7,7 @@ fun[] work(value: int): int = {
 fun[] main(): int = {
     // The eventual produced by `| async` is namable with an elided lexical
     // lifetime: `evt[T]` (V3_MEM Slice E, §8.1).
-    var pending: evt[int] = std::fmt::double(work(20)) | async;
+    var pending: evt[int] = std::vecs::sum_int({work(20), 21}) | async;
     var value: int = pending | await;
     return std::io::echo_int(value);
 };

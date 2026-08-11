@@ -1,23 +1,5 @@
 use math: loc = {"math"};
 
-// Bootstrap placeholders. Still referenced by ~10 test sites incl. an exact
-// export-list assertion, so removing them is its own cutover.
-fun[exp] answer(): int = {
-    return math::answer();
-};
-
-fun[exp] double(value: int): int = {
-    return value + value;
-};
-
-fun[exp] triple(value: int): int = {
-    return value + value + value;
-};
-
-fun[exp] sum2(left: int, right: int): int = {
-    return left + right;
-};
-
 fun[exp] int_to_str(value: int): str = {
     return .int_to_str(value);
 };

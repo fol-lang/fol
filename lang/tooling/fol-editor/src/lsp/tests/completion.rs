@@ -1107,8 +1107,8 @@ fn lsp_server_completes_bundled_std_names_only_when_declared() {
         .into_iter()
         .map(|item| item.label)
         .collect::<Vec<_>>();
-    assert!(labels.contains(&"answer".to_string()));
-    assert!(labels.contains(&"double".to_string()));
+    assert!(labels.contains(&"digit_count".to_string()));
+    assert!(labels.contains(&"int_to_str".to_string()));
     assert!(labels.contains(&"math".to_string()));
 
     fs::remove_dir_all(root).ok();
@@ -1156,7 +1156,7 @@ fn lsp_server_completes_bundled_std_names_only_when_declared() {
         .map(|item| item.label)
         .collect::<Vec<_>>();
     assert!(
-        !labels.contains(&"answer".to_string()) && !labels.contains(&"double".to_string()),
+        !labels.contains(&"digit_count".to_string()) && !labels.contains(&"int_to_str".to_string()),
         "bundled std members should not complete without a declared std dependency: {labels:?}"
     );
 
@@ -1267,7 +1267,7 @@ fn lsp_server_keeps_bundled_std_and_dependency_members_separate_after_qualificat
         "use shared: loc = {\"shared\"};\n",
         "\n",
         "fun[] main(): int = {\n",
-        "    return std::fmt::answer() + shared::;\n",
+        "    return std::fmt::digit_count(1234567) + shared::;\n",
         "};\n",
     );
     fs::write(root.join("src/main.fol"), source).unwrap();
@@ -1299,8 +1299,8 @@ fn lsp_server_keeps_bundled_std_and_dependency_members_separate_after_qualificat
         .into_iter()
         .map(|item| item.label)
         .collect::<Vec<_>>();
-    assert!(std_labels.contains(&"answer".to_string()));
-    assert!(std_labels.contains(&"double".to_string()));
+    assert!(std_labels.contains(&"digit_count".to_string()));
+    assert!(std_labels.contains(&"int_to_str".to_string()));
     assert!(!std_labels.contains(&"helper".to_string()));
 
     let shared_completion = server
@@ -1313,7 +1313,7 @@ fn lsp_server_keeps_bundled_std_and_dependency_members_separate_after_qualificat
                     text_document: LspTextDocumentIdentifier { uri: uri.clone() },
                     position: LspPosition {
                         line: 4,
-                        character: 41,
+                        character: 53,
                     },
                     context: None,
                 })
@@ -1329,8 +1329,8 @@ fn lsp_server_keeps_bundled_std_and_dependency_members_separate_after_qualificat
             .into_iter()
             .map(|item| item.label)
             .collect::<Vec<_>>();
-    assert!(!shared_labels.contains(&"answer".to_string()));
-    assert!(!shared_labels.contains(&"double".to_string()));
+    assert!(!shared_labels.contains(&"digit_count".to_string()));
+    assert!(!shared_labels.contains(&"int_to_str".to_string()));
 
     fs::remove_dir_all(root).ok();
 }
@@ -1561,7 +1561,7 @@ fn lsp_server_completes_qualified_processor_targets() {
                  var pending = std::fmt::<|> | async;\n\
                  return 0;\n\
              };\n",
-            "double",
+            "digit_count",
         ),
     ] {
         let (root, uri) = copied_example_package_root("examples/proc_spawn_m1");

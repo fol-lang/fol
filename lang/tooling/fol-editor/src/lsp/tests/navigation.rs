@@ -555,7 +555,7 @@ fn lsp_server_maps_current_v1_diagnostic_classes_stably() {
         (
             "diag_core_std_import",
             Some("src/main.fol"),
-            "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::answer();\n};\n",
+            "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::digit_count(1234567);\n};\n",
             "bundled std imports require 'fol_model = memo'; current artifact model is 'core'",
         ),
         (
@@ -1312,7 +1312,7 @@ fn lsp_server_keeps_missing_std_dependency_without_quick_fix_for_now() {
     .unwrap();
     fs::write(
         root.join("src/main.fol"),
-        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::answer();\n};\n",
+        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::digit_count(1234567);\n};\n",
     )
     .unwrap();
     let text = fs::read_to_string(root.join("src/main.fol")).unwrap();
@@ -1476,7 +1476,7 @@ fn lsp_server_fails_navigation_cleanly_without_bundled_std_dependency() {
     )
     .unwrap();
     let source =
-        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::answer();\n};\n";
+        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::digit_count(1234567);\n};\n";
     fs::write(root.join("src/main.fol"), source).unwrap();
     let mut server = EditorLspServer::new(EditorConfig::default());
     let diagnostics = open_document(&mut server, uri.clone(), source);
@@ -1572,7 +1572,7 @@ fn lsp_server_fails_navigation_cleanly_for_bundled_std_alias_mismatch() {
     )
     .unwrap();
     let source =
-        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::answer();\n};\n";
+        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::digit_count(1234567);\n};\n";
     fs::write(root.join("src/main.fol"), source).unwrap();
     let mut server = EditorLspServer::new(EditorConfig::default());
     let diagnostics = open_document(&mut server, uri.clone(), source);

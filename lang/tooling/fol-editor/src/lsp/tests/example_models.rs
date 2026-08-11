@@ -876,8 +876,8 @@ fn lsp_qualified_processor_targets_keep_hover_and_definition() {
         ("examples/proc_spawn_m1", "echo_int", "/std/io/lib.fol"),
         (
             "examples/proc_async_await_m4",
-            "double",
-            "/std/fmt/root.fol",
+            "sum_int",
+            "/std/vecs/lib.fol",
         ),
     ] {
         let (root, uri) = copied_example_package_root(example);
@@ -1719,7 +1719,7 @@ fn lsp_server_reports_missing_bundled_std_dependency_from_editor_path() {
     )
     .unwrap();
     let text =
-        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::answer();\n};\n";
+        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::digit_count(1234567);\n};\n";
     fs::write(root.join("src/main.fol"), text).unwrap();
     let mut server = EditorLspServer::new(EditorConfig::default());
     let diagnostics = open_document(&mut server, uri, text);
