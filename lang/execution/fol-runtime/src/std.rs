@@ -829,6 +829,427 @@ pub fn backtrace() -> FolStr {
 
 /// Binary file access. `read_file`/`write_file` assume UTF-8, which silently
 /// mangles anything that is not text; these carry bytes verbatim.
+/// Byte values, clamped into `0..=255`. A FOL `vec[int]` can hold anything, so
+/// the out-of-range case has to be decided rather than assumed; it is what
+/// makes a byte vector invalid rather than silently truncated.
+fn byte_payload(bytes: &FolVec<crate::value::FolInt>) -> Option<Vec<u8>> {
+    bytes
+        .as_slice()
+        .iter()
+        .map(|value| u8::try_from(*value).ok())
+        .collect()
+}
+
+// Signal handling.
+//
+// `signal` is declared here rather than pulled in through a crate: the runtime
+// is linked into every generated FOL binary and carries no dependencies, and
+// libc is already linked because `std` is. FOL is Linux-only, so this is not a
+// portability shortcut.
+//
+// The handler does the one thing that is async-signal-safe — set a flag — and
+// `signal_pending` reports it later on an ordinary thread. Running FOL code
+// inside a handler would not be safe, so the surface is deliberately a poll
+// rather than a callback.
+extern "C" {
+    fn signal(signum: i32, handler: usize) -> usize;
+}
+
+const MAX_SIGNAL: usize = 64;
+
+fn signal_flags() -> &'static [AtomicBool; MAX_SIGNAL] {
+    static FLAGS: OnceLock<[AtomicBool; MAX_SIGNAL]> = OnceLock::new();
+    FLAGS.get_or_init(|| std::array::from_fn(|_| AtomicBool::new(false)))
+}
+
+extern "C" fn record_signal(signum: i32) {
+    if signum > 0 && (signum as usize) < MAX_SIGNAL {
+        signal_flags()[signum as usize].store(true, Ordering::SeqCst);
+    }
+}
+
+/// Ask for a signal to be recorded instead of killing the process. Returns 0,
+/// or -1 if the signal number is out of range or the kernel refused (`SIGKILL`
+/// and `SIGSTOP` cannot be caught).
+pub fn signal_trap(signum: crate::value::FolInt) -> crate::value::FolInt {
+    if signum <= 0 || signum as usize >= MAX_SIGNAL as crate::value::FolInt as usize {
+        return -1;
+    }
+    // Touch the flags before installing, so the handler never races their
+    // initialization.
+    let _ = signal_flags();
+    const SIG_ERR: usize = usize::MAX;
+    let previous = unsafe { signal(signum as i32, record_signal as usize) };
+    if previous == SIG_ERR {
+        -1
+    } else {
+        0
+    }
+}
+
+/// The lowest trapped signal that has arrived since the last call, or 0.
+/// Consuming it clears the flag, so a delivered signal is reported once.
+pub fn signal_pending() -> crate::value::FolInt {
+    let flags = signal_flags();
+    for (signum, flag) in flags.iter().enumerate().skip(1) {
+        if flag.swap(false, Ordering::SeqCst) {
+            return signum as crate::value::FolInt;
+        }
+    }
+    0
+}
+
+/// Open files, addressed by handle like sockets.
+///
+/// `read_file`/`read_bytes` load a whole file, so a file larger than memory, or
+/// one still being written, cannot be processed at all. These are the streaming
+/// form.
+///
+/// Reads and writes are **bytes**, not text, so the surface is binary-safe;
+/// `str_from_bytes` and `str_bytes` bridge to text when the content is UTF-8.
+fn open_files() -> &'static Mutex<std::collections::HashMap<crate::value::FolInt, std::fs::File>> {
+    static FILES: OnceLock<Mutex<std::collections::HashMap<crate::value::FolInt, std::fs::File>>> =
+        OnceLock::new();
+    FILES.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Clones the descriptor out and drops the registry lock before any I/O, the
+/// same rule the socket registry follows: a blocking read on a fifo must not
+/// freeze every other file operation in the process. A cloned descriptor shares
+/// the kernel file offset, so sequential reads still advance as one stream.
+fn open_file_slot(handle: crate::value::FolInt) -> Option<std::fs::File> {
+    open_files()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .get(&handle)
+        .and_then(|file| file.try_clone().ok())
+}
+
+/// Modes: 0 read, 1 truncate-or-create, 2 append, 3 read-write without
+/// truncating. Returns a handle, or -1.
+///
+/// An integer rather than `"r"`/`"w"`, which would be the obvious spelling but
+/// is unwritable: FOL types a one-character double-quoted literal as `chr`, so
+/// `.file_open(path, "w")` does not typecheck. It also matches the selector
+/// arguments this surface already uses in `file_seek` and `tcp_shutdown`.
+/// `std::fs` wraps these as named routines.
+pub fn file_open(path: FolStr, mode: crate::value::FolInt) -> crate::value::FolInt {
+    static NEXT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
+    let mut options = std::fs::OpenOptions::new();
+    match mode {
+        0 => options.read(true),
+        1 => options.write(true).create(true).truncate(true),
+        2 => options.append(true).create(true),
+        3 => options.read(true).write(true).create(true),
+        _ => return -1,
+    };
+    let Ok(file) = options.open(path.as_str()) else {
+        return -1;
+    };
+    let handle = NEXT.fetch_add(1, Ordering::Relaxed);
+    open_files()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .insert(handle, file);
+    handle
+}
+
+/// Up to `count` bytes. A short vector means end of file was reached; an empty
+/// one means there is nothing left.
+pub fn file_read(
+    handle: crate::value::FolInt,
+    count: crate::value::FolInt,
+) -> FolVec<crate::value::FolInt> {
+    use std::io::Read;
+    if count <= 0 {
+        return FolVec::from_items(Vec::new());
+    }
+    let Some(mut file) = open_file_slot(handle) else {
+        return FolVec::from_items(Vec::new());
+    };
+    let mut buffer = vec![0u8; count as usize];
+    match file.read(&mut buffer) {
+        Ok(read) => FolVec::from_items(
+            buffer[..read]
+                .iter()
+                .map(|byte| *byte as crate::value::FolInt)
+                .collect(),
+        ),
+        Err(_) => FolVec::from_items(Vec::new()),
+    }
+}
+
+/// The bytes written, or -1.
+pub fn file_write(
+    handle: crate::value::FolInt,
+    bytes: FolVec<crate::value::FolInt>,
+) -> crate::value::FolInt {
+    use std::io::Write;
+    let Some(payload) = byte_payload(&bytes) else {
+        return -1;
+    };
+    let Some(mut file) = open_file_slot(handle) else {
+        return -1;
+    };
+    match file.write(&payload) {
+        Ok(written) => written as crate::value::FolInt,
+        Err(_) => -1,
+    }
+}
+
+/// `whence`: 0 from the start, 1 from the current position, 2 from the end.
+/// Returns the new absolute position, or -1.
+pub fn file_seek(
+    handle: crate::value::FolInt,
+    offset: crate::value::FolInt,
+    whence: crate::value::FolInt,
+) -> crate::value::FolInt {
+    use std::io::Seek;
+    let target = match whence {
+        0 => std::io::SeekFrom::Start(offset.max(0) as u64),
+        1 => std::io::SeekFrom::Current(offset),
+        2 => std::io::SeekFrom::End(offset),
+        _ => return -1,
+    };
+    let Some(mut file) = open_file_slot(handle) else {
+        return -1;
+    };
+    match file.seek(target) {
+        Ok(position) => position as crate::value::FolInt,
+        Err(_) => -1,
+    }
+}
+
+pub fn file_flush(handle: crate::value::FolInt) -> crate::value::FolInt {
+    use std::io::Write;
+    let Some(mut file) = open_file_slot(handle) else {
+        return -1;
+    };
+    match file.flush() {
+        Ok(()) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// Releases the handle. Buffered data is flushed by the drop; an unclosed
+/// handle lives until the process exits.
+pub fn file_close(handle: crate::value::FolInt) -> crate::value::FolInt {
+    match open_files()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .remove(&handle)
+    {
+        Some(_) => 0,
+        None => -1,
+    }
+}
+
+/// A float as the shortest text that parses back to the identical value.
+///
+/// `float_to_str` takes a fixed number of decimals, which either loses
+/// precision or pads noise, so neither setting round-trips reliably. This is
+/// what a serializer wants: `0.1` renders as `0.1`, not `0.100000`, and
+/// `parse_flt` returns the same bits. `flt_bits` remains the exact machine
+/// form; this is the exact *human-readable* one.
+pub fn flt_to_str_exact(value: crate::value::FolFloat) -> FolStr {
+    if value.is_nan() {
+        return FolStr::new("nan");
+    }
+    if value.is_infinite() {
+        return FolStr::new(if value > 0.0 { "inf" } else { "-inf" });
+    }
+    FolStr::new(format!("{value}"))
+}
+
+/// Run a program with text on its standard input.
+///
+/// `run_capture` builds on `Command::output()`, which gives the child a null
+/// stdin, so a child that reads input sees an immediately-closed stream. That
+/// makes every filter-shaped program (`sort`, `sha256sum`, `git hash-object
+/// --stdin`) unreachable. Returns the same three-element shape as
+/// `run_capture`: status, stdout, stderr.
+pub fn run_input(program: FolStr, args: FolVec<FolStr>, input: FolStr) -> FolVec<FolStr> {
+    use std::io::Write;
+    let mut command = std::process::Command::new(program.as_str());
+    for arg in args.as_slice() {
+        command.arg(arg.as_str());
+    }
+    command
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let failed = || FolVec::from_items(vec![FolStr::new("-1"), FolStr::new(""), FolStr::new("")]);
+    let Ok(mut child) = command.spawn() else {
+        return failed();
+    };
+    // The write must finish and the pipe close before waiting: a child that
+    // reads to end-of-input never exits while this end stays open, and both
+    // sides then block forever.
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(input.as_str().as_bytes());
+    }
+    match child.wait_with_output() {
+        Ok(output) => FolVec::from_items(vec![
+            FolStr::new(output.status.code().unwrap_or(-1).to_string()),
+            FolStr::new(String::from_utf8_lossy(&output.stdout).into_owned()),
+            FolStr::new(String::from_utf8_lossy(&output.stderr).into_owned()),
+        ]),
+        Err(_) => failed(),
+    }
+}
+
+/// Terminal columns occupied by one character: 0, 1, or 2.
+///
+/// Padding with `.len` counts bytes and padding with `str_char_len` counts
+/// codepoints; a terminal aligns by neither. `日本` is 6 bytes, 2 codepoints,
+/// and 4 columns, so any table built on the other two measures misaligns.
+///
+/// This is a range table, which is how `wcwidth` is done everywhere. It is
+/// exact for the wide and fullwidth blocks (CJK, Hangul, kana, the common
+/// emoji planes) and for the combining ranges listed below, which together
+/// cover what a terminal program actually meets. It does **not** consult the
+/// full Unicode combining-class data, so a rare combining mark outside those
+/// ranges is counted as one column instead of zero; the runtime carries no
+/// Unicode tables beyond what Rust's `std` exposes, and `std` exposes no
+/// general category.
+fn char_columns(value: u32) -> crate::value::FolInt {
+    // C0/C1 controls occupy no column and must not be counted as one.
+    if value == 0 || (0x1..=0x1f).contains(&value) || (0x7f..=0x9f).contains(&value) {
+        return 0;
+    }
+    const ZERO_WIDTH: &[(u32, u32)] = &[
+        (0x0300, 0x036f), // combining diacritical marks
+        (0x0483, 0x0489), // combining Cyrillic
+        (0x0591, 0x05bd), // Hebrew points
+        (0x0610, 0x061a), // Arabic marks
+        (0x064b, 0x065f), // Arabic diacritics
+        (0x0670, 0x0670),
+        (0x06d6, 0x06dc),
+        (0x0e31, 0x0e31), // Thai vowel marks
+        (0x0e34, 0x0e3a),
+        (0x0e47, 0x0e4e),
+        (0x1ab0, 0x1aff), // combining diacriticals extended
+        (0x1dc0, 0x1dff), // combining diacriticals supplement
+        (0x20d0, 0x20f0), // combining marks for symbols
+        (0xfe00, 0xfe0f), // variation selectors
+        (0xfe20, 0xfe2f), // combining half marks
+        (0x200b, 0x200f), // zero-width space and directional marks
+    ];
+    if ZERO_WIDTH
+        .iter()
+        .any(|(low, high)| value >= *low && value <= *high)
+    {
+        return 0;
+    }
+    const WIDE: &[(u32, u32)] = &[
+        (0x1100, 0x115f),   // Hangul Jamo initial consonants
+        (0x2e80, 0x303e),   // CJK radicals, Kangxi, CJK symbols
+        (0x3041, 0x33ff),   // kana through CJK compatibility
+        (0x3400, 0x4dbf),   // CJK extension A
+        (0x4e00, 0x9fff),   // CJK unified ideographs
+        (0xa000, 0xa4cf),   // Yi
+        (0xac00, 0xd7a3),   // Hangul syllables
+        (0xf900, 0xfaff),   // CJK compatibility ideographs
+        (0xfe10, 0xfe19),   // vertical forms
+        (0xfe30, 0xfe6f),   // CJK compatibility forms
+        (0xff00, 0xff60),   // fullwidth forms
+        (0xffe0, 0xffe6),   // fullwidth signs
+        (0x1f300, 0x1f64f), // symbols, pictographs, emoticons
+        (0x1f900, 0x1f9ff), // supplemental symbols and pictographs
+        (0x20000, 0x2fffd), // CJK extension B and beyond
+        (0x30000, 0x3fffd),
+    ];
+    if WIDE
+        .iter()
+        .any(|(low, high)| value >= *low && value <= *high)
+    {
+        return 2;
+    }
+    1
+}
+
+pub fn chr_width(value: crate::value::FolChar) -> crate::value::FolInt {
+    char_columns(value as u32)
+}
+
+/// The columns a whole string occupies, which is what a padded column width
+/// has to be computed from.
+pub fn str_width(text: FolStr) -> crate::value::FolInt {
+    text.as_str()
+        .chars()
+        .map(|character| char_columns(character as u32))
+        .sum()
+}
+
+/// Whether a byte vector decodes as UTF-8. Worth asking before
+/// `str_from_bytes`, which cannot distinguish "invalid" from "empty" in its
+/// return value alone.
+pub fn bytes_valid_utf8(bytes: FolVec<crate::value::FolInt>) -> crate::value::FolBool {
+    byte_payload(&bytes).is_some_and(|payload| std::str::from_utf8(&payload).is_ok())
+}
+
+/// How many leading bytes form complete, valid UTF-8.
+///
+/// Required by any chunked reader. A fixed-size `file_read` splits multi-byte
+/// characters across chunk boundaries, and feeding such a chunk to
+/// `str_from_bytes` yields the empty string — so a naive loop silently drops
+/// exactly the characters this group set out to preserve. Reading `héllo` two
+/// bytes at a time produced `lo`.
+///
+/// The fix is to decode the valid prefix and carry the remainder into the next
+/// chunk. Deciding where that prefix ends means knowing UTF-8 sequence
+/// structure, which is the part FOL should not be re-deriving.
+/// `std::strn::decoder` wraps the whole pattern.
+///
+/// Returns 0 when the vector starts with a byte that can never begin a valid
+/// sequence, which is genuinely invalid rather than merely incomplete.
+pub fn utf8_prefix_len(bytes: FolVec<crate::value::FolInt>) -> crate::value::FolInt {
+    let Some(payload) = byte_payload(&bytes) else {
+        return 0;
+    };
+    match std::str::from_utf8(&payload) {
+        Ok(_) => payload.len() as crate::value::FolInt,
+        // `valid_up_to` is the whole point: it separates "this chunk ends
+        // mid-character" from "these bytes are malformed".
+        Err(error) => error.valid_up_to() as crate::value::FolInt,
+    }
+}
+
+/// Bytes back into text.
+///
+/// This is the only way to reconstruct a string from `read_bytes`,
+/// `random_bytes`, or any other byte source: `byte_to_str` handles one byte and
+/// so cannot express a multi-byte sequence at all, and `int_to_chr` takes a
+/// codepoint rather than a byte. Without this, reading `héllo` as bytes and
+/// rebuilding it produced `hllo` — silent data loss.
+///
+/// Invalid UTF-8, or a value outside `0..=255`, yields the empty string rather
+/// than substituting replacement characters, so a caller never acts on
+/// half-decoded text by accident. Pair it with `bytes_valid_utf8` when empty
+/// input and invalid input have to be told apart.
+pub fn str_from_bytes(bytes: FolVec<crate::value::FolInt>) -> FolStr {
+    let Some(payload) = byte_payload(&bytes) else {
+        return FolStr::new("");
+    };
+    match std::str::from_utf8(&payload) {
+        Ok(text) => FolStr::new(text),
+        Err(_) => FolStr::new(""),
+    }
+}
+
+/// Text as its UTF-8 bytes. The inverse of `str_from_bytes`, and what feeds
+/// `write_bytes` or a hash without going through `str_byte` one index at a
+/// time.
+pub fn str_bytes(text: FolStr) -> FolVec<crate::value::FolInt> {
+    FolVec::from_items(
+        text.as_str()
+            .as_bytes()
+            .iter()
+            .map(|byte| *byte as crate::value::FolInt)
+            .collect(),
+    )
+}
+
 pub fn read_bytes(path: FolStr) -> FolVec<crate::value::FolInt> {
     FolVec::from_items(
         std::fs::read(path.as_str())
@@ -2190,5 +2611,123 @@ mod phase_i_tests {
     fn backtrace_names_the_capturing_frame() {
         let captured = backtrace();
         assert!(!captured.as_str().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod stream_and_text_tests {
+    use super::*;
+
+    fn bytes(values: &[i64]) -> FolVec<crate::value::FolInt> {
+        FolVec::from_items(values.to_vec())
+    }
+
+    #[test]
+    fn str_from_bytes_round_trips_multibyte_text() {
+        let text = "héllo wörld";
+        let encoded = str_bytes(FolStr::new(text));
+        assert_eq!(encoded.as_slice().len(), text.len());
+        assert_eq!(str_from_bytes(encoded).as_str(), text);
+    }
+
+    #[test]
+    fn str_from_bytes_refuses_invalid_rather_than_substituting() {
+        // A lone continuation byte, and a value that is not a byte at all.
+        assert_eq!(str_from_bytes(bytes(&[104, 233, 108])).as_str(), "");
+        assert_eq!(str_from_bytes(bytes(&[104, 300])).as_str(), "");
+        assert!(!bytes_valid_utf8(bytes(&[104, 233, 108])));
+        assert!(!bytes_valid_utf8(bytes(&[104, 300])));
+        assert!(bytes_valid_utf8(bytes(&[104, 105])));
+    }
+
+    // The property a chunked reader depends on: splitting anywhere and
+    // decoding the complete prefix each time must reassemble the original.
+    #[test]
+    fn utf8_prefix_len_makes_every_split_point_lossless() {
+        let text = "héllo wörld ünïcode";
+        let all = str_bytes(FolStr::new(text));
+        let raw: Vec<i64> = all.as_slice().to_vec();
+        for chunk in 1..=raw.len() {
+            let mut carry: Vec<i64> = Vec::new();
+            let mut rebuilt = String::new();
+            for window in raw.chunks(chunk) {
+                carry.extend_from_slice(window);
+                let ready = utf8_prefix_len(bytes(&carry)) as usize;
+                rebuilt.push_str(str_from_bytes(bytes(&carry[..ready])).as_str());
+                carry = carry[ready..].to_vec();
+            }
+            assert_eq!(rebuilt, text, "chunk size {chunk} lost data");
+            assert!(carry.is_empty(), "chunk size {chunk} left a partial tail");
+        }
+    }
+
+    #[test]
+    fn utf8_prefix_len_separates_incomplete_from_malformed() {
+        // 0xC3 opens a two-byte sequence, so only "h" is complete.
+        assert_eq!(utf8_prefix_len(bytes(&[104, 0xC3])), 1);
+        // 0xFF can never begin a sequence.
+        assert_eq!(utf8_prefix_len(bytes(&[0xFF, 104])), 0);
+        assert_eq!(utf8_prefix_len(bytes(&[104, 105])), 2);
+    }
+
+    #[test]
+    fn widths_follow_terminal_columns_not_bytes_or_codepoints() {
+        assert_eq!(str_width(FolStr::new("hello")), 5);
+        // 6 bytes, 2 codepoints, 4 columns.
+        assert_eq!(str_width(FolStr::new("日本")), 4);
+        assert_eq!(str_width(FolStr::new("👍")), 2);
+        // A combining accent adds no column.
+        assert_eq!(str_width(FolStr::new("e\u{0301}")), 1);
+        assert_eq!(str_width(FolStr::new("héllo")), 5);
+        assert_eq!(chr_width('日'), 2);
+        assert_eq!(chr_width('a'), 1);
+        assert_eq!(chr_width('\u{0301}'), 0);
+        // Controls occupy nothing.
+        assert_eq!(chr_width('\n'), 0);
+    }
+
+    #[test]
+    fn flt_to_str_exact_round_trips_where_fixed_decimals_do_not() {
+        for value in [0.1_f64, 1.0 / 3.0, 1e-7, 12345.6789, -0.0] {
+            let rendered = flt_to_str_exact(value);
+            let parsed: f64 = rendered.as_str().parse().expect("should reparse");
+            assert_eq!(
+                parsed.to_bits(),
+                value.to_bits(),
+                "{rendered} did not round-trip"
+            );
+        }
+        assert_eq!(flt_to_str_exact(0.1).as_str(), "0.1");
+        assert_eq!(flt_to_str_exact(f64::INFINITY).as_str(), "inf");
+        assert!(flt_to_str_exact(f64::NAN).as_str() == "nan");
+    }
+
+    #[test]
+    fn file_handles_stream_seek_and_close() {
+        let mut path = std::env::temp_dir();
+        path.push(format!("fol_stream_probe_{}.bin", std::process::id()));
+        let path_str = FolStr::new(path.to_string_lossy().into_owned());
+
+        let writer = file_open(path_str.clone(), 1);
+        assert!(writer > 0);
+        let payload = str_bytes(FolStr::new("héllo"));
+        assert_eq!(
+            file_write(writer, payload.clone()),
+            payload.as_slice().len() as i64
+        );
+        assert_eq!(file_flush(writer), 0);
+        assert_eq!(file_close(writer), 0);
+        assert_eq!(file_close(writer), -1, "a handle closes once");
+
+        let reader = file_open(path_str.clone(), 0);
+        assert_eq!(file_read(reader, 1).as_slice(), &[104]);
+        assert_eq!(file_seek(reader, 0, 0), 0);
+        assert_eq!(file_seek(reader, -1, 2), 5);
+        assert_eq!(file_seek(reader, 0, 9), -1, "unknown whence is refused");
+        assert_eq!(file_close(reader), 0);
+
+        assert_eq!(file_open(path_str, 9), -1, "unknown mode is refused");
+        assert_eq!(file_read(999_999, 4).as_slice().len(), 0);
+        std::fs::remove_file(&path).ok();
     }
 }

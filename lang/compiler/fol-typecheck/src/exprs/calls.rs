@@ -578,6 +578,13 @@ const CONTAINER_TYPED_INTRINSICS: &[&str] = &[
     "run_status",
     "udp_recv_from",
     "dns_resolve",
+    "str_from_bytes",
+    "str_bytes",
+    "bytes_valid_utf8",
+    "utf8_prefix_len",
+    "file_read",
+    "file_write",
+    "run_input",
 ];
 
 /// Fixed (params, result) signature for a terminal/OS runtime hook, or None
@@ -678,6 +685,13 @@ fn terminal_intrinsic_signature(
             builtins.int,
         )),
         "cpu_count" | "thread_yield" | "thread_id" => Some((Vec::new(), builtins.int)),
+        "str_width" => Some((vec![builtins.str_], builtins.int)),
+        "chr_width" => Some((vec![builtins.char_], builtins.int)),
+        "file_open" => Some((vec![builtins.str_, builtins.int], builtins.int)),
+        "file_seek" => Some((vec![builtins.int, builtins.int, builtins.int], builtins.int)),
+        "file_flush" | "file_close" | "signal_trap" => Some((vec![builtins.int], builtins.int)),
+        "signal_pending" => Some((Vec::new(), builtins.int)),
+        "flt_to_str_exact" => Some((vec![builtins.float], builtins.str_)),
         "bytes_equal_ct" => Some((vec![builtins.str_, builtins.str_], builtins.bool_)),
         "hash_bytes" => Some((vec![builtins.str_], builtins.int)),
         "backtrace" => Some((Vec::new(), builtins.str_)),
@@ -752,6 +766,13 @@ fn type_terminal_intrinsic(
             "run_status" => (vec![str_, strs], int_),
             "udp_recv_from" => (vec![int_], strs),
             "dns_resolve" => (vec![str_], strs),
+            "str_from_bytes" => (vec![ints], str_),
+            "str_bytes" => (vec![str_], ints),
+            "bytes_valid_utf8" => (vec![ints], typed.builtin_types().bool_),
+            "utf8_prefix_len" => (vec![ints], int_),
+            "file_read" => (vec![int_, int_], ints),
+            "file_write" => (vec![int_, ints], int_),
+            "run_input" => (vec![str_, strs, str_], strs),
             other => unreachable!("container-typed intrinsic '{other}' has no signature"),
         }
     } else {

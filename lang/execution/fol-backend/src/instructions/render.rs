@@ -900,6 +900,16 @@ pub fn render_core_instruction_in_workspace(
                 | ("atomic_new", [value])
                 | ("atomic_load", [value])
                 | ("hash_bytes", [value])
+                | ("str_from_bytes", [value])
+                | ("str_bytes", [value])
+                | ("bytes_valid_utf8", [value])
+                | ("utf8_prefix_len", [value])
+                | ("str_width", [value])
+                | ("chr_width", [value])
+                | ("file_flush", [value])
+                | ("file_close", [value])
+                | ("signal_trap", [value])
+                | ("flt_to_str_exact", [value])
                 | ("set_current_dir", [value])
                 | ("raw_mode", [value])
                 | ("sleep_ms", [value])
@@ -942,6 +952,7 @@ pub fn render_core_instruction_in_workspace(
                     format!("rt::assert_message({condition}, {message})")
                 }
                 ("backtrace", []) => "rt::backtrace()".to_string(),
+                ("signal_pending", []) => "rt::signal_pending()".to_string(),
                 ("cpu_count", []) => "rt::cpu_count()".to_string(),
                 ("thread_yield", []) => "rt::thread_yield()".to_string(),
                 ("thread_id", []) => "rt::thread_id()".to_string(),
@@ -991,6 +1002,9 @@ pub fn render_core_instruction_in_workspace(
                 | ("atomic_store", [path, contents])
                 | ("atomic_add", [path, contents])
                 | ("bytes_equal_ct", [path, contents])
+                | ("file_open", [path, contents])
+                | ("file_read", [path, contents])
+                | ("file_write", [path, contents])
                 | ("float_to_str", [path, contents]) => {
                     let first = render_transfer_expr(type_table, package_identity, routine, *path)?;
                     let second =
@@ -1000,7 +1014,9 @@ pub fn render_core_instruction_in_workspace(
                 ("str_replace", [text, from, to])
                 | ("flt_mul_add", [text, from, to])
                 | ("udp_send_to", [text, from, to])
-                | ("atomic_cas", [text, from, to]) => {
+                | ("atomic_cas", [text, from, to])
+                | ("file_seek", [text, from, to])
+                | ("run_input", [text, from, to]) => {
                     let text = render_transfer_expr(type_table, package_identity, routine, *text)?;
                     let from = render_transfer_expr(type_table, package_identity, routine, *from)?;
                     let to = render_transfer_expr(type_table, package_identity, routine, *to)?;

@@ -1,5 +1,7 @@
 // Filesystem reads.
 
+use vecs: loc = {"../vecs"};
+
 fun[exp] dir_list(path: str): str = {
     return .dir_list(path);
 };
@@ -10,4 +12,120 @@ fun[exp] read_file(path: str): str = {
 
 fun[exp] write_file(path: str, contents: str): int = {
     return .write_file(path, contents);
+};
+
+// Streaming file access.
+//
+// `read_file`/`read_bytes` load a whole file, so a file larger than memory, or
+// one still being written, cannot be handled at all. These open a handle and
+// move through it instead.
+//
+// Modes are integers because FOL types a one-character double-quoted literal
+// as `chr`, so `.file_open(path, "r")` does not typecheck. These names exist so
+// callers never have to remember which number is which.
+
+con MODE_READ: int = 0;
+con MODE_WRITE: int = 1;
+con MODE_APPEND: int = 2;
+con MODE_UPDATE: int = 3;
+
+con FROM_START: int = 0;
+con FROM_HERE: int = 1;
+con FROM_END: int = 2;
+
+fun[exp] open_read(path: str): int = {
+    return .file_open(path, MODE_READ);
+};
+
+fun[exp] open_write(path: str): int = {
+    return .file_open(path, MODE_WRITE);
+};
+
+fun[exp] open_append(path: str): int = {
+    return .file_open(path, MODE_APPEND);
+};
+
+fun[exp] open_update(path: str): int = {
+    return .file_open(path, MODE_UPDATE);
+};
+
+fun[exp] read_chunk(handle: int, count: int): vec[int] = {
+    return .file_read(handle, count);
+};
+
+fun[exp] write_chunk(handle: int, bytes: vec[int]): int = {
+    return .file_write(handle, bytes);
+};
+
+fun[exp] write_text(handle: int, text: str): int = {
+    return .file_write(handle, .str_bytes(text));
+};
+
+fun[exp] seek(handle: int, offset: int, whence: int): int = {
+    return .file_seek(handle, offset, whence);
+};
+
+fun[exp] rewind(handle: int): int = {
+    return .file_seek(handle, 0, FROM_START);
+};
+
+fun[exp] flush(handle: int): int = {
+    return .file_flush(handle);
+};
+
+fun[exp] close(handle: int): int = {
+    return .file_close(handle);
+};
+
+// Carries the bytes of a character that a chunk boundary split in half.
+//
+// Feeding a raw chunk straight to `.str_from_bytes` is the trap: a boundary
+// that lands inside a multi-byte character makes the whole chunk invalid, and
+// it decodes to "" -- reading `héllo` two bytes at a time yields `lo`. Decoding
+// only the complete prefix and holding the remainder is what makes a chunked
+// read lossless.
+typ[exp] Decoder: rec = {
+    carry: vec[int],
+    text: str,
+};
+
+fun[exp] decoder(): Decoder = {
+    return { carry = {}, text = "" };
+};
+
+fun[exp] feed(state: Decoder, chunk: vec[int]): Decoder = {
+    var pending: vec[int] = vecs::concat_int(state.carry, chunk);
+    var ready: int = .utf8_prefix_len(pending);
+    var total: int = .len(pending);
+    // A zero-length prefix on a non-empty buffer is either a genuinely
+    // malformed byte or a sequence still arriving; holding it is correct for
+    // the second and harmless for the first, which `.str_from_bytes` then
+    // reports as empty at the end.
+    var decoded: str = .str_from_bytes(vecs::slice_int(pending, 0, ready));
+    var rest: vec[int] = vecs::slice_int(pending, ready, total - ready);
+    return { carry = rest, text = decoded };
+};
+
+// Reads a whole file through a fixed-size window, never holding more than one
+// chunk plus a partial character.
+fun[exp] read_streamed(path: str, chunk: int): str = {
+    var handle: int = open_read(path);
+    if (handle < 0) {
+        return "";
+    } else {
+    };
+    var[mut] state: Decoder = decoder();
+    var[mut] out: str = "";
+    var[mut] going: bol = true;
+    loop (going) {
+        var piece: vec[int] = .file_read(handle, chunk);
+        if (.len(piece) == 0) {
+            going = false;
+        } else {
+            state = feed(state, piece);
+            out = out + state.text;
+        };
+    };
+    var done: int = close(handle);
+    return out;
 };
