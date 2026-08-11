@@ -1129,3 +1129,56 @@ fn indexed_element_assignment_rejects_the_shapes_it_cannot_honour() {
         );
     }
 }
+
+#[test]
+fn a_value_binding_does_not_hide_an_entry_type_it_case_folds_with() {
+    // Name lookup folds case and underscores, so `var node` and `typ Node`
+    // share one key and the binding wins. An instance field read must stay on
+    // the instance; a variant read must still find the type.
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Node: ent = { var LEAF: int = 3; };\n\
+         typ Point: rec = { node: int };\n\
+         fun[] main(): int = {\n\
+             var node: int = 5;\n\
+             var point: Point = { node = 9 };\n\
+             return Node.LEAF + node + point.node;\n\
+         };\n",
+    )]);
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+
+    // The fallback is narrow: a same-named type without that member must not
+    // capture a genuine field read.
+    let unrelated = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Node: ent = { var LEAF: int = 3; };\n\
+         fun[] main(): int = {\n\
+             var node: int = 5;\n\
+             return node.missing;\n\
+         };\n",
+    )]);
+    assert!(
+        !unrelated.is_empty(),
+        "a field the entry does not declare must still be rejected"
+    );
+}
+
+#[test]
+fn type_declarations_accept_the_hidden_option() {
+    // `fun[hid]` was accepted while `typ[hid]` was an "Unknown type option".
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ[hid] Secret: rec = { n: int };\n\
+         typ[exp] Open: rec = { n: int };\n\
+         fun[] main(): int = {\n\
+             var s: Secret = { n = 7 };\n\
+             var o: Open = { n = 1 };\n\
+             return s.n + o.n;\n\
+         };\n",
+    )]);
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}

@@ -104,6 +104,44 @@ pub(crate) fn type_inner_place_access(
     }
 }
 
+/// The entry type an identifier names when a value binding shadows it.
+///
+/// `Some` only when the identifier resolves to a type whose entry exposes
+/// `field` as a variant — never for an arbitrary same-named type, so a genuine
+/// field read on an instance is never redirected.
+fn shadowed_entry_type(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    context: TypeContext,
+    object: &AstNode,
+    field: &str,
+) -> Option<crate::CheckedTypeId> {
+    let AstNode::Identifier { name, .. } = strip_comments(object) else {
+        return None;
+    };
+    let declared = [
+        fol_resolver::SymbolKind::Type,
+        fol_resolver::SymbolKind::Alias,
+    ]
+    .into_iter()
+    .find_map(|kind| {
+        super::helpers::find_symbol_in_scope_chain(
+            resolved,
+            context.source_unit_id,
+            context.scope_id,
+            name,
+            kind,
+        )
+    })
+    .and_then(|symbol| typed.typed_symbol(symbol))
+    .and_then(|symbol| symbol.declared_type)?;
+    let apparent = apparent_type_id(typed, declared).ok()?;
+    match typed.type_table().get(apparent) {
+        Some(CheckedType::Entry { variants }) if variants.contains_key(field) => Some(apparent),
+        _ => None,
+    }
+}
+
 pub(crate) fn type_field_access(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
@@ -207,6 +245,19 @@ pub(crate) fn type_field_access(
             }
         }
     }
+    // Name lookup folds case and underscores, so a `var node` binding and a
+    // `typ Node` share one key and the binding wins. For an instance field read
+    // that is right; but when the value has no such field and a TYPE of that
+    // name exposes it as a member, the author meant the type. Falling back only
+    // in that order keeps `node.field` on a real instance untouched.
+    let resolved_type = shadowed_entry_type(typed, resolved, context, object, field)
+        .filter(|_| {
+            !matches!(
+                typed.type_table().get(resolved_type),
+                Some(CheckedType::Record { .. }) | Some(CheckedType::Entry { .. })
+            )
+        })
+        .unwrap_or(resolved_type);
     match typed.type_table().get(resolved_type) {
         Some(CheckedType::Record { fields }) => fields
             .get(field)

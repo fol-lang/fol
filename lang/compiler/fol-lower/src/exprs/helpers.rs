@@ -61,6 +61,48 @@ pub(crate) fn describe_binary_operator(op: &fol_parser::ast::BinaryOperator) -> 
     }
 }
 
+/// The entry-declaring symbol an identifier names when a value binding shadows
+/// it. Matches only when that entry actually exposes `field`, so an ordinary
+/// field read on an instance is never redirected.
+fn shadowed_entry_symbol(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    canonical_name: &str,
+    field: &str,
+) -> Option<fol_resolver::ResolvedSymbol> {
+    typed_package
+        .program
+        .resolved()
+        .symbols
+        .iter()
+        .find(|symbol| {
+            matches!(
+                symbol.kind,
+                fol_resolver::SymbolKind::Type | fol_resolver::SymbolKind::Alias
+            ) && symbol.canonical_name == canonical_name
+                && typed_package
+                    .program
+                    .typed_symbol(symbol.id)
+                    .and_then(|typed| typed.declared_type)
+                    .and_then(|declared| checked_type_map.get(&declared).copied())
+                    .is_some_and(|lowered| entry_declares_variant(type_table, lowered, field))
+        })
+        .cloned()
+}
+
+/// Whether the lowered entry type carries a variant of this name.
+fn entry_declares_variant(
+    type_table: &crate::LoweredTypeTable,
+    lowered_type: LoweredTypeId,
+    field: &str,
+) -> bool {
+    matches!(
+        type_table.get(lowered_type),
+        Some(crate::LoweredType::Entry { variants }) if variants.contains_key(field)
+    )
+}
+
 pub(crate) fn resolve_entry_variant_target(
     typed_package: &fol_typecheck::TypedPackage,
     type_table: &crate::LoweredTypeTable,
@@ -106,12 +148,33 @@ pub(crate) fn resolve_entry_variant_target(
         _ => return Ok(None),
     };
 
-    if !matches!(
+    // Name lookup folds case and underscores, so a `var node` binding can win
+    // over a `typ Node` and the reference resolves to the value. Typecheck
+    // falls back to the type when the value has no such field; lowering has to
+    // agree or the read reaches here as a record-field access that does not
+    // exist.
+    let owned;
+    // Substituting the type also discards the reference's recorded type: that
+    // belongs to the shadowing VALUE, and using it would look up the variant on
+    // an `int`.
+    let (resolved_symbol, checked_type) = if matches!(
         resolved_symbol.kind,
         fol_resolver::SymbolKind::Type | fol_resolver::SymbolKind::Alias
     ) {
-        return Ok(None);
-    }
+        (resolved_symbol, checked_type)
+    } else {
+        let Some(shadowed) = shadowed_entry_symbol(
+            typed_package,
+            type_table,
+            checked_type_map,
+            &resolved_symbol.canonical_name,
+            field,
+        ) else {
+            return Ok(None);
+        };
+        owned = shadowed;
+        (&owned, None)
+    };
     let lowered_type = checked_type.or_else(|| {
         let typed_symbol = typed_package.program.typed_symbol(resolved_symbol.id)?;
         let declared_type = typed_symbol.declared_type?;
