@@ -1,18 +1,15 @@
 // JSON string escaping, scanning, and flat-object decoding, written in FOL.
 //
-// There is no general `decode` returning a JSON value tree, and that is a
-// language boundary rather than missing effort: FOL has no sum type that can
-// hold "string or number or bool or array or object", and no pair value to hand
-// back a key with its value. What CAN be expressed is the useful subset:
-//
-//   - escape and unescape, which are exact;
-//   - a validating scanner that reports whether a document is well-formed;
-//   - `decode_flat`, which reads a one-level object into `map[str, str]`.
+// This module is the flat, allocation-light layer: exact escaping, a
+// well-formedness scanner, and `decode_flat` for the common case of a one-level
+// object. `std::jsondoc` builds the full value tree on top of the scanning
+// helpers here.
 //
 // `decode_flat` renders every scalar as its source text: `1` stays `"1"`,
 // `true` stays `"true"`, `null` stays `"null"`. Callers convert with
 // `strn::to_int` or `.parse_flt`. Nested objects and arrays are returned as
-// their raw source text, so nothing is silently dropped.
+// their raw source text, so nothing is silently dropped — pass one back to
+// `decode_flat`, or use `std::jsondoc` when the shape is not known up front.
 
 use strn: loc = {"../strn"};
 use chars: loc = {"../chars"};
@@ -276,7 +273,7 @@ fun[exp] decode_flat(text: str): map[str, str] = {
 };
 
 // The first colon that is not inside a string.
-fun key_split_point(entry: str): int = {
+fun[exp] key_split_point(entry: str): int = {
     var[mut] in_string: bol = false;
     var[mut] escaped: bol = false;
     var[mut] i: int = 0;

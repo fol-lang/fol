@@ -1,0 +1,315 @@
+// A full JSON value tree, written in FOL.
+//
+// A JSON value contains JSON values, and FOL has no recursive type — so the
+// tree is an ARENA: every node lives in one flat `vec[Node]` and refers to its
+// children by integer index. This is the documented workaround for recursive
+// shapes, and it costs nothing here because a document is parsed once and read
+// many times.
+//
+// Children are a singly-linked list: `first` is the first child's index and
+// each child's `next` is its sibling, both `-1` when absent. That keeps a node
+// fixed-size, so pushing a child never reallocates a parent's field.
+//
+// An object member stores its KEY in `text` and its value as the member's only
+// child, which is what makes objects and arrays share one walk.
+
+use strn: loc = {"../strn"};
+use json: loc = {"../json"};
+
+con[exp] NULL: int = 0;
+con[exp] BOOL: int = 1;
+con[exp] NUM: int = 2;
+con[exp] STR: int = 3;
+con[exp] ARR: int = 4;
+con[exp] OBJ: int = 5;
+con[exp] MEMBER: int = 6;
+// `con` needs a literal initializer and a negated literal is not one, so the
+// absent-index sentinel is a routine.
+fun[exp] none(): int = {
+    return 0 - 1;
+};
+
+con OPEN_OBJ: str = "{";
+con OPEN_ARR: str = "[";
+con QUOTE: str = "\"";
+con MINUS: str = "-";
+
+typ[exp] Node: rec = {
+    kind: int,
+    text: str,
+    first: int,
+    next: int,
+};
+
+typ[exp] Doc: rec = {
+    nodes: vec[Node],
+    root: int,
+};
+
+// Returning both the grown arena and the new node's index needs a product type,
+// and a record is one.
+typ Built: rec = {
+    nodes: vec[Node],
+    index: int,
+};
+
+fun push_node(nodes: vec[Node], kind: int, text: str): Built = {
+    var[mut] out: vec[Node] = [mov]nodes;
+    out.push({ kind = kind, text = text, first = none(), next = none() });
+    return { index = .len(out) - 1, nodes = [mov]out };
+};
+
+fun set_first(nodes: vec[Node], parent: int, child: int): vec[Node] = {
+    var[mut] out: vec[Node] = [mov]nodes;
+    var held: Node = out[parent];
+    out[parent] = { kind = held.kind, text = held.text, first = child, next = held.next };
+    return out;
+};
+
+fun set_next(nodes: vec[Node], node: int, sibling: int): vec[Node] = {
+    var[mut] out: vec[Node] = [mov]nodes;
+    var held: Node = out[node];
+    out[node] = { kind = held.kind, text = held.text, first = held.first, next = sibling };
+    return out;
+};
+
+fun scalar_kind(text: str): int = {
+    if (strn::starts_with(text, QUOTE)) {
+        return STR;
+    } else {
+    };
+    if (text == "true" or text == "false") {
+        return BOOL;
+    } else {
+    };
+    if (text == "null") {
+        return NULL;
+    } else {
+    };
+    return NUM;
+};
+
+fun build_value(nodes: vec[Node], source: str): Built = {
+    var text: str = strn::trim(source);
+    if (strn::starts_with(text, OPEN_OBJ)) {
+        return build_object([mov]nodes, text);
+    } else {
+    };
+    if (strn::starts_with(text, OPEN_ARR)) {
+        return build_array([mov]nodes, text);
+    } else {
+    };
+    var kind: int = scalar_kind(text);
+    if (kind == STR) {
+        return push_node([mov]nodes, STR, json::unescape(.str_sub(text, 1, .len(text) - 2)));
+    } else {
+    };
+    return push_node([mov]nodes, kind, text);
+};
+
+fun link_children(nodes: vec[Node], parent: int, children: vec[int]): vec[Node] = {
+    var[mut] out: vec[Node] = [mov]nodes;
+    var total: int = .len(children);
+    if (total == 0) {
+        return out;
+    } else {
+    };
+    out = set_first([mov]out, parent, children[0]);
+    var[mut] i: int = 1;
+    loop (i < total) {
+        out = set_next([mov]out, children[i - 1], children[i]);
+        i = i + 1;
+    };
+    return out;
+};
+
+fun build_array(nodes: vec[Node], text: str): Built = {
+    var body: str = .str_sub(text, 1, .len(text) - 2);
+    var items: vec[str] = json::split_top_level(body);
+    var head: Built = push_node([mov]nodes, ARR, "");
+    var parent: int = head.index;
+    var[mut] out: vec[Node] = [mov]head.nodes;
+    var[mut] children: vec[int] = {};
+    var[mut] i: int = 0;
+    var total: int = .len(items);
+    loop (i < total) {
+        var made: Built = build_value([mov]out, items[i]);
+        children.push(made.index);
+        out = [mov]made.nodes;
+        i = i + 1;
+    };
+    out = link_children([mov]out, parent, [mov]children);
+    return { index = parent, nodes = [mov]out };
+};
+
+fun build_object(nodes: vec[Node], text: str): Built = {
+    var body: str = .str_sub(text, 1, .len(text) - 2);
+    var entries: vec[str] = json::split_top_level(body);
+    var head: Built = push_node([mov]nodes, OBJ, "");
+    var parent: int = head.index;
+    var[mut] out: vec[Node] = [mov]head.nodes;
+    var[mut] children: vec[int] = {};
+    var[mut] i: int = 0;
+    var total: int = .len(entries);
+    loop (i < total) {
+        var entry: str = entries[i];
+        var cut: int = json::key_split_point(entry);
+        if (cut > 0) {
+            var raw: str = strn::trim(.str_sub(entry, 0, cut));
+            var key: str = json::unescape(.str_sub(raw, 1, .len(raw) - 2));
+            var member: Built = push_node([mov]out, MEMBER, key);
+            var slot: int = member.index;
+            var made: Built = build_value([mov]member.nodes, .str_sub(entry, cut + 1, .len(entry) - cut - 1));
+            out = set_first([mov]made.nodes, slot, made.index);
+            children.push(slot);
+        } else {
+        };
+        i = i + 1;
+    };
+    out = link_children([mov]out, parent, [mov]children);
+    return { index = parent, nodes = [mov]out };
+};
+
+fun[exp] parse(text: str): Doc = {
+    if (json::is_balanced(text) == false) {
+        var[mut] empty: vec[Node] = {};
+        return { nodes = [mov]empty, root = none() };
+    } else {
+    };
+    var[mut] start: vec[Node] = {};
+    var built: Built = build_value([mov]start, text);
+    return { nodes = [mov]built.nodes, root = built.index };
+};
+
+fun[exp] kind_of(doc: Doc[bor], index: int): int = {
+    if (index < 0 or index >= .len(doc.nodes)) {
+        return none();
+    } else {
+    };
+    return doc.nodes[index].kind;
+};
+
+fun[exp] text_of(doc: Doc[bor], index: int): str = {
+    if (index < 0 or index >= .len(doc.nodes)) {
+        return "";
+    } else {
+    };
+    return doc.nodes[index].text;
+};
+
+fun[exp] child_indices(doc: Doc[bor], index: int): vec[int] = {
+    var[mut] out: vec[int] = {};
+    if (index < 0 or index >= .len(doc.nodes)) {
+        return out;
+    } else {
+    };
+    var[mut] walk: int = doc.nodes[index].first;
+    loop (walk >= 0) {
+        out.push(walk);
+        walk = doc.nodes[walk].next;
+    };
+    return out;
+};
+
+// The value a member holds, i.e. its only child.
+fun[exp] member_value(doc: Doc[bor], member: int): int = {
+    if (member < 0 or member >= .len(doc.nodes)) {
+        return none();
+    } else {
+    };
+    return doc.nodes[member].first;
+};
+
+fun[exp] field(doc: Doc[bor], object: int, name: str): int = {
+    var members: vec[int] = child_indices(doc, object);
+    var[mut] i: int = 0;
+    var total: int = .len(members);
+    loop (i < total) {
+        if (text_of(doc, members[i]) == name) {
+            return member_value(doc, members[i]);
+        } else {
+        };
+        i = i + 1;
+    };
+    return none();
+};
+
+fun[exp] element(doc: Doc[bor], array: int, position: int): int = {
+    var items: vec[int] = child_indices(doc, array);
+    if (position < 0 or position >= .len(items)) {
+        return none();
+    } else {
+    };
+    return items[position];
+};
+
+fun[exp] length_of(doc: Doc[bor], index: int): int = {
+    return .len(child_indices(doc, index));
+};
+
+// Dotted path with bracketed indices: `user.tags[1]`.
+fun[exp] path(doc: Doc[bor], from: str): int = {
+    var[mut] here: int = doc.root;
+    var steps: vec[str] = strn::split(from, ".");
+    var[mut] i: int = 0;
+    var total: int = .len(steps);
+    loop (i < total) {
+        var step: str = steps[i];
+        var open: int = strn::find(step, "[");
+        if (open < 0) {
+            here = field(doc, here, step);
+        } else {
+            var name: str = .str_sub(step, 0, open);
+            here = field(doc, here, name);
+            var rest: str = .str_sub(step, open, .len(step) - open);
+            var digits: str = strn::replace(strn::replace(rest, "[", ""), "]", "");
+            here = element(doc, here, strn::to_int(digits, 0 - 1));
+        };
+        i = i + 1;
+    };
+    return here;
+};
+
+fun[exp] render(doc: Doc[bor], index: int): str = {
+    var kind: int = kind_of(doc, index);
+    if (kind == STR) {
+        return json::encode_string(text_of(doc, index));
+    } else {
+    };
+    if (kind == NUM or kind == BOOL or kind == NULL) {
+        return text_of(doc, index);
+    } else {
+    };
+    if (kind == ARR) {
+        var items: vec[int] = child_indices(doc, index);
+        var[mut] out: str = "[";
+        var[mut] i: int = 0;
+        loop (i < .len(items)) {
+            if (i > 0) {
+                out = out + ",";
+            } else {
+            };
+            out = out + render(doc, items[i]);
+            i = i + 1;
+        };
+        return out + "]";
+    } else {
+    };
+    if (kind == OBJ) {
+        var members: vec[int] = child_indices(doc, index);
+        var[mut] out: str = "{";
+        var[mut] i: int = 0;
+        loop (i < .len(members)) {
+            if (i > 0) {
+                out = out + ",";
+            } else {
+            };
+            out = out + json::encode_string(text_of(doc, members[i])) + ":"
+            + render(doc, member_value(doc, members[i]));
+            i = i + 1;
+        };
+        return out + "}";
+    } else {
+    };
+    return "";
+};
