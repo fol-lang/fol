@@ -429,19 +429,30 @@ pub fn parse_directory_package_syntax(
             column: loc.column,
             length: loc.length.unwrap_or(1),
         });
+        // Lead with the syntax problem, not the loader framing: a missing `;`
+        // used to be announced as "package loader could not parse imported
+        // package", which reads as a packaging fault. The package is context,
+        // so it goes after.
         let message = format!(
-            "package loader could not parse imported package '{}': {}",
-            root.display(),
-            first.message
+            "{} (while loading package '{}')",
+            first.message,
+            root.display()
         );
         let mut error = match origin {
-            Some(origin) => {
-                PackageError::with_origin(PackageErrorKind::InvalidInput, message, origin)
-            }
-            None => PackageError::new(PackageErrorKind::InvalidInput, message),
+            Some(origin) => PackageError::with_origin(PackageErrorKind::Syntax, message, origin),
+            None => PackageError::new(PackageErrorKind::Syntax, message),
         };
+        // Everything the parser reports AFTER the first failure in the same
+        // file is recovery noise -- one missing `;` used to drag along eleven
+        // follow-on errors, including "executable calls are not allowed at file
+        // root" pointing at perfectly good code. A diagnostic in a DIFFERENT
+        // file is a separate problem worth showing.
+        let primary_file = error.origin().and_then(|origin| origin.file.clone());
         for extra in iter {
             if let Some(loc) = extra.primary_location() {
+                if loc.file == primary_file {
+                    continue;
+                }
                 error = error.with_related_origin(
                     SyntaxOrigin {
                         file: loc.file.clone(),

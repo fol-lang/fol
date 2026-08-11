@@ -15,6 +15,9 @@ pub enum ResolverErrorKind {
     AmbiguousReference,
     ImportCycle,
     Internal,
+    /// A source file did not parse. Carried through so the author sees a
+    /// syntax diagnostic rather than a name-resolution one.
+    Syntax,
 }
 
 impl ResolverErrorKind {
@@ -27,6 +30,9 @@ impl ResolverErrorKind {
             Self::AmbiguousReference => DiagnosticCode::new("R1005"),
             Self::ImportCycle => DiagnosticCode::new("R1006"),
             Self::Internal => DiagnosticCode::new("R1099"),
+            // The parser's own code: a syntax slip is not a naming problem, and
+            // `explain P1001` is the help the author actually needs.
+            Self::Syntax => DiagnosticCode::new("P1001"),
         }
     }
 }
@@ -174,8 +180,13 @@ impl From<PackageError> for ResolverError {
             fol_package::PackageErrorKind::Unsupported => ResolverErrorKind::Unsupported,
             fol_package::PackageErrorKind::ImportCycle => ResolverErrorKind::ImportCycle,
             fol_package::PackageErrorKind::Internal => ResolverErrorKind::Internal,
+            fol_package::PackageErrorKind::Syntax => ResolverErrorKind::Syntax,
         };
-        let message = resolver_package_message(error.message());
+        let message = if matches!(kind, ResolverErrorKind::Syntax) {
+            error.message().to_string()
+        } else {
+            resolver_package_message(error.message())
+        };
         match error.origin().cloned() {
             Some(origin) => ResolverError::with_origin(kind, message, origin),
             None => ResolverError::new(kind, message),

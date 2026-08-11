@@ -662,7 +662,7 @@ pub(crate) const V3_PROC_M3_FAILURES: &[V3FailureExample] = &[
     ),
     v3_failure_codes!(
         "examples/fail_proc_select_old_form_m3",
-        "K1001",
+        "P1001",
         "P1001",
         "old select(channel as binding) form is not supported",
         true,
@@ -691,7 +691,7 @@ pub(crate) const V3_PROC_M3_FAILURES: &[V3FailureExample] = &[
     ),
     v3_failure_codes!(
         "examples/fail_proc_mutex_double_paren_m3",
-        "K1001",
+        "P1001",
         "P1001",
         "Expected generic parameter name",
         true,

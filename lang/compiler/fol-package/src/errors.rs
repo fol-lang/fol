@@ -9,6 +9,10 @@ pub enum PackageErrorKind {
     Unsupported,
     ImportCycle,
     Internal,
+    /// A source file in the package did not parse. The problem is the code, not
+    /// the package graph, so it reports under the parser's own code and the
+    /// author gets `explain P1001` rather than build-graph advice.
+    Syntax,
 }
 
 impl PackageErrorKind {
@@ -18,6 +22,7 @@ impl PackageErrorKind {
             Self::Unsupported => DiagnosticCode::new("K1002"),
             Self::ImportCycle => DiagnosticCode::new("K1003"),
             Self::Internal => DiagnosticCode::new("K1099"),
+            Self::Syntax => DiagnosticCode::new("P1001"),
         }
     }
 }
