@@ -1,5 +1,7 @@
 use math: loc = {"math"};
 
+// Bootstrap placeholders. Still referenced by ~10 test sites incl. an exact
+// export-list assertion, so removing them is its own cutover.
 fun[exp] answer(): int = {
     return math::answer();
 };
@@ -22,4 +24,107 @@ fun[exp] int_to_str(value: int): str = {
 
 fun[exp] float_to_str(value: flt, decimals: int): str = {
     return .float_to_str(value, decimals);
+};
+
+// Everything below is written in FOL. `to_radix` is the one real routine here;
+// hex, binary and octal are it with a fixed base.
+
+con DIGITS: str = "0123456789abcdefghijklmnopqrstuvwxyz";
+
+fun[exp] bol_to_str(value: bol): str = {
+    if (value) {
+        return "true";
+    } else {
+    };
+    return "false";
+};
+
+// Bases 2 through 36. A negative value keeps a leading minus rather than being
+// rendered as its two's-complement bit pattern, so the result round-trips.
+fun[exp] to_radix(value: int, radix: int): str = {
+    if (radix < 2 or radix > 36) {
+        return "";
+    } else {
+    };
+    if (value == 0) {
+        return "0";
+    } else {
+    };
+    var negative: bol = value < 0;
+    var[mut] left: int = value;
+    if (negative) {
+        left = 0 - value;
+    } else {
+    };
+    var[mut] built: str = "";
+    loop (left > 0) {
+        var digit: int = left % radix;
+        built = .str_sub(DIGITS, digit, 1) + built;
+        left = left / radix;
+    };
+    if (negative) {
+        return "-" + built;
+    } else {
+    };
+    return built;
+};
+
+fun[exp] to_hex(value: int): str = {
+    return to_radix(value, 16);
+};
+
+fun[exp] to_bin(value: int): str = {
+    return to_radix(value, 2);
+};
+
+fun[exp] to_oct(value: int): str = {
+    return to_radix(value, 8);
+};
+
+// Zero-padded to `width`, with the sign kept outside the padding so
+// `pad_int(-7, 4)` is `-007` rather than `0-07`.
+fun[exp] pad_int(value: int, width: int): str = {
+    var negative: bol = value < 0;
+    var[mut] digits: str = .int_to_str(value);
+    if (negative) {
+        digits = .str_sub(digits, 1, .len(digits) - 1);
+    } else {
+    };
+    var missing: int = width - .len(digits);
+    var[mut] i: int = 0;
+    loop (i < missing) {
+        digits = "0" + digits;
+        i = i + 1;
+    };
+    if (negative) {
+        return "-" + digits;
+    } else {
+    };
+    return digits;
+};
+
+// Groups of three from the right, e.g. 1234567 becomes 1,234,567.
+fun[exp] with_thousands(value: int, sep: str): str = {
+    var negative: bol = value < 0;
+    var[mut] digits: str = .int_to_str(value);
+    if (negative) {
+        digits = .str_sub(digits, 1, .len(digits) - 1);
+    } else {
+    };
+    var total: int = .len(digits);
+    var[mut] built: str = "";
+    var[mut] i: int = 0;
+    loop (i < total) {
+        if (i > 0 and (total - i) % 3 == 0) {
+            built = built + sep;
+        } else {
+        };
+        built = built + .str_sub(digits, i, 1);
+        i = i + 1;
+    };
+    if (negative) {
+        return "-" + built;
+    } else {
+    };
+    return built;
 };
