@@ -1236,10 +1236,19 @@ fn routine_signature_for_method(
         // `pro (Type[mut, bor])m()`) auto-borrows the object: a call `obj.m()`
         // on an owned `obj: Type` matches when the receiver's borrowed inner
         // type equals the object type (V3_MEM §4.2/§8.3).
-        if let Some(crate::CheckedType::Borrowed { inner, .. }) =
-            typed.type_table().get(receiver_type)
+        if let Some(crate::CheckedType::Borrowed {
+            inner,
+            mutable: receiver_mutable,
+        }) = typed.type_table().get(receiver_type).cloned()
         {
-            if *inner == object_type {
+            // The object may itself be a loan -- `self` inside a
+            // `pro (T[mut, bor])` method is one. A mutable loan reborrows as a
+            // shared one, so it can call a `[bor]` method; the reverse cannot.
+            let (object_inner, object_mutable) = match typed.type_table().get(object_type) {
+                Some(crate::CheckedType::Borrowed { inner, mutable }) => (*inner, *mutable),
+                _ => (object_type, true),
+            };
+            if inner == object_inner && (!receiver_mutable || object_mutable) {
                 matches.push((
                     symbol_id,
                     routine_signature_for_symbol(
