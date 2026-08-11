@@ -711,6 +711,22 @@ pub fn render_core_instruction_in_workspace(
             ..
         } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
+            // A guard binding aliases its mutex local, so borrowing the owner
+            // directly hands out `&mut FolMutex<T>` where `&mut T` is wanted.
+            // The guarded value is reached through the held guard, exactly as
+            // field and element stores already do.
+            if routine.mutex_params.contains(owner_id) {
+                let guard = render_mutex_guard_name(*owner_id);
+                let accessor = if *mutable {
+                    "as_mut().expect(\"mutex receiver requires .lock()\")"
+                } else {
+                    "as_ref().expect(\"mutex receiver requires .lock()\")"
+                };
+                return Ok(format!(
+                    "{result} = &{}*{guard}.{accessor};",
+                    if *mutable { "mut " } else { "" }
+                ));
+            }
             let owner = render_local_name(package_identity, routine, *owner_id)?;
             // A reborrow (owner is itself a borrow / Rust reference) must
             // reborrow through it (`&*owner`), not take a reference to the
