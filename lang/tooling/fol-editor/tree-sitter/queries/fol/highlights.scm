@@ -143,7 +143,7 @@
 (field_access field: (identifier) @property)
 (dot_intrinsic "." @operator)
 (dot_intrinsic name: (identifier) @function.builtin
-  (#match? @function.builtin "^(eq|nq|lt|gt|ge|le|not|len|echo|sqrt|write|read_key|raw_mode|sleep_ms|now_ms|term_cols|term_rows|int_to_str|str_sub|str_byte|byte_to_str|read_key_ms|env_var|shell|dir_list|read_file|arg_count|arg_at|write_err|write_file|str_find|str_replace|parse_int|float_to_str|int_to_flt|flt_to_int|flt_floor|flt_ceil|flt_round|chr_to_int|int_to_chr|chr_to_str|parse_flt|flt_abs|sin|cos|tan|atan2|ln|log10|exp|hypot|is_nan|is_inf)$"))
+  (#match? @function.builtin "^(eq|nq|lt|gt|ge|le|not|len|echo|sqrt|bit_and|bit_or|bit_xor|shl|shr|rotl|rotr|pop_count|clz|ctz|write|read_key|raw_mode|sleep_ms|now_ms|term_cols|term_rows|int_to_str|str_sub|str_byte|byte_to_str|read_key_ms|env_var|shell|dir_list|read_file|arg_count|arg_at|write_err|write_file|str_find|str_replace|parse_int|float_to_str|int_to_flt|flt_to_int|flt_floor|flt_ceil|flt_round|chr_to_int|int_to_chr|chr_to_str|parse_flt|flt_abs|sin|cos|tan|atan2|ln|log10|exp|hypot|is_nan|is_inf)$"))
 (binary_expr operator: "^" @operator)
 (range_expr ".." @operator)
 (range_expr "..." @operator)

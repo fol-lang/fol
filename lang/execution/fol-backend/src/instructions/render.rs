@@ -803,6 +803,9 @@ pub fn render_core_instruction_in_workspace(
                 | ("exp", [value])
                 | ("is_nan", [value])
                 | ("is_inf", [value])
+                | ("pop_count", [value])
+                | ("clz", [value])
+                | ("ctz", [value])
                 | ("raw_mode", [value])
                 | ("sleep_ms", [value])
                 | ("byte_to_str", [value])
@@ -824,6 +827,13 @@ pub fn render_core_instruction_in_workspace(
                 | ("parse_flt", [path, contents])
                 | ("atan2", [path, contents])
                 | ("hypot", [path, contents])
+                | ("bit_and", [path, contents])
+                | ("bit_or", [path, contents])
+                | ("bit_xor", [path, contents])
+                | ("shl", [path, contents])
+                | ("shr", [path, contents])
+                | ("rotl", [path, contents])
+                | ("rotr", [path, contents])
                 | ("float_to_str", [path, contents]) => {
                     let first = render_transfer_expr(type_table, package_identity, routine, *path)?;
                     let second =

@@ -109,6 +109,59 @@ pub fn parse_flt(text: FolStr, fallback: crate::value::FolFloat) -> crate::value
         .unwrap_or(fallback)
 }
 
+/// Bitwise operations on `int`, which is a signed 64-bit value. FOL has no
+/// bitwise operators, so these are the whole surface; emulating them with `/`
+/// and `%` is what the mimicry round was forced into, and it breaks on
+/// negatives.
+pub fn bit_and(left: FolInt, right: FolInt) -> FolInt {
+    left & right
+}
+
+pub fn bit_or(left: FolInt, right: FolInt) -> FolInt {
+    left | right
+}
+
+pub fn bit_xor(left: FolInt, right: FolInt) -> FolInt {
+    left ^ right
+}
+
+/// Rust's `<<` panics in debug and wraps in release once the shift reaches the
+/// width. Faulting on both makes the boundary the same in either profile.
+pub fn shl(value: FolInt, shift: FolInt) -> FolInt {
+    match u32::try_from(shift).ok().filter(|shift| *shift < 64) {
+        Some(shift) => value.wrapping_shl(shift),
+        None => panic!("fol runtime fault: shift out of range: {shift}"),
+    }
+}
+
+/// Arithmetic shift: the sign bit is preserved, matching how `int` divides.
+pub fn shr(value: FolInt, shift: FolInt) -> FolInt {
+    match u32::try_from(shift).ok().filter(|shift| *shift < 64) {
+        Some(shift) => value.wrapping_shr(shift),
+        None => panic!("fol runtime fault: shift out of range: {shift}"),
+    }
+}
+
+pub fn rotl(value: FolInt, shift: FolInt) -> FolInt {
+    value.rotate_left((shift.rem_euclid(64)) as u32)
+}
+
+pub fn rotr(value: FolInt, shift: FolInt) -> FolInt {
+    value.rotate_right((shift.rem_euclid(64)) as u32)
+}
+
+pub fn pop_count(value: FolInt) -> FolInt {
+    value.count_ones() as FolInt
+}
+
+pub fn clz(value: FolInt) -> FolInt {
+    value.leading_zeros() as FolInt
+}
+
+pub fn ctz(value: FolInt) -> FolInt {
+    value.trailing_zeros() as FolInt
+}
+
 /// Float mathematics. A negative square root faults rather than producing NaN,
 /// so a mistake surfaces where it happened instead of propagating silently.
 pub fn sqrt(value: crate::value::FolFloat) -> crate::value::FolFloat {

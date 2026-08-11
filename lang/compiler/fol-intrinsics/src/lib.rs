@@ -391,18 +391,8 @@ mod tests {
             // `sqrt` (id 36) used to sit here. It graduated to Implemented /
             // RuntimeHook rather than being shadowed by a second entry, so it is
             // no longer a roadmap placeholder.
-            (
-                "bit_and",
-                IntrinsicId::new(37),
-                IntrinsicCategory::Bitwise,
-                IntrinsicArity::Exactly(2),
-            ),
-            (
-                "pop_count",
-                IntrinsicId::new(44),
-                IntrinsicCategory::Bitwise,
-                IntrinsicArity::Exactly(1),
-            ),
+            // The bitwise family (ids 37-46) graduated the same way `sqrt` did:
+            // promoted in place, so none of them are roadmap placeholders now.
             (
                 "checked_add",
                 IntrinsicId::new(49),

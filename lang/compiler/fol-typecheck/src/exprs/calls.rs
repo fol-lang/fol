@@ -538,6 +538,10 @@ fn terminal_intrinsic_signature(
         }
         "atan2" | "hypot" => Some((vec![builtins.float, builtins.float], builtins.float)),
         "is_nan" | "is_inf" => Some((vec![builtins.float], builtins.bool_)),
+        "bit_and" | "bit_or" | "bit_xor" | "shl" | "shr" | "rotl" | "rotr" => {
+            Some((vec![builtins.int, builtins.int], builtins.int))
+        }
+        "pop_count" | "clz" | "ctz" => Some((vec![builtins.int], builtins.int)),
         "str_sub" => Some((
             vec![builtins.str_, builtins.int, builtins.int],
             builtins.str_,
