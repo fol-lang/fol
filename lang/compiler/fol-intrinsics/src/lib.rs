@@ -253,18 +253,7 @@ mod tests {
                 IntrinsicCategory::Query,
                 IntrinsicArity::Exactly(1),
             ),
-            (
-                "min",
-                IntrinsicId::new(23),
-                IntrinsicCategory::Arithmetic,
-                IntrinsicArity::Exactly(2),
-            ),
-            (
-                "max",
-                IntrinsicId::new(24),
-                IntrinsicCategory::Arithmetic,
-                IntrinsicArity::Exactly(2),
-            ),
+            // `min` (23) and `max` (24) graduated to Implemented / RuntimeHook.
             (
                 "clamp",
                 IntrinsicId::new(25),
@@ -289,7 +278,7 @@ mod tests {
     #[test]
     fn query_and_arithmetic_classification_stays_explicit_for_current_v1_scope() {
         let len = intrinsic_by_canonical_name("len").expect("len should exist");
-        let deferred = ["cap", "is_empty", "low", "high", "min", "max", "clamp"];
+        let deferred = ["cap", "is_empty", "low", "high", "clamp"];
 
         assert_eq!(len.category, IntrinsicCategory::Query);
         assert_eq!(len.availability, IntrinsicAvailability::V1);
@@ -382,23 +371,14 @@ mod tests {
                 IntrinsicCategory::Arithmetic,
                 IntrinsicArity::Exactly(2),
             ),
-            (
-                "abs",
-                IntrinsicId::new(30),
-                IntrinsicCategory::Arithmetic,
-                IntrinsicArity::Exactly(1),
-            ),
             // `sqrt` (id 36) used to sit here. It graduated to Implemented /
             // RuntimeHook rather than being shadowed by a second entry, so it is
             // no longer a roadmap placeholder.
             // The bitwise family (ids 37-46) graduated the same way `sqrt` did:
             // promoted in place, so none of them are roadmap placeholders now.
-            (
-                "checked_add",
-                IntrinsicId::new(49),
-                IntrinsicCategory::Arithmetic,
-                IntrinsicArity::Exactly(2),
-            ),
+            // `abs` (30), `min` (23), `max` (24) and the checked/wrapping/saturating
+            // family (49-54) graduated too. `overflowing_*` (55-56) stay: they
+            // need a pair value to report the flag, which FOL has no surface for.
             (
                 "overflowing_sub",
                 IntrinsicId::new(56),

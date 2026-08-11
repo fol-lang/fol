@@ -109,6 +109,79 @@ pub fn parse_flt(text: FolStr, fallback: crate::value::FolFloat) -> crate::value
         .unwrap_or(fallback)
 }
 
+/// Integer helpers. `checked_*` faults on overflow in EVERY build profile,
+/// which is the point: plain `+` traps in debug and wraps in release, so a
+/// program that must not wrap needs a spelling that behaves the same either way.
+/// `wrapping_*` and `saturating_*` are the two explicit alternatives.
+pub fn min(left: FolInt, right: FolInt) -> FolInt {
+    if left < right {
+        left
+    } else {
+        right
+    }
+}
+
+pub fn max(left: FolInt, right: FolInt) -> FolInt {
+    if left > right {
+        left
+    } else {
+        right
+    }
+}
+
+pub fn abs(value: FolInt) -> FolInt {
+    match value.checked_abs() {
+        Some(value) => value,
+        None => panic!("fol runtime fault: absolute value overflowed"),
+    }
+}
+
+pub fn checked_add(left: FolInt, right: FolInt) -> FolInt {
+    match left.checked_add(right) {
+        Some(value) => value,
+        None => panic!("fol runtime fault: integer addition overflowed"),
+    }
+}
+
+pub fn checked_sub(left: FolInt, right: FolInt) -> FolInt {
+    match left.checked_sub(right) {
+        Some(value) => value,
+        None => panic!("fol runtime fault: integer subtraction overflowed"),
+    }
+}
+
+pub fn wrapping_add(left: FolInt, right: FolInt) -> FolInt {
+    left.wrapping_add(right)
+}
+
+pub fn wrapping_sub(left: FolInt, right: FolInt) -> FolInt {
+    left.wrapping_sub(right)
+}
+
+pub fn saturating_add(left: FolInt, right: FolInt) -> FolInt {
+    left.saturating_add(right)
+}
+
+pub fn saturating_sub(left: FolInt, right: FolInt) -> FolInt {
+    left.saturating_sub(right)
+}
+
+pub fn asin(value: crate::value::FolFloat) -> crate::value::FolFloat {
+    value.asin()
+}
+
+pub fn acos(value: crate::value::FolFloat) -> crate::value::FolFloat {
+    value.acos()
+}
+
+pub fn atan(value: crate::value::FolFloat) -> crate::value::FolFloat {
+    value.atan()
+}
+
+pub fn log2(value: crate::value::FolFloat) -> crate::value::FolFloat {
+    value.log2()
+}
+
 /// Bitwise operations on `int`, which is a signed 64-bit value. FOL has no
 /// bitwise operators, so these are the whole surface; emulating them with `/`
 /// and `%` is what the mimicry round was forced into, and it breaks on

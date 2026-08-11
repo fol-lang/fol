@@ -753,15 +753,15 @@ fn intrinsic_query_typing_distinguishes_implemented_and_deferred_families() {
          fun[] low_bound(items: seq[int]): int = {\n\
              return .low(items);\n\
          };\n\
-         fun[] minimum(left: int, right: int): int = {\n\
-             return .min(left, right);\n\
+         fun[] limited(value: int, low: int, high: int): int = {\n\
+             return .clamp(value, low, high);\n\
          };\n",
     )]);
 
     for expected in [
         ".cap(...) is not yet supported",
         ".low(...) is not yet supported",
-        ".min(...) is not yet supported",
+        ".clamp(...) is not yet supported",
     ] {
         assert!(
             errors.iter().any(|error| {

@@ -9,9 +9,11 @@ pub use crate::aggregate::{
     FolEchoFormat, FolEntry, FolNamedValue, FolRecord,
 };
 pub use crate::builtins::{
-    atan2, bit_and, bit_or, bit_xor, chr_to_int, clz, cos, ctz, div_int, exp, flt_abs, flt_ceil,
-    flt_floor, flt_round, flt_to_int, hypot, int_to_chr, int_to_flt, is_inf, is_nan, len, ln,
-    log10, mod_int, pop_count, pow, pow_float, rotl, rotr, shl, shr, sin, sqrt, tan, FolLength,
+    abs, acos, asin, atan, atan2, bit_and, bit_or, bit_xor, checked_add, checked_sub, chr_to_int,
+    clz, cos, ctz, div_int, exp, flt_abs, flt_ceil, flt_floor, flt_round, flt_to_int, hypot,
+    int_to_chr, int_to_flt, is_inf, is_nan, len, ln, log10, log2, max, min, mod_int, pop_count,
+    pow, pow_float, rotl, rotr, saturating_add, saturating_sub, shl, shr, sin, sqrt, tan,
+    wrapping_add, wrapping_sub, FolLength,
 };
 pub use crate::containers::{index_array, render_array, store_array, FolArray};
 pub use crate::error::require;
