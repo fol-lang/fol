@@ -10,3 +10,6 @@ use iter: loc = {"iter"};
 use sets: loc = {"sets"};
 use codec: loc = {"codec"};
 use hash: loc = {"hash"};
+use nums: loc = {"nums"};
+use grid: loc = {"grid"};
+use heap: loc = {"heap"};

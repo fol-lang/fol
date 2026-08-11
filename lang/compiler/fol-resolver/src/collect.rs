@@ -395,15 +395,21 @@ fn reserved_declaration_name(name: &str, node: &AstNode) -> Option<&'static str>
     if receiver.is_some() {
         return None;
     }
+    // Both lists are refused for the same reason. `OTHER_KEYWORDS` was missed
+    // originally, and the failure mode is worse than the diagnostic one: the
+    // compiler accepts `fun get(...)` and calls it happily, while the
+    // tree-sitter grammar parses `get` as a keyword and produces ERROR nodes.
+    // The program builds and the editor is silently broken.
     fol_lexer::token::buildin::DIAGNOSTIC_KEYWORDS
         .iter()
+        .chain(fol_lexer::token::buildin::OTHER_KEYWORDS.iter())
         .find(|keyword| **keyword == name)
         .copied()
 }
 
 fn reserved_name_message(name: &str, keyword: &str) -> String {
     format!(
-        "'{name}' cannot be declared: '{keyword}' is a diagnostic keyword, so every call site would parse the keyword instead of this declaration; rename it"
+        "'{name}' cannot be declared: '{keyword}' is a keyword, so every call site would parse the keyword instead of this declaration; rename it"
     )
 }
 

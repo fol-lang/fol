@@ -1,0 +1,117 @@
+// A binary min-heap over a vector, plus the queue and stack shapes that fall
+// straight out of `vec`.
+//
+// The heap is the only one of the three that needs real code: a stack is
+// `push`/`pop`, and a queue is `push`/`remove_at(0)`. They are named here anyway
+// so a caller reaches for a queue by name instead of rediscovering the idiom.
+
+fun[exp] stack_push(values: vec[int], value: int): vec[int] = {
+    var[mut] out: vec[int] = [mov]values;
+    out.push(value);
+    return out;
+};
+
+fun[exp] queue_push(values: vec[int], value: int): vec[int] = {
+    var[mut] out: vec[int] = [mov]values;
+    out.push(value);
+    return out;
+};
+
+// Removing the front is O(n) because the tail shifts down. For a hot queue,
+// hold a read index into a growing vector instead.
+fun[exp] queue_pop(values: vec[int]): vec[int] = {
+    var[mut] out: vec[int] = [mov]values;
+    if (.len(out) == 0) {
+        return out;
+    } else {
+    };
+    out.remove_at(0);
+    return out;
+};
+
+fun[exp] queue_front(values: vec[int], fallback: int): int = {
+    if (.len(values) == 0) {
+        return fallback;
+    } else {
+    };
+    return values[0];
+};
+
+fun[exp] heap_push(values: vec[int], value: int): vec[int] = {
+    var[mut] out: vec[int] = [mov]values;
+    out.push(value);
+    var[mut] child: int = .len(out) - 1;
+    loop (child > 0) {
+        var parent: int = (child - 1) / 2;
+        if (out[parent] <= out[child]) {
+            return out;
+        } else {
+        };
+        var hold: int = out[parent];
+        out[parent] = out[child];
+        out[child] = hold;
+        child = parent;
+    };
+    return out;
+};
+
+fun[exp] heap_peek(values: vec[int], fallback: int): int = {
+    if (.len(values) == 0) {
+        return fallback;
+    } else {
+    };
+    return values[0];
+};
+
+// Drop the smallest element: move the last element to the root and sift it down.
+fun[exp] heap_pop(values: vec[int]): vec[int] = {
+    var[mut] out: vec[int] = [mov]values;
+    var total: int = .len(out);
+    if (total == 0) {
+        return out;
+    } else {
+    };
+    if (total == 1) {
+        out.remove_at(0);
+        return out;
+    } else {
+    };
+    out[0] = out[total - 1];
+    out.remove_at(total - 1);
+    var size: int = .len(out);
+    var[mut] parent: int = 0;
+    loop (true) {
+        var left: int = parent * 2 + 1;
+        var right: int = left + 1;
+        var[mut] smallest: int = parent;
+        if (left < size and out[left] < out[smallest]) {
+            smallest = left;
+        } else {
+        };
+        if (right < size and out[right] < out[smallest]) {
+            smallest = right;
+        } else {
+        };
+        if (smallest == parent) {
+            return out;
+        } else {
+        };
+        var hold: int = out[parent];
+        out[parent] = out[smallest];
+        out[smallest] = hold;
+        parent = smallest;
+    };
+    return out;
+};
+
+// Repeatedly taking the minimum is heapsort; useful on its own and a direct
+// check that the heap invariant holds.
+fun[exp] heap_drain(values: vec[int]): vec[int] = {
+    var[mut] source: vec[int] = [mov]values;
+    var[mut] out: vec[int] = {};
+    loop (.len(source) > 0) {
+        out.push(heap_peek(source, 0));
+        source = heap_pop([mov]source);
+    };
+    return out;
+};

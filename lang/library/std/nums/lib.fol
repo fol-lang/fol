@@ -1,0 +1,87 @@
+// Numeric helpers that need no intrinsic. `PI` and `E` live here as constants
+// rather than as zero-argument intrinsics: a constant is not an operation, and
+// putting them in the catalog would spend permanent compiler surface on two
+// literals.
+
+con[exp] PI: flt = 3.141592653589793;
+con[exp] E: flt = 2.718281828459045;
+con[exp] TAU: flt = 6.283185307179586;
+
+fun[exp] clamp_int(value: int, low: int, high: int): int = {
+    return .min(.max(value, low), high);
+};
+
+fun[exp] clamp_flt(value: flt, low: flt, high: flt): flt = {
+    if (value < low) {
+        return low;
+    } else {
+    };
+    if (value > high) {
+        return high;
+    } else {
+    };
+    return value;
+};
+
+fun[exp] sign_int(value: int): int = {
+    if (value > 0) {
+        return 1;
+    } else {
+    };
+    if (value < 0) {
+        return 0 - 1;
+    } else {
+    };
+    return 0;
+};
+
+fun[exp] is_even(value: int): bol = {
+    return value % 2 == 0;
+};
+
+fun[exp] is_odd(value: int): bol = {
+    return value % 2 != 0;
+};
+
+// Euclid's algorithm on absolute values, so a negative operand still yields a
+// non-negative divisor.
+fun[exp] gcd(left: int, right: int): int = {
+    var[mut] a: int = .abs(left);
+    var[mut] b: int = .abs(right);
+    loop (b != 0) {
+        var hold: int = b;
+        b = a % b;
+        a = hold;
+    };
+    return a;
+};
+
+fun[exp] lcm(left: int, right: int): int = {
+    if (left == 0 or right == 0) {
+        return 0;
+    } else {
+    };
+    return .abs(left / gcd(left, right) * right);
+};
+
+fun[exp] pow_int(base: int, exponent: int): int = {
+    if (exponent < 0) {
+        return 0;
+    } else {
+    };
+    var[mut] out: int = 1;
+    var[mut] left: int = exponent;
+    loop (left > 0) {
+        out = out * base;
+        left = left - 1;
+    };
+    return out;
+};
+
+fun[exp] degrees_to_radians(value: flt): flt = {
+    return value * PI / 180.0;
+};
+
+fun[exp] radians_to_degrees(value: flt): flt = {
+    return value * 180.0 / PI;
+};
