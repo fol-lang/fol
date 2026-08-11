@@ -1188,6 +1188,40 @@ pub fn bytes_valid_utf8(bytes: FolVec<crate::value::FolInt>) -> crate::value::Fo
     byte_payload(&bytes).is_some_and(|payload| std::str::from_utf8(&payload).is_ok())
 }
 
+/// Unicode normalization forms, for `str_normalize`.
+///
+/// `é` typed as `e` plus a combining accent and `é` typed precomposed look
+/// identical, compare unequal, and report different lengths. Normalizing both
+/// sides before comparing is the only way user-entered text behaves the way a
+/// reader expects.
+///
+/// - 0 **NFC** — compose. The web's default and the right choice for storing
+///   and comparing text.
+/// - 1 **NFD** — decompose. Useful when stripping accents, since it separates
+///   the base letter from its marks.
+/// - 2 **NFKC** — compose, and fold compatibility variants first: `ﬁ` becomes
+///   `fi`, fullwidth `Ａ` becomes `A`. Lossy by design; good for search keys,
+///   wrong for text you intend to give back to the user.
+/// - 3 **NFKD** — decompose with the same compatibility folding.
+///
+/// An unknown form returns the input unchanged rather than faulting, matching
+/// how the other selector arguments on this surface behave.
+pub fn str_normalize(text: FolStr, form: crate::value::FolInt) -> FolStr {
+    match crate::normalize::Form::from_selector(form) {
+        Some(form) => FolStr::new(crate::normalize::normalize(text.as_str(), form)),
+        None => text,
+    }
+}
+
+/// Whether text is already in a normalization form. Cheaper than normalizing
+/// and comparing when the answer is usually yes, which for stored text it is.
+pub fn str_is_normalized(text: FolStr, form: crate::value::FolInt) -> crate::value::FolBool {
+    if !(0..=3).contains(&form) {
+        return false;
+    }
+    str_normalize(text.clone(), form).as_str() == text.as_str()
+}
+
 /// How many leading bytes form complete, valid UTF-8.
 ///
 /// Required by any chunked reader. A fixed-size `file_read` splits multi-byte

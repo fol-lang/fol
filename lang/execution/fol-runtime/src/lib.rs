@@ -229,9 +229,11 @@ pub mod containers;
 pub mod core;
 pub mod error;
 pub mod memo;
+pub(crate) mod normalize;
 pub mod process;
 pub mod shell;
 pub mod std;
+pub(crate) mod unicode_tables;
 pub mod value;
 
 pub const CRATE_NAME: &str = "fol-runtime";

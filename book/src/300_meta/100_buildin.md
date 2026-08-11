@@ -322,6 +322,7 @@ what a column width has to be computed from.
   chunk boundaries, and a chunk ending mid-character decodes to the empty
   string. Decode the prefix, carry the remainder. `std::fs::decoder` wraps the
   whole pattern, and `std::fs::read_streamed` uses it
+- `.str_normalize(text, form)` / `.str_is_normalized(text, form)` — see below
 - `.str_width(text)` / `.chr_width(c)` — terminal columns: 0 for combining
   marks and controls, 2 for CJK, kana, Hangul, fullwidth forms and the common
   emoji planes, 1 otherwise. It is a range table, as `wcwidth` always is, so a
@@ -343,6 +344,48 @@ what a column width has to be computed from.
 - `.chr_upper(c)` / `.chr_lower(c)` — full Unicode case, not ASCII-only
 - `.chr_is_alpha(c)` / `.chr_is_digit(c)` / `.chr_is_space(c)`
 - `.chr_to_int(c)` / `.int_to_chr(value)` / `.chr_to_str(c)`
+
+#### Normalization
+
+The same word can be typed two ways. `é` as `e` plus a combining accent and `é`
+precomposed look identical, compare **unequal**, and report different lengths:
+
+```fol
+var typed: str = "e\u{0301}llo";
+var stored: str = "éllo";
+// typed == stored          is false
+// .str_char_len(typed)     is 5
+// .str_char_len(stored)    is 4
+// std::strn::same_text(typed, stored)  is true
+```
+
+Any comparison against text a person typed — a login name, a search box, a
+filename — has to normalize both sides first, or it rejects input the user
+believes is correct.
+
+`.str_normalize(text, form)` takes a form selector:
+
+- `0` **NFC** — compose. The default for storing and comparing
+- `1` **NFD** — decompose. Useful for stripping accents, since it separates the
+  base letter from its marks
+- `2` **NFKC** — compose, folding compatibility variants first: `ﬁ` becomes
+  `fi`, fullwidth `Ａ` becomes `A`. Lossy by design: right for a search key,
+  wrong for text handed back to the user, because it discards distinctions the
+  author made
+- `3` **NFKD** — decompose with the same folding
+
+An unknown form returns the input unchanged. `.str_is_normalized(text, form)`
+answers without doing the work, which is worth it for stored text where the
+answer is usually yes.
+
+`std::strn` wraps these as `nfc`, `nfd`, `nfkc`, `nfkd`, `is_nfc`, plus
+`same_text(left, right)` for comparing user input and `search_key(text)` for
+duplicate detection.
+
+The Unicode data behind this is **generated into the runtime**, not pulled from
+a crate: the runtime is compiled by a bare `rustc` with no dependency
+resolution, so it can only carry plain data. See
+`fol-runtime/tools/README.md` to regenerate.
 
 #### Time and randomness
 

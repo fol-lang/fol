@@ -686,6 +686,8 @@ fn terminal_intrinsic_signature(
         )),
         "cpu_count" | "thread_yield" | "thread_id" => Some((Vec::new(), builtins.int)),
         "str_width" => Some((vec![builtins.str_], builtins.int)),
+        "str_normalize" => Some((vec![builtins.str_, builtins.int], builtins.str_)),
+        "str_is_normalized" => Some((vec![builtins.str_, builtins.int], builtins.bool_)),
         "chr_width" => Some((vec![builtins.char_], builtins.int)),
         "file_open" => Some((vec![builtins.str_, builtins.int], builtins.int)),
         "file_seek" => Some((vec![builtins.int, builtins.int, builtins.int], builtins.int)),

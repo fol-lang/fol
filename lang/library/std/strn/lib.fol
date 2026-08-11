@@ -220,3 +220,53 @@ fun[exp] count_matches(text: str, needle: str): int = {
     };
     return found;
 };
+
+// Unicode normalization.
+//
+// `é` typed as `e` plus a combining accent and `é` typed precomposed look
+// identical, compare unequal, and report different lengths. Any comparison of
+// text a person typed -- a login name, a search box, a filename -- has to
+// normalize both sides first or it will reject input the user believes is
+// correct.
+//
+// Prefer `nfc` for storing and comparing. `nfkc` additionally folds
+// compatibility variants (`ﬁ` becomes `fi`, fullwidth `Ａ` becomes `A`), which
+// is right for a search key and wrong for text handed back to the user,
+// because it discards distinctions the author made.
+
+con FORM_NFC: int = 0;
+con FORM_NFD: int = 1;
+con FORM_NFKC: int = 2;
+con FORM_NFKD: int = 3;
+
+fun[exp] nfc(text: str): str = {
+    return .str_normalize(text, FORM_NFC);
+};
+
+fun[exp] nfd(text: str): str = {
+    return .str_normalize(text, FORM_NFD);
+};
+
+fun[exp] nfkc(text: str): str = {
+    return .str_normalize(text, FORM_NFKC);
+};
+
+fun[exp] nfkd(text: str): str = {
+    return .str_normalize(text, FORM_NFKD);
+};
+
+fun[exp] is_nfc(text: str): bol = {
+    return .str_is_normalized(text, FORM_NFC);
+};
+
+// Equality that ignores how the text happened to be typed. This is what a
+// comparison against user input should use; `==` compares byte sequences.
+fun[exp] same_text(left: str, right: str): bol = {
+    return nfc(left) == nfc(right);
+};
+
+// Looser still: folds case and compatibility variants too, for search keys and
+// duplicate detection. Lossy by design.
+fun[exp] search_key(text: str): str = {
+    return .str_lower(nfkc(text));
+};

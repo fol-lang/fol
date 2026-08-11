@@ -2541,6 +2541,30 @@ const INTRINSICS: &[IntrinsicEntry] = &[
         IntrinsicLoweringMode::RuntimeHook,
         "leading bytes that form complete UTF-8",
     ),
+    IntrinsicEntry::new(
+        IntrinsicId::new(216),
+        "str_normalize",
+        &[],
+        IntrinsicCategory::Conversion,
+        IntrinsicSurface::DotRootCall,
+        IntrinsicAvailability::V1,
+        IntrinsicStatus::Implemented,
+        IntrinsicArity::Exactly(2),
+        IntrinsicLoweringMode::RuntimeHook,
+        "text in a Unicode normalization form",
+    ),
+    IntrinsicEntry::new(
+        IntrinsicId::new(217),
+        "str_is_normalized",
+        &[],
+        IntrinsicCategory::Query,
+        IntrinsicSurface::DotRootCall,
+        IntrinsicAvailability::V1,
+        IntrinsicStatus::Implemented,
+        IntrinsicArity::Exactly(2),
+        IntrinsicLoweringMode::RuntimeHook,
+        "whether text is already in a normalization form",
+    ),
 ];
 
 pub const fn intrinsic_registry() -> &'static [IntrinsicEntry] {
@@ -2625,7 +2649,7 @@ pub fn backend_role_for_intrinsic(id: IntrinsicId) -> Option<IntrinsicBackendRol
         // their Deferred placeholders rather than shadowed by second entries.
         // 23-24 min/max, 30 abs, 36 sqrt, 37-46 bitwise and 49-54 the overflow
         // family were all promoted in place from Deferred placeholders.
-        8 | 11 | 23 | 24 | 30 | 36..=46 | 49..=54 | 57..=197 | 200..=215 => {
+        8 | 11 | 23 | 24 | 30 | 36..=46 | 49..=54 | 57..=197 | 200..=217 => {
             Some(IntrinsicBackendRole::RuntimeHook)
         }
         13 => Some(IntrinsicBackendRole::ControlEffect),

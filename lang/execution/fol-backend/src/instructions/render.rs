@@ -1002,6 +1002,8 @@ pub fn render_core_instruction_in_workspace(
                 | ("atomic_store", [path, contents])
                 | ("atomic_add", [path, contents])
                 | ("bytes_equal_ct", [path, contents])
+                | ("str_normalize", [path, contents])
+                | ("str_is_normalized", [path, contents])
                 | ("file_open", [path, contents])
                 | ("file_read", [path, contents])
                 | ("file_write", [path, contents])
