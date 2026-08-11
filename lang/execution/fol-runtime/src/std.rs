@@ -611,6 +611,148 @@ pub fn str_valid_utf8(text: FolStr) -> crate::value::FolBool {
     std::str::from_utf8(text.as_str().as_bytes()).is_ok()
 }
 
+/// Binary file access. `read_file`/`write_file` assume UTF-8, which silently
+/// mangles anything that is not text; these carry bytes verbatim.
+pub fn read_bytes(path: FolStr) -> FolVec<crate::value::FolInt> {
+    FolVec::from_items(
+        std::fs::read(path.as_str())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|byte| byte as crate::value::FolInt)
+            .collect(),
+    )
+}
+
+pub fn write_bytes(path: FolStr, bytes: FolVec<crate::value::FolInt>) -> crate::value::FolInt {
+    let payload: Vec<u8> = bytes
+        .as_slice()
+        .iter()
+        .map(|value| (*value).clamp(0, 255) as u8)
+        .collect();
+    std::fs::write(path.as_str(), payload).map_or(1, |()| 0)
+}
+
+/// One entry name per element. This replaces `dir_list`, which packs everything
+/// into a single delimited `str` — a workaround from before `vec[str]` existed.
+pub fn dir_entries(path: FolStr) -> FolVec<FolStr> {
+    let Ok(entries) = std::fs::read_dir(path.as_str()) else {
+        return FolVec::from_items(Vec::new());
+    };
+    let mut names: Vec<FolStr> = entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| FolStr::new(entry.file_name().to_string_lossy().into_owned()))
+        .collect();
+    // Directory order is filesystem-defined and therefore not reproducible;
+    // sorting makes a listing stable across runs and machines.
+    names.sort();
+    FolVec::from_items(names)
+}
+
+pub fn remove_dir_all(path: FolStr) -> crate::value::FolInt {
+    std::fs::remove_dir_all(path.as_str()).map_or(1, |()| 0)
+}
+
+/// Uses `symlink_metadata`, which does NOT follow the link — `is_file`/`is_dir`
+/// do follow, so a link to a file reports as a file there and as a link here.
+pub fn file_is_link(path: FolStr) -> crate::value::FolBool {
+    std::fs::symlink_metadata(path.as_str())
+        .map(|meta| meta.file_type().is_symlink())
+        .unwrap_or(false)
+}
+
+pub fn read_link(path: FolStr) -> FolStr {
+    std::fs::read_link(path.as_str()).map_or_else(
+        |_| FolStr::new(String::new()),
+        |target| FolStr::new(target.display().to_string()),
+    )
+}
+
+/// Unix mode bits, or -1 when unreadable. FOL is Linux-only, so these are the
+/// real permissions rather than a portable approximation.
+pub fn permissions(path: FolStr) -> crate::value::FolInt {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path.as_str())
+        .map_or(-1, |meta| meta.permissions().mode() as crate::value::FolInt)
+}
+
+pub fn set_permissions(path: FolStr, mode: crate::value::FolInt) -> crate::value::FolInt {
+    use std::os::unix::fs::PermissionsExt;
+    let Ok(mode) = u32::try_from(mode) else {
+        return 1;
+    };
+    std::fs::set_permissions(path.as_str(), std::fs::Permissions::from_mode(mode)).map_or(1, |()| 0)
+}
+
+pub fn temp_dir() -> FolStr {
+    FolStr::new(std::env::temp_dir().display().to_string())
+}
+
+pub fn home_dir() -> FolStr {
+    FolStr::new(std::env::var("HOME").unwrap_or_default())
+}
+
+pub fn set_current_dir(path: FolStr) -> crate::value::FolInt {
+    std::env::set_current_dir(path.as_str()).map_or(1, |()| 0)
+}
+
+/// Every variable as `"KEY=VALUE"`. Splitting on the first `=` is the caller's
+/// job — a value may itself contain `=`, so only the first one separates.
+pub fn env_vars() -> FolVec<FolStr> {
+    let mut pairs: Vec<FolStr> = std::env::vars()
+        .map(|(key, value)| FolStr::new(format!("{key}={value}")))
+        .collect();
+    pairs.sort();
+    FolVec::from_items(pairs)
+}
+
+pub fn set_env_var(name: FolStr, value: FolStr) -> crate::value::FolInt {
+    std::env::set_var(name.as_str(), value.as_str());
+    0
+}
+
+pub fn process_id() -> crate::value::FolInt {
+    std::process::id() as crate::value::FolInt
+}
+
+/// Run a command with an explicit argument vector and capture everything:
+/// `[status, stdout, stderr]`, status rendered as decimal so one call answers
+/// every question.
+///
+/// This does NOT go through a shell, which is the whole point: `shell`/
+/// `shell_out` pass a string to `sh -c`, so any argument containing a space,
+/// quote or `;` changes the meaning of the command. Prefer this whenever an
+/// argument came from outside the program.
+pub fn run_capture(program: FolStr, args: FolVec<FolStr>) -> FolVec<FolStr> {
+    let mut command = std::process::Command::new(program.as_str());
+    for arg in args.as_slice() {
+        command.arg(arg.as_str());
+    }
+    match command.output() {
+        Ok(output) => FolVec::from_items(vec![
+            FolStr::new(output.status.code().unwrap_or(-1).to_string()),
+            FolStr::new(String::from_utf8_lossy(&output.stdout).into_owned()),
+            FolStr::new(String::from_utf8_lossy(&output.stderr).into_owned()),
+        ]),
+        Err(_) => FolVec::from_items(vec![
+            FolStr::new("-1".to_string()),
+            FolStr::new(String::new()),
+            FolStr::new(String::new()),
+        ]),
+    }
+}
+
+/// Status only, with the child's streams inherited so it can talk to the
+/// terminal. Also shell-free.
+pub fn run_status(program: FolStr, args: FolVec<FolStr>) -> crate::value::FolInt {
+    let mut command = std::process::Command::new(program.as_str());
+    for arg in args.as_slice() {
+        command.arg(arg.as_str());
+    }
+    command.status().map_or(-1, |status| {
+        status.code().unwrap_or(-1) as crate::value::FolInt
+    })
+}
+
 /// Wall-clock nanoseconds since the Unix epoch. `now_ms` is too coarse to
 /// measure anything with; this is the same clock at full resolution.
 pub fn now_ns() -> crate::value::FolInt {

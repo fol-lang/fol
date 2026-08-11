@@ -160,14 +160,7 @@ pub(crate) fn type_dot_intrinsic_call(
                     expected_type,
                 )?,
                 None if terminal_intrinsic_signature(typed, entry.name).is_some()
-                    || matches!(
-                        entry.name,
-                        "str_chars"
-                            | "str_from_chars"
-                            | "random_bytes"
-                            | "time_parts"
-                            | "time_from_parts"
-                    ) =>
+                    || CONTAINER_TYPED_INTRINSICS.contains(&entry.name) =>
                 {
                     type_terminal_intrinsic(typed, resolved, context, entry, args, syntax_id)?
                 }
@@ -518,6 +511,24 @@ fn type_echo_intrinsic(
     Ok(TypedExpr::value(operand_type).with_optional_effect(operand_expr.recoverable_effect))
 }
 
+/// Intrinsics whose signature mentions a container type. They are dispatched
+/// and typed in `type_terminal_intrinsic`, which has the mutable borrow that
+/// interning a `vec[T]` requires. Keeping the list in one place stops the guard
+/// and the signature match from drifting apart.
+const CONTAINER_TYPED_INTRINSICS: &[&str] = &[
+    "str_chars",
+    "str_from_chars",
+    "random_bytes",
+    "time_parts",
+    "time_from_parts",
+    "read_bytes",
+    "write_bytes",
+    "dir_entries",
+    "env_vars",
+    "run_capture",
+    "run_status",
+];
+
 /// Fixed (params, result) signature for a terminal/OS runtime hook, or None
 /// when the name is not one. These are the primitive layer for interactive
 /// terminal programs and are hosted-std-only like `echo`.
@@ -584,6 +595,14 @@ fn terminal_intrinsic_signature(
         "random_flt" => Some((Vec::new(), builtins.float)),
         "now_ns" | "mono_ns" => Some((Vec::new(), builtins.int)),
         "sleep_ns" => Some((vec![builtins.int], builtins.int)),
+        "remove_dir_all" | "set_current_dir" => Some((vec![builtins.str_], builtins.int)),
+        "file_is_link" => Some((vec![builtins.str_], builtins.bool_)),
+        "read_link" => Some((vec![builtins.str_], builtins.str_)),
+        "permissions" => Some((vec![builtins.str_], builtins.int)),
+        "set_permissions" => Some((vec![builtins.str_, builtins.int], builtins.int)),
+        "temp_dir" | "home_dir" => Some((Vec::new(), builtins.str_)),
+        "set_env_var" => Some((vec![builtins.str_, builtins.str_], builtins.int)),
+        "process_id" => Some((Vec::new(), builtins.int)),
         "str_sub" => Some((
             vec![builtins.str_, builtins.int, builtins.int],
             builtins.str_,
@@ -622,41 +641,39 @@ fn type_terminal_intrinsic(
     // `vec[chr]` has to be interned, which the shared signature table cannot do
     // from a shared borrow, so the two container-typed char intrinsics are
     // resolved here instead.
-    let (params, result) = match entry.name {
-        // `vec[chr]` and `vec[int]` have to be interned, which the shared
-        // signature table cannot do from a shared borrow.
-        "time_parts" | "time_from_parts" => {
-            let int_ = typed.builtin_types().int;
-            let parts = typed
-                .type_table_mut()
-                .intern(crate::CheckedType::Vector { element_type: int_ });
-            if entry.name == "time_parts" {
-                (vec![int_], parts)
-            } else {
-                (vec![parts], int_)
-            }
+    // Container-typed intrinsics are resolved here rather than in the shared
+    // signature table: interning `vec[T]` needs a mutable borrow the table does
+    // not have. `CONTAINER_TYPED_INTRINSICS` keeps the dispatch guard in step.
+    let (params, result) = if CONTAINER_TYPED_INTRINSICS.contains(&entry.name) {
+        let int_ = typed.builtin_types().int;
+        let str_ = typed.builtin_types().str_;
+        let char_ = typed.builtin_types().char_;
+        let ints = typed
+            .type_table_mut()
+            .intern(crate::CheckedType::Vector { element_type: int_ });
+        let strs = typed
+            .type_table_mut()
+            .intern(crate::CheckedType::Vector { element_type: str_ });
+        let chars = typed.type_table_mut().intern(crate::CheckedType::Vector {
+            element_type: char_,
+        });
+        match entry.name {
+            "str_chars" => (vec![str_], chars),
+            "str_from_chars" => (vec![chars], str_),
+            "random_bytes" => (vec![int_], ints),
+            "time_parts" => (vec![int_], ints),
+            "time_from_parts" => (vec![ints], int_),
+            "read_bytes" => (vec![str_], ints),
+            "write_bytes" => (vec![str_, ints], int_),
+            "dir_entries" => (vec![str_], strs),
+            "env_vars" => (Vec::new(), strs),
+            "run_capture" => (vec![str_, strs], strs),
+            "run_status" => (vec![str_, strs], int_),
+            other => unreachable!("container-typed intrinsic '{other}' has no signature"),
         }
-        "random_bytes" => {
-            let int_ = typed.builtin_types().int;
-            let bytes = typed
-                .type_table_mut()
-                .intern(crate::CheckedType::Vector { element_type: int_ });
-            (vec![int_], bytes)
-        }
-        "str_chars" | "str_from_chars" => {
-            let char_ = typed.builtin_types().char_;
-            let str_ = typed.builtin_types().str_;
-            let chars = typed.type_table_mut().intern(crate::CheckedType::Vector {
-                element_type: char_,
-            });
-            if entry.name == "str_chars" {
-                (vec![str_], chars)
-            } else {
-                (vec![chars], str_)
-            }
-        }
-        _ => terminal_intrinsic_signature(typed, entry.name)
-            .expect("terminal intrinsic dispatch already matched the name"),
+    } else {
+        terminal_intrinsic_signature(typed, entry.name)
+            .expect("terminal intrinsic dispatch already matched the name")
     };
     if typed.capability_model() != crate::TypecheckCapabilityModel::Std {
         let message = format!(

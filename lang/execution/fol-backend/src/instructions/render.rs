@@ -852,6 +852,13 @@ pub fn render_core_instruction_in_workspace(
                 | ("sleep_ns", [value])
                 | ("time_parts", [value])
                 | ("time_from_parts", [value])
+                | ("read_bytes", [value])
+                | ("dir_entries", [value])
+                | ("remove_dir_all", [value])
+                | ("file_is_link", [value])
+                | ("read_link", [value])
+                | ("permissions", [value])
+                | ("set_current_dir", [value])
                 | ("raw_mode", [value])
                 | ("sleep_ms", [value])
                 | ("byte_to_str", [value])
@@ -873,6 +880,10 @@ pub fn render_core_instruction_in_workspace(
                 ("random_flt", []) => "rt::random_flt()".to_string(),
                 ("now_ns", []) => "rt::now_ns()".to_string(),
                 ("mono_ns", []) => "rt::mono_ns()".to_string(),
+                ("temp_dir", []) => "rt::temp_dir()".to_string(),
+                ("home_dir", []) => "rt::home_dir()".to_string(),
+                ("env_vars", []) => "rt::env_vars()".to_string(),
+                ("process_id", []) => "rt::process_id()".to_string(),
                 ("write_file", [path, contents])
                 | ("str_find", [path, contents])
                 | ("parse_int", [path, contents])
@@ -901,6 +912,11 @@ pub fn render_core_instruction_in_workspace(
                 | ("str_char", [path, contents])
                 | ("str_char_index", [path, contents])
                 | ("random_int", [path, contents])
+                | ("write_bytes", [path, contents])
+                | ("set_permissions", [path, contents])
+                | ("set_env_var", [path, contents])
+                | ("run_capture", [path, contents])
+                | ("run_status", [path, contents])
                 | ("float_to_str", [path, contents]) => {
                     let first = render_transfer_expr(type_table, package_identity, routine, *path)?;
                     let second =
