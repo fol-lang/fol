@@ -555,6 +555,7 @@ impl AstParser {
 
             let option = match token.con().trim() {
                 "+" | "pub" | "exp" | "export" => TypeOption::Export,
+                "-" | "hid" | "hidden" => TypeOption::Hidden,
                 "set" => TypeOption::Set,
                 "get" => TypeOption::Get,
                 "nothing" | "non" => TypeOption::Nothing,

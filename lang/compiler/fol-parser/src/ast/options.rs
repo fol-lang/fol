@@ -240,6 +240,7 @@ pub enum FunOption {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeOption {
     Export,    // exp or +
+    Hidden,    // hid, hidden or -
     Set,       // set
     Get,       // get
     Nothing,   // nothing
@@ -312,7 +313,13 @@ pub fn fun_decl_visibility(options: &[FunOption]) -> ParsedDeclVisibility {
 }
 
 pub fn type_decl_visibility(options: &[TypeOption]) -> ParsedDeclVisibility {
+    // Hidden wins over export, matching `fun_decl_visibility`.
     if options
+        .iter()
+        .any(|option| matches!(option, TypeOption::Hidden))
+    {
+        ParsedDeclVisibility::Hidden
+    } else if options
         .iter()
         .any(|option| matches!(option, TypeOption::Export))
     {
