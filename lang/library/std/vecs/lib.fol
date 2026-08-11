@@ -1,0 +1,215 @@
+// Ordering and search over vectors, written in FOL over indexed reads, indexed
+// writes and `.len`. Nothing here reaches an intrinsic.
+//
+// These are spelled per element type rather than generically: a generic `T` is
+// conservatively move-only, so `values[i] > values[j]` inside a generic routine
+// is refused as a move-only indexed projection (O1001). When generics gain a
+// comparable bound these collapse into one routine each.
+
+fun[exp] sort_int(values: vec[int]): vec[int] = {
+    var[mut] out: vec[int] = [mov]values;
+    var[mut] i: int = 1;
+    var total: int = .len(out);
+    loop (i < total) {
+        var[mut] j: int = i;
+        loop (j > 0 and out[j - 1] > out[j]) {
+            var hold: int = out[j - 1];
+            out[j - 1] = out[j];
+            out[j] = hold;
+            j = j - 1;
+        };
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[exp] sort_str(values: vec[str]): vec[str] = {
+    var[mut] out: vec[str] = [mov]values;
+    var[mut] i: int = 1;
+    var total: int = .len(out);
+    loop (i < total) {
+        var[mut] j: int = i;
+        loop (j > 0 and out[j - 1] > out[j]) {
+            var hold: str = out[j - 1];
+            out[j - 1] = out[j];
+            out[j] = hold;
+            j = j - 1;
+        };
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[exp] reverse_int(values: vec[int]): vec[int] = {
+    var[mut] out: vec[int] = {};
+    var[mut] i: int = .len(values) - 1;
+    loop (i >= 0) {
+        out.push(values[i]);
+        i = i - 1;
+    };
+    return out;
+};
+
+fun[exp] is_sorted_int(values: vec[int]): bol = {
+    var[mut] i: int = 1;
+    var total: int = .len(values);
+    loop (i < total) {
+        if (values[i - 1] > values[i]) {
+            return false;
+        } else {
+        };
+        i = i + 1;
+    };
+    return true;
+};
+
+fun[exp] index_of_int(values: vec[int], needle: int): int = {
+    var[mut] i: int = 0;
+    var total: int = .len(values);
+    loop (i < total) {
+        if (values[i] == needle) {
+            return i;
+        } else {
+        };
+        i = i + 1;
+    };
+    return 0 - 1;
+};
+
+fun[exp] contains_int(values: vec[int], needle: int): bol = {
+    return index_of_int(values, needle) >= 0;
+};
+
+// Halving search over an already-sorted vector; -1 when the value is absent.
+fun[exp] binary_search_int(values: vec[int], needle: int): int = {
+    var[mut] low: int = 0;
+    var[mut] high: int = .len(values) - 1;
+    loop (low <= high) {
+        var mid: int = low + (high - low) / 2;
+        var seen: int = values[mid];
+        if (seen == needle) {
+            return mid;
+        } else {
+            if (seen < needle) {
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            };
+        };
+    };
+    return 0 - 1;
+};
+
+fun[exp] min_int(values: vec[int], fallback: int): int = {
+    var total: int = .len(values);
+    if (total == 0) {
+        return fallback;
+    } else {
+    };
+    var[mut] best: int = values[0];
+    var[mut] i: int = 1;
+    loop (i < total) {
+        if (values[i] < best) {
+            best = values[i];
+        } else {
+        };
+        i = i + 1;
+    };
+    return best;
+};
+
+fun[exp] max_int(values: vec[int], fallback: int): int = {
+    var total: int = .len(values);
+    if (total == 0) {
+        return fallback;
+    } else {
+    };
+    var[mut] best: int = values[0];
+    var[mut] i: int = 1;
+    loop (i < total) {
+        if (values[i] > best) {
+            best = values[i];
+        } else {
+        };
+        i = i + 1;
+    };
+    return best;
+};
+
+fun[exp] sum_int(values: vec[int]): int = {
+    var[mut] total: int = 0;
+    var[mut] i: int = 0;
+    var count: int = .len(values);
+    loop (i < count) {
+        total = total + values[i];
+        i = i + 1;
+    };
+    return total;
+};
+
+fun[exp] fill_int(count: int, value: int): vec[int] = {
+    var[mut] out: vec[int] = {};
+    var[mut] i: int = 0;
+    loop (i < count) {
+        out.push(value);
+        i = i + 1;
+    };
+    return out;
+};
+
+// Half-open, like the slice bounds elsewhere: `range_int(0, 3)` is 0, 1, 2.
+fun[exp] range_int(start: int, stop: int): vec[int] = {
+    var[mut] out: vec[int] = {};
+    var[mut] i: int = start;
+    loop (i < stop) {
+        out.push(i);
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[exp] slice_int(values: vec[int], start: int, count: int): vec[int] = {
+    var[mut] out: vec[int] = {};
+    var total: int = .len(values);
+    var[mut] i: int = start;
+    var stop: int = start + count;
+    loop (i < stop and i < total) {
+        if (i >= 0) {
+            out.push(values[i]);
+        } else {
+        };
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[exp] concat_int(left: vec[int], right: vec[int]): vec[int] = {
+    var[mut] out: vec[int] = {};
+    var[mut] i: int = 0;
+    var first: int = .len(left);
+    loop (i < first) {
+        out.push(left[i]);
+        i = i + 1;
+    };
+    var[mut] j: int = 0;
+    var second: int = .len(right);
+    loop (j < second) {
+        out.push(right[j]);
+        j = j + 1;
+    };
+    return out;
+};
+
+fun[exp] dedup_sorted_int(values: vec[int]): vec[int] = {
+    var[mut] out: vec[int] = {};
+    var[mut] i: int = 0;
+    var total: int = .len(values);
+    loop (i < total) {
+        if (i == 0 or values[i] != values[i - 1]) {
+            out.push(values[i]);
+        } else {
+        };
+        i = i + 1;
+    };
+    return out;
+};

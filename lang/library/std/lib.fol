@@ -3,3 +3,4 @@
 // dumped here.
 use os: loc = {"os"};
 use fs: loc = {"fs"};
+use vecs: loc = {"vecs"};
