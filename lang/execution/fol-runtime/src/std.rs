@@ -28,7 +28,7 @@ pub use crate::containers::{
     render_array, render_map, render_seq, render_set, render_vec, reserve_vec, slice_seq,
     slice_vec, sort_vec, store_array, store_vec, swap_vec, truncate_vec, values_map, FolArray,
 };
-pub use crate::error::require;
+pub use crate::error::{assert_message, assert_that, require};
 pub use crate::memo::{FolMap, FolSeq, FolSet, FolStr, FolVec};
 pub use crate::shell::{
     unwrap_error_shell, unwrap_error_shell_ref, unwrap_optional_shell, unwrap_optional_shell_ref,
@@ -719,6 +719,112 @@ pub fn atomic_cas(
         Ok(previous) => previous,
         Err(actual) => actual,
     }
+}
+
+/// Compares two byte strings in time that depends only on their length, never
+/// on where they first differ. The ordinary `==` returns as soon as it finds a
+/// mismatching byte, so an attacker who can time the comparison learns how many
+/// leading bytes they guessed right and can recover a secret byte by byte. No
+/// amount of care in FOL fixes that — a FOL loop compiles to the same early
+/// exit — which is why this has to be an intrinsic.
+///
+/// Length is treated as public, as it is in every constant-time comparison:
+/// unequal lengths return immediately. Use this for tokens, MACs, and password
+/// hashes; use `==` for everything else, since this is slower by design.
+pub fn bytes_equal_ct(left: FolStr, right: FolStr) -> crate::value::FolBool {
+    let left = left.as_str().as_bytes();
+    let right = right.as_str().as_bytes();
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut difference = 0u8;
+    for (l, r) in left.iter().zip(right.iter()) {
+        difference |= l ^ r;
+    }
+    // Keeps the optimizer from proving the accumulator can be tested early and
+    // reintroducing the branch this whole routine exists to avoid.
+    std::hint::black_box(difference) == 0
+}
+
+const SIPHASH_KEY_LOW: u64 = 0;
+const SIPHASH_KEY_HIGH: u64 = 0;
+
+fn siphash_round(v: &mut [u64; 4]) {
+    v[0] = v[0].wrapping_add(v[1]);
+    v[1] = v[1].rotate_left(13);
+    v[1] ^= v[0];
+    v[0] = v[0].rotate_left(32);
+    v[2] = v[2].wrapping_add(v[3]);
+    v[3] = v[3].rotate_left(16);
+    v[3] ^= v[2];
+    v[0] = v[0].wrapping_add(v[3]);
+    v[3] = v[3].rotate_left(21);
+    v[3] ^= v[0];
+    v[2] = v[2].wrapping_add(v[1]);
+    v[1] = v[1].rotate_left(17);
+    v[1] ^= v[2];
+    v[2] = v[2].rotate_left(32);
+}
+
+/// SipHash-2-4, written out rather than delegated to Rust's `DefaultHasher`,
+/// which is explicitly documented as unstable across Rust releases. A hash a
+/// program can persist or shard on must not change when the compiler is
+/// upgraded, so the algorithm is pinned here.
+fn siphash24(key_low: u64, key_high: u64, data: &[u8]) -> u64 {
+    let mut v: [u64; 4] = [
+        key_low ^ 0x736f_6d65_7073_6575,
+        key_high ^ 0x646f_7261_6e64_6f6d,
+        key_low ^ 0x6c79_6765_6e65_7261,
+        key_high ^ 0x7465_6462_7974_6573,
+    ];
+    let mut chunks = data.chunks_exact(8);
+    for chunk in chunks.by_ref() {
+        let word = u64::from_le_bytes(chunk.try_into().expect("chunks_exact(8) yields 8 bytes"));
+        v[3] ^= word;
+        siphash_round(&mut v);
+        siphash_round(&mut v);
+        v[0] ^= word;
+    }
+    // The final word packs the tail below the length's low byte, which is what
+    // makes "ab" and "ab\0" hash differently.
+    let tail = chunks.remainder();
+    let mut last = (data.len() as u64 & 0xff) << 56;
+    for (index, byte) in tail.iter().enumerate() {
+        last |= u64::from(*byte) << (8 * index);
+    }
+    v[3] ^= last;
+    siphash_round(&mut v);
+    siphash_round(&mut v);
+    v[0] ^= last;
+    v[2] ^= 0xff;
+    for _ in 0..4 {
+        siphash_round(&mut v);
+    }
+    v[0] ^ v[1] ^ v[2] ^ v[3]
+}
+
+/// A stable 64-bit hash of a string's bytes. The same input gives the same
+/// number in every run and every build, so it is safe to persist or to shard
+/// on — unlike the hash behind `map[K,V]`, which is randomly keyed per process.
+///
+/// That stability is also the limitation: the key is fixed, so this is NOT
+/// resistant to an attacker who chooses inputs to collide, and it is not a
+/// cryptographic digest. Use `std::hash` for SHA-256 when the hash must resist
+/// an adversary.
+///
+/// The result covers the full 64-bit range and is therefore often negative.
+pub fn hash_bytes(text: FolStr) -> crate::value::FolInt {
+    siphash24(SIPHASH_KEY_LOW, SIPHASH_KEY_HIGH, text.as_str().as_bytes()) as crate::value::FolInt
+}
+
+/// The call stack at this point, captured regardless of `RUST_BACKTRACE`.
+///
+/// Frames carry the emitted Rust symbol names, so FOL routines appear under
+/// their generated spelling rather than their source spelling, and inlining may
+/// drop frames entirely in an optimized build. It is a debugging aid, not
+/// something to parse.
+pub fn backtrace() -> FolStr {
+    FolStr::new(std::backtrace::Backtrace::force_capture().to_string())
 }
 
 /// Binary file access. `read_file`/`write_file` assume UTF-8, which silently
@@ -1998,5 +2104,91 @@ mod tests {
             render_echo(&nested_map),
             "map{left: set{1, 2, 3}, right: set{4, 5}}"
         );
+    }
+}
+
+#[cfg(test)]
+mod phase_i_tests {
+    use super::*;
+
+    // The published SipHash-2-4 vectors: key = bytes 00..0f, input = the first
+    // N bytes of 00,01,02,... Matching these is what makes the implementation
+    // SipHash rather than merely a deterministic mixing function.
+    const REFERENCE_KEY_LOW: u64 = 0x0706_0504_0302_0100;
+    const REFERENCE_KEY_HIGH: u64 = 0x0f0e_0d0c_0b0a_0908;
+    const REFERENCE_VECTORS: [u64; 9] = [
+        0x726f_db47_dd0e_0e31,
+        0x74f8_39c5_93dc_67fd,
+        0x0d6c_8009_d9a9_4f5a,
+        0x8567_6696_d7fb_7e2d,
+        0xcf27_94e0_2771_87b7,
+        0x1876_5564_cd99_a68d,
+        0xcbc9_466e_58fe_e3ce,
+        0xab02_00f5_8b01_d137,
+        0x93f5_f579_9a93_2462,
+    ];
+
+    #[test]
+    fn siphash24_matches_the_published_reference_vectors() {
+        for (length, expected) in REFERENCE_VECTORS.iter().enumerate() {
+            let input: Vec<u8> = (0..length as u8).collect();
+            assert_eq!(
+                siphash24(REFERENCE_KEY_LOW, REFERENCE_KEY_HIGH, &input),
+                *expected,
+                "siphash-2-4 vector for input length {length}"
+            );
+        }
+    }
+
+    #[test]
+    fn hash_bytes_is_stable_and_length_sensitive() {
+        assert_eq!(
+            hash_bytes(FolStr::new("fol")),
+            hash_bytes(FolStr::new("fol"))
+        );
+        assert_ne!(
+            hash_bytes(FolStr::new("ab")),
+            hash_bytes(FolStr::new("ab\0"))
+        );
+        assert_ne!(hash_bytes(FolStr::new("")), hash_bytes(FolStr::new("\0")));
+    }
+
+    // One flipped bit should move roughly half the output bits; a hash that
+    // fails this would still be "deterministic" but would cluster badly.
+    #[test]
+    fn hash_bytes_avalanches_on_a_single_bit_flip() {
+        let base = hash_bytes(FolStr::new("avalanche")) as u64;
+        let flipped = hash_bytes(FolStr::new("avalanchd")) as u64;
+        let moved = (base ^ flipped).count_ones();
+        assert!(
+            (16..=48).contains(&moved),
+            "expected roughly half of 64 bits to move, got {moved}"
+        );
+    }
+
+    #[test]
+    fn bytes_equal_ct_agrees_with_ordinary_equality() {
+        assert!(bytes_equal_ct(FolStr::new("secret"), FolStr::new("secret")));
+        assert!(bytes_equal_ct(FolStr::new(""), FolStr::new("")));
+        assert!(!bytes_equal_ct(
+            FolStr::new("secret"),
+            FolStr::new("secrxt")
+        ));
+        // Differs only in the last byte: the case an early-exit compare leaks.
+        assert!(!bytes_equal_ct(
+            FolStr::new("secret"),
+            FolStr::new("secreT")
+        ));
+        assert!(!bytes_equal_ct(FolStr::new("secret"), FolStr::new("secre")));
+        assert!(!bytes_equal_ct(
+            FolStr::new("secret"),
+            FolStr::new("secrets")
+        ));
+    }
+
+    #[test]
+    fn backtrace_names_the_capturing_frame() {
+        let captured = backtrace();
+        assert!(!captured.as_str().is_empty());
     }
 }

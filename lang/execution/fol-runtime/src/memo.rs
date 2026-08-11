@@ -23,7 +23,7 @@ pub use crate::containers::{
     render_array, render_map, render_seq, render_set, render_vec, reserve_vec, slice_seq,
     slice_vec, sort_vec, store_array, store_vec, swap_vec, truncate_vec, values_map, FolArray,
 };
-pub use crate::error::require;
+pub use crate::error::{assert_message, assert_that, require};
 pub use crate::shell::{
     unwrap_error_shell, unwrap_error_shell_ref, unwrap_optional_shell, unwrap_optional_shell_ref,
     FolError, FolOption,

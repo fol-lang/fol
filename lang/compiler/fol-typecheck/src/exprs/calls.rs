@@ -629,6 +629,9 @@ fn terminal_intrinsic_signature(
             builtins.int,
         )),
         "cpu_count" | "thread_yield" | "thread_id" => Some((Vec::new(), builtins.int)),
+        "bytes_equal_ct" => Some((vec![builtins.str_, builtins.str_], builtins.bool_)),
+        "hash_bytes" => Some((vec![builtins.str_], builtins.int)),
+        "backtrace" => Some((Vec::new(), builtins.str_)),
         "atomic_new" | "atomic_load" => Some((vec![builtins.int], builtins.int)),
         "atomic_store" | "atomic_add" => Some((vec![builtins.int, builtins.int], builtins.int)),
         "atomic_cas" => Some((vec![builtins.int, builtins.int, builtins.int], builtins.int)),
@@ -867,6 +870,54 @@ fn type_panic_call(
     Ok(TypedExpr::value(typed.builtin_types().never).with_optional_effect(merged))
 }
 
+/// `assert(condition)` or `assert(condition, message)`. Unlike `panic` this is
+/// not a terminator: control continues when the condition holds, so the result
+/// is an ordinary value rather than `never`.
+fn type_assert_call(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    context: TypeContext,
+    args: &[AstNode],
+    syntax_id: Option<SyntaxNodeId>,
+) -> Result<TypedExpr, TypecheckError> {
+    let origin = syntax_id.and_then(|syntax_id| origin_for(resolved, syntax_id));
+    if args.is_empty() || args.len() > 2 {
+        let message = format!(
+            "assert expects a condition and an optional message in V1, got {} arguments",
+            args.len()
+        );
+        return Err(match origin {
+            Some(origin) => {
+                TypecheckError::with_origin(TypecheckErrorKind::InvalidInput, message, origin)
+            }
+            None => TypecheckError::new(TypecheckErrorKind::InvalidInput, message),
+        });
+    }
+    let expected = [typed.builtin_types().bool_, typed.builtin_types().str_];
+    let mut effects = Vec::new();
+    for (index, arg) in args.iter().enumerate() {
+        let raw = type_node(typed, resolved, context, arg)?;
+        let expr = plain_value_expr(
+            typed,
+            context,
+            raw,
+            node_origin(resolved, arg),
+            "assert argument",
+        )?;
+        let actual = expr.required_value("assert argument does not have a type")?;
+        ensure_assignable(
+            typed,
+            expected[index],
+            apparent_type_id(typed, actual)?,
+            "assert(...)".to_string(),
+            origin.clone().or_else(|| node_origin(resolved, arg)),
+        )?;
+        effects.push(expr.recoverable_effect);
+    }
+    let merged = merge_recoverable_effects(typed, origin, "assert call", effects)?;
+    Ok(TypedExpr::value(typed.builtin_types().int).with_optional_effect(merged))
+}
+
 pub(crate) fn type_keyword_intrinsic_call(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
@@ -881,6 +932,7 @@ pub(crate) fn type_keyword_intrinsic_call(
 
     match entry.name {
         "panic" => type_panic_call(typed, resolved, context, args),
+        "assert" => type_assert_call(typed, resolved, context, args, syntax_id),
         "check" => type_check_call(typed, resolved, context, entry, args, syntax_id),
         other => Err(TypecheckError::new(
             TypecheckErrorKind::InvalidInput,

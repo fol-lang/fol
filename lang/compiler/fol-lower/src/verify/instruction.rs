@@ -299,12 +299,12 @@ pub(super) fn verify_instruction(
                     ),
                 ));
             }
-            // Forwarding hooks (`echo`/`write`) return their operand and must
-            // not write a result local; the value-producing terminal hooks
-            // must write one.
+            // Two shapes write no result local: `echo`/`write` return their own
+            // operand, and `assert` produces nothing at all. Every other
+            // terminal hook yields a value and must write one.
             let forwards_operand = matches!(
                 fol_intrinsics::intrinsic_by_id(*intrinsic).map(|entry| entry.name),
-                Some("echo" | "write")
+                Some("echo" | "write" | "assert")
             );
             match (forwards_operand, instr.result) {
                 (true, Some(result)) => errors.push(LoweringError::with_kind(

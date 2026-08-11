@@ -836,6 +836,36 @@ pub(crate) fn lower_keyword_intrinsic_statement(
             )?;
             Ok(None)
         }
+        // Not a terminator: the hook returns when the condition holds, so the
+        // instruction is pushed for its effect and no value is produced.
+        "assert" => {
+            let mut lowered = Vec::with_capacity(args.len());
+            for arg in args {
+                lowered.push(
+                    lower_expression_expected(
+                        typed_package,
+                        type_table,
+                        checked_type_map,
+                        current_identity,
+                        decl_index,
+                        cursor,
+                        source_unit_id,
+                        scope_id,
+                        None,
+                        arg,
+                    )?
+                    .local_id,
+                );
+            }
+            cursor.push_instr(
+                None,
+                LoweredInstrKind::RuntimeHook {
+                    intrinsic: entry.id,
+                    args: lowered,
+                },
+            )?;
+            Ok(None)
+        }
         "check" => lower_keyword_intrinsic_expression(
             typed_package,
             type_table,

@@ -81,3 +81,25 @@ pub fn require<T>(result: Result<T, RuntimeError>) -> T {
         Err(error) => panic!("fol runtime fault: {error}"),
     }
 }
+
+/// `assert(condition)`. Unlike `panic` this returns when the condition holds,
+/// so it is an ordinary effect rather than a terminator. The return value
+/// exists only to give the hook a shape; callers discard it.
+pub fn assert_that(condition: crate::value::FolBool) -> crate::value::FolInt {
+    if !condition {
+        panic!("fol runtime fault: assertion failed");
+    }
+    0
+}
+
+/// `assert(condition, message)`. Separate from `assert_that` because the
+/// message is a `str`, which does not exist below the `memo` tier.
+pub fn assert_message(
+    condition: crate::value::FolBool,
+    message: crate::memo::FolStr,
+) -> crate::value::FolInt {
+    if !condition {
+        panic!("fol runtime fault: assertion failed: {}", message.as_str());
+    }
+    0
+}

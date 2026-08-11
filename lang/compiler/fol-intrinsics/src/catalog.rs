@@ -143,10 +143,10 @@ const INTRINSICS: &[IntrinsicEntry] = &[
         IntrinsicCategory::Diagnostic,
         IntrinsicSurface::KeywordCall,
         IntrinsicAvailability::V1,
-        IntrinsicStatus::Unsupported,
+        IntrinsicStatus::Implemented,
         IntrinsicArity::AtLeast(1),
-        IntrinsicLoweringMode::Reject,
-        "assert a condition once the V1 assert contract is frozen",
+        IntrinsicLoweringMode::RuntimeHook,
+        "fault unless a condition holds",
     ),
     IntrinsicEntry::new(
         IntrinsicId::new(12),
@@ -2289,6 +2289,42 @@ const INTRINSICS: &[IntrinsicEntry] = &[
         IntrinsicLoweringMode::RuntimeHook,
         "swap if unchanged, returning the value found",
     ),
+    IntrinsicEntry::new(
+        IntrinsicId::new(195),
+        "bytes_equal_ct",
+        &[],
+        IntrinsicCategory::Query,
+        IntrinsicSurface::DotRootCall,
+        IntrinsicAvailability::V1,
+        IntrinsicStatus::Implemented,
+        IntrinsicArity::Exactly(2),
+        IntrinsicLoweringMode::RuntimeHook,
+        "compare two strings in length-only time",
+    ),
+    IntrinsicEntry::new(
+        IntrinsicId::new(196),
+        "hash_bytes",
+        &[],
+        IntrinsicCategory::Query,
+        IntrinsicSurface::DotRootCall,
+        IntrinsicAvailability::V1,
+        IntrinsicStatus::Implemented,
+        IntrinsicArity::Exactly(1),
+        IntrinsicLoweringMode::RuntimeHook,
+        "a stable 64-bit SipHash of a string's bytes",
+    ),
+    IntrinsicEntry::new(
+        IntrinsicId::new(197),
+        "backtrace",
+        &[],
+        IntrinsicCategory::Diagnostic,
+        IntrinsicSurface::DotRootCall,
+        IntrinsicAvailability::V1,
+        IntrinsicStatus::Implemented,
+        IntrinsicArity::Exactly(0),
+        IntrinsicLoweringMode::RuntimeHook,
+        "the call stack at this point, as text",
+    ),
 ];
 
 pub const fn intrinsic_registry() -> &'static [IntrinsicEntry] {
@@ -2370,7 +2406,9 @@ pub fn backend_role_for_intrinsic(id: IntrinsicId) -> Option<IntrinsicBackendRol
         // their Deferred placeholders rather than shadowed by second entries.
         // 23-24 min/max, 30 abs, 36 sqrt, 37-46 bitwise and 49-54 the overflow
         // family were all promoted in place from Deferred placeholders.
-        8 | 23 | 24 | 30 | 36..=46 | 49..=54 | 57..=194 => Some(IntrinsicBackendRole::RuntimeHook),
+        8 | 11 | 23 | 24 | 30 | 36..=46 | 49..=54 | 57..=197 => {
+            Some(IntrinsicBackendRole::RuntimeHook)
+        }
         13 => Some(IntrinsicBackendRole::ControlEffect),
         _ => None,
     })

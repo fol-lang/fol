@@ -17,7 +17,7 @@ pub use crate::builtins::{
     saturating_sub, shl, shr, sin, sqrt, tan, wrapping_add, wrapping_mul, wrapping_sub, FolLength,
 };
 pub use crate::containers::{index_array, render_array, store_array, FolArray};
-pub use crate::error::require;
+pub use crate::error::{assert_that, require};
 pub use crate::shell::{
     unwrap_error_shell, unwrap_error_shell_ref, unwrap_optional_shell, unwrap_optional_shell_ref,
     FolError, FolOption,

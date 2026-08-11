@@ -868,6 +868,7 @@ pub fn render_core_instruction_in_workspace(
                 | ("dns_resolve", [value])
                 | ("atomic_new", [value])
                 | ("atomic_load", [value])
+                | ("hash_bytes", [value])
                 | ("set_current_dir", [value])
                 | ("raw_mode", [value])
                 | ("sleep_ms", [value])
@@ -894,6 +895,22 @@ pub fn render_core_instruction_in_workspace(
                 ("home_dir", []) => "rt::home_dir()".to_string(),
                 ("env_vars", []) => "rt::env_vars()".to_string(),
                 ("process_id", []) => "rt::process_id()".to_string(),
+                // Two runtime entry points rather than one optional message:
+                // the message is a `str`, which does not exist below `memo`,
+                // so the bare form has to stay callable at `core`.
+                ("assert", [condition]) => {
+                    let condition =
+                        render_transfer_expr(type_table, package_identity, routine, *condition)?;
+                    format!("rt::assert_that({condition})")
+                }
+                ("assert", [condition, message]) => {
+                    let condition =
+                        render_transfer_expr(type_table, package_identity, routine, *condition)?;
+                    let message =
+                        render_transfer_expr(type_table, package_identity, routine, *message)?;
+                    format!("rt::assert_message({condition}, {message})")
+                }
+                ("backtrace", []) => "rt::backtrace()".to_string(),
                 ("cpu_count", []) => "rt::cpu_count()".to_string(),
                 ("thread_yield", []) => "rt::thread_yield()".to_string(),
                 ("thread_id", []) => "rt::thread_id()".to_string(),
@@ -942,6 +959,7 @@ pub fn render_core_instruction_in_workspace(
                 | ("tcp_shutdown", [path, contents])
                 | ("atomic_store", [path, contents])
                 | ("atomic_add", [path, contents])
+                | ("bytes_equal_ct", [path, contents])
                 | ("float_to_str", [path, contents]) => {
                     let first = render_transfer_expr(type_table, package_identity, routine, *path)?;
                     let second =
