@@ -1470,7 +1470,9 @@ fn lsp_server_returns_workspace_symbols_for_open_real_examples() {
         "open real examples should contribute workspace symbols: {symbols:#?}"
     );
     assert!(
-        symbols.iter().any(|symbol| symbol.name == "std::answer"),
+        symbols
+            .iter()
+            .any(|symbol| symbol.name == "std::digit_count"),
         "bundled std example roots should contribute std workspace symbols too: {symbols:#?}"
     );
 
@@ -1590,7 +1592,7 @@ fn lsp_server_reports_model_aware_diagnostics_for_real_example_roots() {
         ),
         (
             "examples/std_bundled_fmt",
-            "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::math::answer();\n};\n",
+            "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::digit_count(1234);\n};\n",
             None,
         ),
         (
@@ -1767,16 +1769,16 @@ fn lsp_server_respects_model_completion_when_opened_at_real_example_roots() {
         ),
         (
             "examples/std_bundled_fmt",
-            "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::math::;\n};\n",
+            "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::;\n};\n",
             LspPosition {
                 line: 2,
-                character: 27,
+                character: 21,
             },
             Some(LspCompletionContext {
                 trigger_kind: Some(2),
                 trigger_character: Some(":".to_string()),
             }),
-            vec!["answer"],
+            vec!["digit_count", "int_to_str"],
             vec![],
         ),
         (

@@ -93,9 +93,29 @@ fn test_resolver_reports_nested_bundled_std_namespaces_from_pkg_alias_root() {
     fs::create_dir_all(&store_root)
         .expect("Should create the package store root fixture directory");
     materialize_bundled_std_alias(&store_root, "std");
+    // The nested module is added to the materialized alias rather than expected
+    // from the shipped std. What is under test is the resolver exposing a
+    // nested namespace scope through a pkg alias root, and pinning that to a
+    // real std module would force the standard library to keep one purely so
+    // this test has something to point at.
+    let nested_root = store_root.join("std/fmt/nested");
+    fs::create_dir_all(&nested_root)
+        .expect("Should create the nested std module fixture directory");
+    fs::write(
+        nested_root.join("lib.fol"),
+        "fun[exp] depth(): int = {\n    return 2;\n};\n",
+    )
+    .expect("Should write the nested std module fixture source");
+    let fmt_root = store_root.join("std/fmt/root.fol");
+    let existing = fs::read_to_string(&fmt_root).expect("Should read the bundled std fmt root");
+    // Concatenated rather than built with `format!`: escaping the braces for a
+    // format string hides the import target from the fixture lint that checks
+    // every `loc =` target is a quoted literal.
+    let mounted = "use nested: loc = {\"nested\"};\n\n".to_string() + &existing;
+    fs::write(&fmt_root, mounted).expect("Should mount the nested std module fixture");
     fs::write(
         app_root.join("main.fol"),
-        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::math::answer();\n};\n",
+        "use std: pkg = {\"std\"};\nfun[] main(): int = {\n    return std::fmt::nested::depth();\n};\n",
     )
     .expect("Should write the bundled std namespace import fixture");
 
@@ -109,7 +129,7 @@ fn test_resolver_reports_nested_bundled_std_namespaces_from_pkg_alias_root() {
         },
     );
     assert!(
-        resolved.namespace_scope("std::fmt::math").is_some(),
+        resolved.namespace_scope("std::fmt::nested").is_some(),
         "Bundled std pkg imports should expose nested namespace scopes",
     );
 

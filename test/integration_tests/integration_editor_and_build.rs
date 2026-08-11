@@ -3870,10 +3870,6 @@ fn test_bundled_std_tree_stays_source_only_and_bootstrap_honest() {
         "bundled std bootstrap should ship std.fmt"
     );
     assert!(
-        root.join("fmt/math/lib.fol").exists(),
-        "bundled std bootstrap should ship std.fmt.math"
-    );
-    assert!(
         root.join("io/lib.fol").exists(),
         "bundled std bootstrap should ship std.io once it has honest public source"
     );
@@ -6296,7 +6292,6 @@ fn test_bundled_std_docs_and_readme_keep_the_shipped_surface_honest() {
     for path in [
         "lang/library/std/lib.fol",
         "lang/library/std/fmt/root.fol",
-        "lang/library/std/fmt/math/lib.fol",
         "lang/library/std/io/lib.fol",
         "examples/std_bundled_fmt/build.fol",
         "examples/std_bundled_io/build.fol",

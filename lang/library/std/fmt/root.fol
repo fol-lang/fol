@@ -1,5 +1,3 @@
-use math: loc = {"math"};
-
 fun[exp] int_to_str(value: int): str = {
     return .int_to_str(value);
 };

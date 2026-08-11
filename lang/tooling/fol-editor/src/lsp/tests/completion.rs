@@ -1109,7 +1109,6 @@ fn lsp_server_completes_bundled_std_names_only_when_declared() {
         .collect::<Vec<_>>();
     assert!(labels.contains(&"digit_count".to_string()));
     assert!(labels.contains(&"int_to_str".to_string()));
-    assert!(labels.contains(&"math".to_string()));
 
     fs::remove_dir_all(root).ok();
 
