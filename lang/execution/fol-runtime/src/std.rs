@@ -611,6 +611,53 @@ pub fn str_valid_utf8(text: FolStr) -> crate::value::FolBool {
     std::str::from_utf8(text.as_str().as_bytes()).is_ok()
 }
 
+/// Unicode case mapping and categories. These are TABLES, not arithmetic: the
+/// ASCII trick of adding 32 is wrong for every alphabet with more than 26
+/// letters, and full case mapping is not even per-character (`ß` uppercases to
+/// `SS`), which is why the string forms exist alongside the char ones.
+pub fn chr_upper(value: crate::value::FolChar) -> crate::value::FolChar {
+    let mut mapped = value.to_uppercase();
+    match (mapped.next(), mapped.next()) {
+        // A char-to-char API cannot represent a one-to-many mapping; leave those
+        // unchanged rather than truncate, and let `str_upper` handle them.
+        (Some(single), None) => single,
+        _ => value,
+    }
+}
+
+pub fn chr_lower(value: crate::value::FolChar) -> crate::value::FolChar {
+    let mut mapped = value.to_lowercase();
+    match (mapped.next(), mapped.next()) {
+        (Some(single), None) => single,
+        _ => value,
+    }
+}
+
+pub fn str_upper(text: FolStr) -> FolStr {
+    FolStr::new(text.as_str().to_uppercase())
+}
+
+pub fn str_lower(text: FolStr) -> FolStr {
+    FolStr::new(text.as_str().to_lowercase())
+}
+
+pub fn chr_is_alpha(value: crate::value::FolChar) -> crate::value::FolBool {
+    value.is_alphabetic()
+}
+
+pub fn chr_is_digit(value: crate::value::FolChar) -> crate::value::FolBool {
+    value.is_numeric()
+}
+
+pub fn chr_is_space(value: crate::value::FolChar) -> crate::value::FolBool {
+    value.is_whitespace()
+}
+
+/// Trims the Unicode whitespace set, not just ASCII 32/9/10/13.
+pub fn str_trim(text: FolStr) -> FolStr {
+    FolStr::new(text.as_str().trim())
+}
+
 /// The byte value at an index, or -1 outside the string.
 pub fn str_byte(text: FolStr, index: crate::value::FolInt) -> crate::value::FolInt {
     if index < 0 {

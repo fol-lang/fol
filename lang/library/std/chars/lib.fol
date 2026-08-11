@@ -11,22 +11,22 @@ fun[exp] from_code(value: int): chr = {
 };
 
 fun[exp] is_digit(value: chr): bol = {
-    var point: int = .chr_to_int(value);
-    return point >= 48 and point <= 57;
+    return .chr_is_digit(value);
 };
 
+// Unicode-correct: a character is upper when it is a letter that changes under
+// lowercasing. The old ASCII range test disagreed with `is_alpha` for every
+// non-English alphabet.
 fun[exp] is_upper(value: chr): bol = {
-    var point: int = .chr_to_int(value);
-    return point >= 65 and point <= 90;
+    return .chr_is_alpha(value) and .chr_lower(value) != value;
 };
 
 fun[exp] is_lower(value: chr): bol = {
-    var point: int = .chr_to_int(value);
-    return point >= 97 and point <= 122;
+    return .chr_is_alpha(value) and .chr_upper(value) != value;
 };
 
 fun[exp] is_alpha(value: chr): bol = {
-    return is_upper(value) or is_lower(value);
+    return .chr_is_alpha(value);
 };
 
 fun[exp] is_alnum(value: chr): bol = {
@@ -34,13 +34,14 @@ fun[exp] is_alnum(value: chr): bol = {
 };
 
 fun[exp] is_space(value: chr): bol = {
-    var point: int = .chr_to_int(value);
-    return point == 32 or point == 9 or point == 10 or point == 13;
+    return .chr_is_space(value);
 };
 
+// Deliberately ASCII-only: hex notation is ASCII, so a Unicode digit such as an
+// Arabic-Indic seven is NOT a hex digit even though `is_digit` accepts it.
 fun[exp] is_hex_digit(value: chr): bol = {
     var point: int = .chr_to_int(value);
-    if (is_digit(value)) {
+    if (point >= 48 and point <= 57) {
         return true;
     } else {
     };
@@ -52,19 +53,11 @@ fun[exp] is_hex_digit(value: chr): bol = {
 };
 
 fun[exp] to_upper(value: chr): chr = {
-    if (is_lower(value)) {
-        return .int_to_chr(.chr_to_int(value) - 32);
-    } else {
-    };
-    return value;
+    return .chr_upper(value);
 };
 
 fun[exp] to_lower(value: chr): chr = {
-    if (is_upper(value)) {
-        return .int_to_chr(.chr_to_int(value) + 32);
-    } else {
-    };
-    return value;
+    return .chr_lower(value);
 };
 
 // The numeric value of a digit character, or -1 when it is not one. Hex letters

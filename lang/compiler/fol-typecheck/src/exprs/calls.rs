@@ -568,6 +568,11 @@ fn terminal_intrinsic_signature(
         "str_char" => Some((vec![builtins.str_, builtins.int], builtins.char_)),
         "str_char_index" => Some((vec![builtins.str_, builtins.int], builtins.int)),
         "str_valid_utf8" => Some((vec![builtins.str_], builtins.bool_)),
+        "chr_upper" | "chr_lower" => Some((vec![builtins.char_], builtins.char_)),
+        "str_upper" | "str_lower" | "str_trim" => Some((vec![builtins.str_], builtins.str_)),
+        "chr_is_alpha" | "chr_is_digit" | "chr_is_space" => {
+            Some((vec![builtins.char_], builtins.bool_))
+        }
         "str_sub" => Some((
             vec![builtins.str_, builtins.int, builtins.int],
             builtins.str_,

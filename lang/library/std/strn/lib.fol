@@ -22,8 +22,10 @@ fun[exp] to_int(text: str, fallback: int): int = {
     return .parse_int(text, fallback);
 };
 
-// Everything below is written in FOL over the byte primitives above. Only the
-// wrappers at the top of this file reach an intrinsic.
+// Most of what follows is FOL over the primitives above. The exceptions are the
+// Unicode-aware ones — case mapping and trimming are TABLES, not arithmetic, so
+// they forward to intrinsics rather than walking bytes. An earlier byte-walking
+// `to_upper` returned "HLLO" for "héllo".
 
 fun[exp] is_empty(text: str): bol = {
     return .len(text) == 0;
@@ -57,56 +59,34 @@ fun[exp] is_space_byte(value: int): bol = {
 };
 
 fun[exp] trim_start(text: str): str = {
+    var source: vec[chr] = .str_chars(text);
+    var total: int = .len(source);
     var[mut] start: int = 0;
-    var total: int = .len(text);
-    loop (start < total and is_space_byte(.str_byte(text, start))) {
+    loop (start < total and .chr_is_space(source[start])) {
         start = start + 1;
     };
-    return .str_sub(text, start, total - start);
+    return .str_sub(text, .str_char_index(text, start), .len(text));
 };
 
 fun[exp] trim_end(text: str): str = {
-    var[mut] stop: int = .len(text);
-    loop (stop > 0 and is_space_byte(.str_byte(text, stop - 1))) {
+    var source: vec[chr] = .str_chars(text);
+    var[mut] stop: int = .len(source);
+    loop (stop > 0 and .chr_is_space(source[stop - 1])) {
         stop = stop - 1;
     };
-    return .str_sub(text, 0, stop);
+    return .str_sub(text, 0, .str_char_index(text, stop));
 };
 
 fun[exp] trim(text: str): str = {
-    return trim_end(trim_start(text));
+    return .str_trim(text);
 };
 
 fun[exp] to_upper(text: str): str = {
-    var[mut] built: str = "";
-    var[mut] i: int = 0;
-    var total: int = .len(text);
-    loop (i < total) {
-        var byte: int = .str_byte(text, i);
-        if (byte >= 97 and byte <= 122) {
-            built = built + .byte_to_str(byte - 32);
-        } else {
-            built = built + .byte_to_str(byte);
-        };
-        i = i + 1;
-    };
-    return built;
+    return .str_upper(text);
 };
 
 fun[exp] to_lower(text: str): str = {
-    var[mut] built: str = "";
-    var[mut] i: int = 0;
-    var total: int = .len(text);
-    loop (i < total) {
-        var byte: int = .str_byte(text, i);
-        if (byte >= 65 and byte <= 90) {
-            built = built + .byte_to_str(byte + 32);
-        } else {
-            built = built + .byte_to_str(byte);
-        };
-        i = i + 1;
-    };
-    return built;
+    return .str_lower(text);
 };
 
 fun[exp] repeat(text: str, times: int): str = {
@@ -119,8 +99,9 @@ fun[exp] repeat(text: str, times: int): str = {
     return built;
 };
 
+// Padding counts CHARACTERS, since the point is display width.
 fun[exp] pad_left(text: str, width: int, fill: str): str = {
-    var missing: int = width - .len(text);
+    var missing: int = width - .str_char_len(text);
     if (missing <= 0) {
         return text;
     } else {
@@ -129,7 +110,7 @@ fun[exp] pad_left(text: str, width: int, fill: str): str = {
 };
 
 fun[exp] pad_right(text: str, width: int, fill: str): str = {
-    var missing: int = width - .len(text);
+    var missing: int = width - .str_char_len(text);
     if (missing <= 0) {
         return text;
     } else {
@@ -167,14 +148,17 @@ fun[exp] strip_suffix(text: str, suffix: str): str = {
     return text;
 };
 
+// Reverses CHARACTERS. The byte-wise version this replaces dropped every
+// multi-byte character silently.
 fun[exp] reverse(text: str): str = {
-    var[mut] built: str = "";
-    var[mut] i: int = .len(text) - 1;
+    var source: vec[chr] = .str_chars(text);
+    var[mut] out: vec[chr] = {};
+    var[mut] i: int = .len(source) - 1;
     loop (i >= 0) {
-        built = built + .byte_to_str(.str_byte(text, i));
+        out.push(source[i]);
         i = i - 1;
     };
-    return built;
+    return .str_from_chars(out);
 };
 
 // An empty separator would never advance, so it yields the whole text as one
