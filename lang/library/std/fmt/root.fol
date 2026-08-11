@@ -31,6 +31,22 @@ fun[exp] float_to_str(value: flt, decimals: int): str = {
 
 con DIGITS: str = "0123456789abcdefghijklmnopqrstuvwxyz";
 
+// How many decimal digits a value renders as, sign excluded. This is what
+// column alignment and `pad_int` actually need.
+fun[exp] digit_count(value: int): int = {
+    var[mut] left: int = .abs(value);
+    if (left == 0) {
+        return 1;
+    } else {
+    };
+    var[mut] found: int = 0;
+    loop (left > 0) {
+        found = found + 1;
+        left = left / 10;
+    };
+    return found;
+};
+
 fun[exp] bol_to_str(value: bol): str = {
     if (value) {
         return "true";
