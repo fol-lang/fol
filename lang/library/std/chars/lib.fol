@@ -1,0 +1,87 @@
+// Character classification, written in FOL over `.chr_to_int`. ASCII only —
+// the code-point ranges below say so plainly rather than pretending to cover
+// Unicode categories.
+
+fun[exp] code(value: chr): int = {
+    return .chr_to_int(value);
+};
+
+fun[exp] from_code(value: int): chr = {
+    return .int_to_chr(value);
+};
+
+fun[exp] is_digit(value: chr): bol = {
+    var point: int = .chr_to_int(value);
+    return point >= 48 and point <= 57;
+};
+
+fun[exp] is_upper(value: chr): bol = {
+    var point: int = .chr_to_int(value);
+    return point >= 65 and point <= 90;
+};
+
+fun[exp] is_lower(value: chr): bol = {
+    var point: int = .chr_to_int(value);
+    return point >= 97 and point <= 122;
+};
+
+fun[exp] is_alpha(value: chr): bol = {
+    return is_upper(value) or is_lower(value);
+};
+
+fun[exp] is_alnum(value: chr): bol = {
+    return is_alpha(value) or is_digit(value);
+};
+
+fun[exp] is_space(value: chr): bol = {
+    var point: int = .chr_to_int(value);
+    return point == 32 or point == 9 or point == 10 or point == 13;
+};
+
+fun[exp] is_hex_digit(value: chr): bol = {
+    var point: int = .chr_to_int(value);
+    if (is_digit(value)) {
+        return true;
+    } else {
+    };
+    if (point >= 65 and point <= 70) {
+        return true;
+    } else {
+    };
+    return point >= 97 and point <= 102;
+};
+
+fun[exp] to_upper(value: chr): chr = {
+    if (is_lower(value)) {
+        return .int_to_chr(.chr_to_int(value) - 32);
+    } else {
+    };
+    return value;
+};
+
+fun[exp] to_lower(value: chr): chr = {
+    if (is_upper(value)) {
+        return .int_to_chr(.chr_to_int(value) + 32);
+    } else {
+    };
+    return value;
+};
+
+// The numeric value of a digit character, or -1 when it is not one. Hex letters
+// count, so this also reads `a`-`f`.
+fun[exp] digit_value(value: chr): int = {
+    var point: int = .chr_to_int(value);
+    if (point >= 48 and point <= 57) {
+        return point - 48;
+    } else {
+    };
+    if (point >= 65 and point <= 70) {
+        return point - 55;
+    } else {
+    };
+    if (point >= 97 and point <= 102) {
+        return point - 87;
+    } else {
+    };
+    return 0 - 1;
+};

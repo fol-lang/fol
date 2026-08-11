@@ -1,0 +1,136 @@
+// Path handling, written in FOL as string surgery. This is Linux only, so the
+// separator is `/` and there is no drive-letter or UNC case to carry.
+
+use strn: loc = {"../strn"};
+
+con SEP: str = "/";
+// A one-character literal infers as `chr` where nothing expects a `str`, so the
+// comparisons below go through typed constants rather than inline literals.
+con DOT: str = ".";
+con UP: str = "..";
+
+fun[exp] is_absolute(value: str): bol = {
+    return strn::starts_with(value, SEP);
+};
+
+// A trailing separator on the left is not doubled, and an absolute right side
+// wins outright — joining onto it would silently produce a different path.
+fun[exp] join(left: str, right: str): str = {
+    if (.len(left) == 0) {
+        return right;
+    } else {
+    };
+    if (.len(right) == 0) {
+        return left;
+    } else {
+    };
+    if (is_absolute(right)) {
+        return right;
+    } else {
+    };
+    if (strn::ends_with(left, SEP)) {
+        return left + right;
+    } else {
+    };
+    return left + SEP + right;
+};
+
+fun[exp] file_name(value: str): str = {
+    var cut: int = strn::last_index_of(value, SEP);
+    if (cut < 0) {
+        return value;
+    } else {
+    };
+    var start: int = cut + 1;
+    return .str_sub(value, start, .len(value) - start);
+};
+
+// The root keeps its separator, so `parent("/a")` is `/` rather than empty.
+fun[exp] parent(value: str): str = {
+    var cut: int = strn::last_index_of(value, SEP);
+    if (cut < 0) {
+        return "";
+    } else {
+    };
+    if (cut == 0) {
+        return SEP;
+    } else {
+    };
+    return .str_sub(value, 0, cut);
+};
+
+// A leading dot is a hidden file, not an extension, so `.bashrc` has none.
+fun[exp] extension(value: str): str = {
+    var name: str = file_name(value);
+    var cut: int = strn::last_index_of(name, DOT);
+    if (cut <= 0) {
+        return "";
+    } else {
+    };
+    var start: int = cut + 1;
+    return .str_sub(name, start, .len(name) - start);
+};
+
+fun[exp] file_stem(value: str): str = {
+    var name: str = file_name(value);
+    var cut: int = strn::last_index_of(name, DOT);
+    if (cut <= 0) {
+        return name;
+    } else {
+    };
+    return .str_sub(name, 0, cut);
+};
+
+fun[exp] with_extension(value: str, ext: str): str = {
+    var base: str = parent(value);
+    var stem: str = file_stem(value);
+    var renamed: str = stem + DOT + ext;
+    if (.len(base) == 0) {
+        return renamed;
+    } else {
+    };
+    return join(base, renamed);
+};
+
+fun[exp] components(value: str): vec[str] = {
+    var[mut] out: vec[str] = {};
+    var parts: vec[str] = strn::split(value, SEP);
+    var[mut] i: int = 0;
+    var total: int = .len(parts);
+    loop (i < total) {
+        if (.len(parts[i]) > 0) {
+            out.push(parts[i]);
+        } else {
+        };
+        i = i + 1;
+    };
+    return out;
+};
+
+// Resolves `.` and `..` textually, without touching the filesystem, so it works
+// on paths that do not exist yet.
+fun[exp] normalize(value: str): str = {
+    var rooted: bol = is_absolute(value);
+    var parts: vec[str] = components(value);
+    var[mut] kept: vec[str] = {};
+    var[mut] i: int = 0;
+    var total: int = .len(parts);
+    loop (i < total) {
+        var part: str = parts[i];
+        if (part == DOT) {
+        } else {
+            if (part == UP and .len(kept) > 0) {
+                kept.pop();
+            } else {
+                kept.push(part);
+            };
+        };
+        i = i + 1;
+    };
+    var joined: str = strn::join(kept, SEP);
+    if (rooted) {
+        return SEP + joined;
+    } else {
+    };
+    return joined;
+};

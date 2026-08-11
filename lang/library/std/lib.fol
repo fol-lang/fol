@@ -4,3 +4,5 @@
 use os: loc = {"os"};
 use fs: loc = {"fs"};
 use vecs: loc = {"vecs"};
+use chars: loc = {"chars"};
+use path: loc = {"path"};
