@@ -63,13 +63,38 @@ pub enum LoweredUnaryOp {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContainerMutateOp {
     VecPush,
+    VecPop,
+    VecInsertAt,
+    VecRemoveAt,
+    VecClear,
+    VecTruncate,
 }
 
 impl ContainerMutateOp {
     pub fn method_name(self) -> &'static str {
         match self {
             Self::VecPush => "push",
+            Self::VecPop => "pop",
+            Self::VecInsertAt => "insert_at",
+            Self::VecRemoveAt => "remove_at",
+            Self::VecClear => "clear",
+            Self::VecTruncate => "truncate",
         }
+    }
+
+    /// Number of explicit arguments the method takes, receiver excluded.
+    pub fn arity(self) -> usize {
+        match self {
+            Self::VecPop | Self::VecClear => 0,
+            Self::VecPush | Self::VecRemoveAt | Self::VecTruncate => 1,
+            Self::VecInsertAt => 2,
+        }
+    }
+
+    /// Whether the operation yields a value. `pop` and `remove_at` hand back the
+    /// displaced element as `opt[T]`; the rest are statements.
+    pub fn yields_element(self) -> bool {
+        matches!(self, Self::VecPop | Self::VecRemoveAt)
     }
 }
 

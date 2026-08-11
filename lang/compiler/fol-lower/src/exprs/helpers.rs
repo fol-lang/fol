@@ -502,13 +502,35 @@ pub(crate) fn lower_assignment_target(
     Ok(lowered_value)
 }
 
+/// What a method call turned out to be, so both lowering copies can dispatch on
+/// one result.
+pub(crate) enum ContainerCallOutcome {
+    /// Not a container method — ordinary method lowering should proceed.
+    NotContainer,
+    /// Lowered, and yields no value.
+    Statement,
+    /// Lowered, and yields the displaced element.
+    Value(LoweredValue),
+}
+
+fn container_mutate_op(method: &str) -> Option<crate::control::ContainerMutateOp> {
+    use crate::control::ContainerMutateOp;
+    match method {
+        "push" => Some(ContainerMutateOp::VecPush),
+        "pop" => Some(ContainerMutateOp::VecPop),
+        "insert_at" => Some(ContainerMutateOp::VecInsertAt),
+        "remove_at" => Some(ContainerMutateOp::VecRemoveAt),
+        "clear" => Some(ContainerMutateOp::VecClear),
+        "truncate" => Some(ContainerMutateOp::VecTruncate),
+        _ => None,
+    }
+}
+
 /// Lower a growable-container method (`values.push(x)`) into a
-/// `ContainerMutate`. Returns `false` when the call is not one, so ordinary
-/// method lowering proceeds.
+/// `ContainerMutate`.
 ///
 /// Called from BOTH copies of the method-call lowering — expression position and
-/// statement position. A `push` returns nothing and so takes the statement copy,
-/// but wiring only one has silently done nothing before.
+/// statement position. Wiring only one has silently done nothing before.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_container_method_call(
     typed_package: &fol_typecheck::TypedPackage,
@@ -519,13 +541,14 @@ pub(crate) fn lower_container_method_call(
     cursor: &mut RoutineCursor<'_>,
     source_unit_id: SourceUnitId,
     scope_id: ScopeId,
+    syntax_id: Option<fol_parser::ast::SyntaxNodeId>,
     object: &AstNode,
     method: &str,
     args: &[AstNode],
-) -> Result<bool, LoweringError> {
-    if method != "push" {
-        return Ok(false);
-    }
+) -> Result<ContainerCallOutcome, LoweringError> {
+    let Some(op) = container_mutate_op(method) else {
+        return Ok(ContainerCallOutcome::NotContainer);
+    };
     // The binding's OWN local, not a loaded copy -- mutating a copy would be
     // observed by nobody. The indexed-store path takes the same shortcut.
     let (base_node, field) = match object {
@@ -535,7 +558,7 @@ pub(crate) fn lower_container_method_call(
     let Some(base) =
         super::expressions::direct_local_identifier_value(typed_package, cursor, base_node)
     else {
-        return Ok(false);
+        return Ok(ContainerCallOutcome::NotContainer);
     };
     let container_type = match &field {
         None => base.type_id,
@@ -543,45 +566,95 @@ pub(crate) fn lower_container_method_call(
             match super::containers::field_access_type(type_table, decl_index, base.type_id, field)
             {
                 Some(type_id) => type_id,
-                None => return Ok(false),
+                None => return Ok(ContainerCallOutcome::NotContainer),
             }
         }
     };
     let Some(crate::types::LoweredType::Vector { element_type }) = type_table.get(container_type)
     else {
-        return Ok(false);
+        return Ok(ContainerCallOutcome::NotContainer);
     };
     let element_type = *element_type;
-    let [value] = args else {
+    if args.len() != op.arity() {
         return Err(LoweringError::with_kind(
             LoweringErrorKind::InvalidInput,
-            format!("'.{method}' expects exactly 1 argument, got {}", args.len()),
+            format!(
+                "'.{method}' expects exactly {} argument(s), got {}",
+                op.arity(),
+                args.len()
+            ),
         ));
-    };
-    // Lower against the ELEMENT type so a bare literal picks up the right one --
-    // a `vec[flt]` taking `1` would otherwise lower as an int.
-    let lowered_value = lower_expression_expected(
-        typed_package,
-        type_table,
-        checked_type_map,
-        current_identity,
-        decl_index,
-        cursor,
-        source_unit_id,
-        scope_id,
-        Some(element_type),
-        value,
-    )?;
+    }
+    // An index argument lowers against `int`; an element argument lowers against
+    // the ELEMENT type, so a bare literal picks up the right one -- a `vec[flt]`
+    // taking `1` would otherwise lower as an int.
+    let int_type = typed_package.program.builtin_types().int;
+    let int_type = checked_type_map.get(&int_type).copied();
+    let mut lowered_args = Vec::with_capacity(args.len());
+    for (index, arg) in args.iter().enumerate() {
+        let is_index_argument = match op {
+            crate::control::ContainerMutateOp::VecInsertAt => index == 0,
+            crate::control::ContainerMutateOp::VecRemoveAt
+            | crate::control::ContainerMutateOp::VecTruncate => true,
+            _ => false,
+        };
+        let expected = if is_index_argument {
+            int_type
+        } else {
+            Some(element_type)
+        };
+        let lowered = lower_expression_expected(
+            typed_package,
+            type_table,
+            checked_type_map,
+            current_identity,
+            decl_index,
+            cursor,
+            source_unit_id,
+            scope_id,
+            expected,
+            arg,
+        )?;
+        lowered_args.push(lowered.local_id);
+    }
+    if !op.yields_element() {
+        cursor.push_instr(
+            None,
+            LoweredInstrKind::ContainerMutate {
+                base: base.local_id,
+                field,
+                op,
+                args: lowered_args,
+            },
+        )?;
+        return Ok(ContainerCallOutcome::Statement);
+    }
+    // The `opt[T]` result type is whatever typecheck recorded for this call site.
+    let result_type = syntax_id
+        .and_then(|syntax_id| typed_package.program.typed_node(syntax_id))
+        .and_then(|node| node.inferred_type)
+        .and_then(|checked| checked_type_map.get(&checked).copied())
+        .ok_or_else(|| {
+            LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!("'.{method}' did not retain a lowered result type"),
+            )
+        })?;
+    let result_local = cursor.allocate_local(result_type, None);
     cursor.push_instr(
-        None,
+        Some(result_local),
         LoweredInstrKind::ContainerMutate {
             base: base.local_id,
             field,
-            op: crate::control::ContainerMutateOp::VecPush,
-            args: vec![lowered_value.local_id],
+            op,
+            args: lowered_args,
         },
     )?;
-    Ok(true)
+    Ok(ContainerCallOutcome::Value(LoweredValue {
+        local_id: result_local,
+        type_id: result_type,
+        recoverable_error_type: None,
+    }))
 }
 
 /// Lower `<binding>.<field> = <value>` into a `StoreField` against the binding's

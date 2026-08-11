@@ -3,6 +3,7 @@
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     memo::{FolMap, FolSeq, FolSet, FolVec},
+    shell::FolOption,
     value::FolInt,
 };
 use std::fmt::Display;
@@ -83,11 +84,57 @@ pub fn store_vec<T>(values: &mut FolVec<T>, index: FolInt, value: T) -> Result<(
     Ok(())
 }
 
-/// Append one element to a vector. Growth is allocation, so this helper is
+/// Append one element to a vector. Growth is allocation, so these helpers are
 /// re-exported from `memo` upward and never from `core`, which keeps fixed
 /// arrays and no allocator.
 pub fn push_vec<T>(values: &mut FolVec<T>, value: T) {
     values.push(value);
+}
+
+/// Remove and return the last element. Empty is `nil`, not a fault: emptiness is
+/// an ordinary state a caller tests for, unlike a bad index.
+pub fn pop_vec<T>(values: &mut FolVec<T>) -> FolOption<T> {
+    values.pop().map_or(FolOption::Nil, FolOption::Some)
+}
+
+/// Insert before `index`, shifting the tail right. `index == len` appends, which
+/// is why this does not go through `normalize_index` -- that helper rejects
+/// `len`, correctly, for reads and replacements.
+pub fn insert_vec<T>(values: &mut FolVec<T>, index: FolInt, value: T) -> Result<(), RuntimeError> {
+    let len = values.len();
+    if index < 0 || index as usize > len {
+        return Err(RuntimeError::new(
+            RuntimeErrorKind::InvalidInput,
+            format!("insert index out of bounds: the len is {len} but the index is {index}"),
+        ));
+    }
+    values.insert_at(index as usize, value);
+    Ok(())
+}
+
+/// Remove the element at `index`, shifting the tail left. Bounds behaviour is
+/// the reader's, by construction.
+pub fn remove_vec<T>(values: &mut FolVec<T>, index: FolInt) -> Result<T, RuntimeError> {
+    let index = normalize_index(index, values.len())?;
+    Ok(values.remove_at(index))
+}
+
+/// Drop every element.
+pub fn clear_vec<T>(values: &mut FolVec<T>) {
+    values.clear();
+}
+
+/// Shorten to at most `count` elements. A `count` at or above the current length
+/// is a no-op rather than a fault, matching the shrink-only intent.
+pub fn truncate_vec<T>(values: &mut FolVec<T>, count: FolInt) -> Result<(), RuntimeError> {
+    if count < 0 {
+        return Err(RuntimeError::new(
+            RuntimeErrorKind::InvalidInput,
+            format!("truncate count cannot be negative: {count}"),
+        ));
+    }
+    values.truncate(count as usize);
+    Ok(())
 }
 
 pub fn index_seq<T>(values: &FolSeq<T>, index: FolInt) -> Result<&T, RuntimeError> {

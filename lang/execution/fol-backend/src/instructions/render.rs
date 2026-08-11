@@ -482,29 +482,60 @@ pub fn render_core_instruction_in_workspace(
                 field,
                 "container mutation",
             )?;
+            if !matches!(
+                type_table.get(container_type),
+                Some(LoweredType::Vector { .. })
+            ) {
+                return Err(BackendError::new(
+                    BackendErrorKind::InvalidInput,
+                    format!(
+                        "'.{}' expected a vector local but found {:?}",
+                        op.method_name(),
+                        type_table.get(container_type)
+                    ),
+                ));
+            }
+            if args.len() != op.arity() {
+                return Err(BackendError::new(
+                    BackendErrorKind::InvalidInput,
+                    format!(
+                        "'.{}' expects {} lowered argument(s), got {}",
+                        op.method_name(),
+                        op.arity(),
+                        args.len()
+                    ),
+                ));
+            }
+            let rendered = args
+                .iter()
+                .map(|arg| render_transfer_expr(type_table, package_identity, routine, *arg))
+                .collect::<BackendResult<Vec<_>>>()?;
             match op {
                 ContainerMutateOp::VecPush => {
-                    if !matches!(
-                        type_table.get(container_type),
-                        Some(LoweredType::Vector { .. })
-                    ) {
-                        return Err(BackendError::new(
-                            BackendErrorKind::InvalidInput,
-                            format!(
-                                "'.push' expected a vector local but found {:?}",
-                                type_table.get(container_type)
-                            ),
-                        ));
-                    }
-                    let [value] = args.as_slice() else {
-                        return Err(BackendError::new(
-                            BackendErrorKind::InvalidInput,
-                            "'.push' expects exactly one lowered argument",
-                        ));
-                    };
-                    let value =
-                        render_transfer_expr(type_table, package_identity, routine, *value)?;
-                    Ok(format!("rt::push_vec({container_ref}, {value});"))
+                    Ok(format!("rt::push_vec({container_ref}, {});", rendered[0]))
+                }
+                ContainerMutateOp::VecClear => Ok(format!("rt::clear_vec({container_ref});")),
+                ContainerMutateOp::VecTruncate => Ok(format!(
+                    "rt::require(rt::truncate_vec({container_ref}, {}));",
+                    rendered[0]
+                )),
+                ContainerMutateOp::VecInsertAt => Ok(format!(
+                    "rt::require(rt::insert_vec({container_ref}, {}, {}));",
+                    rendered[0], rendered[1]
+                )),
+                ContainerMutateOp::VecPop => {
+                    let result = rendered_result_local(package_identity, routine, instruction)?;
+                    Ok(format!("{result} = rt::pop_vec({container_ref});"))
+                }
+                ContainerMutateOp::VecRemoveAt => {
+                    let result = rendered_result_local(package_identity, routine, instruction)?;
+                    // `remove_at` faults on a bad index like a bad read does, then
+                    // wraps the removed element so both value-yielding operations
+                    // share one `opt[T]` surface.
+                    Ok(format!(
+                        "{result} = rt::FolOption::some(rt::require(rt::remove_vec({container_ref}, {})));",
+                        rendered[0]
+                    ))
                 }
             }
         }

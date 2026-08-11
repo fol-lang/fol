@@ -1147,6 +1147,29 @@ fn lower_expression_observed_inner(
             method,
             args,
         } => {
+            match super::helpers::lower_container_method_call(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                *syntax_id,
+                object,
+                method,
+                args,
+            )? {
+                super::helpers::ContainerCallOutcome::Value(value) => return Ok(value),
+                super::helpers::ContainerCallOutcome::Statement => {
+                    return Err(LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!("'.{method}' yields no value and cannot be used as one"),
+                    ))
+                }
+                super::helpers::ContainerCallOutcome::NotContainer => {}
+            }
             let receiver = lower_expression(
                 typed_package,
                 type_table,

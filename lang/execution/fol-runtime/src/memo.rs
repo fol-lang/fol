@@ -10,8 +10,9 @@ pub use crate::aggregate::{
 };
 pub use crate::builtins::{div_int, len, mod_int, pow, pow_float, FolLength};
 pub use crate::containers::{
-    index_array, index_seq, index_set, index_vec, lookup_map, push_vec, render_array, render_map,
-    render_seq, render_set, render_vec, slice_seq, slice_vec, store_array, store_vec, FolArray,
+    clear_vec, index_array, index_seq, index_set, index_vec, insert_vec, lookup_map, pop_vec,
+    push_vec, remove_vec, render_array, render_map, render_seq, render_set, render_vec, slice_seq,
+    slice_vec, store_array, store_vec, truncate_vec, FolArray,
 };
 pub use crate::error::require;
 pub use crate::shell::{
@@ -188,6 +189,26 @@ impl<T> FolVec<T> {
 
     pub fn push(&mut self, value: T) {
         self.0.push(value);
+    }
+
+    pub fn pop(&mut self) -> Option<T> {
+        self.0.pop()
+    }
+
+    pub fn insert_at(&mut self, index: usize, value: T) {
+        self.0.insert(index, value);
+    }
+
+    pub fn remove_at(&mut self, index: usize) -> T {
+        self.0.remove(index)
+    }
+
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
+
+    pub fn truncate(&mut self, count: usize) {
+        self.0.truncate(count);
     }
 
     pub fn len(&self) -> usize {

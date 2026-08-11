@@ -1280,7 +1280,7 @@ pub(crate) fn lower_body_node(
                 )?;
                 return Ok(None);
             }
-            if super::helpers::lower_container_method_call(
+            match super::helpers::lower_container_method_call(
                 typed_package,
                 type_table,
                 checked_type_map,
@@ -1289,11 +1289,17 @@ pub(crate) fn lower_body_node(
                 cursor,
                 source_unit_id,
                 scope_id,
+                *syntax_id,
                 object,
                 method,
                 args,
             )? {
-                return Ok(None);
+                // A value-yielding container call in statement position is a
+                // discarded read; typecheck already rejects that, so either arm
+                // simply ends the statement.
+                super::helpers::ContainerCallOutcome::Statement
+                | super::helpers::ContainerCallOutcome::Value(_) => return Ok(None),
+                super::helpers::ContainerCallOutcome::NotContainer => {}
             }
             let receiver = lower_expression(
                 typed_package,

@@ -18,11 +18,28 @@ use crate::types::CheckedType;
 use crate::TypedProgram;
 use fol_resolver::SymbolKind;
 
+/// What a container method takes and gives back. `Element` is the container's
+/// own element type, resolved per call site.
+#[derive(Clone, Copy)]
+enum ArgShape {
+    Element,
+    Index,
+}
+
 /// Methods this module owns. On a container receiver they always win; on any
 /// other receiver the call falls through to ordinary method resolution, so a
 /// user routine named `push` on a record still works.
-fn is_container_method(method: &str) -> bool {
-    matches!(method, "push")
+fn container_method(method: &str) -> Option<(&'static [ArgShape], bool)> {
+    // (argument shapes, yields the displaced element as `opt[T]`)
+    match method {
+        "push" => Some((&[ArgShape::Element], false)),
+        "pop" => Some((&[], true)),
+        "insert_at" => Some((&[ArgShape::Index, ArgShape::Element], false)),
+        "remove_at" => Some((&[ArgShape::Index], true)),
+        "clear" => Some((&[], false)),
+        "truncate" => Some((&[ArgShape::Index], false)),
+        _ => None,
+    }
 }
 
 /// True when the receiver names a binding whose type is a container family, so
@@ -100,15 +117,18 @@ pub(crate) fn type_container_method_call(
     method: &str,
     args: &[AstNode],
 ) -> Result<Option<TypedExpr>, TypecheckError> {
-    if !is_container_method(method) || !receiver_names_container(typed, resolved, context, object) {
+    let Some((shapes, yields_element)) = container_method(method) else {
+        return Ok(None);
+    };
+    if !receiver_names_container(typed, resolved, context, object) {
         return Ok(None);
     }
     if !typed.capability_model().supports_container_growth() {
         return Err(TypecheckError::new(
             TypecheckErrorKind::Unsupported,
             format!(
-                "'.{method}' grows a container, which allocates; it requires the 'memo' capability \
-                 model or higher, and this artifact declares 'core'"
+                "'.{method}' resizes a container, which allocates; it requires the 'memo' \
+                 capability model or higher, and this artifact declares 'core'"
             ),
         ));
     }
@@ -120,31 +140,53 @@ pub(crate) fn type_container_method_call(
         object,
         method,
     )?;
-    let [value] = args else {
+    if args.len() != shapes.len() {
         return Err(TypecheckError::new(
             TypecheckErrorKind::InvalidInput,
-            format!("'.{method}' expects exactly 1 argument, got {}", args.len()),
+            format!(
+                "'.{method}' expects exactly {} argument(s), got {}",
+                shapes.len(),
+                args.len()
+            ),
         ));
-    };
-    let origin = node_origin(resolved, node).or_else(|| node_origin(resolved, value));
+    }
     let element_type = receiver.element_type;
-    let actual_expr =
-        type_node_with_expectation(typed, resolved, context, value, Some(element_type))?;
-    let actual_expr = plain_value_expr(
-        typed,
-        context,
-        actual_expr,
-        origin.clone(),
-        format!("'.{method}' on '{}'", receiver.binding_name),
-    )?;
-    let actual =
-        actual_expr.required_value(format!("'.{method}' argument does not have a type"))?;
-    super::helpers::ensure_assignable(
-        typed,
-        element_type,
-        apparent_type_id(typed, actual)?,
-        format!("'.{method}' on '{}'", receiver.binding_name),
-        origin,
-    )?;
-    Ok(Some(TypedExpr::none()))
+    let int_type = typed.builtin_types().int;
+    for (shape, arg) in shapes.iter().zip(args) {
+        let expected = match shape {
+            ArgShape::Element => element_type,
+            ArgShape::Index => int_type,
+        };
+        let origin = node_origin(resolved, arg).or_else(|| node_origin(resolved, node));
+        let actual_expr =
+            type_node_with_expectation(typed, resolved, context, arg, Some(expected))?;
+        let actual_expr = plain_value_expr(
+            typed,
+            context,
+            actual_expr,
+            origin.clone(),
+            format!("'.{method}' on '{}'", receiver.binding_name),
+        )?;
+        let actual =
+            actual_expr.required_value(format!("'.{method}' argument does not have a type"))?;
+        super::helpers::ensure_assignable(
+            typed,
+            expected,
+            apparent_type_id(typed, actual)?,
+            format!("'.{method}' on '{}'", receiver.binding_name),
+            origin,
+        )?;
+    }
+    if !yields_element {
+        return Ok(Some(TypedExpr::none()));
+    }
+    // The displaced element comes back as `opt[T]`: an empty container is an
+    // ordinary state to test for, not a fault.
+    let optional = typed.type_table_mut().intern(CheckedType::Optional {
+        inner: element_type,
+    });
+    if let Some(syntax_id) = node.syntax_id() {
+        typed.record_node_type(syntax_id, context.source_unit_id, optional)?;
+    }
+    Ok(Some(TypedExpr::value(optional)))
 }
