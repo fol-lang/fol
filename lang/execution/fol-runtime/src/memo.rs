@@ -18,8 +18,8 @@ pub use crate::builtins::{
 pub use crate::containers::{
     clear_map, clear_vec, contains_map, get_map, index_array, index_seq, index_set, index_vec,
     insert_map, insert_vec, keys_map, lookup_map, pop_vec, push_vec, remove_map, remove_vec,
-    render_array, render_map, render_seq, render_set, render_vec, slice_seq, slice_vec,
-    store_array, store_vec, truncate_vec, values_map, FolArray,
+    render_array, render_map, render_seq, render_set, render_vec, reserve_vec, slice_seq,
+    slice_vec, sort_vec, store_array, store_vec, swap_vec, truncate_vec, values_map, FolArray,
 };
 pub use crate::error::require;
 pub use crate::shell::{
@@ -216,6 +216,10 @@ impl<T> FolVec<T> {
 
     pub fn truncate(&mut self, count: usize) {
         self.0.truncate(count);
+    }
+
+    pub fn reserve(&mut self, additional: usize) {
+        self.0.reserve(additional);
     }
 
     pub fn len(&self) -> usize {

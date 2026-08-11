@@ -569,6 +569,15 @@ pub fn render_core_instruction_in_workspace(
                     Ok(format!("rt::push_vec({container_ref}, {});", rendered[0]))
                 }
                 ContainerMutateOp::VecClear => Ok(format!("rt::clear_vec({container_ref});")),
+                ContainerMutateOp::VecSort => Ok(format!("rt::sort_vec({container_ref});")),
+                ContainerMutateOp::VecReserve => Ok(format!(
+                    "rt::reserve_vec({container_ref}, {});",
+                    rendered[0]
+                )),
+                ContainerMutateOp::VecSwap => Ok(format!(
+                    "rt::require(rt::swap_vec({container_ref}, {}, {}));",
+                    rendered[0], rendered[1]
+                )),
                 ContainerMutateOp::VecTruncate => Ok(format!(
                     "rt::require(rt::truncate_vec({container_ref}, {}));",
                     rendered[0]

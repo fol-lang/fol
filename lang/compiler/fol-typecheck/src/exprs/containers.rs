@@ -53,6 +53,9 @@ fn vector_method(method: &str) -> Option<(&'static [ArgShape], ResultShape)> {
         "remove_at" => Some((&[ArgShape::Index], ResultShape::OptionalElement)),
         "clear" => Some((&[], ResultShape::None)),
         "truncate" => Some((&[ArgShape::Index], ResultShape::None)),
+        "sort" => Some((&[], ResultShape::None)),
+        "swap" => Some((&[ArgShape::Index, ArgShape::Index], ResultShape::None)),
+        "reserve" => Some((&[ArgShape::Index], ResultShape::None)),
         _ => None,
     }
 }

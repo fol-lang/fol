@@ -3712,7 +3712,7 @@ fn unorderable_container_member_error(role: &str, origin: Option<SyntaxOrigin>) 
     }
 }
 
-fn checked_type_blocks_ordering(
+pub(crate) fn checked_type_blocks_ordering(
     typed: &TypedProgram,
     type_id: CheckedTypeId,
     visited: &mut std::collections::BTreeSet<CheckedTypeId>,

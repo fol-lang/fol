@@ -137,6 +137,39 @@ pub fn truncate_vec<T>(values: &mut FolVec<T>, count: FolInt) -> Result<(), Runt
     Ok(())
 }
 
+/// Sort in place. The bound is `PartialOrd`, not `Ord`, deliberately: `flt` is
+/// `f64`, which is not `Ord` in Rust, and requiring `Ord` would let a
+/// `vec[flt]` typecheck and then fail in rustc. Incomparable pairs (only NaN)
+/// compare equal, which keeps the sort total and terminating.
+pub fn sort_vec<T: PartialOrd>(values: &mut FolVec<T>) {
+    values
+        .as_mut_slice()
+        .sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
+}
+
+/// Exchange two elements without moving either through FOL, which is what makes
+/// an in-place sort expressible for a move-only element type.
+pub fn swap_vec<T>(
+    values: &mut FolVec<T>,
+    left: FolInt,
+    right: FolInt,
+) -> Result<(), RuntimeError> {
+    let len = values.len();
+    let left = normalize_index(left, len)?;
+    let right = normalize_index(right, len)?;
+    values.as_mut_slice().swap(left, right);
+    Ok(())
+}
+
+/// Reserve capacity ahead of a known-size `push` loop. A hint only: a negative
+/// or excessive count is clamped rather than faulting, since reserving is never
+/// semantically required.
+pub fn reserve_vec<T>(values: &mut FolVec<T>, additional: FolInt) {
+    if additional > 0 {
+        values.reserve(additional as usize);
+    }
+}
+
 /// Insert or replace, handing back whatever the key displaced.
 pub fn insert_map<K: Ord, V>(values: &mut FolMap<K, V>, key: K, value: V) -> FolOption<V> {
     values

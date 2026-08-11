@@ -68,6 +68,9 @@ pub enum ContainerMutateOp {
     VecRemoveAt,
     VecClear,
     VecTruncate,
+    VecSort,
+    VecSwap,
+    VecReserve,
     MapInsert,
     MapGet,
     MapRemove,
@@ -86,6 +89,9 @@ impl ContainerMutateOp {
             Self::VecRemoveAt => "remove_at",
             Self::VecClear | Self::MapClear => "clear",
             Self::VecTruncate => "truncate",
+            Self::VecSort => "sort",
+            Self::VecSwap => "swap",
+            Self::VecReserve => "reserve",
             Self::MapInsert => "insert",
             Self::MapGet => "get",
             Self::MapRemove => "remove",
@@ -98,14 +104,20 @@ impl ContainerMutateOp {
     /// Number of explicit arguments the method takes, receiver excluded.
     pub fn arity(self) -> usize {
         match self {
-            Self::VecPop | Self::VecClear | Self::MapClear | Self::MapKeys | Self::MapValues => 0,
+            Self::VecPop
+            | Self::VecClear
+            | Self::VecSort
+            | Self::MapClear
+            | Self::MapKeys
+            | Self::MapValues => 0,
             Self::VecPush
             | Self::VecRemoveAt
             | Self::VecTruncate
+            | Self::VecReserve
             | Self::MapGet
             | Self::MapRemove
             | Self::MapContains => 1,
-            Self::VecInsertAt | Self::MapInsert => 2,
+            Self::VecInsertAt | Self::VecSwap | Self::MapInsert => 2,
         }
     }
 
@@ -113,7 +125,14 @@ impl ContainerMutateOp {
     pub fn yields_value(self) -> bool {
         !matches!(
             self,
-            Self::VecPush | Self::VecInsertAt | Self::VecClear | Self::VecTruncate | Self::MapClear
+            Self::VecPush
+                | Self::VecInsertAt
+                | Self::VecClear
+                | Self::VecTruncate
+                | Self::VecSort
+                | Self::VecSwap
+                | Self::VecReserve
+                | Self::MapClear
         )
     }
 

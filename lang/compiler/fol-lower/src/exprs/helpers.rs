@@ -530,6 +530,9 @@ fn container_mutate_op(
             "remove_at" => Some(ContainerMutateOp::VecRemoveAt),
             "clear" => Some(ContainerMutateOp::VecClear),
             "truncate" => Some(ContainerMutateOp::VecTruncate),
+            "sort" => Some(ContainerMutateOp::VecSort),
+            "swap" => Some(ContainerMutateOp::VecSwap),
+            "reserve" => Some(ContainerMutateOp::VecReserve),
             _ => None,
         },
         LoweredType::Map { .. } => match method {
@@ -557,6 +560,9 @@ fn is_container_method_name(method: &str) -> bool {
             | "remove_at"
             | "clear"
             | "truncate"
+            | "sort"
+            | "swap"
+            | "reserve"
             | "insert"
             | "get"
             | "remove"
@@ -647,7 +653,9 @@ pub(crate) fn lower_container_method_call(
         let expected = match (op, index) {
             (ContainerMutateOp::VecInsertAt, 0)
             | (ContainerMutateOp::VecRemoveAt, _)
-            | (ContainerMutateOp::VecTruncate, _) => int_type,
+            | (ContainerMutateOp::VecTruncate, _)
+            | (ContainerMutateOp::VecSwap, _)
+            | (ContainerMutateOp::VecReserve, _) => int_type,
             (
                 ContainerMutateOp::MapInsert
                 | ContainerMutateOp::MapGet

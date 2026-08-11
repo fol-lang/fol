@@ -6,20 +6,11 @@
 // actual type. The `_int`/`_str` names are kept as thin forwarders so existing
 // callers do not move.
 
+// Delegates to the native sort. The FOL insertion sort this replaces was
+// O(n-squared), and every routine built on it inherited that.
 fun[exp] sort(T: ord + clone)(values: vec[T]): vec[T] = {
     var[mut] out: vec[T] = [mov]values;
-    var[mut] i: int = 1;
-    var total: int = .len(out);
-    loop (i < total) {
-        var[mut] j: int = i;
-        loop (j > 0 and out[j - 1] > out[j]) {
-            var hold: T = out[j - 1];
-            out[j - 1] = out[j];
-            out[j] = hold;
-            j = j - 1;
-        };
-        i = i + 1;
-    };
+    out.sort();
     return out;
 };
 

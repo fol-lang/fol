@@ -157,10 +157,24 @@ fn collect_templates(
                         .and_then(|local| local.type_id)
                         .is_some_and(|type_id| type_contains_generic_parameter(type_table, type_id))
             });
+            // Same reason for container mutation: the runtime helper behind
+            // `.sort()` needs `PartialOrd` on the element, and the Rust-generics
+            // path emits no such bound. Templating makes the element concrete.
+            let mutates_generic_container = routine.instructions.iter().any(|instr| {
+                let LoweredInstrKind::ContainerMutate { base, .. } = instr.kind else {
+                    return false;
+                };
+                routine
+                    .locals
+                    .get(base)
+                    .and_then(|local| local.type_id)
+                    .is_some_and(|type_id| type_contains_generic_parameter(type_table, type_id))
+            });
             if generic_receiver
                 || has_constraint_calls
                 || uses_generic_structural
                 || indexes_generic_element
+                || mutates_generic_container
             {
                 templates.insert(
                     routine.id,
