@@ -603,6 +603,19 @@ fn terminal_intrinsic_signature(
         "temp_dir" | "home_dir" => Some((Vec::new(), builtins.str_)),
         "set_env_var" => Some((vec![builtins.str_, builtins.str_], builtins.int)),
         "process_id" => Some((Vec::new(), builtins.int)),
+        "flt_bits" => Some((vec![builtins.float], builtins.int)),
+        "flt_from_bits" => Some((vec![builtins.int], builtins.float)),
+        "flt_is_finite" => Some((vec![builtins.float], builtins.bool_)),
+        "flt_copysign" | "flt_rem" | "flt_next_after" => {
+            Some((vec![builtins.float, builtins.float], builtins.float))
+        }
+        "flt_mul_add" => Some((
+            vec![builtins.float, builtins.float, builtins.float],
+            builtins.float,
+        )),
+        "checked_mul" | "wrapping_mul" | "saturating_mul" | "checked_div" => {
+            Some((vec![builtins.int, builtins.int], builtins.int))
+        }
         "str_sub" => Some((
             vec![builtins.str_, builtins.int, builtins.int],
             builtins.str_,

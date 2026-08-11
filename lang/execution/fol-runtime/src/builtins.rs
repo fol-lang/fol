@@ -182,6 +182,107 @@ pub fn log2(value: crate::value::FolFloat) -> crate::value::FolFloat {
     value.log2()
 }
 
+/// The IEEE-754 bit pattern, and back. Nothing else in the language can observe
+/// a float's representation, which is what exact serialization, hashing and
+/// bit-level comparison all need.
+pub fn flt_bits(value: crate::value::FolFloat) -> FolInt {
+    value.to_bits() as FolInt
+}
+
+pub fn flt_from_bits(bits: FolInt) -> crate::value::FolFloat {
+    crate::value::FolFloat::from_bits(bits as u64)
+}
+
+pub fn flt_is_finite(value: crate::value::FolFloat) -> crate::value::FolBool {
+    value.is_finite()
+}
+
+/// The sign of `sign` applied to the magnitude of `value`. This is the only way
+/// to observe the sign of a zero: `-0.0 == 0.0` is true, so a comparison cannot
+/// tell them apart.
+pub fn flt_copysign(
+    value: crate::value::FolFloat,
+    sign: crate::value::FolFloat,
+) -> crate::value::FolFloat {
+    value.copysign(sign)
+}
+
+/// Floating remainder. `%` is integer-only, so this is the float counterpart;
+/// the result takes the sign of the dividend, like C's `fmod`.
+pub fn flt_rem(
+    left: crate::value::FolFloat,
+    right: crate::value::FolFloat,
+) -> crate::value::FolFloat {
+    left % right
+}
+
+/// Fused multiply-add: computed with ONE rounding instead of two, so it is not
+/// the same as `a * b + c` in the last bit. That difference is the point —
+/// it is what keeps error from accumulating in dot products and polynomials.
+pub fn flt_mul_add(
+    value: crate::value::FolFloat,
+    multiplier: crate::value::FolFloat,
+    addend: crate::value::FolFloat,
+) -> crate::value::FolFloat {
+    value.mul_add(multiplier, addend)
+}
+
+/// The next representable float from `value` toward `target` — one ULP step.
+/// Tolerance-based tests need it, and there is no way to express "the smallest
+/// possible increment" arithmetically, because it changes with magnitude.
+pub fn flt_next_after(
+    value: crate::value::FolFloat,
+    target: crate::value::FolFloat,
+) -> crate::value::FolFloat {
+    if value.is_nan() || target.is_nan() {
+        return crate::value::FolFloat::NAN;
+    }
+    if value == target {
+        return target;
+    }
+    if value == 0.0 {
+        // Both zeros compare equal, so step off zero explicitly toward the
+        // target's sign rather than trying to read the sign of the zero.
+        return crate::value::FolFloat::from_bits(1).copysign(target);
+    }
+    let bits = value.to_bits();
+    let stepped = if (target > value) == (value > 0.0) {
+        bits + 1
+    } else {
+        bits - 1
+    };
+    crate::value::FolFloat::from_bits(stepped)
+}
+
+/// The multiplication and division that complete the checked/wrapping/
+/// saturating family. `checked_*` faults in EVERY build profile; plain `*`
+/// traps in debug and wraps in release, so a program that must not wrap needs a
+/// spelling that behaves the same either way.
+pub fn checked_mul(left: FolInt, right: FolInt) -> FolInt {
+    match left.checked_mul(right) {
+        Some(value) => value,
+        None => panic!("fol runtime fault: integer multiplication overflowed"),
+    }
+}
+
+pub fn wrapping_mul(left: FolInt, right: FolInt) -> FolInt {
+    left.wrapping_mul(right)
+}
+
+pub fn saturating_mul(left: FolInt, right: FolInt) -> FolInt {
+    left.saturating_mul(right)
+}
+
+/// Division that faults on overflow as well as by zero. `div_int` already
+/// faults; this exists so the checked family is complete and callable by name.
+pub fn checked_div(left: FolInt, right: FolInt) -> FolInt {
+    match left.checked_div(right) {
+        Some(value) => value,
+        None if right == 0 => panic!("fol runtime fault: division by zero"),
+        None => panic!("fol runtime fault: integer division overflowed"),
+    }
+}
+
 /// Bitwise operations on `int`, which is a signed 64-bit value. FOL has no
 /// bitwise operators, so these are the whole surface; emulating them with `/`
 /// and `%` is what the mimicry round was forced into, and it breaks on

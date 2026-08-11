@@ -858,6 +858,9 @@ pub fn render_core_instruction_in_workspace(
                 | ("file_is_link", [value])
                 | ("read_link", [value])
                 | ("permissions", [value])
+                | ("flt_bits", [value])
+                | ("flt_from_bits", [value])
+                | ("flt_is_finite", [value])
                 | ("set_current_dir", [value])
                 | ("raw_mode", [value])
                 | ("sleep_ms", [value])
@@ -917,17 +920,24 @@ pub fn render_core_instruction_in_workspace(
                 | ("set_env_var", [path, contents])
                 | ("run_capture", [path, contents])
                 | ("run_status", [path, contents])
+                | ("flt_copysign", [path, contents])
+                | ("flt_rem", [path, contents])
+                | ("flt_next_after", [path, contents])
+                | ("checked_mul", [path, contents])
+                | ("wrapping_mul", [path, contents])
+                | ("saturating_mul", [path, contents])
+                | ("checked_div", [path, contents])
                 | ("float_to_str", [path, contents]) => {
                     let first = render_transfer_expr(type_table, package_identity, routine, *path)?;
                     let second =
                         render_transfer_expr(type_table, package_identity, routine, *contents)?;
                     format!("rt::{}({first}, {second})", entry.name)
                 }
-                ("str_replace", [text, from, to]) => {
+                ("str_replace", [text, from, to]) | ("flt_mul_add", [text, from, to]) => {
                     let text = render_transfer_expr(type_table, package_identity, routine, *text)?;
                     let from = render_transfer_expr(type_table, package_identity, routine, *from)?;
                     let to = render_transfer_expr(type_table, package_identity, routine, *to)?;
-                    format!("rt::str_replace({text}, {from}, {to})")
+                    format!("rt::{}({text}, {from}, {to})", entry.name)
                 }
                 ("str_sub", [text, start, count]) => {
                     let text = render_transfer_expr(type_table, package_identity, routine, *text)?;
