@@ -826,6 +826,11 @@ pub fn render_core_instruction_in_workspace(
                 | ("tcp_read", [value])
                 | ("tcp_close", [value])
                 | ("tcp_local_addr", [value])
+                | ("str_char_len", [value])
+                | ("str_byte_len", [value])
+                | ("str_valid_utf8", [value])
+                | ("str_chars", [value])
+                | ("str_from_chars", [value])
                 | ("raw_mode", [value])
                 | ("sleep_ms", [value])
                 | ("byte_to_str", [value])
@@ -869,6 +874,8 @@ pub fn render_core_instruction_in_workspace(
                 | ("copy_file", [path, contents])
                 | ("append_file", [path, contents])
                 | ("tcp_write", [path, contents])
+                | ("str_char", [path, contents])
+                | ("str_char_index", [path, contents])
                 | ("float_to_str", [path, contents]) => {
                     let first = render_transfer_expr(type_table, package_identity, routine, *path)?;
                     let second =

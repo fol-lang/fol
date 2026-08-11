@@ -159,7 +159,9 @@ pub(crate) fn type_dot_intrinsic_call(
                     syntax_id,
                     expected_type,
                 )?,
-                None if terminal_intrinsic_signature(typed, entry.name).is_some() => {
+                None if terminal_intrinsic_signature(typed, entry.name).is_some()
+                    || matches!(entry.name, "str_chars" | "str_from_chars") =>
+                {
                     type_terminal_intrinsic(typed, resolved, context, entry, args, syntax_id)?
                 }
                 None => {
@@ -562,6 +564,10 @@ fn terminal_intrinsic_signature(
         "tcp_accept" | "tcp_close" => Some((vec![builtins.int], builtins.int)),
         "tcp_read" | "tcp_local_addr" => Some((vec![builtins.int], builtins.str_)),
         "tcp_write" => Some((vec![builtins.int, builtins.str_], builtins.int)),
+        "str_char_len" | "str_byte_len" => Some((vec![builtins.str_], builtins.int)),
+        "str_char" => Some((vec![builtins.str_, builtins.int], builtins.char_)),
+        "str_char_index" => Some((vec![builtins.str_, builtins.int], builtins.int)),
+        "str_valid_utf8" => Some((vec![builtins.str_], builtins.bool_)),
         "str_sub" => Some((
             vec![builtins.str_, builtins.int, builtins.int],
             builtins.str_,
@@ -597,8 +603,25 @@ fn type_terminal_intrinsic(
     syntax_id: SyntaxNodeId,
 ) -> Result<TypedExpr, TypecheckError> {
     let origin = origin_for(resolved, syntax_id);
-    let (params, result) = terminal_intrinsic_signature(typed, entry.name)
-        .expect("terminal intrinsic dispatch already matched the name");
+    // `vec[chr]` has to be interned, which the shared signature table cannot do
+    // from a shared borrow, so the two container-typed char intrinsics are
+    // resolved here instead.
+    let (params, result) = match entry.name {
+        "str_chars" | "str_from_chars" => {
+            let char_ = typed.builtin_types().char_;
+            let str_ = typed.builtin_types().str_;
+            let chars = typed.type_table_mut().intern(crate::CheckedType::Vector {
+                element_type: char_,
+            });
+            if entry.name == "str_chars" {
+                (vec![str_], chars)
+            } else {
+                (vec![chars], str_)
+            }
+        }
+        _ => terminal_intrinsic_signature(typed, entry.name)
+            .expect("terminal intrinsic dispatch already matched the name"),
+    };
     if typed.capability_model() != crate::TypecheckCapabilityModel::Std {
         let message = format!(
             "'.{}(...)' requires hosted std support; declare build.add_dep({{ alias = \"std\", source = \"internal\", target = \"standard\" }}) and use 'fol_model = memo' (current artifact model is '{}')",

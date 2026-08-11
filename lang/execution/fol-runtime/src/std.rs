@@ -554,6 +554,63 @@ pub fn str_sub(text: FolStr, start: crate::value::FolInt, len: crate::value::Fol
     FolStr::new(&source[from..until])
 }
 
+/// Char-indexed access. `.len`, `str_sub`, `str_find` and `str_byte` are the
+/// BYTE world; these are the char world. `str_char_index` is the only sanctioned
+/// bridge between them. Mixing the two silently mangles multi-byte text — the
+/// bug that made `to_upper("héllo")` return `"HLLO"`.
+pub fn str_char_len(text: FolStr) -> crate::value::FolInt {
+    text.as_str().chars().count() as crate::value::FolInt
+}
+
+pub fn str_byte_len(text: FolStr) -> crate::value::FolInt {
+    text.as_str().len() as crate::value::FolInt
+}
+
+/// The character at a char index. Out of range faults, matching an indexed read
+/// rather than `str_byte`'s -1: there is no `chr` sentinel to return.
+pub fn str_char(text: FolStr, index: crate::value::FolInt) -> crate::value::FolChar {
+    let source = text.as_str();
+    usize::try_from(index)
+        .ok()
+        .and_then(|index| source.chars().nth(index))
+        .unwrap_or_else(|| {
+            panic!(
+                "fol runtime fault: char index out of bounds: the char len is {} but the index is {index}",
+                source.chars().count()
+            );
+        })
+}
+
+/// The BYTE offset where char `index` begins, so a char position can be handed
+/// to `str_sub`. `index == char_len` yields the byte length, which makes it
+/// usable as an exclusive end bound.
+pub fn str_char_index(text: FolStr, index: crate::value::FolInt) -> crate::value::FolInt {
+    let source = text.as_str();
+    let Ok(index) = usize::try_from(index) else {
+        return -1;
+    };
+    source
+        .char_indices()
+        .map(|(offset, _)| offset)
+        .chain(std::iter::once(source.len()))
+        .nth(index)
+        .map_or(-1, |offset| offset as crate::value::FolInt)
+}
+
+pub fn str_chars(text: FolStr) -> FolVec<crate::value::FolChar> {
+    FolVec::from_items(text.as_str().chars().collect())
+}
+
+pub fn str_from_chars(chars: FolVec<crate::value::FolChar>) -> FolStr {
+    FolStr::new(chars.as_slice().iter().collect::<String>())
+}
+
+/// Whether the bytes are well-formed UTF-8. A `FolStr` built inside FOL always
+/// is; one read from a socket or a file may not be.
+pub fn str_valid_utf8(text: FolStr) -> crate::value::FolBool {
+    std::str::from_utf8(text.as_str().as_bytes()).is_ok()
+}
+
 /// The byte value at an index, or -1 outside the string.
 pub fn str_byte(text: FolStr, index: crate::value::FolInt) -> crate::value::FolInt {
     if index < 0 {
