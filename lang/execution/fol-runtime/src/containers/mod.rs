@@ -137,6 +137,46 @@ pub fn truncate_vec<T>(values: &mut FolVec<T>, count: FolInt) -> Result<(), Runt
     Ok(())
 }
 
+/// Insert or replace, handing back whatever the key displaced.
+pub fn insert_map<K: Ord, V>(values: &mut FolMap<K, V>, key: K, value: V) -> FolOption<V> {
+    values
+        .insert(key, value)
+        .map_or(FolOption::Nil, FolOption::Some)
+}
+
+/// Read by key. Absent is `nil`, not a fault -- unlike `lookup_map`, which backs
+/// the indexing surface and must fault to keep `m[k]` a value expression.
+pub fn get_map<K: Ord, V: Clone>(values: &FolMap<K, V>, key: &K) -> FolOption<V> {
+    values
+        .get(key)
+        .cloned()
+        .map_or(FolOption::Nil, FolOption::Some)
+}
+
+/// Remove by key, handing back the removed value.
+pub fn remove_map<K: Ord, V>(values: &mut FolMap<K, V>, key: &K) -> FolOption<V> {
+    values.remove(key).map_or(FolOption::Nil, FolOption::Some)
+}
+
+pub fn contains_map<K: Ord, V>(values: &FolMap<K, V>, key: &K) -> bool {
+    values.contains_key(key)
+}
+
+pub fn clear_map<K: Ord, V>(values: &mut FolMap<K, V>) {
+    values.clear();
+}
+
+/// Every key, in the map's own order. `FolMap` is a `BTreeMap`, so this is
+/// sorted, and callers may rely on that.
+pub fn keys_map<K: Ord + Clone, V>(values: &FolMap<K, V>) -> FolVec<K> {
+    FolVec::from_items(values.as_map().keys().cloned().collect())
+}
+
+/// Every value, in key order. Pairs with `keys_map` positionally.
+pub fn values_map<K: Ord, V: Clone>(values: &FolMap<K, V>) -> FolVec<V> {
+    FolVec::from_items(values.as_map().values().cloned().collect())
+}
+
 pub fn index_seq<T>(values: &FolSeq<T>, index: FolInt) -> Result<&T, RuntimeError> {
     let index = normalize_index(index, values.len())?;
     Ok(&values.as_slice()[index])

@@ -1590,9 +1590,20 @@ pub(crate) fn symbol_allows_mutable_borrow(typed: &TypedProgram, symbol: SymbolI
 /// the binding that owns it. Mirrors the checks the indexed-assignment path runs
 /// — same rules, own wording, because "indexed assignment" reads wrong on a
 /// `.push`.
+#[derive(Clone, Copy)]
+pub(crate) enum ContainerFamily {
+    Vector {
+        element: CheckedTypeId,
+    },
+    Map {
+        key: CheckedTypeId,
+        value: CheckedTypeId,
+    },
+}
+
 pub(crate) struct ContainerMethodReceiver {
     pub binding_name: String,
-    pub element_type: CheckedTypeId,
+    pub family: ContainerFamily,
 }
 
 /// Resolve the receiver of a growable-container method to its owning binding and
@@ -1713,13 +1724,22 @@ pub(crate) fn resolve_container_method_receiver(
             apparent_type_id(typed, field_type)?
         }
     };
-    let element_type = match typed.type_table().get(container_type) {
-        Some(CheckedType::Vector { element_type }) => *element_type,
+    let family = match typed.type_table().get(container_type) {
+        Some(CheckedType::Vector { element_type }) => ContainerFamily::Vector {
+            element: *element_type,
+        },
+        Some(CheckedType::Map {
+            key_type,
+            value_type,
+        }) => ContainerFamily::Map {
+            key: *key_type,
+            value: *value_type,
+        },
         Some(CheckedType::Array { .. }) => {
             return Err(TypecheckError::new(
                 TypecheckErrorKind::Unsupported,
                 format!(
-                    "'arr[T,N]' is fixed-size, so '.{method}' cannot grow it; use 'vec[T]', \
+                    "'arr[T,N]' is fixed-size, so '.{method}' cannot resize it; use 'vec[T]', \
                      or assign an element with 'values[i] = ...'"
                 ),
             ))
@@ -1733,28 +1753,44 @@ pub(crate) fn resolve_container_method_receiver(
                 ),
             ))
         }
+        Some(CheckedType::Set { .. }) => {
+            return Err(TypecheckError::new(
+                TypecheckErrorKind::Unsupported,
+                format!(
+                    "'set[...]' is the tuple-member form, where each position has its own type; \
+                     '.{method}' needs a growable container — use 'vec[T]' or 'map[K,V]'"
+                ),
+            ))
+        }
         _ => {
             return Err(TypecheckError::new(
                 TypecheckErrorKind::InvalidInput,
-                format!("'.{method}' requires a 'vec[T]' binding, but '{binding_name}' is not one"),
+                format!(
+                    "'.{method}' requires a 'vec[T]' or 'map[K,V]' binding, but '{binding_name}' \
+                     is not one"
+                ),
             ))
         }
     };
-    // A container's `fin` elements are finalized by a scope-exit walk. Growth
-    // itself is safe, but keeping the gate aligned with the indexed path means
-    // one rule to reason about for `fin` containers.
-    if typed.type_resolves_to_fin(element_type) {
+    // A container's `fin` elements are finalized by a scope-exit walk, which does
+    // not model a set that changes size. Keeping the gate aligned with the
+    // indexed path means one rule to reason about for `fin` containers.
+    let finalized = match family {
+        ContainerFamily::Vector { element } => typed.type_resolves_to_fin(element),
+        ContainerFamily::Map { value, .. } => typed.type_resolves_to_fin(value),
+    };
+    if finalized {
         return Err(TypecheckError::new(
             TypecheckErrorKind::Unsupported,
             format!(
-                "cannot '.{method}' onto a container of 'fin' elements; its elements are finalized \
-                 by a scope-exit walk, which does not model growth"
+                "cannot '.{method}' on a container of 'fin' elements; its elements are finalized \
+                 by a scope-exit walk, which does not model resizing"
             ),
         ));
     }
     Ok(ContainerMethodReceiver {
         binding_name,
-        element_type,
+        family,
     })
 }
 

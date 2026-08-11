@@ -68,6 +68,13 @@ pub enum ContainerMutateOp {
     VecRemoveAt,
     VecClear,
     VecTruncate,
+    MapInsert,
+    MapGet,
+    MapRemove,
+    MapContains,
+    MapClear,
+    MapKeys,
+    MapValues,
 }
 
 impl ContainerMutateOp {
@@ -77,24 +84,47 @@ impl ContainerMutateOp {
             Self::VecPop => "pop",
             Self::VecInsertAt => "insert_at",
             Self::VecRemoveAt => "remove_at",
-            Self::VecClear => "clear",
+            Self::VecClear | Self::MapClear => "clear",
             Self::VecTruncate => "truncate",
+            Self::MapInsert => "insert",
+            Self::MapGet => "get",
+            Self::MapRemove => "remove",
+            Self::MapContains => "contains",
+            Self::MapKeys => "keys",
+            Self::MapValues => "values",
         }
     }
 
     /// Number of explicit arguments the method takes, receiver excluded.
     pub fn arity(self) -> usize {
         match self {
-            Self::VecPop | Self::VecClear => 0,
-            Self::VecPush | Self::VecRemoveAt | Self::VecTruncate => 1,
-            Self::VecInsertAt => 2,
+            Self::VecPop | Self::VecClear | Self::MapClear | Self::MapKeys | Self::MapValues => 0,
+            Self::VecPush
+            | Self::VecRemoveAt
+            | Self::VecTruncate
+            | Self::MapGet
+            | Self::MapRemove
+            | Self::MapContains => 1,
+            Self::VecInsertAt | Self::MapInsert => 2,
         }
     }
 
-    /// Whether the operation yields a value. `pop` and `remove_at` hand back the
-    /// displaced element as `opt[T]`; the rest are statements.
-    pub fn yields_element(self) -> bool {
-        matches!(self, Self::VecPop | Self::VecRemoveAt)
+    /// Whether the operation yields a value. The rest are statements.
+    pub fn yields_value(self) -> bool {
+        !matches!(
+            self,
+            Self::VecPush | Self::VecInsertAt | Self::VecClear | Self::VecTruncate | Self::MapClear
+        )
+    }
+
+    /// Whether the operation only reads. Reads still route through this
+    /// instruction because they address the binding's own local, but they do not
+    /// require a mutable place.
+    pub fn is_read_only(self) -> bool {
+        matches!(
+            self,
+            Self::MapGet | Self::MapContains | Self::MapKeys | Self::MapValues
+        )
     }
 }
 

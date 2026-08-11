@@ -15,9 +15,10 @@ pub use crate::aggregate::{
 };
 pub use crate::builtins::{div_int, len, mod_int, pow, pow_float, FolLength};
 pub use crate::containers::{
-    clear_vec, index_array, index_seq, index_set, index_vec, insert_vec, lookup_map, pop_vec,
-    push_vec, remove_vec, render_array, render_map, render_seq, render_set, render_vec, slice_seq,
-    slice_vec, store_array, store_vec, truncate_vec, FolArray,
+    clear_map, clear_vec, contains_map, get_map, index_array, index_seq, index_set, index_vec,
+    insert_map, insert_vec, keys_map, lookup_map, pop_vec, push_vec, remove_map, remove_vec,
+    render_array, render_map, render_seq, render_set, render_vec, slice_seq, slice_vec,
+    store_array, store_vec, truncate_vec, values_map, FolArray,
 };
 pub use crate::error::require;
 pub use crate::memo::{FolMap, FolSeq, FolSet, FolStr, FolVec};

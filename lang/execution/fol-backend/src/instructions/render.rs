@@ -183,6 +183,59 @@ fn mutable_container_place(
     }
 }
 
+/// The shared reference a read-only container operation goes through. Same
+/// base/field walk as `mutable_container_place`, but yields `&` so a `[bor]`
+/// receiver stays legal.
+fn shared_container_place(
+    type_table: &LoweredTypeTable,
+    package_identity: &PackageIdentity,
+    routine: &LoweredRoutine,
+    base_id: fol_lower::LoweredLocalId,
+    field: &Option<String>,
+    what: &str,
+) -> BackendResult<(LoweredTypeId, String)> {
+    let base_name = if routine.mutex_params.contains(&base_id) {
+        format!(
+            "{}.as_ref().expect(\"mutex {what} requires .lock()\")",
+            render_mutex_guard_name(base_id)
+        )
+    } else {
+        render_local_name(package_identity, routine, base_id)?
+    };
+    let base_type = routine
+        .locals
+        .get(base_id)
+        .and_then(|local| local.type_id)
+        .ok_or_else(|| {
+            BackendError::new(
+                BackendErrorKind::InvalidInput,
+                format!("{what} base does not retain a lowered type"),
+            )
+        })?;
+    match field {
+        Some(field) => {
+            let (record_type, _) = observed_storage_reference(type_table, base_type, &base_name);
+            let Some(LoweredType::Record { fields, .. }) = type_table.get(record_type) else {
+                return Err(BackendError::new(
+                    BackendErrorKind::InvalidInput,
+                    format!("{what} through a field requires a record base"),
+                ));
+            };
+            let field_type = fields.get(field).copied().ok_or_else(|| {
+                BackendError::new(
+                    BackendErrorKind::InvalidInput,
+                    format!("{what} names unknown field '{field}'"),
+                )
+            })?;
+            let place = format!("{base_name}.{}", crate::escape_rust_field_ident(field));
+            Ok(observed_storage_reference(type_table, field_type, &place))
+        }
+        None => Ok(observed_storage_reference(
+            type_table, base_type, &base_name,
+        )),
+    }
+}
+
 pub fn render_core_instruction_in_workspace(
     workspace: Option<&LoweredWorkspace>,
     package_identity: &PackageIdentity,
@@ -474,27 +527,28 @@ pub fn render_core_instruction_in_workspace(
             args,
         } => {
             use fol_lower::ContainerMutateOp;
-            let (container_type, container_ref) = mutable_container_place(
-                type_table,
-                package_identity,
-                routine,
-                *base,
-                field,
-                "container mutation",
-            )?;
-            if !matches!(
-                type_table.get(container_type),
-                Some(LoweredType::Vector { .. })
-            ) {
-                return Err(BackendError::new(
-                    BackendErrorKind::InvalidInput,
-                    format!(
-                        "'.{}' expected a vector local but found {:?}",
-                        op.method_name(),
-                        type_table.get(container_type)
-                    ),
-                ));
-            }
+            // A read-only operation still addresses the binding's own local, but
+            // takes a shared reference: `&mut` on a `[bor]` receiver would fail
+            // in rustc rather than in FOL.
+            let (_container_type, container_ref) = if op.is_read_only() {
+                shared_container_place(
+                    type_table,
+                    package_identity,
+                    routine,
+                    *base,
+                    field,
+                    "container read",
+                )?
+            } else {
+                mutable_container_place(
+                    type_table,
+                    package_identity,
+                    routine,
+                    *base,
+                    field,
+                    "container mutation",
+                )?
+            };
             if args.len() != op.arity() {
                 return Err(BackendError::new(
                     BackendErrorKind::InvalidInput,
@@ -536,6 +590,45 @@ pub fn render_core_instruction_in_workspace(
                         "{result} = rt::FolOption::some(rt::require(rt::remove_vec({container_ref}, {})));",
                         rendered[0]
                     ))
+                }
+                ContainerMutateOp::MapClear => Ok(format!("rt::clear_map({container_ref});")),
+                ContainerMutateOp::MapInsert => {
+                    let result = rendered_result_local(package_identity, routine, instruction)?;
+                    Ok(format!(
+                        "{result} = rt::insert_map({container_ref}, {}, {});",
+                        rendered[0], rendered[1]
+                    ))
+                }
+                // The lookup family borrows its key, so a key that is itself a
+                // move-only value stays usable after the call.
+                ContainerMutateOp::MapGet => {
+                    let result = rendered_result_local(package_identity, routine, instruction)?;
+                    Ok(format!(
+                        "{result} = rt::get_map({container_ref}, &{});",
+                        rendered[0]
+                    ))
+                }
+                ContainerMutateOp::MapRemove => {
+                    let result = rendered_result_local(package_identity, routine, instruction)?;
+                    Ok(format!(
+                        "{result} = rt::remove_map({container_ref}, &{});",
+                        rendered[0]
+                    ))
+                }
+                ContainerMutateOp::MapContains => {
+                    let result = rendered_result_local(package_identity, routine, instruction)?;
+                    Ok(format!(
+                        "{result} = rt::contains_map({container_ref}, &{});",
+                        rendered[0]
+                    ))
+                }
+                ContainerMutateOp::MapKeys => {
+                    let result = rendered_result_local(package_identity, routine, instruction)?;
+                    Ok(format!("{result} = rt::keys_map({container_ref});"))
+                }
+                ContainerMutateOp::MapValues => {
+                    let result = rendered_result_local(package_identity, routine, instruction)?;
+                    Ok(format!("{result} = rt::values_map({container_ref});"))
                 }
             }
         }

@@ -10,7 +10,7 @@ use fol_resolver::ResolvedProgram;
 
 use super::helpers::{
     apparent_type_id, find_symbol_in_scope_chain, node_origin, resolve_container_method_receiver,
-    strip_comments,
+    strip_comments, ContainerFamily,
 };
 use super::{plain_value_expr, type_node_with_expectation, TypeContext, TypedExpr};
 use crate::errors::{TypecheckError, TypecheckErrorKind};
@@ -18,28 +18,64 @@ use crate::types::CheckedType;
 use crate::TypedProgram;
 use fol_resolver::SymbolKind;
 
-/// What a container method takes and gives back. `Element` is the container's
-/// own element type, resolved per call site.
+/// What a container method takes. `Element`, `Key` and `Value` resolve against
+/// the receiver's own type arguments at each call site.
 #[derive(Clone, Copy)]
 enum ArgShape {
     Element,
     Index,
+    Key,
+    Value,
 }
 
-/// Methods this module owns. On a container receiver they always win; on any
-/// other receiver the call falls through to ordinary method resolution, so a
-/// user routine named `push` on a record still works.
-fn container_method(method: &str) -> Option<(&'static [ArgShape], bool)> {
-    // (argument shapes, yields the displaced element as `opt[T]`)
+/// What a container method gives back.
+#[derive(Clone, Copy)]
+enum ResultShape {
+    /// A statement — no value.
+    None,
+    /// The displaced element or value, as `opt[T]`.
+    OptionalElement,
+    OptionalValue,
+    Bool,
+    /// Every key, as `vec[K]`; or every value, as `vec[V]`.
+    KeyVector,
+    ValueVector,
+}
+
+/// Methods this module owns, per container family. On a container receiver they
+/// always win; on any other receiver the call falls through to ordinary method
+/// resolution, so a user routine named `push` on a record still works.
+fn vector_method(method: &str) -> Option<(&'static [ArgShape], ResultShape)> {
     match method {
-        "push" => Some((&[ArgShape::Element], false)),
-        "pop" => Some((&[], true)),
-        "insert_at" => Some((&[ArgShape::Index, ArgShape::Element], false)),
-        "remove_at" => Some((&[ArgShape::Index], true)),
-        "clear" => Some((&[], false)),
-        "truncate" => Some((&[ArgShape::Index], false)),
+        "push" => Some((&[ArgShape::Element], ResultShape::None)),
+        "pop" => Some((&[], ResultShape::OptionalElement)),
+        "insert_at" => Some((&[ArgShape::Index, ArgShape::Element], ResultShape::None)),
+        "remove_at" => Some((&[ArgShape::Index], ResultShape::OptionalElement)),
+        "clear" => Some((&[], ResultShape::None)),
+        "truncate" => Some((&[ArgShape::Index], ResultShape::None)),
         _ => None,
     }
+}
+
+fn map_method(method: &str) -> Option<(&'static [ArgShape], ResultShape)> {
+    match method {
+        "insert" => Some((
+            &[ArgShape::Key, ArgShape::Value],
+            ResultShape::OptionalValue,
+        )),
+        "get" => Some((&[ArgShape::Key], ResultShape::OptionalValue)),
+        "remove" => Some((&[ArgShape::Key], ResultShape::OptionalValue)),
+        "contains" => Some((&[ArgShape::Key], ResultShape::Bool)),
+        "clear" => Some((&[], ResultShape::None)),
+        "keys" => Some((&[], ResultShape::KeyVector)),
+        "values" => Some((&[], ResultShape::ValueVector)),
+        _ => None,
+    }
+}
+
+/// Every name either family owns, used to decide whether to engage at all.
+fn is_container_method(method: &str) -> bool {
+    vector_method(method).is_some() || map_method(method).is_some()
 }
 
 /// True when the receiver names a binding whose type is a container family, so
@@ -117,10 +153,7 @@ pub(crate) fn type_container_method_call(
     method: &str,
     args: &[AstNode],
 ) -> Result<Option<TypedExpr>, TypecheckError> {
-    let Some((shapes, yields_element)) = container_method(method) else {
-        return Ok(None);
-    };
-    if !receiver_names_container(typed, resolved, context, object) {
+    if !is_container_method(method) || !receiver_names_container(typed, resolved, context, object) {
         return Ok(None);
     }
     if !typed.capability_model().supports_container_growth() {
@@ -140,6 +173,23 @@ pub(crate) fn type_container_method_call(
         object,
         method,
     )?;
+    // The receiver's family decides which method table applies, so `.push` on a
+    // map and `.insert` on a vector are both named as wrong-family mistakes
+    // rather than unknown methods.
+    let (shapes, result) = match receiver.family {
+        ContainerFamily::Vector { .. } => vector_method(method).ok_or_else(|| {
+            TypecheckError::new(
+                TypecheckErrorKind::InvalidInput,
+                format!("'vec[T]' has no '.{method}'; it is a 'map[K,V]' method"),
+            )
+        })?,
+        ContainerFamily::Map { .. } => map_method(method).ok_or_else(|| {
+            TypecheckError::new(
+                TypecheckErrorKind::InvalidInput,
+                format!("'map[K,V]' has no '.{method}'; it is a 'vec[T]' method"),
+            )
+        })?,
+    };
     if args.len() != shapes.len() {
         return Err(TypecheckError::new(
             TypecheckErrorKind::InvalidInput,
@@ -150,12 +200,17 @@ pub(crate) fn type_container_method_call(
             ),
         ));
     }
-    let element_type = receiver.element_type;
     let int_type = typed.builtin_types().int;
+    let (element_type, key_type, value_type) = match receiver.family {
+        ContainerFamily::Vector { element } => (element, int_type, element),
+        ContainerFamily::Map { key, value } => (value, key, value),
+    };
     for (shape, arg) in shapes.iter().zip(args) {
         let expected = match shape {
             ArgShape::Element => element_type,
             ArgShape::Index => int_type,
+            ArgShape::Key => key_type,
+            ArgShape::Value => value_type,
         };
         let origin = node_origin(resolved, arg).or_else(|| node_origin(resolved, node));
         let actual_expr =
@@ -177,16 +232,26 @@ pub(crate) fn type_container_method_call(
             origin,
         )?;
     }
-    if !yields_element {
-        return Ok(Some(TypedExpr::none()));
-    }
-    // The displaced element comes back as `opt[T]`: an empty container is an
+    // A displaced or looked-up value comes back as `opt[T]`: absence is an
     // ordinary state to test for, not a fault.
-    let optional = typed.type_table_mut().intern(CheckedType::Optional {
-        inner: element_type,
-    });
+    let result_type = match result {
+        ResultShape::None => return Ok(Some(TypedExpr::none())),
+        ResultShape::OptionalElement => typed.type_table_mut().intern(CheckedType::Optional {
+            inner: element_type,
+        }),
+        ResultShape::OptionalValue => typed
+            .type_table_mut()
+            .intern(CheckedType::Optional { inner: value_type }),
+        ResultShape::Bool => typed.builtin_types().bool_,
+        ResultShape::KeyVector => typed.type_table_mut().intern(CheckedType::Vector {
+            element_type: key_type,
+        }),
+        ResultShape::ValueVector => typed.type_table_mut().intern(CheckedType::Vector {
+            element_type: value_type,
+        }),
+    };
     if let Some(syntax_id) = node.syntax_id() {
-        typed.record_node_type(syntax_id, context.source_unit_id, optional)?;
+        typed.record_node_type(syntax_id, context.source_unit_id, result_type)?;
     }
-    Ok(Some(TypedExpr::value(optional)))
+    Ok(Some(TypedExpr::value(result_type)))
 }

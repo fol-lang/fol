@@ -513,17 +513,57 @@ pub(crate) enum ContainerCallOutcome {
     Value(LoweredValue),
 }
 
-fn container_mutate_op(method: &str) -> Option<crate::control::ContainerMutateOp> {
+/// The receiver's family decides which op a method name means, so `clear` is
+/// `VecClear` on a vector and `MapClear` on a map. Typecheck has already refused
+/// a name the family does not own.
+fn container_mutate_op(
+    method: &str,
+    container: &crate::types::LoweredType,
+) -> Option<crate::control::ContainerMutateOp> {
     use crate::control::ContainerMutateOp;
-    match method {
-        "push" => Some(ContainerMutateOp::VecPush),
-        "pop" => Some(ContainerMutateOp::VecPop),
-        "insert_at" => Some(ContainerMutateOp::VecInsertAt),
-        "remove_at" => Some(ContainerMutateOp::VecRemoveAt),
-        "clear" => Some(ContainerMutateOp::VecClear),
-        "truncate" => Some(ContainerMutateOp::VecTruncate),
+    use crate::types::LoweredType;
+    match container {
+        LoweredType::Vector { .. } => match method {
+            "push" => Some(ContainerMutateOp::VecPush),
+            "pop" => Some(ContainerMutateOp::VecPop),
+            "insert_at" => Some(ContainerMutateOp::VecInsertAt),
+            "remove_at" => Some(ContainerMutateOp::VecRemoveAt),
+            "clear" => Some(ContainerMutateOp::VecClear),
+            "truncate" => Some(ContainerMutateOp::VecTruncate),
+            _ => None,
+        },
+        LoweredType::Map { .. } => match method {
+            "insert" => Some(ContainerMutateOp::MapInsert),
+            "get" => Some(ContainerMutateOp::MapGet),
+            "remove" => Some(ContainerMutateOp::MapRemove),
+            "contains" => Some(ContainerMutateOp::MapContains),
+            "clear" => Some(ContainerMutateOp::MapClear),
+            "keys" => Some(ContainerMutateOp::MapKeys),
+            "values" => Some(ContainerMutateOp::MapValues),
+            _ => None,
+        },
         _ => None,
     }
+}
+
+/// Every method name either container family owns, used as a cheap gate before
+/// the receiver is resolved.
+fn is_container_method_name(method: &str) -> bool {
+    matches!(
+        method,
+        "push"
+            | "pop"
+            | "insert_at"
+            | "remove_at"
+            | "clear"
+            | "truncate"
+            | "insert"
+            | "get"
+            | "remove"
+            | "contains"
+            | "keys"
+            | "values"
+    )
 }
 
 /// Lower a growable-container method (`values.push(x)`) into a
@@ -546,9 +586,9 @@ pub(crate) fn lower_container_method_call(
     method: &str,
     args: &[AstNode],
 ) -> Result<ContainerCallOutcome, LoweringError> {
-    let Some(op) = container_mutate_op(method) else {
+    if !is_container_method_name(method) {
         return Ok(ContainerCallOutcome::NotContainer);
-    };
+    }
     // The binding's OWN local, not a loaded copy -- mutating a copy would be
     // observed by nobody. The indexed-store path takes the same shortcut.
     let (base_node, field) = match object {
@@ -570,11 +610,22 @@ pub(crate) fn lower_container_method_call(
             }
         }
     };
-    let Some(crate::types::LoweredType::Vector { element_type }) = type_table.get(container_type)
-    else {
+    let Some(container) = type_table.get(container_type) else {
         return Ok(ContainerCallOutcome::NotContainer);
     };
-    let element_type = *element_type;
+    let Some(op) = container_mutate_op(method, container) else {
+        return Ok(ContainerCallOutcome::NotContainer);
+    };
+    // Element for a vector; key and value for a map. The int is the index type
+    // the positional vector operations take.
+    let (element_type, key_type) = match container {
+        crate::types::LoweredType::Vector { element_type } => (*element_type, None),
+        crate::types::LoweredType::Map {
+            key_type,
+            value_type,
+        } => (*value_type, Some(*key_type)),
+        _ => return Ok(ContainerCallOutcome::NotContainer),
+    };
     if args.len() != op.arity() {
         return Err(LoweringError::with_kind(
             LoweringErrorKind::InvalidInput,
@@ -592,16 +643,19 @@ pub(crate) fn lower_container_method_call(
     let int_type = checked_type_map.get(&int_type).copied();
     let mut lowered_args = Vec::with_capacity(args.len());
     for (index, arg) in args.iter().enumerate() {
-        let is_index_argument = match op {
-            crate::control::ContainerMutateOp::VecInsertAt => index == 0,
-            crate::control::ContainerMutateOp::VecRemoveAt
-            | crate::control::ContainerMutateOp::VecTruncate => true,
-            _ => false,
-        };
-        let expected = if is_index_argument {
-            int_type
-        } else {
-            Some(element_type)
+        use crate::control::ContainerMutateOp;
+        let expected = match (op, index) {
+            (ContainerMutateOp::VecInsertAt, 0)
+            | (ContainerMutateOp::VecRemoveAt, _)
+            | (ContainerMutateOp::VecTruncate, _) => int_type,
+            (
+                ContainerMutateOp::MapInsert
+                | ContainerMutateOp::MapGet
+                | ContainerMutateOp::MapRemove
+                | ContainerMutateOp::MapContains,
+                0,
+            ) => key_type,
+            _ => Some(element_type),
         };
         let lowered = lower_expression_expected(
             typed_package,
@@ -617,7 +671,7 @@ pub(crate) fn lower_container_method_call(
         )?;
         lowered_args.push(lowered.local_id);
     }
-    if !op.yields_element() {
+    if !op.yields_value() {
         cursor.push_instr(
             None,
             LoweredInstrKind::ContainerMutate {
