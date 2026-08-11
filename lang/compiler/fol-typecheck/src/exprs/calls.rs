@@ -525,6 +525,14 @@ fn terminal_intrinsic_signature(
         "now_ms" => Some((Vec::new(), builtins.int)),
         "term_cols" | "term_rows" => Some((Vec::new(), builtins.int)),
         "int_to_str" => Some((vec![builtins.int], builtins.str_)),
+        "int_to_flt" => Some((vec![builtins.int], builtins.float)),
+        "flt_to_int" | "flt_floor" | "flt_ceil" | "flt_round" => {
+            Some((vec![builtins.float], builtins.int))
+        }
+        "chr_to_int" => Some((vec![builtins.char_], builtins.int)),
+        "int_to_chr" => Some((vec![builtins.int], builtins.char_)),
+        "chr_to_str" => Some((vec![builtins.char_], builtins.str_)),
+        "parse_flt" => Some((vec![builtins.str_, builtins.float], builtins.float)),
         "str_sub" => Some((
             vec![builtins.str_, builtins.int, builtins.int],
             builtins.str_,

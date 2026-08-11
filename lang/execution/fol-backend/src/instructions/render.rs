@@ -785,6 +785,14 @@ pub fn render_core_instruction_in_workspace(
                 ("echo", [value])
                 | ("write", [value])
                 | ("int_to_str", [value])
+                | ("int_to_flt", [value])
+                | ("flt_to_int", [value])
+                | ("flt_floor", [value])
+                | ("flt_ceil", [value])
+                | ("flt_round", [value])
+                | ("chr_to_int", [value])
+                | ("int_to_chr", [value])
+                | ("chr_to_str", [value])
                 | ("raw_mode", [value])
                 | ("sleep_ms", [value])
                 | ("byte_to_str", [value])
@@ -803,6 +811,7 @@ pub fn render_core_instruction_in_workspace(
                 ("write_file", [path, contents])
                 | ("str_find", [path, contents])
                 | ("parse_int", [path, contents])
+                | ("parse_flt", [path, contents])
                 | ("float_to_str", [path, contents]) => {
                     let first = render_transfer_expr(type_table, package_identity, routine, *path)?;
                     let second =

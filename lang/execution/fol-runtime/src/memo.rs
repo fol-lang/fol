@@ -8,7 +8,10 @@ pub use crate::aggregate::{
     render_echo, render_entry, render_entry_debug, render_record, render_record_debug,
     FolEchoFormat, FolEntry, FolNamedValue, FolRecord,
 };
-pub use crate::builtins::{div_int, len, mod_int, pow, pow_float, FolLength};
+pub use crate::builtins::{
+    chr_to_int, chr_to_str, div_int, flt_ceil, flt_floor, flt_round, flt_to_int, int_to_chr,
+    int_to_flt, len, mod_int, parse_flt, pow, pow_float, FolLength,
+};
 pub use crate::containers::{
     clear_map, clear_vec, contains_map, get_map, index_array, index_seq, index_set, index_vec,
     insert_map, insert_vec, keys_map, lookup_map, pop_vec, push_vec, remove_map, remove_vec,

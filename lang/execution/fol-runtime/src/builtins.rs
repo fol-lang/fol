@@ -58,6 +58,57 @@ pub fn pow_float(base: f64, exponent: f64) -> f64 {
     base.powf(exponent)
 }
 
+/// Numeric and character conversions. FOL has no implicit coercion and no cast
+/// operator, so every crossing between `int`, `flt` and `chr` is one of these.
+pub fn int_to_flt(value: FolInt) -> crate::value::FolFloat {
+    value as crate::value::FolFloat
+}
+
+/// Truncates toward zero, matching what integer `/` already does, so the two
+/// roundings in the language agree.
+pub fn flt_to_int(value: crate::value::FolFloat) -> FolInt {
+    value.trunc() as FolInt
+}
+
+pub fn flt_floor(value: crate::value::FolFloat) -> FolInt {
+    value.floor() as FolInt
+}
+
+pub fn flt_ceil(value: crate::value::FolFloat) -> FolInt {
+    value.ceil() as FolInt
+}
+
+/// Halves go away from zero, which is what `f64::round` does.
+pub fn flt_round(value: crate::value::FolFloat) -> FolInt {
+    value.round() as FolInt
+}
+
+pub fn chr_to_int(value: crate::value::FolChar) -> FolInt {
+    value as u32 as FolInt
+}
+
+/// Not every integer is a code point, and there is no `opt[chr]` on the
+/// intrinsic surface, so an invalid value faults the way a bad index does.
+pub fn int_to_chr(value: FolInt) -> crate::value::FolChar {
+    u32::try_from(value)
+        .ok()
+        .and_then(char::from_u32)
+        .unwrap_or_else(|| {
+            panic!("fol runtime fault: {value} is not a Unicode code point");
+        })
+}
+
+pub fn chr_to_str(value: crate::value::FolChar) -> FolStr {
+    FolStr::new(value.to_string())
+}
+
+pub fn parse_flt(text: FolStr, fallback: crate::value::FolFloat) -> crate::value::FolFloat {
+    text.as_str()
+        .trim()
+        .parse::<crate::value::FolFloat>()
+        .unwrap_or(fallback)
+}
+
 /// Integer division with the documented fault semantics (arithmetics
 /// chapter): division by zero faults instead of surfacing a raw Rust panic
 /// that points into generated code.
