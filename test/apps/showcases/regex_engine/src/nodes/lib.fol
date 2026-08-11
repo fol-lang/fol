@@ -1,0 +1,131 @@
+// The node vocabulary and the ASCII predicates the matcher decides with.
+//
+// tiny-regex-c keeps these as a bare C `enum` plus calls into `<ctype.h>`.
+// FOL has no `ctype.h` and no `chr`-to-`int` conversion, so every classifier is
+// spelled as an explicit code-point range over the `int` that
+// `std::strn::byte_at` hands back. The ranges below are the C locale
+// definitions of isdigit/isalpha/isspace, not Unicode ones -- the original is
+// byte-oriented and so is this port.
+
+use std: pkg = {"std"};
+
+// The original's `enum { UNUSED, DOT, ... }`, in the same order. BRANCH is
+// absent here exactly as it is commented out there.
+typ[exp] Kind: ent = {
+    con UNUSED: int = 0;
+    con DOT: int = 1;
+    con BEGIN: int = 2;
+    con FINISH: int = 3;
+    con QUESTIONMARK: int = 4;
+    con STAR: int = 5;
+    con PLUS: int = 6;
+    con CHAR: int = 7;
+    con CHAR_CLASS: int = 8;
+    con INV_CHAR_CLASS: int = 9;
+    con DIGIT: int = 10;
+    con NOT_DIGIT: int = 11;
+    con ALPHA: int = 12;
+    con NOT_ALPHA: int = 13;
+    con WHITESPACE: int = 14;
+    con NOT_WHITESPACE: int = 15;
+};
+
+// An `ent` member only takes its member type when it initialises an annotated
+// binding, so each constant is re-exported through an accessor that `when ... is`
+// arms elsewhere can pattern on.
+fun[exp] k_unused(): int = { var v: int = Kind.UNUSED; return v; };
+fun[exp] k_dot(): int = { var v: int = Kind.DOT; return v; };
+fun[exp] k_begin(): int = { var v: int = Kind.BEGIN; return v; };
+fun[exp] k_finish(): int = { var v: int = Kind.FINISH; return v; };
+fun[exp] k_question(): int = { var v: int = Kind.QUESTIONMARK; return v; };
+fun[exp] k_star(): int = { var v: int = Kind.STAR; return v; };
+fun[exp] k_plus(): int = { var v: int = Kind.PLUS; return v; };
+fun[exp] k_char(): int = { var v: int = Kind.CHAR; return v; };
+fun[exp] k_class(): int = { var v: int = Kind.CHAR_CLASS; return v; };
+fun[exp] k_inv_class(): int = { var v: int = Kind.INV_CHAR_CLASS; return v; };
+fun[exp] k_digit(): int = { var v: int = Kind.DIGIT; return v; };
+fun[exp] k_not_digit(): int = { var v: int = Kind.NOT_DIGIT; return v; };
+fun[exp] k_alpha(): int = { var v: int = Kind.ALPHA; return v; };
+fun[exp] k_not_alpha(): int = { var v: int = Kind.NOT_ALPHA; return v; };
+fun[exp] k_white(): int = { var v: int = Kind.WHITESPACE; return v; };
+fun[exp] k_not_white(): int = { var v: int = Kind.NOT_WHITESPACE; return v; };
+
+fun[exp] kind_name(kind: int): str = {
+    when(kind) {
+        is(k_unused()) { return "UNUSED"; }
+        is(k_dot()) { return "DOT"; }
+        is(k_begin()) { return "BEGIN"; }
+        is(k_finish()) { return "END"; }
+        is(k_question()) { return "QUESTIONMARK"; }
+        is(k_star()) { return "STAR"; }
+        is(k_plus()) { return "PLUS"; }
+        is(k_char()) { return "CHAR"; }
+        is(k_class()) { return "CHAR_CLASS"; }
+        is(k_inv_class()) { return "INV_CHAR_CLASS"; }
+        is(k_digit()) { return "DIGIT"; }
+        is(k_not_digit()) { return "NOT_DIGIT"; }
+        is(k_alpha()) { return "ALPHA"; }
+        is(k_not_alpha()) { return "NOT_ALPHA"; }
+        is(k_white()) { return "WHITESPACE"; }
+        * { return "NOT_WHITESPACE"; }
+    }
+};
+
+// Sizing constants. The original states them as `#define`s and treats them as
+// hard walls: a pattern that needs more is not an error, it is a refusal.
+fun[exp] max_objects(): int = { return 30; };
+fun[exp] max_class_len(): int = { return 40; };
+
+// The class buffer is declared four slots wider than `max_class_len`.
+// `matchrange` reads `str[1]` and `str[2]` unconditionally, so on a class that
+// ends flush against the wall the C code reads past its own static array. In C
+// that is undefined behaviour that happens to land on zeroed static storage; a
+// FOL `arr` index would fault, so the slack is spelled out and stays zero.
+fun[exp] buf_len(): int = { return 44; };
+
+// Byte codes the compiler and matcher name repeatedly.
+fun[exp] c_nul(): int = { return 0; };
+fun[exp] c_dash(): int = { return 45; };
+fun[exp] c_backslash(): int = { return 92; };
+fun[exp] c_caret(): int = { return 94; };
+fun[exp] c_close_bracket(): int = { return 93; };
+
+// C's `pattern[i]` on a NUL-terminated string: one past the end reads the
+// terminator rather than faulting. FOL strings carry a length instead, so every
+// read that the original performs at or past the end is funnelled through here.
+fun[exp] byte_or_nul(text: str, index: int): int = {
+    when((index < 0) or (index >= .len(text))) {
+        case(true) { return c_nul(); }
+        * { }
+    };
+    return std::strn::byte_at(text, index);
+};
+
+fun[exp] is_digit(code: int): bol = {
+    return (code >= 48) and (code <= 57);
+};
+
+fun[exp] is_alpha(code: int): bol = {
+    return ((code >= 65) and (code <= 90)) or ((code >= 97) and (code <= 122));
+};
+
+// C locale `isspace`: space plus the contiguous run \t \n \v \f \r.
+fun[exp] is_space(code: int): bol = {
+    return (code == 32) or ((code >= 9) and (code <= 13));
+};
+
+fun[exp] is_alnum(code: int): bol = {
+    return (code == 95) or is_alpha(code) or is_digit(code);
+};
+
+// `.` deliberately refuses the line terminators, matching the default build of
+// the original (RE_DOT_MATCHES_NEWLINE off).
+fun[exp] is_dot(code: int): bol = {
+    return (code != 10) and (code != 13);
+};
+
+// The letters that mean something after a backslash.
+fun[exp] is_meta(code: int): bol = {
+    return (code == 115) or (code == 83) or (code == 119)
+    or (code == 87) or (code == 100) or (code == 68);
+};

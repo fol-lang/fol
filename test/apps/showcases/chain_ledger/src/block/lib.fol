@@ -1,0 +1,73 @@
+use std: pkg = {"std"};
+
+// The Block class of naivechain, field for field.
+typ[exp] Block: rec = {
+    index: int;
+    previous_hash: str;
+    timestamp: int;
+    data: str;
+    hash: str
+};
+
+con[exp] GENESIS_TIMESTAMP: int = 1465154705;
+
+fun[exp] genesis_data(): str = {
+    return "my genesis block!!";
+};
+
+// The original hardcodes a SHA-256 literal here and never re-derives it. The
+// literal below plays the same role for the rolling digest; `main` asserts it
+// still matches `calculate_hash`, which the original never checks.
+fun[exp] genesis_hash(): str = {
+    return "02c3fbe5";
+};
+
+// SHA256(index + previousHash + timestamp + data) in the original. JavaScript
+// coerces the two numbers to strings during `+`, so the concatenation is
+// spelled out explicitly here.
+fun[exp] calculate_hash(index: int, previous_hash: str, timestamp: int, data: str): str = {
+    var preimage: str = std::fmt::int_to_str(index)
+    + previous_hash
+    + std::fmt::int_to_str(timestamp)
+    + data;
+    return hash::hex_digest(preimage);
+};
+
+fun[exp] calculate_hash_for_block(b: Block): str = {
+    return calculate_hash(b.index, b.previous_hash, b.timestamp, b.data);
+};
+
+fun[exp] genesis(): Block = {
+    return {
+        index = 0,
+        previous_hash = "0",
+        timestamp = GENESIS_TIMESTAMP,
+        data = genesis_data(),
+        hash = genesis_hash(),
+    };
+};
+
+// A slot that has never held a block. Array-backed storage has to be filled at
+// construction time, so unused slots need a value that can never be mistaken
+// for a real block: no genuine block ever carries index -1.
+fun[exp] empty_slot(): Block = {
+    return { index = 0 - 1, previous_hash = "", timestamp = 0, data = "", hash = "" };
+};
+
+// The original compares blocks with `JSON.stringify(a) !== JSON.stringify(b)`.
+// Field-by-field equality is the same predicate without the detour.
+fun[exp] same(a: Block, b: Block): bol = {
+    if(.nq(a.index, b.index)) { return false; }
+    if(.nq(a.previous_hash, b.previous_hash)) { return false; }
+    if(.nq(a.timestamp, b.timestamp)) { return false; }
+    if(.nq(a.data, b.data)) { return false; }
+    return .eq(a.hash, b.hash);
+};
+
+fun[exp] show(b: Block): str = {
+    return "#" + std::fmt::int_to_str(b.index)
+    + "  hash=" + b.hash
+    + "  prev=" + b.previous_hash
+    + "  t=" + std::fmt::int_to_str(b.timestamp)
+    + "  data=" + b.data;
+};

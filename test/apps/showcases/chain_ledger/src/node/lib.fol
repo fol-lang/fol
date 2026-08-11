@@ -1,0 +1,176 @@
+use std: pkg = {"std"};
+
+// naivechain's peer-to-peer half, minus the sockets.
+//
+// FOL has no networking, so the WebSocket transport is gone and what is left
+// is the part that was actually interesting: the three message kinds, the
+// wire codec, and `handleBlockchainResponse`. Two chains are handed to each
+// other in-process instead of over a socket.
+
+typ[exp] MessageType: ent = {
+    var QUERY_LATEST: int = 0;
+    var QUERY_ALL: int = 1;
+    var RESPONSE_BLOCKCHAIN: int = 2;
+};
+
+typ[exp] Message: rec = {
+    kind: int;
+    data: str
+};
+
+fun[exp] query_latest(): Message = {
+    return { kind = MessageType.QUERY_LATEST, data = "" };
+};
+
+fun[exp] query_all(): Message = {
+    return { kind = MessageType.QUERY_ALL, data = "" };
+};
+
+fun[exp] response_blockchain(payload: str): Message = {
+    return { kind = MessageType.RESPONSE_BLOCKCHAIN, data = payload };
+};
+
+fun[exp] type_name(kind: int): str = {
+    when(kind) {
+        is(0) { return "QUERY_LATEST"; }
+        is(1) { return "QUERY_ALL"; }
+        is(2) { return "RESPONSE_BLOCKCHAIN"; }
+        * { return "UNKNOWN"; }
+    }
+};
+
+// The original ships JSON.stringify'd blocks. Writing a JSON parser in a
+// language without growable containers buys nothing, so the wire form is
+// pipe-separated fields and semicolon-separated blocks. Block data may
+// therefore not contain '|' or ';'.
+fun[exp] encode_block(b: block::Block): str = {
+    return std::fmt::int_to_str(b.index)
+    + "|" + b.previous_hash
+    + "|" + std::fmt::int_to_str(b.timestamp)
+    + "|" + b.data
+    + "|" + b.hash;
+};
+
+fun[exp] encode_chain(c: chain::Chain): str = {
+    var[mut] out: str = "";
+    var[mut] i: int = 0;
+    loop(.lt(i, c.count)) {
+        if(.gt(i, 0)) { out = out + ";"; }
+        out = out + encode_block(c.blocks[i]);
+        i = i + 1;
+    }
+    return out;
+};
+
+// Field `index` of a `a|b|c` record, nil when the record is that short.
+fun[exp] field_at(line: str, index: int, sep: str): opt[str] = {
+    var[mut] rest: str = line;
+    var[mut] seen: int = 0;
+    loop(true) {
+        var cut: int = std::strn::find(rest, sep);
+        if(.eq(cut, 0 - 1)) {
+            if(.eq(seen, index)) { return rest; }
+            return nil;
+        }
+        if(.eq(seen, index)) {
+            return std::strn::sub(rest, 0, cut);
+        }
+        rest = std::strn::sub(rest, cut + 1, .len(rest) - cut - 1);
+        seen = seen + 1;
+    }
+    return nil;
+};
+
+fun[exp] field_or_empty(line: str, index: int, sep: str): str = {
+    var found: opt[str] = field_at(line, index, sep);
+    when(found) {
+        on(text) { return text; }
+        * { return ""; }
+    }
+};
+
+fun[exp] field_count(line: str, sep: str): int = {
+    var[mut] rest: str = line;
+    var[mut] seen: int = 1;
+    loop(true) {
+        var cut: int = std::strn::find(rest, sep);
+        if(.eq(cut, 0 - 1)) { return seen; }
+        rest = std::strn::sub(rest, cut + 1, .len(rest) - cut - 1);
+        seen = seen + 1;
+    }
+    return seen;
+};
+
+fun[exp] decode_block(line: str): block::Block / str = {
+    if(.nq(field_count(line, "|"), 5)) {
+        report "block record needs five fields";
+    }
+    return {
+        index = std::strn::to_int(field_or_empty(line, 0, "|"), 0 - 1),
+        previous_hash = field_or_empty(line, 1, "|"),
+        timestamp = std::strn::to_int(field_or_empty(line, 2, "|"), 0),
+        data = field_or_empty(line, 3, "|"),
+        hash = field_or_empty(line, 4, "|"),
+    };
+};
+
+fun[exp] decode_chain(payload: str): chain::Chain / str = {
+    var[mut] c: chain::Chain = chain::empty();
+    if(.eq(.len(payload), 0)) { return c; }
+    var total: int = field_count(payload, ";");
+    var[mut] i: int = 0;
+    loop(.lt(i, total)) {
+        var record: str = field_or_empty(payload, i, ";");
+        var b: block::Block = decode_block(record) || report "malformed block on the wire";
+        var seated: bol = c.append(b);
+        if(.not(seated)) { report "received chain exceeds local capacity"; }
+        i = i + 1;
+    }
+    return c;
+};
+
+// What a node did with a message. `chain` is the chain it holds afterwards and
+// `reply` is nil unless the original would have written back to the socket.
+typ[exp] Reaction: rec = {
+    chain: chain::Chain;
+    action: str;
+    reply: opt[Message]
+};
+
+// `handleBlockchainResponse`, branch for branch.
+fun[exp] handle_blockchain_response(held: chain::Chain, payload: str): Reaction / str = {
+    var[mut] received: chain::Chain = decode_chain(payload) || report "unreadable RESPONSE_BLOCKCHAIN";
+    received.sort_by_index();
+
+    var latest_received: block::Block = chain::latest(received);
+    var latest_held: block::Block = chain::latest(held);
+
+    // The wording is the original's, typo and all -- it says "received" twice.
+    if(.le(latest_received.index, latest_held.index)) {
+        return {
+            chain = held,
+            action = "received blockchain is not longer than received blockchain",
+            reply = nil,
+        };
+    }
+
+    if(.eq(latest_held.hash, latest_received.previous_hash)) {
+        var[mut] grown: chain::Chain = held;
+        var seated: bol = grown.append(latest_received);
+        if(.not(seated)) { report "local chain is at capacity"; }
+        return { chain = grown, action = "We can append the received block to our chain", reply = query_latest() };
+    }
+
+    if(.eq(chain::length_of(received), 1)) {
+        return { chain = held, action = "We have to query the chain from our peer", reply = query_all() };
+    }
+
+    var outcome: chain::Replacement = chain::replace_chain(held, received);
+    return { chain = outcome.chain, action = outcome.note, reply = nil };
+};
+
+// The two read-only endpoints of the HTTP API: GET /blocks and GET /peers have
+// no state to keep here, but the response body for /blocks is exactly this.
+fun[exp] blocks_response(c: chain::Chain): str = {
+    return encode_chain(c);
+};

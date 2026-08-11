@@ -1,0 +1,416 @@
+// The RESP wire codec -- mini-redis `src/frame.rs`.
+//
+// The original is
+//
+//     pub enum Frame {
+//         Simple(String), Error(String), Integer(u64),
+//         Bulk(Bytes), Null, Array(Vec<Frame>),
+//     }
+//
+// FOL has no sum type carrying payloads and no self-referential record, so the
+// six variants collapse into one tagged record and `Array` holds its children
+// as the raw wire text of each element rather than as nested `Frame` values.
+// Every element is a complete, self-delimiting RESP encoding, so nesting still
+// round-trips exactly; `item_at` re-decodes one on demand. See DEVIATIONS.
+
+use std: pkg = {"std"};
+
+typ[exp] Kind: ent = {
+    var SIMPLE: int = 1;
+    var ERROR: int = 2;
+    var INTEGER: int = 3;
+    var BULK: int = 4;
+    var NULL: int = 5;
+    var ARRAY: int = 6;
+};
+
+// Fixed-capacity stand-in for `Vec<Frame>`: containers cannot grow.
+con[exp] MAX_ITEMS: int = 8;
+
+con[exp] CR: int = 13;
+con[exp] LF: int = 10;
+con[exp] PLUS: int = 43;
+con[exp] MINUS: int = 45;
+con[exp] COLON: int = 58;
+con[exp] DOLLAR: int = 36;
+con[exp] STAR: int = 42;
+
+// mini-redis splits decode faults into `Error::Incomplete` (buffer needs more
+// bytes) and `Error::Other` (the stream is unusable). The two are kept apart
+// here by the fault text, because a plain `err[str]` cannot carry a variant.
+con[exp] INCOMPLETE: str = "incomplete";
+con[exp] BAD_FORMAT: str = "protocol error; invalid frame format";
+
+typ[exp] Frame: rec = {
+    kind: int,
+    text: str,
+    number: int,
+    count: int,
+    items: arr[str, 8],
+};
+
+fun[exp] no_items(): arr[str, 8] = {
+    return { "", "", "", "", "", "", "", "" };
+};
+
+fun[exp] simple(body: str): Frame = {
+    return { kind = Kind.SIMPLE, text = body, number = 0, count = 0, items = no_items() };
+};
+
+fun[exp] error(body: str): Frame = {
+    return { kind = Kind.ERROR, text = body, number = 0, count = 0, items = no_items() };
+};
+
+fun[exp] integer(value: int): Frame = {
+    return { kind = Kind.INTEGER, text = "", number = value, count = 0, items = no_items() };
+};
+
+fun[exp] bulk(body: str): Frame = {
+    return { kind = Kind.BULK, text = body, number = 0, count = 0, items = no_items() };
+};
+
+fun[exp] null_frame(): Frame = {
+    return { kind = Kind.NULL, text = "", number = 0, count = 0, items = no_items() };
+};
+
+fun[exp] array(): Frame = {
+    return { kind = Kind.ARRAY, text = "", number = 0, count = 0, items = no_items() };
+};
+
+// `Frame::push_bulk` in the original mutates the vector in place. Records copy
+// by value here, so the element goes into a local copy that is handed back.
+fun[exp] push(frame: Frame, element: Frame): Frame = {
+    var[mut] grown: Frame = frame;
+    when (grown.count >= MAX_ITEMS) {
+        case(true) { return grown; }
+        * { }
+    };
+    var slot: int = grown.count;
+    grown.items[slot] = encode(element);
+    grown.count = slot + 1;
+    return grown;
+};
+
+fun[exp] push_bulk(frame: Frame, body: str): Frame = {
+    return push(frame, bulk(body));
+};
+
+// One array element, decoded back out of its stored wire text.
+fun[exp] item_at(frame: Frame, index: int): Frame = {
+    when ((index < 0) or (index >= frame.count)) {
+        case(true) { return null_frame(); }
+        * { }
+    };
+    var slice: str = frame.items[index];
+    var seen: Decoded = decode(slice);
+    return seen.frame;
+};
+
+fun[exp] crlf(): str = {
+    return std::strn::from_byte(CR) + std::strn::from_byte(LF);
+};
+
+// `impl fmt::Display for Frame` plus `Connection::write_frame`, folded into one
+// pure function because there is no socket to stream into.
+fun[exp] encode(frame: Frame): str = {
+    when (frame.kind == Kind.SIMPLE) {
+        case(true) { return "+" + frame.text + crlf(); }
+        * { }
+    };
+    when (frame.kind == Kind.ERROR) {
+        case(true) { return "-" + frame.text + crlf(); }
+        * { }
+    };
+    when (frame.kind == Kind.INTEGER) {
+        case(true) { return ":" + std::fmt::int_to_str(frame.number) + crlf(); }
+        * { }
+    };
+    when (frame.kind == Kind.NULL) {
+        case(true) { return "$-1" + crlf(); }
+        * { }
+    };
+    when (frame.kind == Kind.BULK) {
+        case(true) {
+            return "$" + std::fmt::int_to_str(.len(frame.text)) + crlf()
+            + frame.text + crlf();
+        }
+        * { }
+    };
+    var[mut] out: str = "*" + std::fmt::int_to_str(frame.count) + crlf();
+    var[mut] index: int = 0;
+    loop (index < frame.count) {
+        out = out + frame.items[index];
+        index = index + 1;
+    };
+    return out;
+};
+
+typ[exp] Number: rec = {
+    ok: bol,
+    value: int,
+};
+
+// `atoi::<u64>(line).ok_or_else(...)`. Signed, because `$-1` and `*-1` are the
+// null encodings and both arrive through this path.
+fun[exp] parse_int(text: str): Number = {
+    var size: int = .len(text);
+    when (size == 0) {
+        case(true) { return { ok = false, value = 0 }; }
+        * { }
+    };
+    var[mut] cursor: int = 0;
+    var[mut] negative: bol = false;
+    when (std::strn::byte_at(text, 0) == MINUS) {
+        case(true) { negative = true; cursor = 1; }
+        * { }
+    };
+    when (cursor >= size) {
+        case(true) { return { ok = false, value = 0 }; }
+        * { }
+    };
+    var[mut] total: int = 0;
+    loop (cursor < size) {
+        var code: int = std::strn::byte_at(text, cursor);
+        when ((code < 48) or (code > 57)) {
+            case(true) { return { ok = false, value = 0 }; }
+            * { }
+        };
+        total = (total * 10) + (code - 48);
+        cursor = cursor + 1;
+    };
+    when (negative) {
+        case(true) { return { ok = true, value = 0 - total }; }
+        * { }
+    };
+    return { ok = true, value = total };
+};
+
+typ[exp] Line: rec = {
+    ok: bol,
+    fault: str,
+    value: str,
+    upto: int,
+};
+
+// `get_line`: everything up to the next CRLF, cursor left after it.
+fun[exp] get_line(text: str, from: int): Line = {
+    var size: int = .len(text);
+    var[mut] cursor: int = from;
+    loop ((cursor + 1) < size) {
+        var here: int = std::strn::byte_at(text, cursor);
+        var after: int = std::strn::byte_at(text, cursor + 1);
+        when ((here == CR) and (after == LF)) {
+            case(true) {
+                return {
+                    ok = true, fault = "",
+                    value = std::strn::sub(text, from, cursor - from),
+                    upto = cursor + 2,
+                };
+            }
+            * { cursor = cursor + 1; }
+        }
+    };
+    return { ok = false, fault = INCOMPLETE, value = "", upto = from };
+};
+
+// `get_decimal`: a line that must be an integer.
+fun[exp] get_decimal(text: str, from: int): Line = {
+    var line: Line = get_line(text, from);
+    when (line.ok == false) {
+        case(true) { return line; }
+        * { }
+    };
+    var parsed: Number = parse_int(line.value);
+    when (parsed.ok == false) {
+        case(true) { return { ok = false, fault = BAD_FORMAT, value = "", upto = from }; }
+        * { }
+    };
+    return line;
+};
+
+typ[exp] Decoded: rec = {
+    ok: bol,
+    fault: str,
+    upto: int,
+    frame: Frame,
+};
+
+fun broken(why: str, from: int): Decoded = {
+    return { ok = false, fault = why, upto = from, frame = null_frame() };
+};
+
+fun decoded(frame: Frame, upto: int): Decoded = {
+    return { ok = true, fault = "", upto = upto, frame = frame };
+};
+
+// `Frame::parse`. The original runs `check` first over a rewound cursor and
+// then re-walks the buffer to build the frame; one pass does both here because
+// there is no partial buffer to rewind against.
+fun[exp] decode_at(text: str, from: int): Decoded = {
+    when (from >= .len(text)) {
+        case(true) { return broken(INCOMPLETE, from); }
+        * { }
+    };
+    var lead: int = std::strn::byte_at(text, from);
+
+    when (lead == PLUS) {
+        case(true) {
+            var line: Line = get_line(text, from + 1);
+            when (line.ok == false) {
+                case(true) { return broken(line.fault, from); }
+                * { }
+            };
+            return decoded(simple(line.value), line.upto);
+        }
+        * { }
+    };
+
+    when (lead == MINUS) {
+        case(true) {
+            var line: Line = get_line(text, from + 1);
+            when (line.ok == false) {
+                case(true) { return broken(line.fault, from); }
+                * { }
+            };
+            return decoded(error(line.value), line.upto);
+        }
+        * { }
+    };
+
+    when (lead == COLON) {
+        case(true) {
+            var line: Line = get_decimal(text, from + 1);
+            when (line.ok == false) {
+                case(true) { return broken(line.fault, from); }
+                * { }
+            };
+            var parsed: Number = parse_int(line.value);
+            return decoded(integer(parsed.value), line.upto);
+        }
+        * { }
+    };
+
+    when (lead == DOLLAR) {
+        case(true) { return decode_bulk(text, from); }
+        * { }
+    };
+
+    when (lead == STAR) {
+        case(true) { return decode_array(text, from); }
+        * { }
+    };
+
+    // `protocol error; invalid frame type byte`
+    return broken("protocol error; invalid frame type byte `"
+        + std::strn::from_byte(lead) + "`", from);
+};
+
+// A bulk body must be closed by CRLF at exactly the announced length.
+fun ends_with_crlf(text: str, at_offset: int): bol = {
+    var here: int = std::strn::byte_at(text, at_offset);
+    var after: int = std::strn::byte_at(text, at_offset + 1);
+    return (here == CR) and (after == LF);
+};
+
+fun decode_bulk(text: str, from: int): Decoded = {
+    var header: Line = get_decimal(text, from + 1);
+    when (header.ok == false) {
+        case(true) { return broken(header.fault, from); }
+        * { }
+    };
+    var size: Number = parse_int(header.value);
+    when (size.value < 0) {
+        case(true) {
+            // `$-1\r\n` is the null bulk string; any other negative is a fault.
+            when (size.value == (0 - 1)) {
+                case(true) { return decoded(null_frame(), header.upto); }
+                * { return broken(BAD_FORMAT, from); }
+            }
+        }
+        * { }
+    };
+    var body_end: int = header.upto + size.value;
+    when ((body_end + 2) > .len(text)) {
+        case(true) { return broken(INCOMPLETE, from); }
+        * { }
+    };
+    var closes: bol = ends_with_crlf(text, body_end);
+    when (closes == false) {
+        case(true) { return broken(BAD_FORMAT, from); }
+        * { }
+    };
+    var body: str = std::strn::sub(text, header.upto, size.value);
+    return decoded(bulk(body), body_end + 2);
+};
+
+// Arrays recurse through `decode_at`, exactly as `Frame::parse` does, but the
+// child is stored as the wire slice it was decoded from instead of as a nested
+// `Frame` value.
+fun decode_array(text: str, from: int): Decoded = {
+    var header: Line = get_decimal(text, from + 1);
+    when (header.ok == false) {
+        case(true) { return broken(header.fault, from); }
+        * { }
+    };
+    var size: Number = parse_int(header.value);
+    when (size.value == (0 - 1)) {
+        case(true) { return decoded(null_frame(), header.upto); }
+        * { }
+    };
+    when (size.value < 0) {
+        case(true) { return broken(BAD_FORMAT, from); }
+        * { }
+    };
+    when (size.value > MAX_ITEMS) {
+        case(true) { return broken("protocol error; array longer than "
+            + std::fmt::int_to_str(MAX_ITEMS), from); }
+        * { }
+    };
+    var[mut] frame: Frame = array();
+    var[mut] cursor: int = header.upto;
+    var[mut] index: int = 0;
+    loop (index < size.value) {
+        var child: Decoded = decode_at(text, cursor);
+        when (child.ok == false) {
+            case(true) { return broken(child.fault, from); }
+            * { }
+        };
+        frame.items[index] = std::strn::sub(text, cursor, child.upto - cursor);
+        cursor = child.upto;
+        index = index + 1;
+    };
+    frame.count = size.value;
+    return decoded(frame, cursor);
+};
+
+// Decode one frame that must consume the whole buffer -- the shape a request
+// arrives in once the connection has framed it.
+fun[exp] decode(text: str): Decoded = {
+    var seen: Decoded = decode_at(text, 0);
+    when (seen.ok == false) {
+        case(true) { return seen; }
+        * { }
+    };
+    when (seen.upto != .len(text)) {
+        case(true) { return broken("protocol error; trailing bytes after frame", 0); }
+        * { }
+    };
+    return seen;
+};
+
+// The parameter is `tag`, not `kind`: identifier keys fold case, so a binding
+// named `kind` would shadow the entry type `Kind` in the body.
+fun[exp] kind_name(tag: int): str = {
+    when (tag == Kind.SIMPLE) { case(true) { return "simple"; } * { } };
+    when (tag == Kind.ERROR) { case(true) { return "error"; } * { } };
+    when (tag == Kind.INTEGER) { case(true) { return "integer"; } * { } };
+    when (tag == Kind.BULK) { case(true) { return "bulk"; } * { } };
+    when (tag == Kind.NULL) { case(true) { return "null"; } * { } };
+    return "array";
+};
+
+// Same wire text with CRLF made visible, so printed output stays on one line.
+fun[exp] show(wire: str): str = {
+    var without_cr: str = std::strn::replace(wire, std::strn::from_byte(CR), "\\r");
+    return std::strn::replace(without_cr, std::strn::from_byte(LF), "\\n");
+};

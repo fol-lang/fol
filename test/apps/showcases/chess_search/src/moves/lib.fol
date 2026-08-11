@@ -1,0 +1,169 @@
+use std: pkg = {"std"};
+
+// Moves, and lists of moves.
+//
+// The original stores a move as a `(from, to, promotion)` named tuple and a
+// move list as a Python list it sorts with `sorted(..., reverse=True)` over
+// `(value, move)` pairs. FOL has no growable container, so both are strings of
+// fixed-width zero-padded decimal slots, rebuilt on every append. That is the
+// same trick the maze_solver showcase uses for its search tables.
+//
+// A move packs into one int: `(from * 120 + to) * 5 + promotion`. The promotion
+// rank is chosen so that comparing two packed moves numerically reproduces
+// Python's lexicographic tuple order on `(from, to, promotion_letter)` -- the
+// original ties-break on the letter as a string, where "" < "B" < "N" < "Q" <
+// "R", so the ranks below are 0/1/2/3/4 in exactly that order.
+
+fun[exp] prom_none(): int = {
+    return 0;
+};
+
+fun[exp] prom_bishop(): int = {
+    return 1;
+};
+
+fun[exp] prom_knight(): int = {
+    return 2;
+};
+
+fun[exp] prom_queen(): int = {
+    return 3;
+};
+
+fun[exp] prom_rook(): int = {
+    return 4;
+};
+
+fun[exp] encode(from: int, to: int, prom: int): int = {
+    return (from * 120 + to) * 5 + prom;
+};
+
+fun[exp] move_from(code: int): int = {
+    return code / 5 / 120;
+};
+
+fun[exp] move_to(code: int): int = {
+    return (code / 5) % 120;
+};
+
+fun[exp] move_prom(code: int): int = {
+    return code % 5;
+};
+
+// The piece index (see `eval`) a promotion rank promotes to.
+fun[exp] prom_piece(prom: int): int = {
+    when(.eq(prom, 1)) {
+        case(true) { return 2; }
+        * { }
+    };
+    when(.eq(prom, 2)) {
+        case(true) { return 1; }
+        * { }
+    };
+    when(.eq(prom, 3)) {
+        case(true) { return 4; }
+        * { }
+    };
+    return 3;
+};
+
+// The letter a promotion rank prints and stores on the board.
+fun[exp] prom_byte(prom: int): int = {
+    when(.eq(prom, 1)) {
+        case(true) { return 66; }
+        * { }
+    };
+    when(.eq(prom, 2)) {
+        case(true) { return 78; }
+        * { }
+    };
+    when(.eq(prom, 3)) {
+        case(true) { return 81; }
+        * { }
+    };
+    return 82;
+};
+
+fun[exp] pad(value: int, width: int): str = {
+    ~var text: str = std::fmt::int_to_str(value);
+    loop(.len(text) < width) {
+        text = "0" + text;
+    };
+    return text;
+};
+
+// Plain move lists: five digits per slot, because the largest packed move is
+// (119 * 120 + 119) * 5 + 4 = 71999.
+fun[exp] code_width(): int = {
+    return 5;
+};
+
+fun[exp] push(list: str, code: int): str = {
+    return list + pad(code, code_width());
+};
+
+fun[exp] count(list: str): int = {
+    return .len(list) / code_width();
+};
+
+fun[exp] code_slot(list: str, index: int): int = {
+    return std::strn::to_int(std::strn::sub(list, index * code_width(), code_width()), 0);
+};
+
+// Scored move lists, kept in descending order.
+//
+// One slot holds a single sort key that fuses the score and the move:
+// `(score + bias) * span + code`. Descending on that key is descending on
+// `(score, move)`, which is what `sorted(..., reverse=True)` gives the
+// original. The bias keeps the key non-negative so it can be written as plain
+// zero-padded decimal, and the span is wider than any packed move.
+fun[exp] key_bias(): int = {
+    return 1000000;
+};
+
+fun[exp] key_span(): int = {
+    return 100000;
+};
+
+fun[exp] key_width(): int = {
+    return 12;
+};
+
+fun[exp] make_key(score: int, code: int): int = {
+    return (score + key_bias()) * key_span() + code;
+};
+
+fun[exp] key_score(key: int): int = {
+    return key / key_span() - key_bias();
+};
+
+fun[exp] key_code(key: int): int = {
+    return key % key_span();
+};
+
+fun[exp] key_count(list: str): int = {
+    return .len(list) / key_width();
+};
+
+fun[exp] key_slot(list: str, index: int): int = {
+    return std::strn::to_int(std::strn::sub(list, index * key_width(), key_width()), 0);
+};
+
+// Insertion sort, one key at a time. The caller scores each generated move
+// once and hands it here, so `value` runs once per move rather than once per
+// comparison.
+fun[exp] insert_key(list: str, key: int): str = {
+    var total: int = key_count(list);
+    ~var index: int = 0;
+    loop(index < total) {
+        when(key_slot(list, index) < key) {
+            case(true) { break; }
+            * { }
+        };
+        index = index + 1;
+    };
+    var cut: int = index * key_width();
+    var head: str = std::strn::sub(list, 0, cut);
+    var tail: str = std::strn::sub(list, cut, .len(list) - cut);
+    return head + pad(key, key_width()) + tail;
+};

@@ -1,0 +1,568 @@
+use std: pkg = {"std"};
+use eval: loc = {"../eval"};
+use moves: loc = {"../moves"};
+
+// The position, and everything that can be done to one.
+//
+// This is the part of the original that already fits FOL: the board is a
+// 120-character string laid out as twelve rows of ten, the two outer rows and
+// the two outer files are padding that stops a ray without a bounds test, and
+// a move produces a brand new board by slicing. Nothing about that had to
+// change. Positions are always written from the side-to-move's point of view:
+// upper case is us, lower case is them, and `rotate` flips the board after
+// every move so the generator only ever has to know one colour.
+
+// Mailbox corners of the playing area.
+fun[exp] a1(): int = {
+    return 91;
+};
+
+fun[exp] h1(): int = {
+    return 98;
+};
+
+fun[exp] a8(): int = {
+    return 21;
+};
+
+fun[exp] h8(): int = {
+    return 28;
+};
+
+// Ray offsets. One step north is ten squares back in the string.
+fun[exp] north(): int = {
+    return -10;
+};
+
+fun[exp] east(): int = {
+    return 1;
+};
+
+fun[exp] south(): int = {
+    return 10;
+};
+
+fun[exp] west(): int = {
+    return -1;
+};
+
+// Byte codes the board is written in.
+fun[exp] empty_byte(): int = {
+    return 46;
+};
+
+fun[hid] space_byte(): int = {
+    return 32;
+};
+
+fun[hid] newline_byte(): int = {
+    return 10;
+};
+
+typ[exp] Pos: rec = {
+    board: str,
+    score: int,
+    // Our castling rights, queen side then king side.
+    wc_west: bol,
+    wc_east: bol,
+    // Theirs, in the mirrored order the rotation hands over.
+    bc_west: bol,
+    bc_east: bol,
+    ep: int,
+    kp: int,
+};
+
+// Our piece index for a board byte, or -1. Uppercase is always the side to
+// move, which is what makes one generator enough.
+fun[exp] mine(byte: int): int = {
+    var letters: vec[int] = {80, 78, 66, 82, 81, 75};
+    ~var index: int = 0;
+    loop(index < 6) {
+        when(.eq(letters[index], byte)) {
+            case(true) { return index; }
+            * { }
+        };
+        index = index + 1;
+    };
+    return -1;
+};
+
+fun[exp] theirs(byte: int): int = {
+    when((byte >= 97) and (byte <= 122)) {
+        case(true) { return mine(byte - 32); }
+        * { return -1; }
+    }
+};
+
+// A ray stops on the edge padding and on our own pieces.
+fun[hid] blocks(byte: int): bol = {
+    return .eq(byte, space_byte()) or .eq(byte, newline_byte()) or (mine(byte) >= 0);
+};
+
+// Ray offsets per piece, flattened. Knights get the eight compound offsets,
+// the queen and king share the eight one-step directions.
+fun[hid] rays(): vec[int] = {
+    return {
+        -10, -20, -11, -9,
+        -19, -8, 12, 21, 19, 8, -12, -21,
+        -9, 11, 9, -11,
+        -10, 1, 10, -1,
+        -10, 1, 10, -1, -9, 11, 9, -11,
+        -10, 1, 10, -1, -9, 11, 9, -11,
+    };
+};
+
+fun[hid] ray_start(piece: int): int = {
+    var starts: vec[int] = {0, 4, 12, 16, 20, 28};
+    return starts[piece];
+};
+
+fun[hid] ray_count(piece: int): int = {
+    var counts: vec[int] = {4, 8, 4, 4, 8, 8};
+    return counts[piece];
+};
+
+fun[exp] byte_of(pos: Pos, square: int): int = {
+    return std::strn::byte_at(pos.board, square);
+};
+
+// Replaces one square and hands back the whole board, because a FOL string is
+// never written in place.
+fun[hid] put(board: str, square: int, letter: str): str = {
+    var head: str = std::strn::sub(board, 0, square);
+    var tail: str = std::strn::sub(board, square + 1, .len(board) - square - 1);
+    return head + letter + tail;
+};
+
+// Every pseudo-legal move, as a packed move list.
+//
+// Pseudo-legal is the original's design, not a shortcut: sunfish is a
+// king-capture engine, so a move that walks into check is generated, played,
+// and refuted by the opponent simply taking the king.
+fun[exp] gen(pos: Pos): str = {
+    ~var out: str = "";
+    ~var from: int = 0;
+    var offsets: vec[int] = rays();
+    loop(from < 120) {
+        var piece: int = mine(byte_of(pos, from));
+        when(piece >= 0) {
+            case(true) {
+                var first: int = ray_start(piece);
+                var total: int = ray_count(piece);
+                ~var slot: int = 0;
+                loop(slot < total) {
+                    var step: int = offsets[first + slot];
+                    out = out + walk(pos, from, piece, step);
+                    slot = slot + 1;
+                };
+            }
+            * { }
+        };
+        from = from + 1;
+    };
+    return out;
+};
+
+// One ray from one square, until something stops it.
+fun[hid] walk(pos: Pos, from: int, piece: int, step: int): str = {
+    ~var out: str = "";
+    ~var to: int = from + step;
+    loop(true) {
+        // The padding rows guarantee this, but FOL indexes a string with a
+        // checked read and there is no exception to fall back on.
+        when((to < 0) or (to > 119)) {
+            case(true) { break; }
+            * { }
+        };
+        var target: int = byte_of(pos, to);
+        when(blocks(target)) {
+            case(true) { break; }
+            * { }
+        };
+
+        when(.eq(piece, eval::pawn())) {
+            case(true) {
+                var pushing: bol = .eq(step, north()) or .eq(step, 2 * north());
+                when(pushing and .not(.eq(target, empty_byte()))) {
+                    case(true) { break; }
+                    * { }
+                };
+                var stuck: bol = (from < a1() + north())
+                or .not(.eq(byte_of(pos, from + north()), empty_byte()));
+                when(.eq(step, 2 * north()) and stuck) {
+                    case(true) { break; }
+                    * { }
+                };
+                var diagonal: bol = .eq(step, north() + west()) or .eq(step, north() + east());
+                var nothing_there: bol = .eq(target, empty_byte())
+                and .not(.eq(to, pos.ep))
+                and (eval::magnitude(to - pos.kp) > 1);
+                when(diagonal and nothing_there) {
+                    case(true) { break; }
+                    * { }
+                };
+                when((to >= a8()) and (to <= h8())) {
+                    case(true) {
+                        out = moves::push(out, moves::encode(from, to, moves::prom_knight()));
+                        out = moves::push(out, moves::encode(from, to, moves::prom_bishop()));
+                        out = moves::push(out, moves::encode(from, to, moves::prom_rook()));
+                        out = moves::push(out, moves::encode(from, to, moves::prom_queen()));
+                        break;
+                    }
+                    * { }
+                };
+            }
+            * { }
+        };
+
+        out = moves::push(out, moves::encode(from, to, moves::prom_none()));
+
+        var crawler: bol = .eq(piece, eval::pawn())
+        or .eq(piece, eval::knight())
+        or .eq(piece, eval::king());
+        when(crawler or (theirs(target) >= 0)) {
+            case(true) { break; }
+            * { }
+        };
+
+        // Castling is generated by the rook, not the king: a rook that has slid
+        // to a square with our king right beside it stands in for the whole
+        // manoeuvre, which is why the emitted move starts on the king's square.
+        out = out + castles(pos, from, to);
+        to = to + step;
+    };
+    return out;
+};
+
+fun[hid] castles(pos: Pos, from: int, to: int): str = {
+    ~var out: str = "";
+    when(.eq(from, a1()) and pos.wc_west and (to + east() <= 119)) {
+        case(true) {
+            when(.eq(byte_of(pos, to + east()), 75)) {
+                case(true) {
+                    out = moves::push(out, moves::encode(to + east(), to - east(), moves::prom_none()));
+                }
+                * { }
+            };
+        }
+        * { }
+    };
+    when(.eq(from, h1()) and pos.wc_east and (to + west() >= 0)) {
+        case(true) {
+            when(.eq(byte_of(pos, to + west()), 75)) {
+                case(true) {
+                    out = moves::push(out, moves::encode(to + west(), to - west(), moves::prom_none()));
+                }
+                * { }
+            };
+        }
+        * { }
+    };
+    return out;
+};
+
+// The move that takes the opponent king, if there is one.
+//
+// It does double duty in the original and here: found in a position it proves
+// the position was reached illegally, and found after a null rotation it says
+// the side to move is in check.
+fun[exp] king_capture(pos: Pos): int = {
+    var list: str = gen(pos);
+    var total: int = moves::count(list);
+    ~var index: int = 0;
+    loop(index < total) {
+        var code: int = moves::code_slot(list, index);
+        var to: int = moves::move_to(code);
+        var takes: bol = .eq(byte_of(pos, to), 107)
+        or (eval::magnitude(to - pos.kp) < 2);
+        when(takes) {
+            case(true) { return code; }
+            * { }
+        };
+        index = index + 1;
+    };
+    return -1;
+};
+
+// Hands the board to the other side: reversed, case-swapped, score negated,
+// castling rights traded. A null rotation drops the passant squares, which is
+// what makes it a pass rather than a move.
+fun[exp] rotate(pos: Pos, nullmove: bol): Pos = {
+    var flipped: str = flip(pos.board);
+    ~var ep: int = 0;
+    ~var kp: int = 0;
+    when(.not(.eq(pos.ep, 0)) and .not(nullmove)) {
+        case(true) { ep = 119 - pos.ep; }
+        * { }
+    };
+    when(.not(.eq(pos.kp, 0)) and .not(nullmove)) {
+        case(true) { kp = 119 - pos.kp; }
+        * { }
+    };
+    return {
+        board = flipped,
+        score = 0 - pos.score,
+        wc_west = pos.bc_west,
+        wc_east = pos.bc_east,
+        bc_west = pos.wc_west,
+        bc_east = pos.wc_east,
+        ep = ep,
+        kp = kp,
+    };
+};
+
+fun[hid] flip(board: str): str = {
+    ~var out: str = "";
+    ~var index: int = .len(board) - 1;
+    loop(index >= 0) {
+        var byte: int = std::strn::byte_at(board, index);
+        ~var swapped: int = byte;
+        when((byte >= 65) and (byte <= 90)) {
+            case(true) { swapped = byte + 32; }
+            * { }
+        };
+        when((byte >= 97) and (byte <= 122)) {
+            case(true) { swapped = byte - 32; }
+            * { }
+        };
+        out = out + std::strn::from_byte(swapped);
+        index = index - 1;
+    };
+    return out;
+};
+
+// What a move is worth, before it is played. This is the whole evaluation: the
+// score is incremental, so a position never has to be evaluated from scratch.
+fun[exp] value(pos: Pos, code: int, pst: eval::Pst): int = {
+    var from: int = moves::move_from(code);
+    var to: int = moves::move_to(code);
+    var prom: int = moves::move_prom(code);
+    var piece: int = mine(byte_of(pos, from));
+    var target: int = theirs(byte_of(pos, to));
+
+    ~var score: int = [bor]pst.look(piece, to) - [bor]pst.look(piece, from);
+    when(target >= 0) {
+        case(true) { score = score + [bor]pst.look(target, 119 - to); }
+        * { }
+    };
+    // Landing on or beside the king-passant square means castling through
+    // check, which the opponent is about to punish by taking the king.
+    when(eval::magnitude(to - pos.kp) < 2) {
+        case(true) { score = score + [bor]pst.look(eval::king(), 119 - to); }
+        * { }
+    };
+    when(.eq(piece, eval::king()) and .eq(eval::magnitude(from - to), 2)) {
+        case(true) {
+            score = score + [bor]pst.look(eval::rook(), (from + to) / 2);
+            when(to < from) {
+                case(true) { score = score - [bor]pst.look(eval::rook(), a1()); }
+                * { score = score - [bor]pst.look(eval::rook(), h1()); }
+            };
+        }
+        * { }
+    };
+    when(.eq(piece, eval::pawn())) {
+        case(true) {
+            when((to >= a8()) and (to <= h8())) {
+                case(true) {
+                    score = score + [bor]pst.look(moves::prom_piece(prom), to)
+                    - [bor]pst.look(eval::pawn(), to);
+                }
+                * { }
+            };
+            when(.eq(to, pos.ep)) {
+                case(true) {
+                    score = score + [bor]pst.look(eval::pawn(), 119 - (to + south()));
+                }
+                * { }
+            };
+        }
+        * { }
+    };
+    return score;
+};
+
+// Plays a move and hands back the rotated result, ready for the other side.
+fun[exp] advance(pos: Pos, code: int, pst: eval::Pst): Pos = {
+    var from: int = moves::move_from(code);
+    var to: int = moves::move_to(code);
+    var prom: int = moves::move_prom(code);
+    var mover: int = byte_of(pos, from);
+    var piece: int = mine(mover);
+
+    ~var wc_west: bol = pos.wc_west;
+    ~var wc_east: bol = pos.wc_east;
+    ~var bc_west: bol = pos.bc_west;
+    ~var bc_east: bol = pos.bc_east;
+    ~var ep: int = 0;
+    ~var kp: int = 0;
+    var score: int = pos.score + value(pos, code, pst);
+
+    ~var board: str = put(pos.board, to, std::strn::from_byte(mover));
+    board = put(board, from, ".");
+
+    // Moving off a corner, or capturing on one, is what actually retires a
+    // castling right.
+    when(.eq(from, a1())) {
+        case(true) { wc_west = false; }
+        * { }
+    };
+    when(.eq(from, h1())) {
+        case(true) { wc_east = false; }
+        * { }
+    };
+    when(.eq(to, a8())) {
+        case(true) { bc_east = false; }
+        * { }
+    };
+    when(.eq(to, h8())) {
+        case(true) { bc_west = false; }
+        * { }
+    };
+
+    when(.eq(piece, eval::king())) {
+        case(true) {
+            wc_west = false;
+            wc_east = false;
+            when(.eq(eval::magnitude(to - from), 2)) {
+                case(true) {
+                    kp = (from + to) / 2;
+                    when(to < from) {
+                        case(true) { board = put(board, a1(), "."); }
+                        * { board = put(board, h1(), "."); }
+                    };
+                    board = put(board, kp, "R");
+                }
+                * { }
+            };
+        }
+        * { }
+    };
+
+    when(.eq(piece, eval::pawn())) {
+        case(true) {
+            when((to >= a8()) and (to <= h8())) {
+                case(true) {
+                    board = put(board, to, std::strn::from_byte(moves::prom_byte(prom)));
+                }
+                * { }
+            };
+            when(.eq(to - from, 2 * north())) {
+                case(true) { ep = from + north(); }
+                * { }
+            };
+            when(.eq(to, pos.ep)) {
+                case(true) { board = put(board, to + south(), "."); }
+                * { }
+            };
+        }
+        * { }
+    };
+
+    return rotate({
+        board = board,
+        score = score,
+        wc_west = wc_west,
+        wc_east = wc_east,
+        bc_west = bc_west,
+        bc_east = bc_east,
+        ep = ep,
+        kp = kp,
+    }, false);
+};
+
+// True when we still have a piece worth more than a pawn on the board, which
+// is the original's guard against trying a null move in zugzwang.
+fun[exp] has_material(pos: Pos): bol = {
+    return (std::strn::find(pos.board, "R") >= 0)
+    or (std::strn::find(pos.board, "B") >= 0)
+    or (std::strn::find(pos.board, "N") >= 0)
+    or (std::strn::find(pos.board, "Q") >= 0);
+};
+
+// Builds a mailbox board from sixty-four characters written a8 first.
+fun[exp] board_from(squares: str): str = {
+    ~var out: str = "         \n         \n";
+    ~var rank: int = 0;
+    loop(rank < 8) {
+        out = out + " " + std::strn::sub(squares, rank * 8, 8) + "\n";
+        rank = rank + 1;
+    };
+    return out + "         \n         \n";
+};
+
+fun[exp] start_board(): str = {
+    return board_from("rnbqkbnr" + "pppppppp" + "........" + "........"
+        + "........" + "........" + "PPPPPPPP" + "RNBQKBNR");
+};
+
+// The static evaluation, summed square by square. The original never needs
+// this because its history always starts from the initial position, where the
+// score is zero by symmetry; a position set up by hand does need it.
+fun[exp] static_score(board: str, pst: eval::Pst): int = {
+    ~var score: int = 0;
+    ~var square: int = 0;
+    loop(square < 120) {
+        var byte: int = std::strn::byte_at(board, square);
+        var ours: int = mine(byte);
+        when(ours >= 0) {
+            case(true) { score = score + [bor]pst.look(ours, square); }
+            * { }
+        };
+        var attacker: int = theirs(byte);
+        when(attacker >= 0) {
+            case(true) { score = score - [bor]pst.look(attacker, 119 - square); }
+            * { }
+        };
+        square = square + 1;
+    };
+    return score;
+};
+
+fun[exp] position_from(squares: str, pst: eval::Pst, castling: bol): Pos = {
+    var board: str = board_from(squares);
+    return {
+        board = board,
+        score = static_score(board, pst),
+        wc_west = castling,
+        wc_east = castling,
+        bc_west = castling,
+        bc_east = castling,
+        ep = 0,
+        kp = 0,
+    };
+};
+
+// Square names. Mailbox arithmetic gives these directly without the floor
+// division the original relies on -- FOL truncates toward zero, so the
+// original's expression would print the wrong file for a rank-eight square.
+fun[exp] square_name(square: int): str = {
+    var file: str = std::strn::from_byte(97 + square % 10 - 1);
+    return file + std::fmt::int_to_str(10 - square / 10);
+};
+
+fun[exp] parse_square(name: str): int = {
+    var file: int = std::strn::byte_at(name, 0) - 97;
+    var rank: int = std::strn::byte_at(name, 1) - 48;
+    return a1() + file - 10 * (rank - 1);
+};
+
+fun[exp] move_name(code: int): str = {
+    var text: str = square_name(moves::move_from(code)) + square_name(moves::move_to(code));
+    var prom: int = moves::move_prom(code);
+    when(.eq(prom, moves::prom_none())) {
+        case(true) { return text; }
+        * { return text + std::strn::from_byte(moves::prom_byte(prom)); }
+    }
+};
+
+// The board as eight printable rows, always from the side-to-move's view.
+fun[exp] render(pos: Pos): str = {
+    ~var out: str = "";
+    ~var rank: int = 0;
+    loop(rank < 8) {
+        out = out + "    " + std::strn::sub(pos.board, 20 + rank * 10 + 1, 8) + "\n";
+        rank = rank + 1;
+    };
+    return out;
+};

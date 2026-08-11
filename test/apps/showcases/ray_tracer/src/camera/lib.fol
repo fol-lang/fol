@@ -1,0 +1,193 @@
+// The camera class: viewport setup, get_ray, the recursive ray_color, the
+// gamma-corrected colour writer and the render loop.
+
+use std: pkg = {"std"};
+use geom: loc = {"../geom"};
+use matter: loc = {"../matter"};
+use nums: loc = {"../nums"};
+
+typ[exp] Camera: rec = {
+    image_width: int,
+    image_height: int,
+    samples: int,
+    max_depth: int,
+    sample_scale: flt,
+    center: geom::V3,
+    pixel00: geom::V3,
+    delta_u: geom::V3,
+    delta_v: geom::V3,
+};
+
+typ[exp] RandRay: rec = {
+    state: int,
+    value: geom::Ray,
+};
+
+typ[exp] Traced: rec = {
+    state: int,
+    color: geom::V3,
+};
+
+// camera::initialize. The original derives image_height from an ideal aspect
+// ratio; both dimensions are given here, and the viewport still uses the actual
+// width/height ratio exactly as the book insists.
+fun[exp] make(width: int, height: int, samples: int, max_depth: int): Camera = {
+    var focal_length: flt = 1.0;
+    var viewport_height: flt = 2.0;
+    var viewport_width: flt = viewport_height
+    * (nums::to_flt(width) / nums::to_flt(height));
+    var center: geom::V3 = geom::zero();
+
+    var viewport_u: geom::V3 = geom::v3(viewport_width, 0.0, 0.0);
+    var viewport_v: geom::V3 = geom::v3(0.0, -viewport_height, 0.0);
+    var delta_u: geom::V3 = geom::shrink(viewport_u, nums::to_flt(width));
+    var delta_v: geom::V3 = geom::shrink(viewport_v, nums::to_flt(height));
+
+    var upper_left: geom::V3 = geom::sub(
+        geom::sub(
+            geom::sub(center, geom::v3(0.0, 0.0, focal_length)),
+            geom::shrink(viewport_u, 2.0)),
+        geom::shrink(viewport_v, 2.0));
+    var pixel00: geom::V3 = geom::add(
+        upper_left,
+        geom::scale(geom::add(delta_u, delta_v), 0.5));
+
+    return {
+        image_width = width,
+        image_height = height,
+        samples = samples,
+        max_depth = max_depth,
+        sample_scale = 1.0 / nums::to_flt(samples),
+        center = center,
+        pixel00 = pixel00,
+        delta_u = delta_u,
+        delta_v = delta_v,
+    };
+};
+
+// camera::get_ray with camera::sample_square folded in: jitter inside the pixel
+// square, then aim from the camera centre at the jittered point.
+fun[exp] get_ray(cam: Camera, column: int, row: int, state: int): RandRay = {
+    var jx: nums::Rand = nums::next(state);
+    var jy: nums::Rand = nums::next(jx.state);
+    var offset_x: flt = jx.value - 0.5;
+    var offset_y: flt = jy.value - 0.5;
+
+    var sample: geom::V3 = geom::add(
+        geom::add(
+            cam.pixel00,
+            geom::scale(cam.delta_u, nums::to_flt(column) + offset_x)),
+        geom::scale(cam.delta_v, nums::to_flt(row) + offset_y));
+
+    return {
+        state = jy.state,
+        value = { orig = cam.center, dir = geom::sub(sample, cam.center) },
+    };
+};
+
+fun[exp] sky(beam: geom::Ray): geom::V3 = {
+    var unit_direction: geom::V3 = geom::unit(beam.dir);
+    var a: flt = 0.5 * (unit_direction.y + 1.0);
+    return geom::add(
+        geom::scale(geom::v3(1.0, 1.0, 1.0), 1.0 - a),
+        geom::scale(geom::v3(0.5, 0.7, 1.0), a));
+};
+
+// camera::ray_color. Recursive with a depth limit, and the 0.001 minimum that
+// kills shadow acne. Attenuation is a scalar rather than a colour because both
+// materials in this scene are grey; multiplying componentwise would need a
+// colour albedo the diffuse chapter has not introduced yet.
+fun[exp] ray_color(beam: geom::Ray, depth: int, world: vec[geom::Sphere], state: int): Traced = {
+    when(depth <= 0) {
+        case(true) { return { state = state, color = geom::zero() }; }
+        * { }
+    }
+
+    var record: geom::Hit = geom::hit_world(world, beam, 0.001, nums::far());
+    when(record.struck) {
+        case(true) {
+            var bounce: matter::Scatter = matter::scatter_by_tag(record.mat, record, state);
+            var next_beam: geom::Ray = { orig = record.p, dir = bounce.dir };
+            var deeper: Traced = ray_color(next_beam, depth - 1, world, bounce.state);
+            return {
+                state = deeper.state,
+                color = geom::scale(deeper.color, bounce.albedo),
+            };
+        }
+        * { }
+    }
+
+    return { state = state, color = sky(beam) };
+};
+
+// One pixel: `samples` jittered rays averaged. Seeding from the pixel index
+// rather than a global stream is what makes an individual pixel checkable.
+fun[exp] pixel_color(cam: Camera, world: vec[geom::Sphere], column: int, row: int): geom::V3 = {
+    var state: int = nums::seed_at(column, row);
+    var total: geom::V3 = geom::zero();
+    var sample: int = 0;
+    loop (sample < cam.samples) {
+        var beam: RandRay = get_ray(cam, column, row, state);
+        var traced: Traced = ray_color(beam.value, cam.max_depth, world, beam.state);
+        state = traced.state;
+        total = geom::add(total, traced.color);
+        sample = sample + 1;
+    }
+    return geom::scale(total, cam.sample_scale);
+};
+
+// linear_to_gamma for gamma 2 -- the square root, which is why nums::root has
+// to be right before any pixel can be.
+fun[exp] linear_to_gamma(component: flt): flt = {
+    when(component > 0.0) {
+        case(true) { return nums::root(component); }
+        * { }
+    }
+    return 0.0;
+};
+
+// write_color: gamma, clamp to the [0.000, 0.999) intensity interval, scale to
+// bytes.
+fun[exp] color_bytes(color: geom::V3): arr[int, 3] = {
+    return {
+        nums::to_byte(nums::clamp_intensity(linear_to_gamma(color.x))),
+        nums::to_byte(nums::clamp_intensity(linear_to_gamma(color.y))),
+        nums::to_byte(nums::clamp_intensity(linear_to_gamma(color.z))),
+    };
+};
+
+fun[exp] color_text(color: geom::V3): str = {
+    var bytes: arr[int, 3] = color_bytes(color);
+    return std::fmt::int_to_str(bytes[0]) + " " + std::fmt::int_to_str(bytes[1])
+    + " " + std::fmt::int_to_str(bytes[2]);
+};
+
+// camera::render. Rows are assembled into one string apiece: there is no
+// unbuffered stdout write worth eight hundred syscalls, and str is the one
+// container in FOL that grows.
+pro[exp] render(cam: Camera, world: vec[geom::Sphere]): non = {
+    std::io::echo_str("P3");
+    std::io::echo_str(std::fmt::int_to_str(cam.image_width) + " "
+        + std::fmt::int_to_str(cam.image_height));
+    std::io::echo_str("255");
+
+    var row: int = 0;
+    loop (row < cam.image_height) {
+        std::io::write_err("scanlines remaining: "
+            + std::fmt::int_to_str(cam.image_height - row) + "\r");
+        var line: str = "";
+        var column: int = 0;
+        loop (column < cam.image_width) {
+            when(column > 0) {
+                case(true) { line = line + "  "; }
+                * { }
+            }
+            line = line + color_text(pixel_color(cam, world, column, row));
+            column = column + 1;
+        }
+        std::io::echo_str(line);
+        row = row + 1;
+    }
+    std::io::write_err("done.                   \n");
+    return;
+};

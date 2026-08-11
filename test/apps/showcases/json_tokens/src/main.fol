@@ -1,0 +1,294 @@
+// json_tokens -- jsmn, the zero-allocation JSON tokenizer, translated to FOL.
+//
+// ORIGINAL   jsmn by Serge Zaitsev, C, MIT licence
+//            https://github.com/zserge/jsmn
+//            single header: https://raw.githubusercontent.com/zserge/jsmn/master/jsmn.h
+//
+// The port compiles the `JSMN_STRICT` + `JSMN_PARENT_LINKS` configuration. It
+// keeps the original's shape end to end: one flat token array of
+// {type, start, end, size, parent}, filled by a single left-to-right pass over
+// the input, with `toksuper` naming the container a new token belongs to and
+// each token linking up to its parent. The four token types keep jsmn's own
+// numeric values, the three error codes keep jsmn's own negative values, and
+// `jsmn_parse` still returns "count, or a negative code" through one `int`.
+//
+// Every expectation in `src/suite` was produced by compiling the real jsmn.h
+// against a printing driver, not by observing this port.
+//
+//
+// DEVIATIONS -- where jsmn's design could not be carried into FOL
+//
+// 1. THE PARSER AND THE TOKEN ARRAY HAD TO FUSE INTO ONE RECORD.
+//    C: `jsmn_parse(jsmn_parser *p, const char *js, size_t len,
+//                   jsmntok_t *tokens, unsigned num_tokens)` -- a free function
+//    mutating two objects the CALLER owns, through two pointers. That is the
+//    library's entire selling point: jsmn never allocates because the caller
+//    supplies the array.
+//    FOL: a free routine may not take `[mut, bor]`; only a receiver may. So the
+//    token array moved inside `Parser` and every `static` helper became a
+//    `pro (Parser[mut, bor])`.
+//    COST: the caller can no longer own or reuse the token buffer, and cannot
+//    tokenize into a slice of a larger arena. The zero-allocation property
+//    survives (nothing grows at run time); the caller-supplies-memory property
+//    does not.
+//
+// 2. `jsmn_alloc_token` RETURNS A POINTER INTO THE ARRAY; THE PORT RETURNS AN
+//    INDEX. C then writes `token->type = ...`, `t->size++`, `token->end = ...`
+//    straight through that pointer.
+//    FOL: there is no interior reference that stays valid across later writes
+//    through the same mutable loan, and indexed assignment REPLACES an element
+//    -- `self.toks[i].size = n` is two hops through the receiver and is
+//    rejected. So each single-field poke became a `pro` that reads the element
+//    out, rebuilds all five fields and writes it back (`set_stop`, `set_open`,
+//    `set_parent`, `bump_size`).
+//    COST: five field copies per one-field update, and a whole class of silent
+//    bugs (forget one field in the rebuild and it resets). Still O(1).
+//
+// 3. `num_tokens` IS A RUNTIME ARGUMENT IN C; `arr[T, N]` CARRIES N IN ITS TYPE.
+//    FOL has no const-generic length parameter, so the physical array is fixed
+//    at 32 slots and a `cap` field carries the logical limit that the NOMEM
+//    check consults -- which is the only thing `num_tokens` is used for.
+//    COST: the ceiling is a compile-time constant. A caller wanting 4096 tokens
+//    edits a type. The array also has to be spelled out with 32 explicit
+//    `token::blank()` initialisers, because FOL has no repeat-initialiser.
+//
+// 4. `tokens == NULL` -- jsmn's DOCUMENTED SIZING PASS -- BECAME A `dry` FLAG.
+//    C callers pass a null array to learn how many tokens a document needs,
+//    then allocate exactly that many and parse again. FOL has no null array, so
+//    the eight `if (tokens == NULL)` branches consult `self.dry` instead.
+//    COST: behaviour is exact (the suite pins the sizing pass down, including
+//    the fact that it does NOT validate structure), but the point of the pass
+//    -- not having an array yet -- is gone: the port still carries 32 slots.
+//
+// 5. THE TYPE TAGS ARE BIT FLAGS IN C: `JSMN_OBJECT = 1 << 0` up to
+//    `JSMN_PRIMITIVE = 1 << 3`. FOL HAS NO BITWISE OPERATORS AT ALL -- no `<<`,
+//    no `&`, no `|` -- so they are written as the literals 1, 2, 4, 8.
+//    COST: none here, because nothing in jsmn masks. But a jsmn CALLER that
+//    wants `tok->type & (JSMN_OBJECT | JSMN_ARRAY)` -- the idiom the flag
+//    layout exists for -- cannot be expressed in FOL at all.
+//
+// 6. `goto found` IN `jsmn_parse_primitive` became a `found` flag plus a
+//    `scanning` loop guard. Faithful, slightly longer.
+//
+// 7. C `switch` FALL-THROUGH HAS NO FOL EQUIVALENT. `case '{': case '[':` share
+//    one body in jsmn, as do the four whitespace cases. `when ... is` arms do
+//    not fall through, so the shared body became one routine called from two
+//    arms (`open_scope`, `close_scope`) and the whitespace group became four
+//    empty arms.
+//
+// 8. EVERY CHARACTER LITERAL BECAME A BYTE CODE. FOL has no `chr` to `int`
+//    conversion in either direction and `std::strn::byte_at` hands back an
+//    `int`, so `case '\\':` is `is(92)`. Naming the codes once in `src/bytes`
+//    arguably reads better than the C; the cost is that the scanner can never
+//    be written against characters.
+//
+// 9. `js[parser->pos] != '\0'` HAS NO ANALOGUE. A FOL `str` is not
+//    NUL-terminated, so only the `pos < len` half of jsmn's loop guard
+//    survives. Equivalent in practice, since C callers pass `strlen(js)`.
+//
+// 10. COMPILER DEFECT, WORKED AROUND: `self.method(self.field)` -- calling a
+//    `[mut, bor]` method of `self` with one of `self`'s own fields as an
+//    argument -- passes `folc code check` and then fails to build, with rustc's
+//    E0502 leaking out of the backend. jsmn writes exactly this shape nine
+//    times (`jsmn_fill_token(token, ..., parser->pos)`, `t->size++` on
+//    `tokens[parser->toksuper]`, ...). Every one had to be split into a local
+//    read followed by the call. Minimal repro:
+//    /tmp/claude-1000/mimicry-repros/json_tokens/self_arg_borrow
+//
+// 11. THE ERROR CODES STAYED ON THE INT CHANNEL, as an `ent` of negative
+//    constants, rather than becoming an `err[T]` shell. `jsmn_parse` and its
+//    two sub-scanners propagate with a bare `if (r < 0) return r;` five times;
+//    a shell would have split the count and the fault into two values and made
+//    that propagation impossible to write straight. The `ent` keeps NOMEM/-1,
+//    INVAL/-2 and PART/-3 at their original values, which is what lets a token
+//    count and a fault share one return.
+//
+// 12. NOT A DEVIATION, A CORRECTION: the brief listed "trailing comma" among
+//    the inputs jsmn rejects. It does not -- in neither strict nor lax mode.
+//    `[1,2,]` and `{"a":1,}` both tokenize cleanly in the C original, because a
+//    comma only re-points `toksuper` and the following bracket closes the
+//    container normally. Mimicry beats the brief: the port accepts them and the
+//    suite pins the exact counts the C build printed.
+//
+// 13. COMPILER DEFECT, NOT WORKED AROUND: `folc tool format` counts `[` and `]`
+//    inside string literals when it decides how deep to indent, so a fixture
+//    like `json = "[1,2"` makes every following line one level deeper -- and
+//    the damage is stable, so a second format pass will not undo it. A JSON
+//    corpus is nothing but unbalanced-bracket string literals, so `src/suite`
+//    is the file that shows it. Its indentation here is the correct one, hand
+//    written; running the formatter over it makes it worse. Minimal repro:
+//    /tmp/claude-1000/mimicry-repros/json_tokens/format_bracket_in_string
+//
+// EASIER THAN EXPECTED: indexed assignment into `arr[Tok, 32]` through a
+// `[mut, bor]` receiver worked on the first attempt, including record elements
+// and read-modify-write. FOL string literals accept `\"`, `\\`, `\t`, `\r` and
+// `\n` with the same meanings C gives them, so all 41 JSON fixtures transcribe
+// one for one and the byte offsets match without adjustment. Nothing about the
+// state machine itself -- the `toksuper` walk, the parent chain, the strict
+// key checks -- needed rethinking: it came over line for line and matched the
+// C original's output on the first run.
+
+use std: pkg = {"std"};
+use token: loc = {"token"};
+use parser: loc = {"parser"};
+use suite: loc = {"suite"};
+
+// Control bytes would wreck the report's layout, so they are shown the way the
+// fixture spells them rather than the way they scan.
+fun visible(text: str): str = {
+    var no_tab: str = std::strn::replace(text, std::strn::from_byte(9), "\\t");
+    var no_cr: str = std::strn::replace(no_tab, std::strn::from_byte(13), "\\r");
+    return std::strn::replace(no_cr, std::strn::from_byte(10), "\\n");
+};
+
+fun expect_int(name: str, actual: int, expected: int): int = {
+    when(actual == expected) {
+        case(true) { return 0; }
+        * {
+            std::io::echo_str("    FAIL " + name
+                + ": expected " + std::fmt::int_to_str(expected)
+                + ", got " + std::fmt::int_to_str(actual));
+            return 1;
+        }
+    }
+};
+
+fun expect_str(name: str, actual: str, expected: str): int = {
+    when(actual == expected) {
+        case(true) { return 0; }
+        * {
+            std::io::echo_str("    FAIL " + name + ": expected `" + expected
+                + "`, got `" + actual + "`");
+            return 1;
+        }
+    }
+};
+
+// jsmn's return channel: a count when it is not negative, a fault name when it
+// is.
+fun verdict_of(result: int): str = {
+    when(result < 0) {
+        case(true) { return token::fault_name(result); }
+        * { return std::fmt::int_to_str(result) + " tokens"; }
+    }
+};
+
+// One fixture: parse it, print what came out, then hold every observable the C
+// driver printed against the number it printed.
+fun exercise(item: suite::Case): int = {
+    var[mut] session: parser::Parser = parser::fresh(item.cap, item.dry);
+    var length: int = .len(item.json);
+    var result: int = session.run(item.json, length);
+
+    when(item.dry) {
+        case(true) { std::io::echo_str("  " + item.name + "  [sizing pass]"); }
+        * { std::io::echo_str("  " + item.name); }
+    };
+    std::io::echo_str("    input   " + visible(item.json)
+        + "   (" + std::fmt::int_to_str(length) + " bytes, cap "
+            + std::fmt::int_to_str(item.cap) + ")");
+    std::io::echo_str("    result  " + verdict_of(result)
+        + ", pos " + std::fmt::int_to_str(session.pos)
+        + ", toknext " + std::fmt::int_to_str(session.toknext));
+
+    var[mut] shown: int = 0;
+    when(result > 0) {
+        case(true) {
+            loop(shown < result) {
+                when(item.dry) {
+                    case(false) {
+                        std::io::echo_str("    tok " + std::fmt::int_to_str(shown)
+                            + "   " + token::show(session.toks[shown]));
+                    }
+                    * { }
+                };
+                shown = shown + 1;
+            };
+        }
+        * { }
+    };
+
+    var[mut] bad: int = 0;
+    bad = bad + expect_int(item.name + "/result", result, item.want);
+    bad = bad + expect_int(item.name + "/pos", session.pos, item.want_pos);
+    bad = bad + expect_int(item.name + "/toknext", session.toknext, item.want_next);
+
+    // The dump covers kind, start, end, size and parent of every token in one
+    // comparison; error and sizing runs have no tokens to show.
+    var[mut] produced: str = "";
+    when((result > 0) and (.not(item.dry))) {
+        case(true) { produced = [bor]session.dump(result); }
+        * { }
+    };
+    bad = bad + expect_str(item.name + "/tokens", produced, item.want_dump);
+    return bad;
+};
+
+// jsmn's documented two-call idiom: size the document with a null token array,
+// then parse for real into an array of exactly that many slots.
+fun sizing_demo(json: str): int = {
+    var length: int = .len(json);
+    var[mut] measure: parser::Parser = parser::fresh(0, true);
+    var needed: int = measure.run(json, length);
+    std::io::echo_str("  sizing pass says " + std::fmt::int_to_str(needed) + " tokens");
+
+    var[mut] session: parser::Parser = parser::fresh(needed, false);
+    var result: int = session.run(json, length);
+    std::io::echo_str("  parsing with cap " + std::fmt::int_to_str(needed)
+        + " yields " + verdict_of(result));
+
+    var[mut] bad: int = 0;
+    bad = bad + expect_int("sizing/agree", result, needed);
+
+    // One slot short of what the sizing pass asked for must be NOMEM.
+    var[mut] cramped: parser::Parser = parser::fresh(needed - 1, false);
+    var short: int = cramped.run(json, length);
+    std::io::echo_str("  parsing with cap " + std::fmt::int_to_str(needed - 1)
+        + " yields " + verdict_of(short));
+    bad = bad + expect_int("sizing/short", short, token::nomem());
+    return bad;
+};
+
+fun[] main(): int = {
+    std::io::echo_str("jsmn in FOL -- strict mode, parent links");
+    std::io::echo_str("");
+
+    var[mut] failures: int = 0;
+    var cases: arr[suite::Case, 28] = suite::parse_corpus();
+    var[mut] index: int = 0;
+    loop(index < suite::parse_count()) {
+        failures = failures + exercise(cases[index]);
+        index = index + 1;
+    };
+
+    var deep: arr[suite::Case, 7] = suite::nesting_corpus();
+    var[mut] nest: int = 0;
+    loop(nest < suite::nesting_count()) {
+        failures = failures + exercise(deep[nest]);
+        nest = nest + 1;
+    };
+
+    var sized: arr[suite::Case, 6] = suite::sizing_corpus();
+    var[mut] cursor: int = 0;
+    loop(cursor < suite::sizing_count()) {
+        failures = failures + exercise(sized[cursor]);
+        cursor = cursor + 1;
+    };
+
+    std::io::echo_str("");
+    std::io::echo_str("two-pass sizing");
+    failures = failures + sizing_demo("{\"user\":{\"id\":42,\"tags\":[\"a\",\"b\"]},\"ok\":true}");
+
+    std::io::echo_str("");
+    var fixtures: int = suite::parse_count() + suite::nesting_count()
+    + suite::sizing_count();
+    std::io::echo_str("fixtures: " + std::fmt::int_to_str(fixtures)
+        + ", failed checks: " + std::fmt::int_to_str(failures));
+    when(failures == 0) {
+        case(true) {
+            std::io::echo_str("every observable matches the C original");
+            return 0;
+        }
+        * { return 1; }
+    }
+};

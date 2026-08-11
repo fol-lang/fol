@@ -1,0 +1,51 @@
+use std: pkg = {"std"};
+
+// Stand-in for naivechain's CryptoJS.SHA256.
+//
+// THIS IS NOT A CRYPTOGRAPHIC HASH. FOL has no bitwise operators at all, so
+// the rotate/shift/xor core of SHA-256 cannot be written here. What replaces
+// it is the classic polynomial rolling hash `h = (h * 31 + byte) % P`, folded
+// modulo a prime on every step because FOL traps on integer overflow in debug
+// builds rather than wrapping. It is trivially collidable and offers no
+// preimage resistance; it only has to be deterministic and content-sensitive,
+// which is all the chain-validation logic below actually depends on.
+
+con[exp] BASE: int = 31;
+con[exp] MODULUS: int = 1000000007;
+
+// 16^7, the place value of the leading nibble of an eight-digit hex string.
+con[exp] TOP_PLACE: int = 268435456;
+
+fun[exp] digit(value: int): str = {
+    if(.lt(value, 10)) {
+        return std::strn::from_byte(48 + value);
+    }
+    return std::strn::from_byte(87 + value);
+};
+
+// Zero-padded eight-digit hex, so every digest prints at one width the way a
+// SHA-256 hex string does.
+fun[exp] to_hex(value: int): str = {
+    var[mut] out: str = "";
+    var[mut] place: int = TOP_PLACE;
+    loop(.ge(place, 1)) {
+        out = out + digit((value / place) % 16);
+        place = place / 16;
+    }
+    return out;
+};
+
+fun[exp] digest(text: str): int = {
+    var[mut] acc: int = 0;
+    var[mut] i: int = 0;
+    var width: int = .len(text);
+    loop(.lt(i, width)) {
+        acc = (acc * BASE + std::strn::byte_at(text, i)) % MODULUS;
+        i = i + 1;
+    }
+    return acc;
+};
+
+fun[exp] hex_digest(text: str): str = {
+    return to_hex(digest(text));
+};

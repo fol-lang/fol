@@ -1,0 +1,110 @@
+// Everything CHIP-8 does at the bit level, rebuilt out of `/`, `%` and `*`.
+//
+// FOL has no `&`, `|`, `<<` or `>>`, and `^` is exponentiation rather than xor.
+// On non-negative integers the missing operators have exact arithmetic twins:
+// bit k of v is `(v / 2^k) % 2`, a right shift is a division, a left shift is a
+// multiplication, and the low n bits are a modulus. The three logic opcodes
+// (8XY1/8XY2/8XY3) and the sprite XOR in DXYN are therefore assembled one bit
+// position at a time.
+
+// 2^index. Sprite and byte work never asks for more than 2^7.
+fun[exp] pow2(index: int): int = {
+    return 2 ^ index;
+};
+
+// Bit `index` of `value`, counting 0 from the least significant end.
+fun[exp] bit_at(value: int, index: int): int = {
+    return (value / pow2(index)) % 2;
+};
+
+// 8XY1. A result bit is set when either operand has it, so the two source bits
+// sum to more than zero.
+fun[exp] bit_or(left: int, right: int): int = {
+    var[mut] result: int = 0;
+    var[mut] index: int = 0;
+    loop (index < 8) {
+        when(bit_at(left, index) + bit_at(right, index) > 0) {
+            case(true) { result = result + pow2(index); }
+            * { }
+        }
+        index = index + 1;
+    };
+    return result;
+};
+
+// 8XY2. Both source bits must be set, so their sum is exactly two.
+fun[exp] bit_and(left: int, right: int): int = {
+    var[mut] result: int = 0;
+    var[mut] index: int = 0;
+    loop (index < 8) {
+        when(bit_at(left, index) + bit_at(right, index) == 2) {
+            case(true) { result = result + pow2(index); }
+            * { }
+        }
+        index = index + 1;
+    };
+    return result;
+};
+
+// 8XY3. Exactly one source bit is set, so their sum is one.
+fun[exp] bit_xor(left: int, right: int): int = {
+    var[mut] result: int = 0;
+    var[mut] index: int = 0;
+    loop (index < 8) {
+        when(bit_at(left, index) + bit_at(right, index) == 1) {
+            case(true) { result = result + pow2(index); }
+            * { }
+        }
+        index = index + 1;
+    };
+    return result;
+};
+
+// The two shifts 8XY6 and 8XYE need, plus the bits they spill into VF.
+fun[exp] shift_right(value: int): int = {
+    return value / 2;
+};
+
+fun[exp] shift_left8(value: int): int = {
+    return (value * 2) % 256;
+};
+
+fun[exp] low_bit(value: int): int = {
+    return value % 2;
+};
+
+fun[exp] top_bit(value: int): int = {
+    return (value / 128) % 2;
+};
+
+// 8-bit register wrap-around. FOL's `%` keeps the sign of its left operand, so
+// a borrowing subtraction has to be lifted back into 0..255 by hand.
+fun[exp] wrap_byte(value: int): int = {
+    return ((value % 256) + 256) % 256;
+};
+
+// Opcode field extraction. The C original masks and shifts; the same fields
+// fall out of a division by the field's weight followed by a modulus of 16.
+fun[exp] group(op: int): int = {
+    return (op / 4096) % 16;
+};
+
+fun[exp] reg_x(op: int): int = {
+    return (op / 256) % 16;
+};
+
+fun[exp] reg_y(op: int): int = {
+    return (op / 16) % 16;
+};
+
+fun[exp] nibble(op: int): int = {
+    return op % 16;
+};
+
+fun[exp] byte_lo(op: int): int = {
+    return op % 256;
+};
+
+fun[exp] addr(op: int): int = {
+    return op % 4096;
+};

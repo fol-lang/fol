@@ -1,0 +1,441 @@
+// jsmn's parser, in one pass, with no allocation.
+//
+// The C original keeps three words of state (`pos`, `toknext`, `toksuper`) in a
+// `jsmn_parser` and takes the token array as a separate `jsmntok_t *tokens`
+// argument. FOL cannot reproduce that split: a free routine may not take
+// `[mut, bor]`, so anything that mutates has to be a method on the record that
+// owns the state. The array therefore moves *inside* `Parser`, and every one of
+// jsmn's static helpers becomes a `pro (Parser[mut, bor])`.
+//
+// Two knobs replace two C mechanisms:
+//   * `cap` stands in for the `num_tokens` argument. An `arr` carries its
+//     length in its type, so the physical array is fixed at `slots()` and `cap`
+//     is the logical limit the NOMEM check consults -- which is exactly what
+//     `num_tokens` is used for in `jsmn_alloc_token`.
+//   * `dry` stands in for `tokens == NULL`. jsmn's documented sizing pass calls
+//     the parser with a null array to learn how many tokens a document needs;
+//     FOL has no null array, so the same branches consult a flag instead.
+//
+// The parent-links variant is the one ported: `JSMN_PARENT_LINKS` and
+// `JSMN_STRICT` are both on.
+
+use std: pkg = {"std"};
+use token: loc = {"../token"};
+use bytes: loc = {"../bytes"};
+
+typ[exp] Parser: rec = {
+    var toks: arr[token::Tok, 32];
+    var pos: int;
+    var toknext: int;
+    var toksuper: int;
+    var cap: int;
+    var dry: bol;
+};
+
+// How many token slots the array physically has. Documents in the suite need
+// at most eleven; the headroom is what lets the NOMEM cases pick a small `cap`
+// without changing the type.
+fun[exp] slots(): int = {
+    return 32;
+};
+
+// `jsmn_init`, plus the array declaration the caller writes in C.
+fun[exp] fresh(cap: int, dry: bol): Parser = {
+    var started: Parser = {
+        toks = {
+            token::blank(), token::blank(), token::blank(), token::blank(),
+            token::blank(), token::blank(), token::blank(), token::blank(),
+            token::blank(), token::blank(), token::blank(), token::blank(),
+            token::blank(), token::blank(), token::blank(), token::blank(),
+            token::blank(), token::blank(), token::blank(), token::blank(),
+            token::blank(), token::blank(), token::blank(), token::blank(),
+            token::blank(), token::blank(), token::blank(), token::blank(),
+            token::blank(), token::blank(), token::blank(), token::blank(),
+        },
+        pos = 0,
+        toknext = 0,
+        toksuper = 0 - 1,
+        cap = cap,
+        dry = dry,
+    };
+    return started;
+};
+
+// `jsmn_alloc_token`. C returns a pointer into the array and NULL on
+// exhaustion; the port returns the index and -1, because a FOL routine cannot
+// hand out an interior reference that stays alive across the later writes.
+pro[exp] (Parser[mut, bor]) alloc_token(): int = {
+    if (self.toknext >= self.cap) {
+        return 0 - 1;
+    } else {
+    };
+    var slot: int = self.toknext;
+    self.toks[slot] = token::blank();
+    self.toknext = self.toknext + 1;
+    return slot;
+};
+
+// `jsmn_fill_token`. Parent is left alone: C sets it separately, right after.
+pro[exp] (Parser[mut, bor]) fill_token(slot: int, kind: int, start: int, stop: int): non = {
+    var old: token::Tok = self.toks[slot];
+    self.toks[slot] = { kind = kind, start = start, stop = stop, size = 0, parent = old.parent };
+    return;
+};
+
+// The three field pokes C writes as `tok->parent = ...`, `t->size++` and
+// `token->end = ...`. Each has to read the element out, rebuild it and put it
+// back: FOL's indexed assignment replaces a whole element, and reaching a field
+// of an element (`self.toks[i].size = ...`) is two hops through the receiver,
+// which the compiler rejects.
+pro[exp] (Parser[mut, bor]) set_parent(slot: int, parent: int): non = {
+    var old: token::Tok = self.toks[slot];
+    self.toks[slot] = { kind = old.kind, start = old.start, stop = old.stop,
+        size = old.size, parent = parent };
+    return;
+};
+
+pro[exp] (Parser[mut, bor]) set_open(slot: int, kind: int, start: int): non = {
+    var old: token::Tok = self.toks[slot];
+    self.toks[slot] = { kind = kind, start = start, stop = old.stop,
+        size = old.size, parent = old.parent };
+    return;
+};
+
+pro[exp] (Parser[mut, bor]) set_stop(slot: int, stop: int): non = {
+    var old: token::Tok = self.toks[slot];
+    self.toks[slot] = { kind = old.kind, start = old.start, stop = stop,
+        size = old.size, parent = old.parent };
+    return;
+};
+
+pro[exp] (Parser[mut, bor]) bump_size(slot: int): non = {
+    var old: token::Tok = self.toks[slot];
+    self.toks[slot] = { kind = old.kind, start = old.start, stop = old.stop,
+        size = old.size + 1, parent = old.parent };
+    return;
+};
+
+// `jsmn_parse_primitive`. The C body leaves its scan with `goto found`; FOL has
+// no goto, so the jump target becomes a `found` flag that the loop condition
+// and the strict-mode check below both read.
+pro[exp] (Parser[mut, bor]) parse_primitive(js: str, len: int): int = {
+    var start: int = self.pos;
+    var[mut] found: bol = false;
+    var[mut] scanning: bol = true;
+    loop(scanning and (self.pos < len)) {
+        var code: int = std::strn::byte_at(js, self.pos);
+        if (bytes::ends_primitive(code)) {
+            found = true;
+            scanning = false;
+        } else {
+            if (bytes::outside_printable(code)) {
+                self.pos = start;
+                return token::inval();
+            } else {
+                self.pos = self.pos + 1;
+            };
+        };
+    };
+    // Strict mode: a primitive must be followed by a delimiter, so running out
+    // of input mid-primitive is a partial packet, not a token.
+    if (.not(found)) {
+        self.pos = start;
+        return token::part();
+    } else {
+    };
+    if (self.dry) {
+        self.pos = self.pos - 1;
+        return 0;
+    } else {
+    };
+    var slot: int = self.alloc_token();
+    if (slot < 0) {
+        self.pos = start;
+        return token::nomem();
+    } else {
+    };
+    // `here` and `holder` only exist because a field of `self` may not be read
+    // in the argument list of a `[mut, bor]` method of `self`; see the
+    // DEVIATIONS note in `src/main.fol`.
+    var here: int = self.pos;
+    var holder: int = self.toksuper;
+    self.fill_token(slot, token::primitive(), start, here);
+    self.set_parent(slot, holder);
+    self.pos = self.pos - 1;
+    return 0;
+};
+
+// `jsmn_parse_string`. The token spans the contents only -- `start + 1` to the
+// closing quote -- so escapes stay in the caller's buffer, which is the whole
+// point of a zero-allocation tokenizer.
+pro[exp] (Parser[mut, bor]) parse_string(js: str, len: int): int = {
+    var start: int = self.pos;
+    self.pos = self.pos + 1;
+    loop(self.pos < len) {
+        var code: int = std::strn::byte_at(js, self.pos);
+        if (code == bytes::quote()) {
+            if (self.dry) {
+                return 0;
+            } else {
+            };
+            var slot: int = self.alloc_token();
+            if (slot < 0) {
+                self.pos = start;
+                return token::nomem();
+            } else {
+            };
+            var here: int = self.pos;
+            var holder: int = self.toksuper;
+            self.fill_token(slot, token::string(), start + 1, here);
+            self.set_parent(slot, holder);
+            return 0;
+        } else {
+        };
+        if ((code == bytes::backslash()) and (self.pos + 1 < len)) {
+            self.pos = self.pos + 1;
+            var esc: int = std::strn::byte_at(js, self.pos);
+            if (.not(bytes::simple_escape(esc))) {
+                if (esc == bytes::letter_u()) {
+                    self.pos = self.pos + 1;
+                    var[mut] digits: int = 0;
+                    loop((digits < 4) and (self.pos < len)) {
+                        if (.not(bytes::hex_digit(std::strn::byte_at(js, self.pos)))) {
+                            self.pos = start;
+                            return token::inval();
+                        } else {
+                            self.pos = self.pos + 1;
+                            digits = digits + 1;
+                        };
+                    };
+                    self.pos = self.pos - 1;
+                } else {
+                    self.pos = start;
+                    return token::inval();
+                };
+            } else {
+            };
+        } else {
+        };
+        self.pos = self.pos + 1;
+    };
+    self.pos = start;
+    return token::part();
+};
+
+// `case '{': case '[':` -- allocate the container, hang it off the current
+// super, and become the new super.
+pro[exp] (Parser[mut, bor]) open_scope(kind: int): int = {
+    if (self.dry) {
+        return 0;
+    } else {
+    };
+    var slot: int = self.alloc_token();
+    if (slot < 0) {
+        return token::nomem();
+    } else {
+    };
+    var super_slot: int = self.toksuper;
+    if (super_slot != 0 - 1) {
+        var holder: token::Tok = self.toks[super_slot];
+        // Strict mode: an object or array can never stand where a key belongs.
+        // jsmn checks this after the allocation, so `{{}}` fails with two
+        // tokens already claimed -- a detail the suite pins down.
+        if (holder.kind == token::object()) {
+            return token::inval();
+        } else {
+        };
+        self.bump_size(super_slot);
+        self.set_parent(slot, super_slot);
+    } else {
+    };
+    var here: int = self.pos;
+    self.set_open(slot, kind, here);
+    self.toksuper = self.toknext - 1;
+    return 0;
+};
+
+// `case '}': case ']':` in the JSMN_PARENT_LINKS build -- climb the parent
+// chain looking for the innermost token that was opened and never closed.
+pro[exp] (Parser[mut, bor]) close_scope(kind: int): int = {
+    if (self.dry) {
+        return 0;
+    } else {
+    };
+    if (self.toknext < 1) {
+        return token::inval();
+    } else {
+    };
+    var[mut] index: int = self.toknext - 1;
+    var[mut] verdict: int = 0;
+    var[mut] climbing: bol = true;
+    loop(climbing) {
+        var node: token::Tok = self.toks[index];
+        if ((node.start != 0 - 1) and (node.stop == 0 - 1)) {
+            if (node.kind != kind) {
+                verdict = token::inval();
+            } else {
+                var here: int = self.pos + 1;
+                self.set_stop(index, here);
+                self.toksuper = node.parent;
+            };
+            climbing = false;
+        } else {
+            if (node.parent == 0 - 1) {
+                if ((node.kind != kind) or (self.toksuper == 0 - 1)) {
+                    verdict = token::inval();
+                } else {
+                };
+                climbing = false;
+            } else {
+                index = node.parent;
+            };
+        };
+    };
+    return verdict;
+};
+
+// `if (parser->toksuper != -1 && tokens != NULL) tokens[toksuper].size++;`
+pro[exp] (Parser[mut, bor]) bump_super(): non = {
+    var super_slot: int = self.toksuper;
+    if ((super_slot != 0 - 1) and (.not(self.dry))) {
+        self.bump_size(super_slot);
+    } else {
+    };
+    return;
+};
+
+// `case ',':` -- a comma inside a container pops back out of the key or value
+// that was the super, so the next member hangs off the container again.
+pro[exp] (Parser[mut, bor]) after_comma(): non = {
+    if (self.dry or (self.toksuper == 0 - 1)) {
+        return;
+    } else {
+    };
+    var holder: token::Tok = self.toks[self.toksuper];
+    if ((holder.kind != token::array()) and (holder.kind != token::object())) {
+        self.toksuper = holder.parent;
+    } else {
+    };
+    return;
+};
+
+// `jsmn_parse`. Returns the token count, or one of the three negative codes.
+// Sharing one `int` channel between a count and an error is jsmn's contract,
+// and callers rely on the sign, so the port keeps it rather than wrapping the
+// result in a shell.
+pro[exp] (Parser[mut, bor]) run(js: str, len: int): int = {
+    var[mut] count: int = self.toknext;
+    loop(self.pos < len) {
+        var code: int = std::strn::byte_at(js, self.pos);
+        when(code) {
+            is(bytes::open_brace()) {
+                count = count + 1;
+                var verdict: int = self.open_scope(token::object());
+                if (verdict < 0) {
+                    return verdict;
+                } else {
+                };
+            }
+            is(bytes::open_bracket()) {
+                count = count + 1;
+                var verdict: int = self.open_scope(token::array());
+                if (verdict < 0) {
+                    return verdict;
+                } else {
+                };
+            }
+            is(bytes::close_brace()) {
+                var verdict: int = self.close_scope(token::object());
+                if (verdict < 0) {
+                    return verdict;
+                } else {
+                };
+            }
+            is(bytes::close_bracket()) {
+                var verdict: int = self.close_scope(token::array());
+                if (verdict < 0) {
+                    return verdict;
+                } else {
+                };
+            }
+            is(bytes::quote()) {
+                var verdict: int = self.parse_string(js, len);
+                if (verdict < 0) {
+                    return verdict;
+                } else {
+                };
+                count = count + 1;
+                self.bump_super();
+            }
+            is(bytes::tab()) { }
+            is(bytes::carriage()) { }
+            is(bytes::newline()) { }
+            is(bytes::space()) { }
+            is(bytes::colon()) {
+                self.toksuper = self.toknext - 1;
+            }
+            is(bytes::comma()) {
+                self.after_comma();
+            }
+            * {
+                // Strict mode splits C's `default:` in two: the primitive
+                // openers fall through to the scanner, everything else is an
+                // unexpected character.
+                if (.not(bytes::starts_primitive(code))) {
+                    return token::inval();
+                } else {
+                };
+                if ((.not(self.dry)) and (self.toksuper != 0 - 1)) {
+                    var holder: token::Tok = self.toks[self.toksuper];
+                    var forbidden: bol = (holder.kind == token::object())
+                    or ((holder.kind == token::string()) and (holder.size != 0));
+                    if (forbidden) {
+                        return token::inval();
+                    } else {
+                    };
+                } else {
+                };
+                var verdict: int = self.parse_primitive(js, len);
+                if (verdict < 0) {
+                    return verdict;
+                } else {
+                };
+                count = count + 1;
+                self.bump_super();
+            }
+        };
+        self.pos = self.pos + 1;
+    };
+    if (self.dry) {
+        return count;
+    } else {
+    };
+    // Anything still open at the end of the buffer means more bytes were
+    // expected.
+    var[mut] index: int = self.toknext - 1;
+    loop(index >= 0) {
+        var node: token::Tok = self.toks[index];
+        if ((node.start != 0 - 1) and (node.stop == 0 - 1)) {
+            return token::part();
+        } else {
+        };
+        index = index - 1;
+    };
+    return count;
+};
+
+// The filled token array as `kind start stop size parent` records joined with
+// `;`. One string comparison then covers every field of every token.
+fun[exp] (Parser[bor]) dump(count: int): str = {
+    ~var out: str = "";
+    ~var index: int = 0;
+    loop(index < count) {
+        if (index > 0) {
+            out = out + ";";
+        } else {
+        };
+        out = out + token::show(self.toks[index]);
+        index = index + 1;
+    };
+    return out;
+};

@@ -1,0 +1,332 @@
+// The key-value state -- mini-redis `src/db.rs`.
+//
+// The original is
+//
+//     struct State {
+//         entries: HashMap<String, Entry>,
+//         expirations: BTreeSet<(Instant, String)>,
+//         ...
+//     }
+//     struct Entry { data: Bytes, expires_at: Option<Instant> }
+//
+// guarded by `Mutex<State>` inside `Arc<Shared>` and shared by cloning `Db`.
+// The FOL shape keeps the same fields but as parallel fixed arrays indexed by
+// slot, because no container in the language can grow. `Db` becomes a
+// `mux[Store]` handle, which is exactly the same sharing story.
+
+use std: pkg = {"std"};
+
+con[exp] SLOTS: int = 16;
+con[exp] MAX_KEYS: int = 4;
+
+// `Db::get` / `set` / `del` / `exists`, as an op code. All four run through one
+// guarded entry point so a multi-key DEL stays a single critical section, the
+// way one command holds one lock in the original.
+typ[exp] Op: ent = {
+    var GET: int = 1;
+    var SET: int = 2;
+    var DEL: int = 3;
+    var EXISTS: int = 4;
+    var STATS: int = 5;
+};
+
+typ[exp] Store: rec = {
+    keys: arr[str, 16],
+    vals: arr[str, 16],
+    expires: arr[int, 16],
+    live: arr[bol, 16],
+    used: int,
+    alive: int,
+    writes: int,
+    purged: int,
+};
+
+typ[exp] Request: rec = {
+    op: int,
+    keys: arr[str, 4],
+    nkeys: int,
+    value: str,
+    expire_at: int,
+    now: int,
+};
+
+typ[exp] Outcome: rec = {
+    found: bol,
+    value: str,
+    count: int,
+    full: bol,
+    used: int,
+    writes: int,
+    purged: int,
+    next_expiry: int,
+};
+
+// One critical section's worth of work: the mutated state and what to answer.
+typ Applied: rec = {
+    state: Store,
+    result: Outcome,
+};
+
+fun[exp] no_keys(): arr[str, 4] = {
+    return { "", "", "", "" };
+};
+
+fun[exp] fresh(): Store = {
+    return {
+        keys = { "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "" },
+        vals = { "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "" },
+        expires = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+        live = {
+            false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false,
+        },
+        used = 0,
+        alive = 0,
+        writes = 0,
+        purged = 0,
+    };
+};
+
+fun[exp] request(op: int, key: str, now: int): Request = {
+    var[mut] one: arr[str, 4] = no_keys();
+    one[0] = key;
+    return { op = op, keys = one, nkeys = 1, value = "", expire_at = 0, now = now };
+};
+
+// `HashMap::get` reduced to a linear scan; SLOTS is small and the point of the
+// exercise is the protocol and the guard, not the index.
+fun[exp] (Store[bor]) find(key: str): int = {
+    var[mut] slot: int = 0;
+    loop (slot < self.used) {
+        when (self.live[slot] and (self.keys[slot] == key)) {
+            case(true) { return slot; }
+            * { }
+        };
+        slot = slot + 1;
+    };
+    return 0 - 1;
+};
+
+// `purge_expired_keys`: drop every entry whose deadline has passed and report
+// the next deadline still pending (0 when none), which is what the original
+// hands back to its background timer task.
+pro[exp] (Store[mut, bor]) purge_expired_keys(now: int): int = {
+    var[mut] slot: int = 0;
+    var[mut] soonest: int = 0;
+    loop (slot < self.used) {
+        var deadline: int = self.expires[slot];
+        when (self.live[slot] and (deadline > 0)) {
+            case(true) {
+                when (deadline <= now) {
+                    case(true) {
+                        self.live[slot] = false;
+                        self.keys[slot] = "";
+                        self.vals[slot] = "";
+                        self.expires[slot] = 0;
+                        self.purged = self.purged + 1;
+                        self.alive = self.alive - 1;
+                    }
+                    * {
+                        when ((soonest == 0) or (deadline < soonest)) {
+                            case(true) { soonest = deadline; }
+                            * { }
+                        };
+                    }
+                };
+            }
+            * { }
+        };
+        slot = slot + 1;
+    };
+    return soonest;
+};
+
+// `Db::set`. `expire_at` of 0 stands for `Option::None`; a rewrite clears the
+// old deadline before installing the new one, the ordering the original is
+// careful about.
+pro[exp] (Store[mut, bor]) put(key: str, value: str, expire_at: int): bol = {
+    var[mut] slot: int = 0;
+    loop (slot < self.used) {
+        when (self.live[slot] and (self.keys[slot] == key)) {
+            case(true) {
+                self.expires[slot] = 0;
+                self.vals[slot] = value;
+                self.expires[slot] = expire_at;
+                self.writes = self.writes + 1;
+                return true;
+            }
+            * { }
+        };
+        slot = slot + 1;
+    };
+
+    // Reuse a purged slot before growing the high-water mark.
+    var[mut] reuse: int = 0;
+    loop (reuse < self.used) {
+        when (self.live[reuse]) {
+            case(true) { reuse = reuse + 1; }
+            * {
+                self.keys[reuse] = key;
+                self.vals[reuse] = value;
+                self.expires[reuse] = expire_at;
+                self.live[reuse] = true;
+                self.writes = self.writes + 1;
+                self.alive = self.alive + 1;
+                return true;
+            }
+        }
+    };
+
+    when (self.used >= SLOTS) {
+        case(true) { return false; }
+        * { }
+    };
+    var slot_new: int = self.used;
+    self.keys[slot_new] = key;
+    self.vals[slot_new] = value;
+    self.expires[slot_new] = expire_at;
+    self.live[slot_new] = true;
+    self.used = slot_new + 1;
+    self.writes = self.writes + 1;
+    self.alive = self.alive + 1;
+    return true;
+};
+
+// `Db::del`, reporting whether the key was there -- Redis counts removals.
+pro[exp] (Store[mut, bor]) drop_key(key: str): bol = {
+    var[mut] slot: int = 0;
+    loop (slot < self.used) {
+        when (self.live[slot] and (self.keys[slot] == key)) {
+            case(true) {
+                self.live[slot] = false;
+                self.keys[slot] = "";
+                self.vals[slot] = "";
+                self.expires[slot] = 0;
+                self.alive = self.alive - 1;
+                return true;
+            }
+            * { }
+        };
+        slot = slot + 1;
+    };
+    return false;
+};
+
+// Everything one command does to the state, off the lock's critical path in
+// source terms only: the caller runs this while holding the guard. It lives in
+// its own routine because a `when` block between `lock()` and a guarded field
+// access makes the checker forget the lock (see FINDINGS 3).
+fun run_op(seed: Store, req: Request): Applied = {
+    var[mut] work: Store = seed;
+
+    // The original runs this on a background timer task; with no clock to wake
+    // on, the purge rides along with each command instead.
+    var soonest: int = work.purge_expired_keys(req.now);
+
+    var[mut] result: Outcome = {
+        found = false, value = "", count = 0, full = false,
+        used = 0, writes = 0, purged = 0, next_expiry = soonest,
+    };
+
+    when (req.op == Op.SET) {
+        case(true) {
+            var stored: bol = work.put(req.keys[0], req.value, req.expire_at);
+            result.found = stored;
+            result.full = stored == false;
+        }
+        * { }
+    };
+
+    when (req.op == Op.GET) {
+        case(true) {
+            var slot: int = work.find(req.keys[0]);
+            when (slot >= 0) {
+                case(true) { result.found = true; result.value = work.vals[slot]; }
+                * { }
+            };
+        }
+        * { }
+    };
+
+    when (req.op == Op.DEL) {
+        case(true) {
+            var[mut] index: int = 0;
+            loop (index < req.nkeys) {
+                var gone: bol = work.drop_key(req.keys[index]);
+                when (gone) {
+                    case(true) { result.count = result.count + 1; }
+                    * { }
+                };
+                index = index + 1;
+            };
+        }
+        * { }
+    };
+
+    when (req.op == Op.EXISTS) {
+        case(true) {
+            var[mut] index: int = 0;
+            loop (index < req.nkeys) {
+                when (work.find(req.keys[index]) >= 0) {
+                    case(true) { result.count = result.count + 1; }
+                    * { }
+                };
+                index = index + 1;
+            };
+        }
+        * { }
+    };
+
+    result.used = work.alive;
+    result.writes = work.writes;
+    result.purged = work.purged;
+    return { state = work, result = result };
+};
+
+// The single guarded entry point. Every command that touches state comes
+// through here, so the lock is taken once per command exactly as in the
+// original's `Db` methods.
+//
+// The body is a read-modify-write of the whole record rather than in-place
+// mutation under the guard: element assignment into an array reached through a
+// `mux[T]` is not usable in this compiler (see DEVIATIONS 8). The critical
+// section still spans the copy-out, the mutation and the copy-back, so the
+// command is atomic with respect to every other handle.
+fun[exp] apply(state: mux[Store], req: Request): Outcome = {
+    state.lock();
+    var snapshot: Store = {
+        keys = state.keys,
+        vals = state.vals,
+        expires = state.expires,
+        live = state.live,
+        used = state.used,
+        alive = state.alive,
+        writes = state.writes,
+        purged = state.purged,
+    };
+    var step: Applied = run_op([mov]snapshot, req);
+    state.keys = step.state.keys;
+    state.vals = step.state.vals;
+    state.expires = step.state.expires;
+    state.live = step.state.live;
+    state.used = step.state.used;
+    state.alive = step.state.alive;
+    state.writes = step.state.writes;
+    state.purged = step.state.purged;
+    state.unlock();
+    return step.result;
+};
+
+// Read-only snapshot through the guard-VALUE surface: locking a borrowed handle
+// yields a named `var[mut, bor]` guard whose fields are copied out one by one.
+fun[exp] stats(state: mux[Store]): Outcome = {
+    var[mut, bor] guard: Store = ([bor]state).lock();
+    var alive: int = guard.alive;
+    var writes: int = guard.writes;
+    var purged: int = guard.purged;
+    [end]guard;
+    return {
+        found = true, value = "", count = alive, full = false,
+        used = alive, writes = writes, purged = purged, next_expiry = 0,
+    };
+};

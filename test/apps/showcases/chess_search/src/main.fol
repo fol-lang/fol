@@ -1,0 +1,497 @@
+use std: pkg = {"std"};
+use board: loc = {"board"};
+use eval: loc = {"eval"};
+use moves: loc = {"moves"};
+use search: loc = {"search"};
+
+// ORIGINAL: sunfish, a chess engine in ~130 lines of Python by Thomas Ahle.
+// SOURCE:   https://github.com/thomasahle/sunfish  (sunfish.py, MIT)
+//
+// Sunfish was picked because its central data structure is already a FOL data
+// structure: the board is a 120-character string in a 10x12 mailbox layout,
+// the two padding rows and two padding files stop a ray without a bounds test,
+// and playing a move means slicing a new string. None of that had to be
+// redesigned. What follows is everything that did.
+//
+// ============================ DEVIATIONS =============================
+//
+// 1. NO TRANSPOSITION TABLE, so no killer moves and no internal iterative
+//    deepening. The original keeps two Python dicts keyed by the whole
+//    Position, `tp_score` for bounds and `tp_move` for the best move found so
+//    far, plus a `history` set for repetition draws. FOL has no growable map
+//    and no set beyond a one-element tuple, so all three are gone. What that
+//    costs: the killer-move heuristic disappears (the original calls it "so
+//    good" that it is worth a shallow search just to find one, which is what
+//    IID does -- with no table to store it in, IID would find a move and drop
+//    it, so IID is gone too), bounds are never reused between the binary
+//    search's probes, and threefold repetition is not detected. The search
+//    still terminates and every bound it returns is still valid; it just
+//    re-derives work the original remembers, and it plays a repetition draw as
+//    if the position were new. The move that produced a cutoff rides back on
+//    the result record instead of being read out of `tp_move`, and the driver
+//    keeps the last one it saw.
+//
+// 2. MOVE LISTS ARE STRINGS. `gen_moves` is a Python generator, so the
+//    original computes moves lazily and abandons the rest on a cutoff. FOL has
+//    no generators and no `vec` append, so a move list is a string of
+//    fixed-width zero-padded decimal slots, appended by concatenation. A move
+//    itself packs into one int, `(from * 120 + to) * 5 + promotion`, with the
+//    promotion rank ordered so that comparing packed moves numerically
+//    reproduces the original's lexicographic tie-break on the promotion
+//    letter. Cost: every move is generated even when the first one cuts, and
+//    ordering is an insertion sort into a string rather than `sorted()`. The
+//    move ORDER is identical, so the search visits the same nodes in the same
+//    sequence.
+//
+// 3. THE PIECE-SQUARE TABLES ARE NOT PADDED, THEY ARE PADDED AT LOOKUP. The
+//    original mutates its `pst` dict at import time into six 120-entry tables
+//    with the piece value folded in and zeros on the padding squares. Building
+//    that needs either a growable container or a 120-element literal, and
+//    `arr[int, N]` for N > 32 does not survive codegen at all (see FINDING 1
+//    below), so the six raw 64-entry tables stay raw in one flat `vec[int]`
+//    and `Pst.look` applies the padding arithmetically. The values it returns
+//    are identical. The endgame king table, which the original computes from a
+//    formula, is computed from the same formula on demand.
+//
+// 4. `pst["K"]` IS A PARAMETER, NOT A GLOBAL. The original swaps the king's
+//    table between its middlegame and endgame versions by assigning to a
+//    module-level dict at the top of every search. FOL module bindings are
+//    immutable, so the choice is a field on the `Pst` record and is fixed when
+//    the tables are built. Same behaviour for a single search; it just cannot
+//    change mid-run.
+//
+// 5. PYTHON FLOOR DIVISION vs FOL TRUNCATION. `/` and `%` truncate toward zero
+//    in FOL and floor in Python. Three places care. The binary search midpoint
+//    `(lower + upper + 1) // 2` is routinely negative and is written out as an
+//    explicit floor. Square rendering, which the original writes as
+//    `(i - A1) % 10` and `(i - A1) // 10` over a negative operand, is
+//    re-derived from the mailbox index directly. `(i + j) // 2` for the
+//    king-passant square is left alone: both operands are always positive
+//    there, where the two agree.
+//
+// 6. NO CLOCK, NO UCI, NO `Stop` EXCEPTION. The original checks a wall-clock
+//    deadline every 2048 nodes and unwinds with an exception; FOL has no
+//    exceptions, and a showcase wants a deterministic answer rather than a
+//    timed one, so the search is bounded by depth alone. The UCI front end and
+//    the opening-book/`hist` machinery are not translated.
+//
+// 7. NODE COUNTS RIDE ON THE RESULT. The original increments `self.nodes` on a
+//    mutable searcher object. A recursive routine here takes `[bor] self`, so
+//    the count is summed out of the child results instead.
+//
+// KEPT, unchanged in substance: the 120-character mailbox board and its
+// padding, all six tuned piece-square tables and the piece values, the
+// offset-per-piece ray generator with its pawn special cases, promotion,
+// en passant, BOTH castling sides (generated by the rook sliding next to the
+// king, exactly as the original does it), `rotate`/`nullmove`, the incremental
+// `value`, king-capture as the only terminal test, the null-move probe with
+// its verification step, quiescence expressed as a depth-scaled value floor,
+// futility pruning at the frontier, the mate/stalemate correction, and the
+// MTD-bi iterative deepening driver.
+//
+// ============================= FINDINGS ==============================
+//
+// 1. `arr[int, N]` for N > 32 emits Rust that does not compile: the generated
+//    code initialises the array with `Default::default()`, and Rust only
+//    implements `Default` for arrays up to 32. `code check` reports success;
+//    `code run` fails with F1004 and a raw rustc E0277 leaking through. This is
+//    what pushed every table in this package onto `vec[int]`.
+//    Repro: /tmp/claude-1000/mimicry-repros/chess_search/arr33
+//
+// 2. A collection literal is capped at 256 elements, and the 257th is reported
+//    as `P1001 Expected ';' to terminate statement` pointing at a column in the
+//    middle of the literal. Nothing says an element limit was reached. The six
+//    piece-square tables are 384 values and had to be split into six routines
+//    of 64 because of it.
+//    Repro: /tmp/claude-1000/mimicry-repros/chess_search/vec257
+//
+// 3. `typ[exp]` is accepted and `typ[hid]` is rejected as `P1001 Unknown type
+//    option`, though the book lists `exp` and `hid` as the pair of visibility
+//    options and `hid` works on `fun` and `pro`. The message names no
+//    alternative, so the fix is a guess.
+//    Repro: /tmp/claude-1000/mimicry-repros/chess_search/typhid
+//
+// A note on what turned out to be EASY: the string-slicing board needed no
+// translation at all, `[bor] self` recursion on a record method carries the
+// evaluation tables through the whole search with no copying, and the
+// three-level nesting of the ray generator -- with `break` reaching out of a
+// `when` arm to end the enclosing `loop` -- reads about as well in FOL as it
+// does in Python.
+
+fun[] expect_int(name: str, actual: int, expected: int): int = {
+    var got: str = std::fmt::int_to_str(actual);
+    var want: str = std::fmt::int_to_str(expected);
+    when(.eq(actual, expected)) {
+        case(true) {
+            std::io::echo_str("  ok   " + name + " = " + got);
+            return 0;
+        }
+        * {
+            std::io::echo_str("  FAIL " + name + " = " + got + ", expected " + want);
+            return 1;
+        }
+    }
+};
+
+fun[] claim(name: str, holds: bol): int = {
+    when(holds) {
+        case(true) {
+            std::io::echo_str("  ok   " + name);
+            return 0;
+        }
+        * {
+            std::io::echo_str("  FAIL " + name);
+            return 1;
+        }
+    }
+};
+
+// Pseudo-legal node count at a fixed depth. The original never runs one, but it
+// is the only way to say that a move generator agrees with the rules of chess
+// rather than merely with itself.
+fun[] perft(pos: board::Pos, pst: eval::Pst, depth: int): int = {
+    var list: str = board::gen(pos);
+    var total: int = moves::count(list);
+    when(.eq(depth, 1)) {
+        case(true) { return total; }
+        * { }
+    };
+    ~var tally: int = 0;
+    ~var index: int = 0;
+    loop(index < total) {
+        var next: board::Pos = board::advance(pos, moves::code_slot(list, index), pst);
+        tally = tally + perft(next, pst, depth - 1);
+        index = index + 1;
+    };
+    return tally;
+};
+
+// The evaluation is incremental: a position carries a running score and every
+// move adds a delta. That is only sound if the delta is exactly the change in
+// the static sum, so this walks the tree and recounts from scratch at every
+// node. It is the single property the whole search rests on.
+fun[] score_agrees(pos: board::Pos, pst: eval::Pst, depth: int): bol = {
+    when(.not(.eq(pos.score, board::static_score(pos.board, pst)))) {
+        case(true) { return false; }
+        * { }
+    };
+    when(.eq(depth, 0)) {
+        case(true) { return true; }
+        * { }
+    };
+    var list: str = board::gen(pos);
+    var total: int = moves::count(list);
+    ~var index: int = 0;
+    loop(index < total) {
+        var next: board::Pos = board::advance(pos, moves::code_slot(list, index), pst);
+        when(score_agrees(next, pst, depth - 1)) {
+            case(false) { return false; }
+            * { }
+        };
+        index = index + 1;
+    };
+    return true;
+};
+
+// True when the generator produced a move with these coordinates.
+fun[] offers(pos: board::Pos, name: str): bol = {
+    var list: str = board::gen(pos);
+    var total: int = moves::count(list);
+    ~var index: int = 0;
+    loop(index < total) {
+        when(.eq(board::move_name(moves::code_slot(list, index)), name)) {
+            case(true) { return true; }
+            * { }
+        };
+        index = index + 1;
+    };
+    return false;
+};
+
+fun[] play(pos: board::Pos, pst: eval::Pst, name: str): board::Pos = {
+    var list: str = board::gen(pos);
+    var total: int = moves::count(list);
+    ~var index: int = 0;
+    loop(index < total) {
+        var code: int = moves::code_slot(list, index);
+        when(.eq(board::move_name(code), name)) {
+            case(true) { return board::advance(pos, code, pst); }
+            * { }
+        };
+        index = index + 1;
+    };
+    return pos;
+};
+
+// The generator against positions whose answers are known independently.
+fun[] check_generation(pst: eval::Pst): int = {
+    ~var bad: int = 0;
+    var start: board::Pos = board::position_from("rnbqkbnr" + "pppppppp"
+        + "........" + "........" + "........" + "........"
+        + "PPPPPPPP" + "RNBQKBNR", pst, true);
+
+    std::io::echo_str("");
+    std::io::echo_str("== move generation ==");
+    std::io::echo_str(board::render(start));
+
+    // The original simply declares the opening score to be zero and never
+    // recounts, so nothing there ever notices that the static sum is 18. The
+    // rotation is a 180-degree turn, not a mirror, so it swaps the d- and
+    // e-files -- and the queen's table is worth 18 more on d1 than on e1. The
+    // anchor is arbitrary either way; what has to be true is that the
+    // increments track the recount, which is the next check.
+    std::io::echo_str("  note: static eval of the opening position is "
+        + std::fmt::int_to_str(board::static_score(board::start_board(), pst))
+        + ", not 0 -- the 180-degree rotation swaps the queen and king files");
+    bad = bad + claim("incremental score tracks a full recount for three plies",
+        score_agrees(start, pst, 3));
+
+    // Sixteen pawn moves and four knight moves, and nothing else: the rooks,
+    // bishops, queen and king are all walled in.
+    bad = bad + expect_int("perft(1) from the opening position", perft(start, pst, 1), 20);
+    bad = bad + expect_int("perft(2) from the opening position", perft(start, pst, 2), 400);
+
+    // Pseudo-legal and legal agree this shallow: no side can be in check or
+    // pinned after two plies from the opening position, so this is the standard
+    // perft number and not a weaker relative of it.
+    bad = bad + expect_int("perft(3) from the opening position", perft(start, pst, 3), 8902);
+
+    var after_e4: board::Pos = play(start, pst, "e2e4");
+    bad = bad + expect_int("black replies to 1.e4", moves::count(board::gen(after_e4)), 20);
+    // The position comes back rotated, so the passant square is read from the
+    // far side of the mirror -- which is exactly why `rotate` has to flip it.
+    bad = bad + expect_int("1.e4 leaves an en-passant square on e3",
+        after_e4.ep, 119 - board::parse_square("e3"));
+
+    // The rotation has to be an involution, otherwise every other ply is
+    // playing a different game.
+    var spun: board::Pos = board::rotate(board::rotate(start, false), false);
+    bad = bad + claim("rotating twice restores the board", .eq(spun.board, start.board));
+
+    // Castling: king and rooks on their squares, everything between them
+    // cleared. The generator emits both sides as king moves even though it is
+    // the rook's ray that discovers them.
+    var castling: board::Pos = board::position_from(
+        "....k..." + "........" + "........" + "........"
+        + "........" + "........" + "........" + "R...K..R", pst, true);
+    bad = bad + claim("king-side castling is generated", offers(castling, "e1g1"));
+    bad = bad + claim("queen-side castling is generated", offers(castling, "e1c1"));
+
+    var after_castle: board::Pos = play(castling, pst, "e1g1");
+    // The board comes back rotated, so the castled rook is read from the
+    // opponent's side of the mirror.
+    bad = bad + expect_int("castling puts the rook on f1",
+        std::strn::byte_at(after_castle.board, 119 - board::parse_square("f1")), 114);
+    bad = bad + claim("castling retires both rights",
+        .not(after_castle.bc_west) and .not(after_castle.bc_east));
+
+    // Promotion: one pawn one step from the back rank, on an otherwise bare
+    // board, must offer exactly four moves.
+    var promoting: board::Pos = board::position_from(
+        "......k." + "P......." + "........" + "........"
+        + "........" + "........" + "........" + "K.......", pst, false);
+    bad = bad + expect_int("a pawn on the seventh offers four promotions",
+        moves::count(board::gen(promoting)) - moves::count(board::gen(bare_king(pst))), 4);
+    bad = bad + claim("promotion to a queen is generated", offers(promoting, "a7a8Q"));
+
+    var queened: board::Pos = play(promoting, pst, "a7a8Q");
+    bad = bad + expect_int("the promoted pawn is a queen",
+        std::strn::byte_at(queened.board, 119 - board::parse_square("a8")), 113);
+
+    bad = bad + check_en_passant(pst);
+    return bad;
+};
+
+// En passant, which only exists for one ply and only for the side that did not
+// make the double push.
+//
+// Everything below is written from the side to move, and the board turns over
+// after every move, so the same pawn is called d2 before the push and d5
+// afterwards. That renaming is not a translation artefact -- it is what the
+// original's rotation does, and the passant square has to survive it.
+fun[] check_en_passant(pst: eval::Pst): int = {
+    ~var bad: int = 0;
+    var before: board::Pos = board::position_from(
+        "....k..." + "........" + "........" + "........"
+        + "....p..." + "........" + "...P...." + "....K...", pst, false);
+
+    var pushed: board::Pos = play(before, pst, "d2d4");
+    bad = bad + expect_int("a double push sets the passant square",
+        pushed.ep, 119 - board::parse_square("d3"));
+    bad = bad + claim("the neighbouring pawn may take en passant", offers(pushed, "d5e6"));
+    bad = bad + expect_int("two pawns before the capture", pawn_tally(pushed.board), 2);
+
+    var taken: board::Pos = play(pushed, pst, "d5e6");
+    bad = bad + expect_int("one pawn after it", pawn_tally(taken.board), 1);
+    bad = bad + expect_int("and the passant square is spent", taken.ep, 0);
+    return bad;
+};
+
+fun[] pawn_tally(board: str): int = {
+    ~var total: int = 0;
+    ~var square: int = 0;
+    loop(square < 120) {
+        var byte: int = std::strn::byte_at(board, square);
+        when(.eq(byte, 80) or .eq(byte, 112)) {
+            case(true) { total = total + 1; }
+            * { }
+        };
+        square = square + 1;
+    };
+    return total;
+};
+
+// The promotion position without its pawn, so the pawn's own moves can be
+// counted by difference rather than by hand.
+fun[] bare_king(pst: eval::Pst): board::Pos = {
+    return board::position_from(
+        "......k." + "........" + "........" + "........"
+        + "........" + "........" + "........" + "K.......", pst, false);
+};
+
+// A forced mate in two, and the search that has to find it.
+//
+// White king a6, white rook h1, black king b8, white to move. Black's king is
+// already confined to a8/b8/c8/c7 by the white king, so 1.Rh7 takes the
+// seventh rank away and leaves only a8 and c8, both answered by 2.Rh8 mate.
+// 1.Rc1 mates just as fast by the mirror-image argument -- the position has
+// two solutions and the assertion below accepts either, because "the engine
+// found A rather than B" is not a defect.
+fun[] check_mate(pst: eval::Pst): int = {
+    ~var bad: int = 0;
+    var pos: board::Pos = board::position_from(
+        ".k......" + "........" + "K......." + "........"
+        + "........" + "........" + "........" + ".......R", pst, false);
+
+    std::io::echo_str("");
+    std::io::echo_str("== mate in two ==");
+    std::io::echo_str(board::render(pos));
+
+    bad = bad + expect_int("white has 19 moves", moves::count(board::gen(pos)), 19);
+    bad = bad + claim("no mate in one", .not(mates_now(pos, pst)));
+
+    // Four plies: white's move, black's forced reply, white's mating move, and
+    // one more ply for the mated side to be handed a position it cannot move
+    // in. Three would only find the threat.
+    var engine: search::Engine = { pst = pst };
+
+    // Two plies cannot reach the mated position, so a mate score here would
+    // mean the search was finding it by accident rather than by searching.
+    var shallow: search::Answer = [bor]engine.run(pos, 2);
+    bad = bad + claim("two plies do not see the mate", shallow.score < eval::mate_lower());
+
+    var found: search::Answer = [bor]engine.run(pos, 4);
+
+    std::io::echo_str("  best move " + board::move_name(found.move)
+        + ", score " + std::fmt::int_to_str(found.score));
+    std::io::echo_str("  " + std::fmt::int_to_str(found.nodes) + " nodes over "
+        + std::fmt::int_to_str(found.probes) + " probes");
+
+    bad = bad + claim("the score is a mate score", found.score >= eval::mate_lower());
+    var name: str = board::move_name(found.move);
+    bad = bad + claim("the move is one of the two mating moves",
+        .eq(name, "h1h7") or .eq(name, "h1c1"));
+
+    // Independent of the search: play the move it chose and confirm by
+    // enumeration that every black reply is answered by mate.
+    bad = bad + claim("every reply to it is mated", forces_mate(pos, pst, found.move));
+    return bad;
+};
+
+// True when some move leaves the opponent with no legal reply and in check.
+fun[] mates_now(pos: board::Pos, pst: eval::Pst): bol = {
+    var list: str = board::gen(pos);
+    var total: int = moves::count(list);
+    ~var index: int = 0;
+    loop(index < total) {
+        var next: board::Pos = board::advance(pos, moves::code_slot(list, index), pst);
+        when(board::king_capture(next) < 0) {
+            case(true) {
+                when(is_mated(next, pst)) {
+                    case(true) { return true; }
+                    * { }
+                };
+            }
+            * { }
+        };
+        index = index + 1;
+    };
+    return false;
+};
+
+// Mated: in check, and every move loses the king.
+fun[] is_mated(pos: board::Pos, pst: eval::Pst): bol = {
+    when(board::king_capture(board::rotate(pos, true)) < 0) {
+        case(true) { return false; }
+        * { }
+    };
+    var list: str = board::gen(pos);
+    var total: int = moves::count(list);
+    ~var index: int = 0;
+    loop(index < total) {
+        var next: board::Pos = board::advance(pos, moves::code_slot(list, index), pst);
+        when(board::king_capture(next) < 0) {
+            case(true) { return false; }
+            * { }
+        };
+        index = index + 1;
+    };
+    return true;
+};
+
+// Plays `code`, then checks that every legal black reply allows a mate.
+fun[] forces_mate(pos: board::Pos, pst: eval::Pst, code: int): bol = {
+    var after: board::Pos = board::advance(pos, code, pst);
+    var list: str = board::gen(after);
+    var total: int = moves::count(list);
+    ~var replies: int = 0;
+    ~var index: int = 0;
+    loop(index < total) {
+        var reply: board::Pos = board::advance(after, moves::code_slot(list, index), pst);
+        when(board::king_capture(reply) < 0) {
+            case(true) {
+                replies = replies + 1;
+                when(mates_now(reply, pst)) {
+                    case(false) { return false; }
+                    * { }
+                };
+            }
+            * { }
+        };
+        index = index + 1;
+    };
+    return replies > 0;
+};
+
+fun[] main(): int = {
+    // No queens anywhere in this run, so the king reads from the endgame table
+    // -- the same choice the original makes at the top of every search.
+    var pst: eval::Pst = eval::tables(true);
+
+    std::io::echo_str("sunfish: 10x12 mailbox move generation and MTD-bi alpha-beta");
+    std::io::echo_str("piece values P/N/B/R/Q/K "
+        + std::fmt::int_to_str(eval::piece_value(eval::pawn())) + "/"
+        + std::fmt::int_to_str(eval::piece_value(eval::knight())) + "/"
+        + std::fmt::int_to_str(eval::piece_value(eval::bishop())) + "/"
+        + std::fmt::int_to_str(eval::piece_value(eval::rook())) + "/"
+        + std::fmt::int_to_str(eval::piece_value(eval::queen())) + "/"
+        + std::fmt::int_to_str(eval::piece_value(eval::king())));
+    std::io::echo_str("mate band " + std::fmt::int_to_str(eval::mate_lower())
+        + " .. " + std::fmt::int_to_str(eval::mate_upper()));
+
+    ~var bad: int = 0;
+    bad = bad + check_generation(pst);
+    bad = bad + check_mate(pst);
+
+    std::io::echo_str("");
+    when(.eq(bad, 0)) {
+        case(true) {
+            std::io::echo_str("all checks passed");
+            return 0;
+        }
+        * {
+            std::io::echo_str(std::fmt::int_to_str(bad) + " check(s) failed");
+            return 1;
+        }
+    }
+};

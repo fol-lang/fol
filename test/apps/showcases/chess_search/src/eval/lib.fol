@@ -1,0 +1,218 @@
+use std: pkg = {"std"};
+
+// Material and piece-square tables.
+//
+// The original keeps six 64-entry tables in a dict, then rewrites that dict in
+// place: every row is padded with a leading and trailing zero, the piece value
+// is folded into every real square, and twenty zeros are glued to each end so
+// the table is indexed by the same 0..119 mailbox index as the board.
+//
+// FOL has no growable container to build that padded table into, and a literal
+// `arr[int, 120]` does not survive codegen (see the DEVIATIONS header), so the
+// six raw tables stay raw -- one flat `vec[int]` of 6 * 64 entries -- and the
+// padding is applied arithmetically at lookup time. The result is identical:
+// a mailbox index outside the playing area reads as zero, and every real square
+// reads as `raw + piece_value`.
+
+// Piece indices used everywhere in this package: pawn, knight, bishop, rook,
+// queen, king.
+fun[exp] pawn(): int = {
+    return 0;
+};
+
+fun[exp] knight(): int = {
+    return 1;
+};
+
+fun[exp] bishop(): int = {
+    return 2;
+};
+
+fun[exp] rook(): int = {
+    return 3;
+};
+
+fun[exp] queen(): int = {
+    return 4;
+};
+
+fun[exp] king(): int = {
+    return 5;
+};
+
+fun[exp] piece_value(piece: int): int = {
+    var values: vec[int] = {100, 280, 320, 479, 929, 60000};
+    return values[piece];
+};
+
+// Mate bounds. The king is worth more than any plausible material imbalance, so
+// a score at or past MATE_LOWER can only mean a king was, or is about to be,
+// taken off the board.
+fun[exp] mate_lower(): int = {
+    return piece_value(king()) - 13 * piece_value(queen());
+};
+
+fun[exp] mate_upper(): int = {
+    return piece_value(king()) + 10 * piece_value(queen());
+};
+
+// One field per piece rather than one flat table of 384: a collection literal
+// caps out at 256 elements (see the DEVIATIONS header).
+typ[exp] Pst: rec = {
+    for_pawn: vec[int],
+    for_knight: vec[int],
+    for_bishop: vec[int],
+    for_rook: vec[int],
+    for_queen: vec[int],
+    for_king: vec[int],
+    king_end: bol,
+};
+
+fun[exp] tables(king_end: bol): Pst = {
+    return {
+        for_pawn = pawn_table(),
+        for_knight = knight_table(),
+        for_bishop = bishop_table(),
+        for_rook = rook_table(),
+        for_queen = queen_table(),
+        for_king = king_table(),
+        king_end = king_end,
+    };
+};
+
+fun[hid] (Pst[bor]) raw_at(piece: int, index: int): int = {
+    when(.eq(piece, 0)) {
+        case(true) { return self.for_pawn[index]; }
+        * { }
+    };
+    when(.eq(piece, 1)) {
+        case(true) { return self.for_knight[index]; }
+        * { }
+    };
+    when(.eq(piece, 2)) {
+        case(true) { return self.for_bishop[index]; }
+        * { }
+    };
+    when(.eq(piece, 3)) {
+        case(true) { return self.for_rook[index]; }
+        * { }
+    };
+    when(.eq(piece, 4)) {
+        case(true) { return self.for_queen[index]; }
+        * { }
+    };
+    return self.for_king[index];
+};
+
+// Reads one padded table entry for `piece` at mailbox square `square`.
+fun[exp] (Pst[bor]) look(piece: int, square: int): int = {
+    when(.eq(piece, king()) and self.king_end) {
+        case(true) { return endgame_king(square); }
+        * { }
+    };
+    var file: int = square % 10;
+    var off_board: bol = (square < 20) or (square >= 100) or .eq(file, 0) or .eq(file, 9);
+    when(off_board) {
+        case(true) { return 0; }
+        * { }
+    };
+    var rank: int = square / 10 - 2;
+    return [bor]self.raw_at(piece, rank * 8 + file - 1) + piece_value(piece);
+};
+
+// The endgame king table is generated rather than tabulated, exactly as in the
+// original: it rewards centralisation and, unlike the other five tables, is not
+// zeroed on the padding squares.
+fun[hid] endgame_king(square: int): int = {
+    var vertical: int = magnitude(2 * (square / 10) - 11);
+    var horizontal: int = magnitude(2 * (square % 10) - 9);
+    return piece_value(king()) + 70 - 10 * (vertical + horizontal);
+};
+
+fun[exp] magnitude(value: int): int = {
+    when(value < 0) {
+        case(true) { return 0 - value; }
+        * { return value; }
+    }
+};
+
+// The six tuned tables, pawn through king, unpadded and without the piece
+// value folded in. Each is eight rows of eight, black's back rank first, which
+// is the order the mailbox board is written in.
+fun[hid] pawn_table(): vec[int] = {
+    return {
+        0, 0, 0, 0, 0, 0, 0, 0,
+        78, 83, 86, 73, 102, 82, 85, 90,
+        7, 29, 21, 44, 40, 31, 44, 7,
+        -17, 16, -2, 15, 14, 0, 15, -13,
+        -26, 3, 10, 9, 6, 1, 0, -23,
+        -22, 9, 5, -11, -10, -2, 3, -19,
+        -31, 8, -7, -37, -36, -14, 3, -31,
+        0, 0, 0, 0, 0, 0, 0, 0,
+    };
+};
+
+fun[hid] knight_table(): vec[int] = {
+    return {
+        -66, -53, -75, -75, -10, -55, -58, -70,
+        -3, -6, 100, -36, 4, 62, -4, -14,
+        10, 67, 1, 74, 73, 27, 62, -2,
+        24, 24, 45, 37, 33, 41, 25, 17,
+        -1, 5, 31, 21, 22, 35, 2, 0,
+        -18, 10, 13, 22, 18, 15, 11, -14,
+        -23, -15, 2, 0, 2, 0, -23, -20,
+        -74, -23, -26, -24, -19, -35, -22, -69,
+    };
+};
+
+fun[hid] bishop_table(): vec[int] = {
+    return {
+        -59, -78, -82, -76, -23, -107, -37, -50,
+        -11, 20, 35, -42, -39, 31, 2, -22,
+        -9, 39, -32, 41, 52, -10, 28, -14,
+        25, 17, 20, 34, 26, 25, 15, 10,
+        13, 10, 17, 23, 17, 16, 0, 7,
+        14, 25, 24, 15, 8, 25, 20, 15,
+        19, 20, 11, 6, 7, 6, 20, 16,
+        -7, 2, -15, -12, -14, -15, -10, -10,
+    };
+};
+
+fun[hid] rook_table(): vec[int] = {
+    return {
+        35, 29, 33, 4, 37, 33, 56, 50,
+        55, 29, 56, 67, 55, 62, 34, 60,
+        19, 35, 28, 33, 45, 27, 25, 15,
+        0, 5, 16, 13, 18, -4, -9, -6,
+        -28, -35, -16, -21, -13, -29, -46, -30,
+        -42, -28, -42, -25, -25, -35, -26, -46,
+        -53, -38, -31, -26, -29, -43, -44, -53,
+        -30, -24, -18, 5, -2, -18, -31, -32,
+    };
+};
+
+fun[hid] queen_table(): vec[int] = {
+    return {
+        6, 1, -8, -104, 69, 24, 88, 26,
+        14, 32, 60, -10, 20, 76, 57, 24,
+        -2, 43, 32, 60, 72, 63, 43, 2,
+        1, -16, 22, 17, 25, 20, -13, -6,
+        -14, -15, -2, -5, -1, -10, -20, -22,
+        -30, -6, -13, -11, -16, -11, -16, -27,
+        -36, -18, 0, -19, -15, -15, -21, -38,
+        -39, -30, -31, -13, -31, -36, -34, -42,
+    };
+};
+
+fun[hid] king_table(): vec[int] = {
+    return {
+        4, 54, 47, -99, -99, 60, 83, -62,
+        -32, 10, 55, 56, 56, 55, 10, 3,
+        -62, 12, -57, 44, -67, 28, 37, -31,
+        -55, 50, 11, -4, -19, 13, 0, -49,
+        -55, -43, -52, -28, -51, -47, -8, -50,
+        -47, -42, -43, -79, -64, -32, -29, -32,
+        -4, 3, -14, -50, -57, -18, 13, 4,
+        17, 30, -3, -14, 6, -1, 40, 18,
+    };
+};

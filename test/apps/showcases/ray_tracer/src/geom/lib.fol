@@ -1,0 +1,165 @@
+// vec3, ray, sphere and hit_record -- the geometry half of the book.
+
+use nums: loc = {"../nums"};
+
+// vec3. The original overloads +, -, * and /; FOL does not overload operators
+// for records, so each one is a named routine.
+typ[exp] V3: rec = {
+    x: flt,
+    y: flt,
+    z: flt,
+};
+
+typ[exp] Ray: rec = {
+    orig: V3,
+    dir: V3,
+};
+
+// hit_record, plus the boolean the original returned separately. C++ writes the
+// record through an out-parameter and returns bool; FOL free routines cannot
+// take a mutable parameter, so the flag rides inside the returned record.
+typ[exp] Hit: rec = {
+    struck: bol,
+    t: flt,
+    p: V3,
+    normal: V3,
+    front: bol,
+    mat: int,
+};
+
+// sphere. `mat` is a tag, not a pointer to a material: see the DEVIATIONS note
+// in main.fol about heterogeneous hittable lists.
+typ[exp] Sphere: rec = {
+    center: V3,
+    radius: flt,
+    mat: int,
+};
+
+fun[exp] v3(x: flt, y: flt, z: flt): V3 = {
+    return { x = x, y = y, z = z };
+};
+
+fun[exp] zero(): V3 = {
+    return { x = 0.0, y = 0.0, z = 0.0 };
+};
+
+fun[exp] add(left: V3, right: V3): V3 = {
+    return { x = left.x + right.x, y = left.y + right.y, z = left.z + right.z };
+};
+
+fun[exp] sub(left: V3, right: V3): V3 = {
+    return { x = left.x - right.x, y = left.y - right.y, z = left.z - right.z };
+};
+
+fun[exp] neg(source: V3): V3 = {
+    return { x = -source.x, y = -source.y, z = -source.z };
+};
+
+fun[exp] scale(source: V3, factor: flt): V3 = {
+    return { x = source.x * factor, y = source.y * factor, z = source.z * factor };
+};
+
+fun[exp] shrink(source: V3, divisor: flt): V3 = {
+    return { x = source.x / divisor, y = source.y / divisor, z = source.z / divisor };
+};
+
+fun[exp] mul(left: V3, right: V3): V3 = {
+    return { x = left.x * right.x, y = left.y * right.y, z = left.z * right.z };
+};
+
+fun[exp] dot(left: V3, right: V3): flt = {
+    return (left.x * right.x) + (left.y * right.y) + (left.z * right.z);
+};
+
+fun[exp] length_squared(source: V3): flt = {
+    return dot(source, source);
+};
+
+fun[exp] length(source: V3): flt = {
+    return nums::root(length_squared(source));
+};
+
+fun[exp] unit(source: V3): V3 = {
+    return shrink(source, length(source));
+};
+
+// ray::at. Named `point_at` because `at` is a FOL keyword.
+fun[exp] point_at(beam: Ray, t: flt): V3 = {
+    return add(beam.orig, scale(beam.dir, t));
+};
+
+// hit_record::set_face_normal, split out because it assigned two fields of the
+// out-parameter and FOL returns instead of assigning.
+typ[exp] Facing: rec = {
+    front: bol,
+    normal: V3,
+};
+
+fun[exp] face_normal(beam: Ray, outward: V3): Facing = {
+    var front: bol = dot(beam.dir, outward) < 0.0;
+    when(front) {
+        case(true) { return { front = true, normal = outward }; }
+        * { return { front = false, normal = neg(outward) }; }
+    }
+};
+
+fun[exp] no_hit(): Hit = {
+    return {
+        struck = false, t = 0.0, p = zero(), normal = zero(),
+        front = false, mat = 0,
+    };
+};
+
+// sphere::hit, including the book's h = dot(direction, oc) half-b shortcut and
+// its two-root acceptance window.
+fun[exp] hit_sphere(ball: Sphere, beam: Ray, t_min: flt, t_max: flt): Hit = {
+    var oc: V3 = sub(ball.center, beam.orig);
+    var a: flt = length_squared(beam.dir);
+    var h: flt = dot(beam.dir, oc);
+    var c: flt = length_squared(oc) - ball.radius * ball.radius;
+
+    var discriminant: flt = h * h - a * c;
+    when(discriminant < 0.0) {
+        case(true) { return no_hit(); }
+        * { }
+    }
+
+    var sqrtd: flt = nums::root(discriminant);
+    var root: flt = (h - sqrtd) / a;
+    when((root <= t_min) or (t_max <= root)) {
+        case(true) { root = (h + sqrtd) / a; }
+        * { }
+    }
+    when((root <= t_min) or (t_max <= root)) {
+        case(true) { return no_hit(); }
+        * { }
+    }
+
+    var p: V3 = point_at(beam, root);
+    var outward: V3 = shrink(sub(p, ball.center), ball.radius);
+    var facing: Facing = face_normal(beam, outward);
+    return {
+        struck = true, t = root, p = p, normal = facing.normal,
+        front = facing.front, mat = ball.mat,
+    };
+};
+
+// hittable_list::hit -- keep the closest hit inside the shrinking window.
+fun[exp] hit_world(world: vec[Sphere], beam: Ray, t_min: flt, t_max: flt): Hit = {
+    var best: Hit = no_hit();
+    var closest: flt = t_max;
+    var index: int = 0;
+    loop (index < .len(world)) {
+        var ball: Sphere = world[index];
+        var probe: Hit = hit_sphere(ball, beam, t_min, closest);
+        when(probe.struck) {
+            case(true) {
+                closest = probe.t;
+                best = probe;
+            }
+            * { }
+        }
+        index = index + 1;
+    }
+    return best;
+};

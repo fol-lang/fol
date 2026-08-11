@@ -1,0 +1,115 @@
+// The codeword table and the memory map.
+//
+// In jonesforth every dictionary entry ends in a "codeword": for a primitive it
+// is the address of a block of assembly, for a colon definition it is the
+// address of DOCOL. FOL has no code addresses, so a codeword is an integer tag
+// here: zero means DOCOL (run the cells that follow), anything else names one
+// of the assembly primitives below.
+
+con[exp] DOCOL: int = 0;
+
+con[exp] P_DROP: int = 1;
+con[exp] P_SWAP: int = 2;
+con[exp] P_DUP: int = 3;
+con[exp] P_OVER: int = 4;
+con[exp] P_ROT: int = 5;
+con[exp] P_DIVMOD: int = 6;
+con[exp] P_ADD: int = 7;
+con[exp] P_SUB: int = 8;
+con[exp] P_MUL: int = 9;
+con[exp] P_EQU: int = 10;
+con[exp] P_NEQU: int = 11;
+con[exp] P_LT: int = 12;
+con[exp] P_GT: int = 13;
+con[exp] P_LE: int = 14;
+con[exp] P_GE: int = 15;
+con[exp] P_ZEQU: int = 16;
+con[exp] P_EXIT: int = 17;
+con[exp] P_LIT: int = 18;
+con[exp] P_STORE: int = 19;
+con[exp] P_FETCH: int = 20;
+con[exp] P_STATE: int = 21;
+con[exp] P_HERE: int = 22;
+con[exp] P_LATEST: int = 23;
+con[exp] P_BASE: int = 24;
+con[exp] P_WORD: int = 25;
+con[exp] P_FIND: int = 26;
+con[exp] P_TCFA: int = 27;
+con[exp] P_CREATE: int = 28;
+con[exp] P_COMMA: int = 29;
+con[exp] P_LBRAC: int = 30;
+con[exp] P_RBRAC: int = 31;
+con[exp] P_HIDDEN: int = 32;
+con[exp] P_IMMEDIATE: int = 33;
+con[exp] P_BRANCH: int = 34;
+con[exp] P_ZBRANCH: int = 35;
+con[exp] P_TICK: int = 36;
+con[exp] P_DOT: int = 37;
+con[exp] P_EMIT: int = 38;
+con[exp] P_CR: int = 39;
+con[exp] P_SPACE: int = 40;
+con[exp] P_DEPTH: int = 41;
+con[exp] P_HALT: int = 42;
+
+// jonesforth packs the immediate flag, the hidden flag and the name length into
+// one byte and pulls them apart with `andb`. FOL has no bitwise operators at
+// all, so the same byte is taken apart with `/` and `%`: the values below are
+// jonesforth's, unchanged, so the arithmetic lines up with the original masks.
+con[exp] F_IMMED: int = 128;
+con[exp] F_HIDDEN: int = 32;
+con[exp] LEN_MOD: int = 32;
+con[exp] HIDDEN_MOD: int = 64;
+
+// Cell-addressed memory. jonesforth counts bytes and has to align the codeword
+// to a four byte boundary; one cell per slot removes that step entirely.
+con[exp] ADDR_STATE: int = 0;
+con[exp] ADDR_HERE: int = 1;
+con[exp] ADDR_LATEST: int = 2;
+con[exp] ADDR_BASE: int = 3;
+
+// Two cells the outer interpreter threads a single word through, standing in
+// for the point inside QUIT that jonesforth's INTERPRET returns to.
+con[exp] ADDR_TRAMPOLINE: int = 4;
+
+// jonesforth's `word_buffer`: one static 32 byte scratch area that WORD
+// overwrites on every call.
+con[exp] ADDR_WORDBUF: int = 6;
+con[exp] WORDBUF_CELLS: int = 32;
+
+con[exp] DATA_START: int = 38;
+
+// jonesforth reserves its data segment in one piece. A container literal in FOL
+// stops parsing after 256 elements and no container can be built at a computed
+// size, so the segment is three fixed pages that `fetch` and `store` stitch
+// back into one address space.
+con[exp] PAGE_ONE: int = 256;
+con[exp] PAGE_TWO: int = 512;
+con[exp] MEM_CELLS: int = 768;
+
+con[exp] STACK_CELLS: int = 32;
+con[exp] STEP_LIMIT: int = 200000;
+
+// One blank page of the data segment. FOL has no way to build a container of a
+// given size, so the page is spelled out; three of these make up the address
+// space the machine runs in.
+fun[exp] blank_page(): vec[int] = {
+    var page: vec[int] = {
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    };
+    return page;
+};

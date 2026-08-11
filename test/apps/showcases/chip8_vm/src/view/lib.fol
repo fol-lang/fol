@@ -1,0 +1,43 @@
+use std: pkg = {"std"};
+
+// Formatting helpers. CHIP-8 is a hexadecimal machine -- addresses, opcodes and
+// register loads all read as hex in every listing -- but `std::fmt` only offers
+// decimal, so the two hex widths are built here from a digit table.
+
+fun digit(value: int): str = {
+    when(value) {
+        is(10) { return "A"; }
+        is(11) { return "B"; }
+        is(12) { return "C"; }
+        is(13) { return "D"; }
+        is(14) { return "E"; }
+        is(15) { return "F"; }
+        * { return std::fmt::int_to_str(value); }
+    }
+};
+
+fun[exp] hex2(value: int): str = {
+    return digit((value / 16) % 16) + digit(value % 16);
+};
+
+fun[exp] hex3(value: int): str = {
+    return digit((value / 256) % 16) + hex2(value);
+};
+
+// A framebuffer cell as one glyph, wide enough that a 64-column row still
+// reads as a picture in a terminal.
+fun[exp] cell(lit: int): str = {
+    when(lit) {
+        is(1) { return "#"; }
+        * { return "."; }
+    }
+};
+
+fun[exp] banner(title: str): str = {
+    return "== " + title + " " + "=====================================";
+};
+
+pro[exp] line(label: str, value: str): non = {
+    std::io::echo_str("  " + label + " " + value);
+    return;
+};

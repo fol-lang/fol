@@ -1,0 +1,327 @@
+// ray_tracer -- a translation of "Ray Tracing in One Weekend" (Peter Shirley,
+// Trevor David Black, Steve Hollasch), the C++ book at
+// https://raytracing.github.io/books/RayTracingInOneWeekend.html
+// (source: https://github.com/RayTracing/raytracing.github.io).
+//
+// Carried across: vec3 with its usual algebra, ray, sphere::hit with the h =
+// dot(direction, oc) half-b shortcut and its two-root acceptance window,
+// hit_record with set_face_normal, hittable_list::hit shrinking closest_so_far,
+// the camera's viewport/pixel00_loc/pixel-delta setup, get_ray with per-pixel
+// jitter, the recursive depth-limited ray_color, both diffuse scatter laws from
+// the diffuse chapter, the 0.001 shadow-acne minimum, gamma-2 correction and the
+// clamped [0.000, 0.999) byte writer, and the P3 PPM render loop over the
+// two-sphere scene (a 0.5-radius ball at (0,0,-1) on a 100-radius ground ball
+// at (0,-100.5,-1)).
+//
+// DEVIATIONS -- where the original's design could not be carried into FOL
+//
+// 1. NO int -> flt CONVERSION. The original converts constantly:
+//    `double(image_width)/image_height` in the viewport, `(i + offset.x())` in
+//    get_ray, `std::rand() / (RAND_MAX + 1.0)` in random_double. FOL has no
+//    conversion in either direction. nums::to_flt rebuilds it by base-10 digit
+//    expansion against a ten-case literal table (`nums::digit`), which is exact
+//    but costs up to ten branches and a divide per conversion -- and every
+//    random number in this renderer pays it.
+//
+// 2. NO flt -> int CONVERSION either. `int(256 * intensity.clamp(r))` in
+//    write_color is a one-instruction truncation in C++. nums::to_byte is an
+//    eight-step binary search over 0..255 comparing `to_flt(mid) <= target`, so
+//    each written colour component costs eight int -> flt conversions on top of
+//    the eight comparisons.
+//
+// 3. NO sqrt. std::sqrt appears in sphere::hit, vec3::length,
+//    random_unit_vector and linear_to_gamma. nums::root is 24 Newton steps.
+//    That is four to five sqrt calls per bounce, each ~24 divides -- the cost
+//    that pushed the sample count down from the book's 100 to 32.
+//
+// 4. NO infinity LITERAL, but infinity is still reachable -- easier than
+//    expected. `interval(0.001, infinity)` needs a real positive infinity and
+//    FOL has no spelling for one, yet flt division by zero follows IEEE-754
+//    instead of faulting the way integer division does, so `nums::far()` is
+//    `1.0 / 0.0` and the ray interval is exactly the book's. Worth flagging
+//    that this asymmetry is undocumented: the same syntax faults for int and
+//    quietly produces inf for flt.
+//
+// 5. NO trait objects / no heterogeneous hittable list.
+//    `std::vector<shared_ptr<hittable>>` and `shared_ptr<material>` on the hit
+//    record are the original's two dynamic-dispatch points. FOL has generics
+//    with standards but they monomorphise, so a container cannot hold mixed
+//    conformers. The world collapses to `vec[Sphere]` (sound here: sphere is
+//    the only hittable in the diffuse chapter) and the material becomes an int
+//    tag on the sphere that `matter::scatter_by_tag` switches on, with one
+//    `scatter_of` instantiation per arm. Adding a third material means editing
+//    that switch -- exactly the open/closed violation the original avoids.
+//
+// 6. MATERIALS AS A STANDARD -- this part worked. `std surface: pro = { fun
+//    scatter(...); }` with `Lambert` and `Hemisphere` as conformers and a
+//    single constrained generic `scatter_of(T: surface)` dispatches correctly.
+//    The constraint got in the way in only one place: the conformer has to be
+//    bound to a `var` first, because a call argument cannot carry an inline
+//    type ascription (`scatter_of({albedo=0.5}: Lambert, ...)` is a parse
+//    error), so the tag switch is three lines per arm rather than one.
+//
+// 7. NO MUTABLE OUT-PARAMETERS. `bool hit(const ray&, interval, hit_record&)`
+//    writes its answer through a reference and returns the success flag. A FOL
+//    free routine cannot take `[mut, bor]`, so `geom::Hit` carries a `struck`
+//    flag and the miss case returns a zeroed record. Same story for the random
+//    number generator: C++ hides its state in a static, FOL threads `state: int`
+//    in and out of every draw, which is why `Rand`, `RandV3`, `RandRay`,
+//    `Scatter` and `Traced` all exist purely to return a value beside a state.
+//
+// 8. PER-PIXEL SEEDING. The original draws from one global stream, so a pixel's
+//    colour depends on every pixel rendered before it. `nums::seed_at` seeds
+//    from the pixel index instead (with four warm-up draws). Same distribution,
+//    but each pixel becomes independently reproducible -- without that no
+//    specific pixel could be self-checked at all.
+//
+// 9. BOUNDED REJECTION SAMPLING. random_unit_vector is `while (true)` in the
+//    original. Here it gives up after sixteen tries and returns a fixed axis:
+//    an unbounded loop over a deterministic generator is a hang with no
+//    diagnostic, and 16 tries miss with probability under 1e-5.
+//
+// 10. SCALAR ALBEDO. `0.5 * ray_color(...)` in the diffuse chapter is a scalar
+//    multiply, so `Scatter.albedo` is a flt. Colour-valued albedo arrives with
+//    the metal chapter, which is past this translation's stopping point.
+//
+// 11. NO OPERATOR OVERLOADING. Every vec3 `+ - * /` becomes a named call, so
+//    `pixel00_loc + (i * pixel_delta_u) + (j * pixel_delta_v)` becomes nested
+//    geom::add/geom::scale. Mechanical, but it makes camera::make and get_ray
+//    considerably harder to read than the C++.
+//
+// 12. NO EXPONENT FLOAT LITERALS. The original's `1e-160` guard in
+//    random_unit_vector cannot be written; `1e-8` is a parse error. Spelled out
+//    as 0.000001 here, which is fine at flt precision.
+//
+// 13. IMAGE SIZE -- less of a compromise than expected. The book renders
+//    400x225 at 100 samples with depth 50; this is 40x20 at 32 samples with
+//    the book's own depth 50, and the whole render takes about 40ms. The
+//    hand-rolled numerics of deviations 1-3 cost real time, but not the two
+//    orders of magnitude the workarounds suggested they would.
+//
+// 14. THE PPM CANNOT BE REDIRECTED. The original is run as
+//    `./inOneWeekend > image.ppm`; the whole point of writing P3 to stdout is
+//    that a shell redirect produces a file. `fol code run` writes its own
+//    "run / Done: / emitted-rust / binary" banner -- with ANSI escapes, even
+//    when stdout is not a terminal -- to the program's stdout, so the redirect
+//    yields an invalid PPM. Everything this program says about itself
+//    therefore goes to stderr instead, and the image has to be recovered by
+//    dropping the last four lines.
+
+use std: pkg = {"std"};
+use camera: loc = {"camera"};
+use geom: loc = {"geom"};
+use matter: loc = {"matter"};
+use nums: loc = {"nums"};
+
+// The book's scene: one small ball above one very large one standing in for
+// the ground. Material tag 0 is Lambert, 1 is the uniform hemisphere.
+fun[] scene(): vec[geom::Sphere] = {
+    return {
+        { center = { x = 0.0, y = 0.0, z = -1.0 }, radius = 0.5, mat = 0 },
+        { center = { x = 0.0, y = -100.5, z = -1.0 }, radius = 100.0, mat = 1 },
+    };
+};
+
+fun[] image_width(): int = {
+    return 40;
+};
+
+fun[] image_height(): int = {
+    return 20;
+};
+
+fun[] samples_per_pixel(): int = {
+    return 32;
+};
+
+// The book's own bounce limit; only the image size and sample count had to
+// come down.
+fun[] max_depth(): int = {
+    return 50;
+};
+
+fun[] configured(): camera::Camera = {
+    return camera::make(image_width(), image_height(),
+        samples_per_pixel(), max_depth());
+};
+
+fun[] near(left: flt, right: flt, tolerance: flt): bol = {
+    var delta: flt = left - right;
+    when(delta < 0.0) {
+        case(true) { delta = -delta; }
+        * { }
+    }
+    return delta < tolerance;
+};
+
+fun[] verdict(name: str, passed: bol): int = {
+    when(passed) {
+        case(true) {
+            std::io::write_err("  ok   " + name + "\n");
+            return 0;
+        }
+        * {
+            std::io::write_err("  FAIL " + name + "\n");
+            return 1;
+        }
+    }
+};
+
+// nums::root underpins every hit test and the gamma curve, so it is checked
+// against values known independently of this program.
+fun[] check_root(): int = {
+    var failures: int = 0;
+    failures = failures + verdict("root(2) == 1.4142135623730951",
+        near(nums::root(2.0), 1.4142135623730951, 0.000000000001));
+    failures = failures + verdict("root(9999) == 99.99499987499375",
+        near(nums::root(9999.0), 99.99499987499375, 0.00000001));
+    failures = failures + verdict("root(0.75) == 0.8660254037844386",
+        near(nums::root(0.75), 0.8660254037844386, 0.000000000001));
+    failures = failures + verdict("root(0) == 0", nums::root(0.0) == 0.0);
+    failures = failures + verdict("root(-1) == 0 (grazing discriminant)",
+        nums::root(-1.0) == 0.0);
+    return failures;
+};
+
+// The two conversions FOL does not have. MINSTD's opening sequence is published
+// and does not depend on anything here.
+fun[] check_numerics(): int = {
+    var failures: int = 0;
+    failures = failures + verdict("to_flt(2147483647) exact",
+        nums::to_flt(2147483647) == 2147483647.0);
+    failures = failures + verdict("to_flt(-4096) exact", nums::to_flt(-4096) == -4096.0);
+    failures = failures + verdict("to_byte(0.999) == 255", nums::to_byte(0.999) == 255);
+    failures = failures + verdict("to_byte(0.5) == 128", nums::to_byte(0.5) == 128);
+    failures = failures + verdict("to_byte(0.0) == 0", nums::to_byte(0.0) == 0);
+
+    var state: int = 1;
+    var step: int = 0;
+    loop (step < 5) {
+        var drawn: nums::Rand = nums::next(state);
+        state = drawn.state;
+        step = step + 1;
+    }
+    failures = failures + verdict("MINSTD after 5 draws == 1144108930", state == 1144108930);
+    return failures;
+};
+
+// sphere::hit on the axis, where the intersection is exact by hand: the ray
+// (0,0,0)->(0,0,-1) meets the front of the small ball at t = 0.5 with an
+// outward normal of (0,0,1), and the discriminant of the ground ball is 9999.
+fun[] check_geometry(): int = {
+    var failures: int = 0;
+    var world: vec[geom::Sphere] = scene();
+    var forward: geom::Ray = {
+        orig = geom::zero(),
+        dir = geom::v3(0.0, 0.0, -1.0),
+    };
+    var front: geom::Hit = geom::hit_world(world, forward, 0.001, nums::far());
+    failures = failures + verdict("axis ray hits the small sphere", front.struck);
+    failures = failures + verdict("hit t == 0.5", near(front.t, 0.5, 0.000000001));
+    failures = failures + verdict("hit point == (0,0,-0.5)",
+        near(front.p.z, -0.5, 0.000000001) and near(front.p.x, 0.0, 0.000000001));
+    failures = failures + verdict("normal == (0,0,1)", near(front.normal.z, 1.0, 0.000000001));
+    failures = failures + verdict("front face", front.front);
+    failures = failures + verdict("small sphere is material 0", front.mat == 0);
+
+    var downward: geom::Ray = {
+        orig = geom::zero(),
+        dir = geom::v3(0.0, -1.0, 0.0),
+    };
+    var ground: geom::Hit = geom::hit_world(world, downward, 0.001, nums::far());
+    failures = failures + verdict("downward ray hits the ground sphere",
+        ground.struck and (ground.mat == 1));
+    failures = failures + verdict("ground t == 100.5 - root(9999)",
+        near(ground.t, 100.5 - 99.99499987499375, 0.0000001));
+
+    var away: geom::Ray = {
+        orig = geom::zero(),
+        dir = geom::v3(0.0, 0.0, 1.0),
+    };
+    failures = failures + verdict("ray pointing away misses everything",
+        geom::hit_world(world, away, 0.001, nums::far()).struck == false);
+    return failures;
+};
+
+// The sky gradient is closed form: a ray with unit y = 0 blends the two book
+// colours half and half, giving (0.75, 0.85, 1.0), which gamma and the byte
+// scale turn into 221 236 255.
+fun[] check_sky(): int = {
+    var failures: int = 0;
+    var level: geom::Ray = { orig = geom::zero(), dir = geom::v3(0.0, 0.0, -1.0) };
+    var color: geom::V3 = camera::sky(level);
+    failures = failures + verdict("sky at horizon == (0.75, 0.85, 1.0)",
+        near(color.x, 0.75, 0.000000001) and near(color.y, 0.85, 0.000000001)
+        and near(color.z, 1.0, 0.000000001));
+    failures = failures + verdict("sky at horizon writes as 221 236 255",
+        .eq(camera::color_text(color), "221 236 255"));
+
+    var up: geom::Ray = { orig = geom::zero(), dir = geom::v3(0.0, 1.0, 0.0) };
+    var top: geom::V3 = camera::sky(up);
+    failures = failures + verdict("sky straight up == (0.5, 0.7, 1.0)",
+        near(top.x, 0.5, 0.000000001) and near(top.y, 0.7, 0.000000001));
+    return failures;
+};
+
+// Depth zero gathers no light, and a black pixel writes as three zero bytes.
+fun[] check_depth_limit(): int = {
+    var world: vec[geom::Sphere] = scene();
+    var forward: geom::Ray = { orig = geom::zero(), dir = geom::v3(0.0, 0.0, -1.0) };
+    var traced: camera::Traced = camera::ray_color(forward, 0, world, 12345);
+    return verdict("depth 0 returns black",
+        (traced.color.x == 0.0) and (traced.color.y == 0.0) and (traced.color.z == 0.0));
+};
+
+// Rendered pixels. Per-pixel seeding makes these stable, so three of them are
+// pinned: sky at the top-left corner, the ball at the centre, and the ground
+// near the bottom.
+fun[] check_pixels(): int = {
+    var failures: int = 0;
+    var cam: camera::Camera = configured();
+    var world: vec[geom::Sphere] = scene();
+
+    var corner: str = camera::color_text(camera::pixel_color(cam, world, 0, 0));
+    var middle: str = camera::color_text(camera::pixel_color(cam, world, 20, 10));
+    var below: str = camera::color_text(camera::pixel_color(cam, world, 20, 18));
+    std::io::write_err("  pixel (0,0)   = " + corner + "\n");
+    std::io::write_err("  pixel (20,10) = " + middle + "\n");
+    std::io::write_err("  pixel (20,18) = " + below + "\n");
+
+    failures = failures + verdict("pixel (0,0) is sky", .eq(corner, "206 227 255"));
+    failures = failures + verdict("pixel (20,10) is the ball", .eq(middle, "130 143 160"));
+    failures = failures + verdict("pixel (20,18) is the ground", .eq(below, "116 129 147"));
+
+    // The corner is a pure sky sample: no bounce, so it must reproduce the
+    // closed-form gradient for its own ray direction regardless of jitter.
+    var corner_ray: camera::RandRay = camera::get_ray(cam, 0, 0, nums::seed_at(0, 0));
+    failures = failures + verdict("corner sample takes the sky path",
+        geom::hit_world(world, corner_ray.value, 0.001, nums::far()).struck == false);
+    failures = failures + verdict("the ball is darker than the sky above it",
+        camera::pixel_color(cam, world, 20, 10).x < camera::pixel_color(cam, world, 20, 0).x);
+    return failures;
+};
+
+fun[] main(): int = {
+    var cam: camera::Camera = configured();
+    camera::render(cam, scene());
+
+    std::io::write_err("\nself-checks\n");
+    var failures: int = 0;
+    failures = failures + check_root();
+    failures = failures + check_numerics();
+    failures = failures + check_geometry();
+    failures = failures + check_sky();
+    failures = failures + check_depth_limit();
+    failures = failures + check_pixels();
+
+    when(failures == 0) {
+        case(true) {
+            std::io::write_err("all checks passed\n");
+            return 0;
+        }
+        * {
+            std::io::write_err(std::fmt::int_to_str(failures) + " checks failed\n");
+            return 1;
+        }
+    }
+};

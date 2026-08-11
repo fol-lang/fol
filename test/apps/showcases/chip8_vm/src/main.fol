@@ -1,0 +1,313 @@
+// ORIGINAL
+//   CHIP-8 interpreter, in the shape that Laurence Muller's tutorial
+//   "How to write an emulator (CHIP-8 interpreter)" established and that
+//   James Griffin's C++ port implements almost line for line.
+//     https://github.com/JamesGriffin/CHIP-8-Emulator  (src/chip8.cpp)
+//     https://multigesture.net/articles/how-to-write-an-emulator-chip-8-interpreter/
+//
+//   The design carried over unchanged: 4096 bytes of RAM with programs loaded
+//   at 0x200 and the hex font at 0x000, 16 eight-bit V registers with VF as the
+//   flag register, a 12-bit I register, a 16-level call stack with its own
+//   stack pointer, delay and sound timers, a 64x32 monochrome framebuffer held
+//   as 2048 one-bit cells, 16 keys, and an `emulate_cycle` that fetches a
+//   two-byte big-endian opcode, dispatches on its high nibble through nested
+//   switches, and decrements both timers on the way out.
+//
+// DEVIATIONS
+//
+// 1. NO BITWISE OPERATORS. FOL has no `&`, `|`, `<<` or `>>`; `^` means
+//    exponentiation and `xor` is boolean-only. 8XY1, 8XY2 and 8XY3 are
+//    therefore assembled bit by bit in `bits`: bit k of v is `(v / 2^k) % 2`,
+//    and a result bit is set when the two source bits sum to >0 (OR), ==2
+//    (AND) or ==1 (XOR). DXYN's `pixel & (0x80 >> xline)` becomes
+//    `bit_at(pattern, 7 - col)` and its `gfx[i] ^= 1` becomes `1 - gfx[i]`.
+//    Shifts are `/ 2` and `* 2 % 256`; the masks `& 0xFF`, `& 0x0FFF` and the
+//    nibble extractions are moduli. The cost is a factor of eight on the three
+//    logic opcodes; the answers are identical.
+//
+// 2. RAM AND FRAMEBUFFER ARE NESTED, NOT FLAT. The original declares
+//    `unsigned char memory[4096]` and `unsigned char gfx[2048]`. FOL can spell
+//    those types but cannot produce a value of either. Three separate limits
+//    stack up: an array literal accepts at most 256 elements; an array declared
+//    without an initialiser passes `code check` and then fails codegen; and any
+//    array longer than 32 that reaches a record field fails codegen outright,
+//    because every record derives Rust's `Default` and Rust only implements it
+//    for arrays up to 32 (all three are in FINDINGS). So 4096 bytes are stored
+//    as `arr[Block, 4]` and 2048 framebuffer cells as `arr[Block, 2]`, where
+//    `Block` is `arr[Word, 32]` and `Word` is `arr[int, 32]`. The
+//    `mem`/`mem_set` and `pixel`/`pixel_set` accessors take a flat address and
+//    split it into block/word/cell, so every opcode below still sees one
+//    4096-byte space and one 2048-cell framebuffer.
+//
+// 3. WRITES COPY A 1024-CELL BLOCK. `self.ram[b][w][c] = value` is rejected: an
+//    indexed assignment may only reach one level deep. A write lifts the block
+//    and then the word into locals, replaces one cell, and stores both back.
+//    That turns an O(1) byte write into an O(1024) copy -- the one real
+//    asymptotic loss in this translation. The one-dimensional state (V, the
+//    stack, the key map) is 16 wide, so it keeps its direct `self.v[x] = value`
+//    form.
+//
+// 4. THREE SPELLINGS FORCED BY RECEIVER BORROW RULES.
+//    (a) A `[mut, bor]` receiver cannot call a `[bor]` receiver method on
+//        `self`, so `self.mem(a)` has to be written `([bor]self).mem(a)`.
+//    (b) A `[mut, bor]` self-method call whose ARGUMENT reads any field of
+//        `self` produces Rust that does not borrow-check, so
+//        `self.skip_when(self.v[x] == nn)` becomes two statements with the
+//        condition bound to a local first. The same applies to FX33 and FX55,
+//        which read `self.ireg` and `self.v[i]` while writing memory.
+//    (c) `self.v[bits::reg_x(op)] = nn` does not parse; the index has to be an
+//        identifier or a literal, so every register index is bound first.
+//    All three are compiler defects rather than design choices (see FINDINGS).
+//    Behaviour is unchanged; the noise is not.
+//
+// 5. NO ROM FILE, NO SDL, NO CLOCK. `load()` in the original opens a file and
+//    `main` drives an SDL window at 60 Hz. There is no ROM fixture and no
+//    graphics here, so the four ROMs are hand-assembled byte lists in `rom` and
+//    each machine runs a fixed cycle budget. Timers still tick once per
+//    executed instruction, exactly as the original does -- that is the C code's
+//    own behaviour, not a simplification.
+//
+// 6. CXNN USES AN LCG. The original calls `rand()` seeded from `time(NULL)`,
+//    which no self-check can predict. The seed lives in the machine and steps
+//    through `seed = (seed * 1103515245 + 12345) % 2^31`, taking bits 16..23.
+//    Same instruction shape, reproducible answer.
+//
+// 7. 8XY4's CARRY IS COMPUTED BEFORE THE ADD. Griffin's file adds first and
+//    then tests `V[y] > 0xFF - V[x]` against the already-wrapped V[x], which
+//    reports the wrong carry whenever the sum overflows. This follows Muller's
+//    original ordering (test, then add), which is what 8XY4 means. It is the
+//    only place where this translation knowingly departs from the C source's
+//    observable behaviour.
+//
+// 8. DXYN WRAPS INSTEAD OF RUNNING OFF THE END. The C code indexes
+//    `gfx[x + xline + (y + yline) * 64]` with no bound at all, which walks off
+//    the array for a sprite near the right or bottom edge. FOL faults on an
+//    out-of-range index, so both coordinates are taken modulo 64 and 32. The
+//    ROMs here stay in bounds, so no drawn pixel lands anywhere different.
+//    FX1E's `I += V[x]` is likewise reduced modulo 4096 after VF is set.
+//
+// 9. AN UNKNOWN OPCODE RECORDS A FAULT INSTEAD OF CALLING exit(3). The machine
+//    carries a `fault: str` that `run` checks before each cycle. There is no
+//    process-abort surface in FOL worth reaching for here, and a recorded fault
+//    is testable.
+//
+// 10. FX0A CANNOT BE EXERCISED. The original returns from `emulate_cycle`
+//    without advancing the PC when no key is down, so the host's event loop can
+//    deliver one. That is implemented, but with no input source a ROM that
+//    blocks on FX0A would simply spin, so no ROM here uses it.
+//
+// FINDINGS
+//   The compiler defects this translation ran into, each shrunk to a minimal
+//   program. All five pass `code check` or report the wrong thing; none of them
+//   is the program being wrong.
+//
+//   F1  A record with an `arr[T, N]` field where N > 32 checks clean and then
+//       fails codegen: record structs unconditionally derive Rust's `Default`,
+//       which arrays only implement up to N = 32. Caps every array in a record
+//       at 32 elements.
+//   F2  An array literal accepts at most 256 elements. Element 257 is reported
+//       as "Expected ';' to terminate statement".
+//   F3  `var[mut] cells: arr[int, 4096];` with no initialiser checks clean and
+//       fails codegen for the same `Default` reason (N <= 32 works and zeroes).
+//   F4  `self.field[index_expression] = value` does not parse when the index is
+//       anything but an identifier or a literal, even though the same
+//       expression is fine as an index on a local binding and fine in a read.
+//   F5  A `[mut, bor]` receiver cannot call a `[bor]` method on `self`
+//       (T1001), and a `[mut, bor]` self-method call whose argument reads a
+//       field of `self` emits Rust that fails to borrow-check (E0502).
+//   F6  `self.ram[b][c] = v` reports "could not resolve name 'ram'" instead of
+//       the clear "nested indexed assignment targets are not supported" that
+//       the same statement gets on a local binding.
+
+use std: pkg = {"std"};
+use bits: loc = {"bits"};
+use rom: loc = {"rom"};
+use view: loc = {"view"};
+use vm: loc = {"vm"};
+
+fun[] want_int(label: str, actual: int, wanted: int): int = {
+    when(actual == wanted) {
+        case(true) {
+            std::io::echo_str("  ok    " + label + " = " + std::fmt::int_to_str(actual));
+            return 0;
+        }
+        * { }
+    }
+    std::io::echo_str("  FAIL  " + label + " = " + std::fmt::int_to_str(actual)
+        + ", expected " + std::fmt::int_to_str(wanted));
+    return 1;
+};
+
+// The four logic opcodes are worth testing on their own, before any ROM runs,
+// because every other result in this program depends on them.
+fun[] check_bits(): int = {
+    var[mut] bad: int = 0;
+    std::io::echo_str(view::banner("bit kernel"));
+    bad = bad + want_int("0x05 or 0x03 ", bits::bit_or(0x05, 0x03), 0x07);
+    bad = bad + want_int("0x07 and 0x0C", bits::bit_and(0x07, 0x0C), 0x04);
+    bad = bad + want_int("0x04 xor 0x09", bits::bit_xor(0x04, 0x09), 0x0D);
+    bad = bad + want_int("0xFF xor 0xFF", bits::bit_xor(0xFF, 0xFF), 0x00);
+    bad = bad + want_int("0xF0 or  0x0F", bits::bit_or(0xF0, 0x0F), 0xFF);
+    bad = bad + want_int("shr 0x81     ", bits::shift_right(0x81), 0x40);
+    bad = bad + want_int("shl 0x81     ", bits::shift_left8(0x81), 0x02);
+    bad = bad + want_int("wrap 3 - 10  ", bits::wrap_byte(3 - 10), 249);
+    bad = bad + want_int("D123 group   ", bits::group(0xD123), 0xD);
+    bad = bad + want_int("D123 x       ", bits::reg_x(0xD123), 0x1);
+    bad = bad + want_int("D123 y       ", bits::reg_y(0xD123), 0x2);
+    bad = bad + want_int("D123 n       ", bits::nibble(0xD123), 0x3);
+    bad = bad + want_int("D123 nn      ", bits::byte_lo(0xD123), 0x23);
+    bad = bad + want_int("D123 nnn     ", bits::addr(0xD123), 0x123);
+    return bad;
+};
+
+pro[] show_state(machine: vm::Chip8): non = {
+    var[mut] slot: int = 0;
+    var[mut] dump: str = "";
+    loop (slot < 16) {
+        dump = dump + view::hex2(machine.v[slot]) + " ";
+        slot = slot + 1;
+    };
+    view::line("V0..VF", dump);
+    view::line("I     ", view::hex3(machine.ireg));
+    view::line("PC    ", view::hex3(machine.pc));
+    view::line("SP DT ", std::fmt::int_to_str(machine.sp) + " "
+        + std::fmt::int_to_str(machine.delay));
+    return;
+};
+
+// Prints the top `rows` scanlines of the framebuffer, 64 cells each.
+pro[] show_screen(machine: vm::Chip8, rows: int): non = {
+    var[mut] row: int = 0;
+    loop (row < rows) {
+        var[mut] text: str = "";
+        var[mut] col: int = 0;
+        loop (col < 64) {
+            text = text + view::cell(machine.pixel(row * 64 + col));
+            col = col + 1;
+        };
+        view::line(view::hex2(row), text);
+        row = row + 1;
+    };
+    return;
+};
+
+// ROM 1: every 8XY_ form. The interesting assertions are VA (three logic
+// opcodes chained), V0 (the wrapped 8XY4 sum) and VF (the last flag written).
+fun[] run_arith(): int = {
+    var[mut] bad: int = 0;
+    std::io::echo_str("");
+    std::io::echo_str(view::banner("rom 1: arithmetic and logic"));
+    var[mut] machine: vm::Chip8 = vm::boot();
+    machine.load(rom::arith());
+    machine.run(28);
+    show_state(machine);
+    bad = bad + want_int("VA = 05|03 &0C ^09", machine.v[0xA], 0x0D);
+    bad = bad + want_int("V0 = F0 + 20 wrap ", machine.v[0x0], 0x10);
+    bad = bad + want_int("VF = 8XY4 carry   ", machine.v[0xF], 1);
+    bad = bad + want_int("V2 = 0A - 03      ", machine.v[0x2], 0x07);
+    bad = bad + want_int("V4 = 09 - 02 SUBN ", machine.v[0x4], 0x07);
+    bad = bad + want_int("V6 = 81 >> 1      ", machine.v[0x6], 0x40);
+    bad = bad + want_int("V7 = 81 << 1      ", machine.v[0x7], 0x02);
+    bad = bad + want_int("V9 = after 5XY0   ", machine.v[0x9], 0x22);
+    bad = bad + want_int("VE = after 9XY0   ", machine.v[0xE], 0x22);
+    bad = bad + want_int("PC parked at 236  ", machine.pc, 0x236);
+    bad = bad + want_int("no fault          ", .len(machine.fault), 0);
+    return bad;
+};
+
+// ROM 2: two overlapping sprite draws, the collision flag, CALL/RET and BCD.
+fun[] run_draw(): int = {
+    var[mut] bad: int = 0;
+    std::io::echo_str("");
+    std::io::echo_str(view::banner("rom 2: sprites, collision, call"));
+    var[mut] machine: vm::Chip8 = vm::boot();
+    machine.load(rom::draw());
+    machine.run(20);
+    show_state(machine);
+    show_screen(machine, 2);
+    bad = bad + want_int("VF = DXYN collision", machine.v[0xF], 1);
+    bad = bad + want_int("pixel 00 kept      ", machine.pixel(0), 1);
+    bad = bad + want_int("pixel 03 kept      ", machine.pixel(3), 1);
+    bad = bad + want_int("pixel 04 erased    ", machine.pixel(4), 0);
+    bad = bad + want_int("pixel 07 erased    ", machine.pixel(7), 0);
+    bad = bad + want_int("pixel 08 drawn     ", machine.pixel(8), 1);
+    bad = bad + want_int("pixel 11 drawn     ", machine.pixel(11), 1);
+    bad = bad + want_int("pixel 12 clear     ", machine.pixel(12), 0);
+    bad = bad + want_int("row 1 untouched    ", machine.pixel(64), 0);
+    bad = bad + want_int("lit cells          ", machine.lit_count(), 8);
+    bad = bad + want_int("VA from subroutine ", machine.v[0xA], 156);
+    bad = bad + want_int("BCD hundreds       ", machine.mem(0x300), 1);
+    bad = bad + want_int("BCD tens           ", machine.mem(0x301), 5);
+    bad = bad + want_int("BCD units          ", machine.mem(0x302), 6);
+    bad = bad + want_int("SP back to zero    ", machine.sp, 0);
+    bad = bad + want_int("PC parked at 20E   ", machine.pc, 0x20E);
+    return bad;
+};
+
+// ROM 3: FX55/FX65 block transfer, the delay timer, FX1E, FX29 and the
+// equality skips.
+fun[] run_store(): int = {
+    var[mut] bad: int = 0;
+    std::io::echo_str("");
+    std::io::echo_str(view::banner("rom 3: memory, timers, skips"));
+    var[mut] machine: vm::Chip8 = vm::boot();
+    machine.load(rom::store());
+    machine.run(20);
+    show_state(machine);
+    bad = bad + want_int("mem 400 <- V0     ", machine.mem(0x400), 1);
+    bad = bad + want_int("mem 401 <- V1     ", machine.mem(0x401), 2);
+    bad = bad + want_int("mem 402 <- V2     ", machine.mem(0x402), 3);
+    bad = bad + want_int("V2 reloaded       ", machine.v[0x2], 3);
+    bad = bad + want_int("V5 reloaded blank ", machine.v[0x5], 0);
+    bad = bad + want_int("V4 = delay after 1", machine.v[0x4], 9);
+    bad = bad + want_int("V8 after 3XNN skip", machine.v[0x8], 0xAA);
+    bad = bad + want_int("V9 after 4XNN stay", machine.v[0x9], 0xBB);
+    bad = bad + want_int("I = font glyph 3  ", machine.ireg, 15);
+    bad = bad + want_int("VF = FX1E no carry", machine.v[0xF], 0);
+    bad = bad + want_int("glyph 3 first byte", machine.mem(15), 0xF0);
+    bad = bad + want_int("PC parked at 228  ", machine.pc, 0x228);
+    return bad;
+};
+
+// ROM 4: BNNN, both key skips, CXNN and the screen clear.
+fun[] run_flow(): int = {
+    var[mut] bad: int = 0;
+    std::io::echo_str("");
+    std::io::echo_str(view::banner("rom 4: jumps, keys, random"));
+    var[mut] machine: vm::Chip8 = vm::boot();
+    machine.load(rom::flow());
+    machine.press(5);
+    machine.run(16);
+    show_state(machine);
+    bad = bad + want_int("V1 skipped by BNNN", machine.v[0x1], 0);
+    bad = bad + want_int("V2 skipped by BNNN", machine.v[0x2], 0);
+    bad = bad + want_int("V3 landed after   ", machine.v[0x3], 0x33);
+    bad = bad + want_int("V4 skipped EX9E   ", machine.v[0x4], 0);
+    bad = bad + want_int("V5 ran after EX9E ", machine.v[0x5], 0x55);
+    bad = bad + want_int("V6 skipped EXA1   ", machine.v[0x6], 0);
+    bad = bad + want_int("V7 ran after EXA1 ", machine.v[0x7], 0x77);
+    bad = bad + want_int("V8 = CXNN & 0F    ", machine.v[0x8], 6);
+    bad = bad + want_int("00E0 cleared all  ", machine.lit_count(), 0);
+    bad = bad + want_int("PC parked at 220  ", machine.pc, 0x220);
+    return bad;
+};
+
+fun[] main(): int = {
+    var[mut] bad: int = 0;
+    bad = bad + check_bits();
+    bad = bad + run_arith();
+    bad = bad + run_draw();
+    bad = bad + run_store();
+    bad = bad + run_flow();
+
+    std::io::echo_str("");
+    when(bad) {
+        is(0) {
+            std::io::echo_str("all checks passed");
+            return 0;
+        }
+        * { }
+    }
+    std::io::echo_str("failed checks: " + std::fmt::int_to_str(bad));
+    return 1;
+};

@@ -1,0 +1,113 @@
+// Diffuse materials, expressed as a FOL standard.
+//
+// The book presents two diffuse scatter laws in the same chapter: reject-sample
+// a direction in the hemisphere around the normal, or add a random unit vector
+// to the normal (true Lambertian). Each is a conformer of `surface` here, and
+// `scatter_of` is the one constrained generic every scatter goes through.
+
+use geom: loc = {"../geom"};
+use nums: loc = {"../nums"};
+
+// A random vector draw: the vector plus the advanced generator state. The
+// generator is threaded as a value because a free routine cannot take a
+// mutable parameter.
+typ[exp] RandV3: rec = {
+    state: int,
+    value: geom::V3,
+};
+
+// The result of one scatter: the bounced direction, the reflectance the
+// original spells as the literal 0.5, and the generator state.
+typ[exp] Scatter: rec = {
+    dir: geom::V3,
+    albedo: flt,
+    state: int,
+};
+
+std[exp] surface: pro = {
+    fun scatter(record: geom::Hit, state: int): Scatter;
+};
+
+typ[exp] Lambert()(surface): rec = {
+    albedo: flt,
+};
+
+typ[exp] Hemisphere()(surface): rec = {
+    albedo: flt,
+};
+
+// vec3::random(-1,1).
+fun[exp] random_in_cube(state: int): RandV3 = {
+    var rx: nums::Rand = nums::next_between(state, -1.0, 1.0);
+    var ry: nums::Rand = nums::next_between(rx.state, -1.0, 1.0);
+    var rz: nums::Rand = nums::next_between(ry.state, -1.0, 1.0);
+    return { state = rz.state, value = geom::v3(rx.value, ry.value, rz.value) };
+};
+
+// random_unit_vector: reject cube samples outside the unit ball, then
+// normalise. The original loops `while (true)`; this one gives up after
+// sixteen tries and falls back to a fixed axis, because an unbounded retry
+// loop over a deterministic generator is a hang the compiler cannot warn about.
+fun[exp] random_unit(state: int): RandV3 = {
+    var live: int = state;
+    var tries: int = 0;
+    loop (tries < 16) {
+        var draw: RandV3 = random_in_cube(live);
+        live = draw.state;
+        var lensq: flt = geom::length_squared(draw.value);
+        when((lensq > 0.000001) and (lensq <= 1.0)) {
+            case(true) {
+                return { state = live, value = geom::shrink(draw.value, nums::root(lensq)) };
+            }
+            * { }
+        }
+        tries = tries + 1;
+    }
+    return { state = live, value = geom::v3(0.0, 1.0, 0.0) };
+};
+
+fun[exp] random_on_hemisphere(normal: geom::V3, state: int): RandV3 = {
+    var draw: RandV3 = random_unit(state);
+    when(geom::dot(draw.value, normal) > 0.0) {
+        case(true) { return draw; }
+        * { return { state = draw.state, value = geom::neg(draw.value) }; }
+    }
+};
+
+// The book's second, correct diffuse law: normal + random_unit_vector.
+fun[exp] (Lambert)scatter(record: geom::Hit, state: int): Scatter = {
+    var draw: RandV3 = random_unit(state);
+    return {
+        dir = geom::add(record.normal, draw.value),
+        albedo = self.albedo,
+        state = draw.state,
+    };
+};
+
+// The book's first, uniform-hemisphere law.
+fun[exp] (Hemisphere)scatter(record: geom::Hit, state: int): Scatter = {
+    var draw: RandV3 = random_on_hemisphere(record.normal, state);
+    return { dir = draw.value, albedo = self.albedo, state = draw.state };
+};
+
+// The constrained generic every material goes through; the constraint selects
+// each conformer's own `scatter` at monomorphisation.
+fun[exp] scatter_of(T: surface)(material: T, record: geom::Hit, state: int): Scatter = {
+    return material.scatter(record, state);
+};
+
+// Stands in for `shared_ptr<material>` on the hit record. Monomorphisation
+// needs the conformer type at the call site, so the tag is switched here and
+// each arm instantiates `scatter_of` at one concrete type.
+fun[exp] scatter_by_tag(tag: int, record: geom::Hit, state: int): Scatter = {
+    when(tag) {
+        case(1) {
+            var uniform: Hemisphere = { albedo = 0.5 };
+            return scatter_of(uniform, record, state);
+        }
+        * {
+            var lambert: Lambert = { albedo = 0.5 };
+            return scatter_of(lambert, record, state);
+        }
+    }
+};

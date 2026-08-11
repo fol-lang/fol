@@ -1,0 +1,358 @@
+// The conformance corpus.
+//
+// Every expectation in this file was produced by compiling the real jsmn.h
+// (with `JSMN_STRICT` and `JSMN_PARENT_LINKS` defined, the same configuration
+// this port implements) against a driver that prints `jsmn_parse`'s return
+// value, the parser's final `pos` and `toknext`, and every token as
+// `kind start end size parent`. Nothing here was derived from the FOL port, so
+// a disagreement is a port bug, not a restated tautology.
+//
+// `want` is jsmn's single `int` return channel: a token count when it is not
+// negative, otherwise NOMEM/-1, INVAL/-2 or PART/-3.
+//
+// Two entries deserve a note, because they look like bugs and are not.
+//
+// `trailing_comma_arr` and `trailing_comma_obj` are ACCEPTED. The brief for
+// this port listed a trailing comma among the malformed inputs jsmn rejects,
+// but the C source does not reject it in either mode: after a comma the parser
+// only re-points `toksuper`, and the following `]` or `}` closes the container
+// normally. Mimicry beats the brief, so the port accepts them too and pins the
+// exact token counts the C build printed.
+//
+// `dry_mismatched_close` returns 3 rather than INVAL. In the sizing pass the
+// closing-bracket arm returns immediately, so no structural checking happens at
+// all -- jsmn's null-token pass counts, it does not validate.
+//
+// The corpus is split across three routines only because an `arr[T, N]` with N
+// above 32 passes `folc code check` and then fails to build.
+
+typ[exp] Case: rec = {
+    var name: str;
+    var json: str;
+    var cap: int;
+    var dry: bol;
+    var want: int;
+    var want_pos: int;
+    var want_next: int;
+    var want_dump: str;
+};
+
+fun[exp] parse_count(): int = {
+    return 28;
+};
+
+fun[exp] nesting_count(): int = {
+    return 7;
+};
+
+fun[exp] sizing_count(): int = {
+    return 6;
+};
+
+// Well-formed documents first, then one fixture for each way jsmn refuses.
+fun[exp] parse_corpus(): arr[Case, 28] = {
+    return {
+        {
+            name = "flat_object",
+            json = "{\"a\":1,\"b\":\"x\"}",
+            cap = 32, dry = false,
+            want = 5, want_pos = 15, want_next = 5,
+            want_dump = "object 0 15 2 -1;string 2 3 1 0;primitive 5 6 0 1;string 8 9 1 0;string 12 13 0 3",
+        },
+        {
+            name = "nested",
+            json = "{\"user\":{\"id\":42,\"tags\":[\"a\",\"b\"]},\"ok\":true}",
+            cap = 32, dry = false,
+            want = 11, want_pos = 45, want_next = 11,
+            want_dump = "object 0 45 2 -1;string 2 6 1 0;object 8 34 2 1;string 10 12 1 2;primitive 14 16 0 3;string 18 22 1 2;array 24 33 2 5;string 26 27 0 6;string 30 31 0 6;string 36 38 1 0;primitive 40 44 0 9",
+        },
+        {
+            name = "numbers",
+            json = "[1, 22, -3]",
+            cap = 32, dry = false,
+            want = 4, want_pos = 11, want_next = 4,
+            want_dump = "array 0 11 3 -1;primitive 1 2 0 0;primitive 4 6 0 0;primitive 8 10 0 0",
+        },
+        {
+            name = "escapes",
+            json = "[\"a\\\"b\",\"c\\\\d\",\"e\\u00E9f\"]",
+            cap = 32, dry = false,
+            want = 4, want_pos = 26, want_next = 4,
+            want_dump = "array 0 26 3 -1;string 2 6 0 0;string 9 13 0 0;string 16 24 0 0",
+        },
+        {
+            name = "escape_all",
+            json = "[\"\\b\\f\\n\\r\\t\\/\"]",
+            cap = 32, dry = false,
+            want = 2, want_pos = 16, want_next = 2,
+            want_dump = "array 0 16 1 -1;string 2 14 0 0",
+        },
+        {
+            name = "literals",
+            json = "[true,false,null]",
+            cap = 32, dry = false,
+            want = 4, want_pos = 17, want_next = 4,
+            want_dump = "array 0 17 3 -1;primitive 1 5 0 0;primitive 6 11 0 0;primitive 12 16 0 0",
+        },
+        {
+            name = "empty_object",
+            json = "{}",
+            cap = 32, dry = false,
+            want = 1, want_pos = 2, want_next = 1,
+            want_dump = "object 0 2 0 -1",
+        },
+        {
+            name = "empty_array",
+            json = "[]",
+            cap = 32, dry = false,
+            want = 1, want_pos = 2, want_next = 1,
+            want_dump = "array 0 2 0 -1",
+        },
+        {
+            name = "deep_array",
+            json = "[[[1]]]",
+            cap = 32, dry = false,
+            want = 4, want_pos = 7, want_next = 4,
+            want_dump = "array 0 7 1 -1;array 1 6 1 0;array 2 5 1 1;primitive 3 4 0 2",
+        },
+        {
+            name = "trailing_comma_arr",
+            json = "[1,2,]",
+            cap = 32, dry = false,
+            want = 3, want_pos = 6, want_next = 3,
+            want_dump = "array 0 6 2 -1;primitive 1 2 0 0;primitive 3 4 0 0",
+        },
+        {
+            name = "trailing_comma_obj",
+            json = "{\"a\":1,}",
+            cap = 32, dry = false,
+            want = 3, want_pos = 8, want_next = 3,
+            want_dump = "object 0 8 1 -1;string 2 3 1 0;primitive 5 6 0 1",
+        },
+        {
+            name = "whitespace",
+            json = " \t\r\n[ 1 ]\n",
+            cap = 32, dry = false,
+            want = 2, want_pos = 10, want_next = 2,
+            want_dump = "array 4 9 1 -1;primitive 6 7 0 0",
+        },
+        {
+            name = "string_top",
+            json = "\"hi\"",
+            cap = 32, dry = false,
+            want = 1, want_pos = 4, want_next = 1,
+            want_dump = "string 1 3 0 -1",
+        },
+        {
+            name = "unterminated_string",
+            json = "[\"abc]",
+            cap = 32, dry = false,
+            want = 0 - 3, want_pos = 1, want_next = 1,
+            want_dump = "",
+        },
+        {
+            name = "bare_garbage",
+            json = "garbage",
+            cap = 32, dry = false,
+            want = 0 - 2, want_pos = 0, want_next = 0,
+            want_dump = "",
+        },
+        {
+            name = "truncated_object",
+            json = "{\"a\":",
+            cap = 32, dry = false,
+            want = 0 - 3, want_pos = 5, want_next = 2,
+            want_dump = "",
+        },
+        {
+            name = "truncated_array",
+            json = "[1,2",
+            cap = 32, dry = false,
+            want = 0 - 3, want_pos = 3, want_next = 2,
+            want_dump = "",
+        },
+        {
+            name = "mismatched_close",
+            json = "[1,2}",
+            cap = 32, dry = false,
+            want = 0 - 2, want_pos = 4, want_next = 3,
+            want_dump = "",
+        },
+        {
+            name = "object_key_object",
+            json = "{{}}",
+            cap = 32, dry = false,
+            want = 0 - 2, want_pos = 1, want_next = 2,
+            want_dump = "",
+        },
+        {
+            name = "object_key_number",
+            json = "{1:2}",
+            cap = 32, dry = false,
+            want = 0 - 2, want_pos = 1, want_next = 1,
+            want_dump = "",
+        },
+        {
+            name = "value_after_value",
+            json = "{\"a\":1 2}",
+            cap = 32, dry = false,
+            want = 0 - 2, want_pos = 7, want_next = 3,
+            want_dump = "",
+        },
+        {
+            name = "bad_escape",
+            json = "[\"a\\qb\"]",
+            cap = 32, dry = false,
+            want = 0 - 2, want_pos = 1, want_next = 1,
+            want_dump = "",
+        },
+        {
+            name = "bad_hex",
+            json = "[\"a\\u00zzb\"]",
+            cap = 32, dry = false,
+            want = 0 - 2, want_pos = 1, want_next = 1,
+            want_dump = "",
+        },
+        {
+            name = "lone_close",
+            json = "]",
+            cap = 32, dry = false,
+            want = 0 - 2, want_pos = 0, want_next = 0,
+            want_dump = "",
+        },
+        {
+            name = "primitive_top",
+            json = "42",
+            cap = 32, dry = false,
+            want = 0 - 3, want_pos = 0, want_next = 0,
+            want_dump = "",
+        },
+        {
+            name = "stray_hash",
+            json = "[#]",
+            cap = 32, dry = false,
+            want = 0 - 2, want_pos = 1, want_next = 1,
+            want_dump = "",
+        },
+        {
+            name = "nomem_small",
+            json = "[1,2,3,4]",
+            cap = 3, dry = false,
+            want = 0 - 1, want_pos = 5, want_next = 3,
+            want_dump = "",
+        },
+        {
+            name = "nomem_one",
+            json = "{\"a\":1}",
+            cap = 1, dry = false,
+            want = 0 - 1, want_pos = 1, want_next = 1,
+            want_dump = "",
+        },
+    };
+};
+
+// The parent-link walk and the comma/`toksuper` dance are the two subtlest
+// parts of jsmn, so these fixtures make containers close out of order, nest
+// objects inside arrays inside objects, and close one bracket too many.
+fun[exp] nesting_corpus(): arr[Case, 7] = {
+    return {
+        {
+            name = "mixed_nesting",
+            json = "{\"a\":{\"b\":[1,{\"c\":2}]},\"d\":[[]]}",
+            cap = 32, dry = false,
+            want = 12, want_pos = 32, want_next = 12,
+            want_dump = "object 0 32 2 -1;string 2 3 1 0;object 5 22 1 1;string 7 8 1 2;array 10 21 2 3;primitive 11 12 0 4;object 13 20 1 4;string 15 16 1 6;primitive 18 19 0 7;string 24 25 1 0;array 27 31 1 9;array 28 30 0 10",
+        },
+        {
+            name = "array_mixed",
+            json = "[\"a\",{\"b\":\"c\"},[true]]",
+            cap = 32, dry = false,
+            want = 7, want_pos = 22, want_next = 7,
+            want_dump = "array 0 22 3 -1;string 2 3 0 0;object 5 14 1 0;string 7 8 1 2;string 11 12 0 3;array 15 21 1 0;primitive 16 20 0 5",
+        },
+        {
+            name = "two_siblings",
+            json = "{\"a\":[1,2],\"b\":{\"c\":3}}",
+            cap = 32, dry = false,
+            want = 9, want_pos = 23, want_next = 9,
+            want_dump = "object 0 23 2 -1;string 2 3 1 0;array 5 10 2 1;primitive 6 7 0 2;primitive 8 9 0 2;string 12 13 1 0;object 15 22 1 5;string 17 18 1 6;primitive 20 21 0 7",
+        },
+        {
+            name = "empty_members",
+            json = "[{},{}]",
+            cap = 32, dry = false,
+            want = 3, want_pos = 7, want_next = 3,
+            want_dump = "array 0 7 2 -1;object 1 3 0 0;object 4 6 0 0",
+        },
+        {
+            name = "all_strings",
+            json = "{\"a\":\"b\",\"c\":\"d\"}",
+            cap = 32, dry = false,
+            want = 5, want_pos = 17, want_next = 5,
+            want_dump = "object 0 17 2 -1;string 2 3 1 0;string 6 7 0 1;string 10 11 1 0;string 14 15 0 3",
+        },
+        {
+            name = "extra_close",
+            json = "[1]}",
+            cap = 32, dry = false,
+            want = 0 - 2, want_pos = 3, want_next = 2,
+            want_dump = "",
+        },
+        {
+            name = "close_after_done",
+            json = "{}}",
+            cap = 32, dry = false,
+            want = 0 - 2, want_pos = 2, want_next = 1,
+            want_dump = "",
+        },
+    };
+};
+
+// jsmn's null-token sizing pass. It counts and it validates strings and
+// primitives; it does not validate structure.
+fun[exp] sizing_corpus(): arr[Case, 6] = {
+    return {
+        {
+            name = "dry_flat_object",
+            json = "{\"a\":1,\"b\":\"x\"}",
+            cap = 0, dry = true,
+            want = 5, want_pos = 15, want_next = 0,
+            want_dump = "",
+        },
+        {
+            name = "dry_nested",
+            json = "{\"user\":{\"id\":42,\"tags\":[\"a\",\"b\"]},\"ok\":true}",
+            cap = 0, dry = true,
+            want = 11, want_pos = 45, want_next = 0,
+            want_dump = "",
+        },
+        {
+            name = "dry_deep_array",
+            json = "[[[1]]]",
+            cap = 0, dry = true,
+            want = 4, want_pos = 7, want_next = 0,
+            want_dump = "",
+        },
+        {
+            name = "dry_bad_escape",
+            json = "[\"a\\qb\"]",
+            cap = 0, dry = true,
+            want = 0 - 2, want_pos = 1, want_next = 0,
+            want_dump = "",
+        },
+        {
+            name = "dry_mismatched_close",
+            json = "[1,2}",
+            cap = 0, dry = true,
+            want = 3, want_pos = 5, want_next = 0,
+            want_dump = "",
+        },
+        {
+            name = "dry_truncated_array",
+            json = "[1,2",
+            cap = 0, dry = true,
+            want = 0 - 3, want_pos = 3, want_next = 0,
+            want_dump = "",
+        },
+    };
+};

@@ -1,0 +1,243 @@
+// regex-engine -- a port of tiny-regex-c.
+//
+// Original program: tiny-regex-c by kokke (Unlicense / public domain),
+//   https://github.com/kokke/tiny-regex-c  --  re.c, re.h, tests/test1.c
+//
+// The original is a ~500 line C module implementing the subset
+// `. ^ $ * + ? [abc] [^abc] [a-z] \d \D \w \W \s \S`. Its shape is two phases:
+// `re_compile` turns a pattern into a fixed array of `regex_t {type, ch|ccl}`
+// objects backed by two `static` buffers, and `re_matchp` walks that array with
+// a backtracking matcher split across `matchpattern`, `matchstar`, `matchplus`,
+// `matchquestion` and `matchone`. Both phases are carried over here intact,
+// function for function, including the quirks its own test table pins down.
+//
+// Fidelity was checked by building the real thing: `re.c` compiled with gcc
+// agrees with this port on match index and match length for every case printed
+// below, and the original's own `tests/test1.c` table (76 rows, reproduced in
+// `src/vectors`) is replayed here with the same pass criteria the C driver uses.
+//
+// ============================ DEVIATIONS ============================
+//
+// 1. `union { unsigned char ch; unsigned char* ccl; }` -> parallel columns.
+//    FOL has no untagged union, and no way for a record field to point into a
+//    sibling field. The node array therefore becomes three `arr[int, 30]`
+//    columns (`kind`, `ch`, `ccl`) inside one `Program` record rather than an
+//    array of node records. Cost: the "exactly one of these two fields is live"
+//    invariant that the union made structural is now only a convention, and
+//    every read goes through an accessor.
+//
+// 2. `unsigned char* ccl` -> an integer index into a shared class buffer.
+//    Forced twice over: no interior pointers, no pointer arithmetic. This is
+//    not cosmetic. `matchcharclass` reads `str[-1]` to decide whether a literal
+//    '-' sits at the edge of a class, so a per-node owned copy of the class
+//    bytes would silently give a different answer. The shared buffer and the
+//    offsets into it are kept exactly as the original has them, including that
+//    slot 0 is never written so the first class still finds a NUL behind it.
+//
+// 3. `int* matchlength` out-parameter -> a returned `Res {hit, len}` record.
+//    A free FOL routine cannot take `[mut, bor]`; only a receiver can. Making
+//    the length a receiver field would be wrong -- it is per-attempt state, not
+//    per-pattern state -- so it is returned instead. The translation is only
+//    sound because of an invariant the C code maintains by hand and never
+//    states: every routine restores `*matchlength` before returning failure.
+//    Re-deriving that invariant was the largest single piece of work in the
+//    port. FOL forced it into the open, which is a real if uncomfortable win.
+//
+// 4. `static regex_t re_compiled[30]` -> a fresh owned `Program` per compile.
+//    FOL has no function-local `static`, and returning a pointer into one is
+//    unspellable. The port returns an owned value. This is the one place the
+//    port is better than the original: two compiled patterns can be alive at
+//    once, whereas in C the second `re_compile` invalidates the first. It
+//    changes one observable -- a pattern ending in a lone `\` leaves a slot
+//    unwritten, which in C keeps stale bytes from the previous compile and here
+//    reads as the UNUSED sentinel.
+//
+// 5. Pointer walks -> index pairs. `regex_t* pattern` becomes `pi`,
+//    `&pattern[2]` becomes `pi + 2`, `const char* text` becomes `(text, ti)`.
+//    Cheap in itself, but it drags in deviation 6.
+//
+// 6. NUL-terminated strings -> length-carrying strings. C reads `pattern[i]`
+//    and `text[0]` one past the end as a matter of course and gets the
+//    terminator; FOL strings have no terminator and `byte_at` past the end
+//    faults. Every such read goes through `nodes::byte_or_nul`, and every
+//    `while (*p++ != '\0')` becomes an explicit read-advance-test tail. The C
+//    idiom is denser; the FOL one is the only one that can be bounds-checked.
+//
+// 7. `matchrange` reads two bytes past the class it was handed, always. On a
+//    class ending flush against `MAX_CHAR_CLASS_LEN` those reads leave the
+//    static array -- C shrugs, a FOL index faults. The buffer is declared four
+//    slots longer than the limit the compiler enforces, so the reads land on
+//    permanent zeros: the value a bigger zeroed static would have given.
+//    Behaviour preserved, undefined behaviour removed.
+//
+// 8. `<ctype.h>` -> hand-written code-point ranges. There is no `ctype`, and
+//    more to the point no `chr`-to-`int` conversion in either direction, so
+//    characters are never characters here -- they are the `int` that `byte_at`
+//    returns, start to finish. `isspace` had to be pinned to the C locale set
+//    (space plus the contiguous \t \n \v \f \r run) rather than guessed.
+//
+// 9. `enum` with implicit numbering -> `ent` with every value spelled out, plus
+//    one accessor routine per member. An `ent` member only takes its member
+//    type when it initialises an annotated binding, so `when ... is` arms
+//    cannot name `Kind.STAR` directly. Sixteen one-line accessors is the tax.
+//
+// 10. `unsigned char ccl_buf[40]` -> `vec[int]`, not the `arr[int, 44]` it
+//     should be. An `arr` of more than 32 elements passes `check` and then
+//     fails to build: the emitted Rust asks a fixed-size array for `Default`,
+//     which std stops implementing at 32. The `vec` is fixed-length in every
+//     sense that matters here -- filled once, never grown -- but the size has
+//     left the type, so the one bound the original cares most about is no
+//     longer checked by anything. The 30-element node columns stayed `arr`
+//     because they fit under the ceiling. Reported as a defect.
+//
+// 11. Two shapes had to be avoided to keep `fol tool format` from rewriting
+//     this package into structurally wrong indentation. Both are reported as
+//     defects, and both are workarounds for the tool rather than the language.
+//     (a) `dump` cannot be handed a bare "[abc" literal, so the
+//     unterminated-class demo trims a balanced one instead: the formatter
+//     counts `[` and `(` inside string literals as structural, so an unbalanced
+//     opener re-indents everything after it, compounding per opener.
+//     (b) `re_compile`'s loop head is one over-long line, because splitting a
+//     `loop` condition across lines makes the formatter indent the body an
+//     extra level and then leak that indentation past the closing brace, so the
+//     routines that follow read as if nested inside it.
+//
+// 12. Growable containers are absent, and it cost nothing. Both of the
+//     original's buffers are fixed-size by design -- that fixed size *is* the
+//     module's selling point -- so an `arr` was a closer fit than a `vec` would
+//     have been, and indexed element assignment into a local made the compile
+//     pass a direct transcription rather than a rewrite.
+//
+// 13. Mutual recursion between `matchpattern` and the three quantifier helpers
+//     is deep and needed no ceremony at all: no trampolining, no arena, no
+//     hand-rolled stack. Easier than expected, and worth recording as such.
+//
+// Not deviations, but worth stating: the original's documented-broken `|`
+// alternation (`BRANCH`) is commented out in re.c and is absent here too, so
+// `"0|"` matches a literal `0|` in both. And `re_matchp` reporting -1 for a
+// match that only succeeds at the very end of the subject is the original's
+// behaviour, not a port artefact -- test row 4, `\S` against whitespace, exists
+// to pin exactly that.
+//
+// ====================================================================
+
+use std: pkg = {"std"};
+use engine: loc = {"engine"};
+use compile: loc = {"compile"};
+use vectors: loc = {"vectors"};
+
+fun[] main(): int = {
+    std::io::echo_str("== compiled node arrays ==");
+    dump("\\d\\d?:\\d\\d?");
+    dump("^[Hh]ello [Ww]orld\\s*[!]?$");
+    dump("[^a-f\\s-]+");
+
+    std::io::echo_str("");
+    std::io::echo_str("== refusals ==");
+    dump(unterminated_class());
+    dump("[0123456789012345678901234567890123456789]");
+    dump("[^]");
+
+    std::io::echo_str("");
+    std::io::echo_str("== searches ==");
+    probe("[0-9]+", "order 66 issued");
+    probe("\\w+jsj$", "%JxLLcVx8wxrjsj");
+    probe("^a*$", "aaaa");
+    probe("z+", "no zeds here");
+    probe("[^a-f\\s-]+", "xyz-abc");
+    probe("[Hh]ello [Ww]orld\\s*[!]?", "Hello world  !");
+
+    std::io::echo_str("");
+    std::io::echo_str("== original test vectors ==");
+    var failures: int = sweep();
+
+    std::io::echo_str("");
+    std::io::echo_str("checks: " + std::fmt::int_to_str(.len(vectors::table()))
+        + "  failures: " + std::fmt::int_to_str(failures));
+
+    when(failures == 0) {
+        case(true) { std::io::echo_str("all vectors agree with tiny-regex-c"); }
+        * { std::io::echo_str("PORT DISAGREES WITH THE ORIGINAL"); }
+    };
+
+    when(failures == 0) {
+        case(true) { return 0; }
+        * { return 1; }
+    }
+};
+
+// A class with no closing bracket, built by trimming a balanced literal. See
+// deviation 11: spelling it directly would re-indent everything after it.
+fun unterminated_class(): str = {
+    return std::strn::sub("[abc]", 0, 4);
+};
+
+// `re_print` on a freshly compiled pattern.
+pro dump(pattern: str): non = {
+    var program: engine::Program = compile::compile(pattern);
+    std::io::echo_str("  /" + visible(pattern) + "/");
+    std::io::write([bor]program.show());
+    return;
+};
+
+pro probe(pattern: str, text: str): non = {
+    var found: engine::Found = compile::search(pattern, text);
+    std::io::write("  /" + visible(pattern) + "/ on \"" + visible(text) + "\"  ->  ");
+    when(found.index < 0) {
+        case(true) { std::io::echo_str("no match"); }
+        * {
+            std::io::echo_str("index " + std::fmt::int_to_str(found.index)
+                + ", length " + std::fmt::int_to_str(found.len));
+        }
+    };
+    return;
+};
+
+// The C driver's loop: a NOK row is only checked for the refusal, an OK row for
+// both the hit and the length.
+fun sweep(): int = {
+    var rows: seq[vectors::Case] = vectors::table();
+    ~var index: int = 0;
+    ~var failures: int = 0;
+
+    loop(index < .len(rows)) {
+        var row: vectors::Case = rows[index];
+        var found: engine::Found = compile::search(row.pattern, row.text);
+        var matched: bol = found.index >= 0;
+
+        ~var bad: bol = false;
+        when(row.want) {
+            case(true) { bad = .not(matched) or (found.len != row.len); }
+            * { bad = matched; }
+        };
+
+        when(bad) {
+            case(true) {
+                failures = failures + 1;
+                std::io::echo_str("  [" + std::fmt::int_to_str(index + 1) + "] FAIL  /"
+                    + visible(row.pattern) + "/  on \"" + visible(row.text) + "\"");
+                std::io::echo_str("        wanted " + verdict(row.want, row.len)
+                    + ", got " + verdict(matched, found.len));
+            }
+            * { }
+        };
+
+        index = index + 1;
+    };
+    return failures;
+};
+
+fun verdict(matched: bol, len: int): str = {
+    when(matched) {
+        case(true) { return "match of " + std::fmt::int_to_str(len); }
+        * { return "no match"; }
+    }
+};
+
+// Patterns and subjects carry raw control bytes; print them the way the C
+// source spells them so the output stays on one line.
+fun visible(text: str): str = {
+    var no_cr: str = std::strn::replace(text, "\r", "\\r");
+    var no_lf: str = std::strn::replace(no_cr, "\n", "\\n");
+    return std::strn::replace(no_lf, "\t", "\\t");
+};

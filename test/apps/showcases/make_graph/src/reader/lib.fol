@@ -1,0 +1,206 @@
+use std: pkg = {"std"};
+
+// reader.c: the text layer.
+//
+// The original works on a mutable `char *` and advances it in place --
+// `gettok(&p)` writes a NUL over the separator and returns the word start.
+// FOL has no writable character buffer and no pointer arithmetic, so every
+// scanner here is an offset-returning pure function over an immutable `str`
+// and the caller keeps the cursor. `str_byte` answers -1 past the end, which
+// is what lets the loops below test the byte rather than the bound.
+
+fun[exp] tab_code(): int = {
+    return 9;
+};
+
+fun[exp] is_space(code: int): bol = {
+    return (code == 32) or (code == 9) or (code == 10) or (code == 13);
+};
+
+fun[exp] trim(text: str): str = {
+    var[mut] from: int = 0;
+    var last: int = .len(text);
+    loop(from < last) {
+        when(is_space(std::strn::byte_at(text, from))) {
+            case(true) { from = from + 1; }
+            * { break; }
+        }
+    };
+    var[mut] until: int = last;
+    loop(until > from) {
+        when(is_space(std::strn::byte_at(text, until - 1))) {
+            case(true) { until = until - 1; }
+            * { break; }
+        }
+    };
+    return std::strn::sub(text, from, until - from);
+};
+
+fun[exp] starts_with(text: str, prefix: str): bol = {
+    when(.len(prefix) > .len(text)) {
+        case(true) { return false; }
+        * { }
+    };
+    return std::strn::sub(text, 0, .len(prefix)) == prefix;
+};
+
+// gettok, in offset form: the index just past the word that starts at `from`
+// once leading blanks are skipped. Callers pair it with `word_start`.
+fun[exp] word_start(text: str, from: int): int = {
+    var[mut] pos: int = from;
+    loop(pos < .len(text)) {
+        when(is_space(std::strn::byte_at(text, pos))) {
+            case(true) { pos = pos + 1; }
+            * { break; }
+        }
+    };
+    return pos;
+};
+
+fun[exp] word_end(text: str, from: int): int = {
+    var[mut] pos: int = from;
+    loop(pos < .len(text)) {
+        when(is_space(std::strn::byte_at(text, pos))) {
+            case(true) { break; }
+            * { pos = pos + 1; }
+        }
+    };
+    return pos;
+};
+
+fun[exp] word_count(text: str): int = {
+    var[mut] pos: int = 0;
+    var[mut] seen: int = 0;
+    loop(pos < .len(text)) {
+        var from: int = word_start(text, pos);
+        when(from >= .len(text)) {
+            case(true) { break; }
+            * { }
+        };
+        pos = word_end(text, from);
+        seen = seen + 1;
+    };
+    return seen;
+};
+
+fun[exp] word_at(text: str, index: int): str = {
+    var[mut] pos: int = 0;
+    var[mut] seen: int = 0;
+    loop(pos < .len(text)) {
+        var from: int = word_start(text, pos);
+        when(from >= .len(text)) {
+            case(true) { break; }
+            * { }
+        };
+        pos = word_end(text, from);
+        when(seen == index) {
+            case(true) { return std::strn::sub(text, from, pos - from); }
+            * { }
+        };
+        seen = seen + 1;
+    };
+    return "";
+};
+
+fun[exp] line_count(text: str): int = {
+    when(.len(text) == 0) {
+        case(true) { return 0; }
+        * { }
+    };
+    var[mut] lines: int = 1;
+    var[mut] pos: int = 0;
+    loop(pos < .len(text)) {
+        when(std::strn::byte_at(text, pos) == 10) {
+            case(true) { lines = lines + 1; }
+            * { }
+        };
+        pos = pos + 1;
+    };
+    // A trailing newline closes the last line rather than opening a new one.
+    when(std::strn::byte_at(text, .len(text) - 1) == 10) {
+        case(true) { return lines - 1; }
+        * { }
+    };
+    return lines;
+};
+
+fun[exp] line_at(text: str, index: int): str = {
+    var[mut] pos: int = 0;
+    var[mut] seen: int = 0;
+    loop(pos <= .len(text)) {
+        var from: int = pos;
+        loop(pos < .len(text)) {
+            when(std::strn::byte_at(text, pos) == 10) {
+                case(true) { break; }
+                * { pos = pos + 1; }
+            }
+        };
+        when(seen == index) {
+            case(true) { return std::strn::sub(text, from, pos - from); }
+            * { }
+        };
+        seen = seen + 1;
+        pos = pos + 1;
+    };
+    return "";
+};
+
+// getline's continuation rule. The original overwrites the backslash with a
+// newline and drops the real newline, then docmds1 turns that embedded newline
+// back into a blank before handing the line to the shell -- so a plain blank
+// here is the same string the shell would have seen.
+fun[exp] splice(text: str): str = {
+    return std::strn::replace(text, "\\\n", " ");
+};
+
+// getline's comment rule, including the "leave command lines alone" carve-out
+// the original documents: a line that opens with a tab keeps its hashes unless
+// the first non-blank character is one.
+fun[exp] strip_comment(line: str): str = {
+    var opens_with_tab: bol = std::strn::byte_at(line, 0) == tab_code();
+    var body: str = trim(line);
+    var body_is_comment: bol = std::strn::byte_at(body, 0) == 35;
+    when(opens_with_tab and .not(body_is_comment)) {
+        case(true) { return line; }
+        * { }
+    };
+    var[mut] out: str = "";
+    var[mut] pos: int = 0;
+    loop(pos < .len(line)) {
+        var code: int = std::strn::byte_at(line, pos);
+        var escaped: bol = (code == 92) and (std::strn::byte_at(line, pos + 1) == 35);
+        when(escaped) {
+            case(true) {
+                out = out + "#";
+                pos = pos + 2;
+            }
+            * {
+                when(code == 35) {
+                    case(true) { return out; }
+                    * {
+                        out = out + std::strn::from_byte(code);
+                        pos = pos + 1;
+                    }
+                }
+            }
+        }
+    };
+    return out;
+};
+
+// modtime's replacement. `std::fs` exposes no mtime, so a name's "time" is a
+// stamp derived from its bytes. Zero is reserved for "no such file", so a real
+// file always stamps at 1 or above.
+fun[exp] stamp(text: str): int = {
+    when(.len(text) == 0) {
+        case(true) { return 0; }
+        * { }
+    };
+    var[mut] acc: int = 7;
+    var[mut] pos: int = 0;
+    loop(pos < .len(text)) {
+        acc = (acc * 31 + std::strn::byte_at(text, pos)) % 1000003;
+        pos = pos + 1;
+    };
+    return acc + 1;
+};

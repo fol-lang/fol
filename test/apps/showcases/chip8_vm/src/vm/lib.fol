@@ -1,0 +1,455 @@
+use bits: loc = {"../bits"};
+use rom: loc = {"../rom"};
+
+// The machine itself: 4096 bytes of RAM, 16 V registers, I, PC, a 16-level
+// call stack, two 60 Hz timers, a 64x32 monochrome framebuffer and 16 keys.
+//
+// RAM and the framebuffer are stored as a three-level nest of 32-wide arrays
+// rather than as one `arr[int, 4096]` and one `arr[int, 2048]`. No array that
+// reaches a record field may be longer than 32 elements (see FINDINGS), and an
+// array literal caps out at 256 elements besides, so 4096 bytes are spelled as
+// 4 blocks of 32 words of 32 cells and the 2048 framebuffer cells as 2 of the
+// same blocks. `mem`/`mem_set` and `pixel`/`pixel_set` hide the nesting, so
+// every instruction below still addresses one flat 4096-byte space and one
+// flat 2048-cell framebuffer exactly as the C original does.
+ali[exp] Word: arr[int, 32];
+ali[exp] Block: arr[Word, 32];
+
+typ[exp] Chip8: rec = {
+    ram: arr[Block, 4],
+    gfx: arr[Block, 2],
+    v: arr[int, 16],
+    stack: arr[int, 16],
+    key: arr[int, 16],
+    ireg: int,
+    pc: int,
+    sp: int,
+    delay: int,
+    sound: int,
+    redraw: bol,
+    seed: int,
+    fault: str,
+};
+
+fun blank_word(): Word = {
+    return {
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    };
+};
+
+fun blank_block(): Block = {
+    return {
+        blank_word(), blank_word(), blank_word(), blank_word(),
+        blank_word(), blank_word(), blank_word(), blank_word(),
+        blank_word(), blank_word(), blank_word(), blank_word(),
+        blank_word(), blank_word(), blank_word(), blank_word(),
+        blank_word(), blank_word(), blank_word(), blank_word(),
+        blank_word(), blank_word(), blank_word(), blank_word(),
+        blank_word(), blank_word(), blank_word(), blank_word(),
+        blank_word(), blank_word(), blank_word(), blank_word(),
+    };
+};
+
+// init() in the original: PC at 0x200, everything else cleared, then the font
+// copied into the low 80 bytes.
+fun[exp] boot(): Chip8 = {
+    var[mut] machine: Chip8 = {
+        ram = { blank_block(), blank_block(), blank_block(), blank_block() },
+        gfx = { blank_block(), blank_block() },
+        v = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+        stack = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+        key = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+        ireg = 0,
+        pc = 512,
+        sp = 0,
+        delay = 0,
+        sound = 0,
+        redraw = false,
+        seed = 1,
+        fault = "",
+    };
+    machine.install_font();
+    return machine;
+};
+
+// Flat byte addressing over the nested store.
+fun[exp] (Chip8[bor]) mem(address: int): int = {
+    return self.ram[address / 1024][(address % 1024) / 32][address % 32];
+};
+
+// A byte write has to walk back out: FOL rejects `self.ram[b][w][c] = value`
+// because an indexed assignment may only reach one level deep. The block and
+// the word are copied out, one cell is replaced, and both are stored back --
+// which turns an O(1) byte write into an O(1024) copy.
+pro[exp] (Chip8[mut, bor]) mem_set(address: int, value: int): non = {
+    var block: int = address / 1024;
+    var word: int = (address % 1024) / 32;
+    var[mut] page: Block = self.ram[block];
+    var[mut] cells: Word = page[word];
+    cells[address % 32] = value;
+    page[word] = cells;
+    self.ram[block] = page;
+    return;
+};
+
+// Flat framebuffer addressing: index = x + y * 64, as in the original.
+fun[exp] (Chip8[bor]) pixel(index: int): int = {
+    return self.gfx[index / 1024][(index % 1024) / 32][index % 32];
+};
+
+pro[exp] (Chip8[mut, bor]) pixel_set(index: int, value: int): non = {
+    var block: int = index / 1024;
+    var word: int = (index % 1024) / 32;
+    var[mut] page: Block = self.gfx[block];
+    var[mut] cells: Word = page[word];
+    cells[index % 32] = value;
+    page[word] = cells;
+    self.gfx[block] = page;
+    return;
+};
+
+pro[exp] (Chip8[mut, bor]) install_font(): non = {
+    var glyphs: vec[int] = rom::fontset();
+    var[mut] slot: int = 0;
+    loop (slot < .len(glyphs)) {
+        self.mem_set(slot, glyphs[slot]);
+        slot = slot + 1;
+    };
+    return;
+};
+
+// load() in the original, minus the file handling: a ROM starts at 0x200 and
+// may not run past the top of RAM.
+pro[exp] (Chip8[mut, bor]) load(program: vec[int]): non = {
+    when(.len(program) > 3584) {
+        case(true) {
+            self.fault = "rom too large for memory";
+            return;
+        }
+        * { }
+    }
+    var[mut] offset: int = 0;
+    loop (offset < .len(program)) {
+        self.mem_set(512 + offset, program[offset]);
+        offset = offset + 1;
+    };
+    return;
+};
+
+pro[exp] (Chip8[mut, bor]) press(code: int): non = {
+    self.key[code] = 1;
+    return;
+};
+
+// Fetch, decode, execute, then tick both timers -- the original decrements
+// them once per instruction rather than on a 60 Hz clock, and so does this.
+pro[exp] (Chip8[mut, bor]) cycle(): non = {
+    var op: int = ([bor]self).mem(self.pc) * 256 + ([bor]self).mem(self.pc + 1);
+    self.execute(op);
+    when(self.delay > 0) {
+        case(true) { self.delay = self.delay - 1; }
+        * { }
+    }
+    when(self.sound > 0) {
+        case(true) { self.sound = self.sound - 1; }
+        * { }
+    }
+    return;
+};
+
+pro[exp] (Chip8[mut, bor]) run(cycles: int): non = {
+    var[mut] done: int = 0;
+    loop (done < cycles) {
+        when(self.fault == "") {
+            case(true) { self.cycle(); }
+            * { return; }
+        }
+        done = done + 1;
+    };
+    return;
+};
+
+// The outer nibble switch. Sub-groups that share a leading nibble get their own
+// routine, mirroring the nested `switch` statements in the original.
+pro[exp] (Chip8[mut, bor]) execute(op: int): non = {
+    when(bits::group(op)) {
+        is(0x0) { self.op_system(op); }
+        is(0x1) { self.pc = bits::addr(op); }
+        is(0x2) {
+            var top: int = self.sp;
+            self.stack[top] = self.pc;
+            self.sp = self.sp + 1;
+            self.pc = bits::addr(op);
+        }
+        is(0x3) {
+            var same: bol = self.v[bits::reg_x(op)] == bits::byte_lo(op);
+            self.skip_when(same);
+        }
+        is(0x4) {
+            var differs: bol = self.v[bits::reg_x(op)] != bits::byte_lo(op);
+            self.skip_when(differs);
+        }
+        is(0x5) {
+            var same: bol = self.v[bits::reg_x(op)] == self.v[bits::reg_y(op)];
+            self.skip_when(same);
+        }
+        is(0x6) {
+            var slot: int = bits::reg_x(op);
+            self.v[slot] = bits::byte_lo(op);
+            self.pc = self.pc + 2;
+        }
+        is(0x7) {
+            var slot: int = bits::reg_x(op);
+            self.v[slot] = bits::wrap_byte(self.v[slot] + bits::byte_lo(op));
+            self.pc = self.pc + 2;
+        }
+        is(0x8) { self.op_alu(op); }
+        is(0x9) {
+            var differs: bol = self.v[bits::reg_x(op)] != self.v[bits::reg_y(op)];
+            self.skip_when(differs);
+        }
+        is(0xA) {
+            self.ireg = bits::addr(op);
+            self.pc = self.pc + 2;
+        }
+        is(0xB) { self.pc = bits::addr(op) + self.v[0]; }
+        is(0xC) { self.op_random(op); }
+        is(0xD) { self.op_draw(op); }
+        is(0xE) { self.op_key(op); }
+        * { self.op_misc(op); }
+    }
+    return;
+};
+
+// Every comparison opcode advances by four on a taken skip and two otherwise.
+pro (Chip8[mut, bor]) skip_when(taken: bol): non = {
+    when(taken) {
+        case(true) { self.pc = self.pc + 4; }
+        * { self.pc = self.pc + 2; }
+    }
+    return;
+};
+
+pro (Chip8[mut, bor]) op_system(op: int): non = {
+    when(bits::nibble(op)) {
+        is(0x0) {
+            var[mut] block: int = 0;
+            loop (block < 2) {
+                self.gfx[block] = blank_block();
+                block = block + 1;
+            };
+            self.redraw = true;
+            self.pc = self.pc + 2;
+        }
+        is(0xE) {
+            self.sp = self.sp - 1;
+            self.pc = self.stack[self.sp];
+            self.pc = self.pc + 2;
+        }
+        * { self.fault = "unknown opcode"; }
+    }
+    return;
+};
+
+// 8XY_. VF is written after VX in every carry-producing form, so an opcode
+// whose X is 15 clobbers its own result -- the original behaves the same way.
+pro (Chip8[mut, bor]) op_alu(op: int): non = {
+    var x: int = bits::reg_x(op);
+    var y: int = bits::reg_y(op);
+    when(bits::nibble(op)) {
+        is(0x0) { self.v[x] = self.v[y]; }
+        is(0x1) { self.v[x] = bits::bit_or(self.v[x], self.v[y]); }
+        is(0x2) { self.v[x] = bits::bit_and(self.v[x], self.v[y]); }
+        is(0x3) { self.v[x] = bits::bit_xor(self.v[x], self.v[y]); }
+        is(0x4) {
+            var[mut] carry: int = 0;
+            when(self.v[y] > 255 - self.v[x]) {
+                case(true) { carry = 1; }
+                * { }
+            }
+            self.v[x] = bits::wrap_byte(self.v[x] + self.v[y]);
+            self.v[15] = carry;
+        }
+        is(0x5) {
+            var[mut] borrow: int = 1;
+            when(self.v[y] > self.v[x]) {
+                case(true) { borrow = 0; }
+                * { }
+            }
+            self.v[x] = bits::wrap_byte(self.v[x] - self.v[y]);
+            self.v[15] = borrow;
+        }
+        is(0x6) {
+            var lost: int = bits::low_bit(self.v[x]);
+            self.v[x] = bits::shift_right(self.v[x]);
+            self.v[15] = lost;
+        }
+        is(0x7) {
+            var[mut] borrow: int = 1;
+            when(self.v[x] > self.v[y]) {
+                case(true) { borrow = 0; }
+                * { }
+            }
+            self.v[x] = bits::wrap_byte(self.v[y] - self.v[x]);
+            self.v[15] = borrow;
+        }
+        is(0xE) {
+            var lost: int = bits::top_bit(self.v[x]);
+            self.v[x] = bits::shift_left8(self.v[x]);
+            self.v[15] = lost;
+        }
+        * {
+            self.fault = "unknown opcode";
+            return;
+        }
+    }
+    self.pc = self.pc + 2;
+    return;
+};
+
+// CXNN. The original seeds C's `rand()` from the clock; a linear congruential
+// generator carried in the machine keeps the ROM's answer reproducible.
+pro (Chip8[mut, bor]) op_random(op: int): non = {
+    var slot: int = bits::reg_x(op);
+    self.seed = (self.seed * 1103515245 + 12345) % 2147483648;
+    self.v[slot] = bits::bit_and((self.seed / 65536) % 256, bits::byte_lo(op));
+    self.pc = self.pc + 2;
+    return;
+};
+
+// DXYN. Sprite rows are 8 pixels wide and are XORed onto the framebuffer; VF
+// reports whether any lit pixel was turned back off.
+pro (Chip8[mut, bor]) op_draw(op: int): non = {
+    var origin_x: int = self.v[bits::reg_x(op)];
+    var origin_y: int = self.v[bits::reg_y(op)];
+    var height: int = bits::nibble(op);
+    self.v[15] = 0;
+    var[mut] row: int = 0;
+    loop (row < height) {
+        var pattern: int = ([bor]self).mem(self.ireg + row);
+        var[mut] col: int = 0;
+        loop (col < 8) {
+            when(bits::bit_at(pattern, 7 - col) == 1) {
+                case(true) {
+                    var index: int = ((origin_x + col) % 64) + (((origin_y + row) % 32) * 64);
+                    var lit: int = ([bor]self).pixel(index);
+                    when(lit == 1) {
+                        case(true) { self.v[15] = 1; }
+                        * { }
+                    }
+                    self.pixel_set(index, 1 - lit);
+                }
+                * { }
+            }
+            col = col + 1;
+        };
+        row = row + 1;
+    };
+    self.redraw = true;
+    self.pc = self.pc + 2;
+    return;
+};
+
+pro (Chip8[mut, bor]) op_key(op: int): non = {
+    var held: int = self.key[self.v[bits::reg_x(op)]];
+    when(bits::byte_lo(op)) {
+        is(0x9E) { self.skip_when(held != 0); }
+        is(0xA1) { self.skip_when(held == 0); }
+        * { self.fault = "unknown opcode"; }
+    }
+    return;
+};
+
+pro (Chip8[mut, bor]) op_misc(op: int): non = {
+    var x: int = bits::reg_x(op);
+    when(bits::byte_lo(op)) {
+        is(0x07) {
+            self.v[x] = self.delay;
+            self.pc = self.pc + 2;
+        }
+        is(0x0A) { self.op_await_key(x); }
+        is(0x15) {
+            self.delay = self.v[x];
+            self.pc = self.pc + 2;
+        }
+        is(0x18) {
+            self.sound = self.v[x];
+            self.pc = self.pc + 2;
+        }
+        is(0x1E) {
+            when(self.ireg + self.v[x] > 4095) {
+                case(true) { self.v[15] = 1; }
+                * { self.v[15] = 0; }
+            }
+            self.ireg = (self.ireg + self.v[x]) % 4096;
+            self.pc = self.pc + 2;
+        }
+        is(0x29) {
+            self.ireg = self.v[x] * 5;
+            self.pc = self.pc + 2;
+        }
+        is(0x33) {
+            var target: int = self.ireg;
+            var value: int = self.v[x];
+            self.mem_set(target, value / 100);
+            self.mem_set(target + 1, (value / 10) % 10);
+            self.mem_set(target + 2, value % 10);
+            self.pc = self.pc + 2;
+        }
+        is(0x55) {
+            var[mut] slot: int = 0;
+            loop (slot <= x) {
+                var target: int = self.ireg + slot;
+                var value: int = self.v[slot];
+                self.mem_set(target, value);
+                slot = slot + 1;
+            };
+            self.ireg = self.ireg + x + 1;
+            self.pc = self.pc + 2;
+        }
+        is(0x65) {
+            var[mut] slot: int = 0;
+            loop (slot <= x) {
+                self.v[slot] = ([bor]self).mem(self.ireg + slot);
+                slot = slot + 1;
+            };
+            self.ireg = self.ireg + x + 1;
+            self.pc = self.pc + 2;
+        }
+        * { self.fault = "unknown opcode"; }
+    }
+    return;
+};
+
+// FX0A blocks: with no key down the PC is left alone so the same instruction
+// is fetched again next cycle. The last key found wins, as in the original.
+pro (Chip8[mut, bor]) op_await_key(x: int): non = {
+    var[mut] found: int = 0 - 1;
+    var[mut] slot: int = 0;
+    loop (slot < 16) {
+        when(self.key[slot] != 0) {
+            case(true) { found = slot; }
+            * { }
+        }
+        slot = slot + 1;
+    };
+    when(found < 0) {
+        case(true) { return; }
+        * { }
+    }
+    self.v[x] = found;
+    self.pc = self.pc + 2;
+    return;
+};
+
+// How many framebuffer cells are lit -- the cheapest whole-screen assertion.
+fun[exp] (Chip8[bor]) lit_count(): int = {
+    var[mut] total: int = 0;
+    var[mut] index: int = 0;
+    loop (index < 2048) {
+        total = total + ([bor]self).pixel(index);
+        index = index + 1;
+    };
+    return total;
+};

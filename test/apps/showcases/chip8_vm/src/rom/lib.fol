@@ -1,0 +1,138 @@
+// The 80-byte font set and four hand-assembled ROMs.
+//
+// The original reads a ROM off disk; there is no fixture file here, so each
+// program is a byte list written the way an assembler listing would print it,
+// with the disassembly in the comment beside every word. Every ROM ends in a
+// self-jump, which is how a CHIP-8 program idles: the fixed cycle budget in
+// `main` simply spins on that instruction once the interesting work is done.
+
+// The standard hexadecimal glyphs, 5 bytes each, loaded at address 0. FX29
+// points I at glyph V[x] by multiplying by 5.
+fun[exp] fontset(): vec[int] = {
+    return {
+        0xF0, 0x90, 0x90, 0x90, 0xF0,
+        0x20, 0x60, 0x20, 0x20, 0x70,
+        0xF0, 0x10, 0xF0, 0x80, 0xF0,
+        0xF0, 0x10, 0xF0, 0x10, 0xF0,
+        0x90, 0x90, 0xF0, 0x10, 0x10,
+        0xF0, 0x80, 0xF0, 0x10, 0xF0,
+        0xF0, 0x80, 0xF0, 0x90, 0xF0,
+        0xF0, 0x10, 0x20, 0x40, 0x40,
+        0xF0, 0x90, 0xF0, 0x90, 0xF0,
+        0xF0, 0x90, 0xF0, 0x10, 0xF0,
+        0xF0, 0x90, 0xF0, 0x90, 0x90,
+        0xE0, 0x90, 0xE0, 0x90, 0xE0,
+        0xF0, 0x80, 0x80, 0x80, 0xF0,
+        0xE0, 0x90, 0x90, 0x90, 0xE0,
+        0xF0, 0x80, 0xF0, 0x80, 0xF0,
+        0xF0, 0x80, 0xF0, 0x80, 0x80,
+    };
+};
+
+// ROM 1 -- every 8XY_ arithmetic and logic form, plus the 5XY0/9XY0 skips.
+fun[exp] arith(): vec[int] = {
+    return {
+        0x6A, 0x05,   // 200  LD   VA, 05
+        0x6B, 0x03,   // 202  LD   VB, 03
+        0x8A, 0xB1,   // 204  OR   VA, VB      -> 05|03 = 07
+        0x6C, 0x0C,   // 206  LD   VC, 0C
+        0x8A, 0xC2,   // 208  AND  VA, VC      -> 07&0C = 04
+        0x6D, 0x09,   // 20A  LD   VD, 09
+        0x8A, 0xD3,   // 20C  XOR  VA, VD      -> 04^09 = 0D
+        0x60, 0xF0,   // 20E  LD   V0, F0
+        0x61, 0x20,   // 210  LD   V1, 20
+        0x80, 0x14,   // 212  ADD  V0, V1      -> 10 with VF = 1 (carry)
+        0x62, 0x0A,   // 214  LD   V2, 0A
+        0x63, 0x03,   // 216  LD   V3, 03
+        0x82, 0x35,   // 218  SUB  V2, V3      -> 07 with VF = 1 (no borrow)
+        0x64, 0x02,   // 21A  LD   V4, 02
+        0x65, 0x09,   // 21C  LD   V5, 09
+        0x84, 0x57,   // 21E  SUBN V4, V5      -> 07 with VF = 1
+        0x66, 0x81,   // 220  LD   V6, 81
+        0x86, 0x06,   // 222  SHR  V6          -> 40 with VF = 1
+        0x67, 0x81,   // 224  LD   V7, 81
+        0x87, 0x0E,   // 226  SHL  V7          -> 02 with VF = 1
+        0x88, 0xA0,   // 228  LD   V8, VA
+        0x58, 0xA0,   // 22A  SE   V8, VA      -> equal, skip
+        0x69, 0x11,   // 22C  LD   V9, 11      (skipped)
+        0x69, 0x22,   // 22E  LD   V9, 22
+        0x99, 0x80,   // 230  SNE  V9, V8      -> differ, skip
+        0x6E, 0x11,   // 232  LD   VE, 11      (skipped)
+        0x6E, 0x22,   // 234  LD   VE, 22
+        0x12, 0x36,   // 236  JP   236         (idle)
+    };
+};
+
+// ROM 2 -- sprite drawing, the DXYN collision flag, CALL/RET and FX33 BCD.
+fun[exp] draw(): vec[int] = {
+    return {
+        0xA2, 0x20,   // 200  LD   I, 220      (sprite row FF)
+        0x60, 0x00,   // 202  LD   V0, 00
+        0x61, 0x00,   // 204  LD   V1, 00
+        0xD0, 0x11,   // 206  DRW  V0, V1, 1   -> pixels 0..7 lit, VF = 0
+        0x60, 0x04,   // 208  LD   V0, 04
+        0xD0, 0x11,   // 20A  DRW  V0, V1, 1   -> 4..7 erased, VF = 1
+        0x22, 0x14,   // 20C  CALL 214
+        0x12, 0x0E,   // 20E  JP   20E         (idle)
+        0x00, 0x00,   // 210  (padding)
+        0x00, 0x00,   // 212  (padding)
+        0x6A, 0x9C,   // 214  LD   VA, 9C      = 156
+        0xA3, 0x00,   // 216  LD   I, 300
+        0xFA, 0x33,   // 218  LD   B, VA       -> 300..302 = 1, 5, 6
+        0x00, 0xEE,   // 21A  RET
+        0x00, 0x00,   // 21C  (padding)
+        0x00, 0x00,   // 21E  (padding)
+        0xFF, 0x00,   // 220  sprite data: one full row
+    };
+};
+
+// ROM 3 -- register/memory transfer, the delay timer, ANNN/FX1E/FX29 and the
+// 3XNN / 4XNN comparisons.
+fun[exp] store(): vec[int] = {
+    return {
+        0x60, 0x01,   // 200  LD   V0, 01
+        0x61, 0x02,   // 202  LD   V1, 02
+        0x62, 0x03,   // 204  LD   V2, 03
+        0xA4, 0x00,   // 206  LD   I, 400
+        0xF2, 0x55,   // 208  LD   [I], V2     -> 400..402 = 1, 2, 3; I = 403
+        0xA4, 0x00,   // 20A  LD   I, 400
+        0xF5, 0x65,   // 20C  LD   V5, [I]     -> V0..V5 reloaded; I = 406
+        0x63, 0x0A,   // 20E  LD   V3, 0A
+        0xF3, 0x15,   // 210  LD   DT, V3      -> delay = 10, ticks to 9
+        0xF4, 0x07,   // 212  LD   V4, DT      -> V4 = 9
+        0x66, 0x07,   // 214  LD   V6, 07
+        0xA0, 0x10,   // 216  LD   I, 010
+        0xF6, 0x1E,   // 218  ADD  I, V6       -> I = 017, VF = 0
+        0x67, 0x03,   // 21A  LD   V7, 03
+        0xF7, 0x29,   // 21C  LD   F, V7       -> I = 15, glyph "3"
+        0x30, 0x01,   // 21E  SE   V0, 01      -> equal, skip
+        0x12, 0x24,   // 220  JP   224         (skipped)
+        0x68, 0xAA,   // 222  LD   V8, AA
+        0x40, 0x01,   // 224  SNE  V0, 01      -> equal, no skip
+        0x69, 0xBB,   // 226  LD   V9, BB
+        0x12, 0x28,   // 228  JP   228         (idle)
+    };
+};
+
+// ROM 4 -- BNNN indexed jump, both key skips, CXNN and 00E0.
+fun[exp] flow(): vec[int] = {
+    return {
+        0x60, 0x02,   // 200  LD   V0, 02
+        0xB2, 0x08,   // 202  JP   V0, 208     -> lands on 20A
+        0x61, 0x11,   // 204  LD   V1, 11      (skipped)
+        0x00, 0x00,   // 206  (padding)
+        0x62, 0x22,   // 208  LD   V2, 22      (skipped)
+        0x63, 0x33,   // 20A  LD   V3, 33
+        0x6A, 0x05,   // 20C  LD   VA, 05
+        0xEA, 0x9E,   // 20E  SKP  VA          -> key 5 held, skip
+        0x64, 0x44,   // 210  LD   V4, 44      (skipped)
+        0x65, 0x55,   // 212  LD   V5, 55
+        0x6B, 0x07,   // 214  LD   VB, 07
+        0xEB, 0xA1,   // 216  SKNP VB          -> key 7 idle, skip
+        0x66, 0x66,   // 218  LD   V6, 66      (skipped)
+        0x67, 0x77,   // 21A  LD   V7, 77
+        0xC8, 0x0F,   // 21C  RND  V8, 0F
+        0x00, 0xE0,   // 21E  CLS
+        0x12, 0x20,   // 220  JP   220         (idle)
+    };
+};

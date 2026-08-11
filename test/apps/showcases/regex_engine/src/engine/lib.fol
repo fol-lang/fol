@@ -1,0 +1,428 @@
+// The compiled program and the backtracking matcher that walks it.
+//
+// The original is pointer-driven throughout: `regex_t*` walks the node array,
+// `const char*` walks the subject, and `int* matchlength` is an out-parameter
+// that every routine both reads and writes. None of those three survive
+// unchanged in FOL, so:
+//
+//   * a `regex_t*` becomes an index `pi` into the node arrays of `Program`,
+//     and `&pattern[2]` becomes the integer `pi + 2`;
+//   * a `const char*` becomes the pair `(text, ti)`;
+//   * the out-parameter becomes the second field of the returned `Res`.
+//
+// The last of the three is the only one with an observable subtlety. In C,
+// `matchlength` survives a failed sub-match only because every failing routine
+// deliberately restores it to the value it had on entry. That invariant is what
+// makes the value-returning form below equivalent: on `hit = false` every
+// routine here returns the length it was handed.
+
+use std: pkg = {"std"};
+use nodes: loc = {"../nodes"};
+
+// The compiled pattern: `struct regex_t re_compiled[30]` plus the shared class
+// buffer, flattened into parallel arrays.
+//
+// The original's `union { unsigned char ch; unsigned char* ccl; }` cannot be
+// expressed: FOL has no untagged union, and a node cannot hold a pointer into
+// a sibling field. `ch` and `ccl` are therefore separate columns, and `ccl`
+// holds an *index* into `buf` rather than an address. That index arithmetic is
+// load-bearing rather than cosmetic -- `matchcharclass` reads `str[-1]`, so a
+// class must know where it sits inside the shared buffer, not merely what its
+// own bytes are.
+//
+// `buf` is a `vec[int]` rather than the `arr[int, 44]` it wants to be: an `arr`
+// of more than 32 elements passes `check` and then fails to build, because the
+// emitted Rust asks a fixed-size array for `Default` and std stops implementing
+// it at 32. The `vec` is fixed-length here in every sense that matters -- it is
+// filled once and never grows -- but the size is no longer in the type.
+typ[exp] Program: rec = {
+    kind: arr[int, 30],
+    ch: arr[int, 30],
+    ccl: arr[int, 30],
+    buf: vec[int],
+    ok: bol,
+};
+
+// One sub-match outcome: `len` is the original's `*matchlength` after the call.
+typ[exp] Res: rec = {
+    hit: bol,
+    len: int,
+};
+
+// What `re_match` reports: the offset the match starts at, or -1.
+typ[exp] Found: rec = {
+    index: int,
+    len: int,
+};
+
+fun[exp] no_match(): Found = {
+    return { index = 0 - 1, len = 0 };
+};
+
+// Reads that the original performs by pointer, bounded here. `kind_at` answering
+// UNUSED past the end mirrors the sentinel the compiler always writes, and lets
+// `pi + 1` be read without a bounds dance at every branch.
+fun[exp] (Program[bor]) kind_at(index: int): int = {
+    when((index < 0) or (index >= nodes::max_objects())) {
+        case(true) { return nodes::k_unused(); }
+        * { }
+    };
+    return self.kind[index];
+};
+
+fun[exp] (Program[bor]) ch_at(index: int): int = {
+    when((index < 0) or (index >= nodes::max_objects())) {
+        case(true) { return nodes::c_nul(); }
+        * { }
+    };
+    return self.ch[index];
+};
+
+fun[exp] (Program[bor]) ccl_at(index: int): int = {
+    when((index < 0) or (index >= nodes::max_objects())) {
+        case(true) { return 0; }
+        * { }
+    };
+    return self.ccl[index];
+};
+
+fun[exp] (Program[bor]) buf_at(index: int): int = {
+    when((index < 0) or (index >= nodes::buf_len())) {
+        case(true) { return nodes::c_nul(); }
+        * { }
+    };
+    return self.buf[index];
+};
+
+// `matchrange`: the three-byte `a-z` window starting at `at`.
+fun (Program[bor]) match_range(code: int, at_index: int): bol = {
+    var low: int = [bor]self.buf_at(at_index);
+    var dash: int = [bor]self.buf_at(at_index + 1);
+    var high: int = [bor]self.buf_at(at_index + 2);
+    return (code != nodes::c_dash())
+    and (low != nodes::c_nul())
+    and (low != nodes::c_dash())
+    and (dash == nodes::c_dash())
+    and (high != nodes::c_nul())
+    and (code >= low)
+    and (code <= high);
+};
+
+// `matchmetachar`: the letter after a backslash, wherever it sits.
+fun (Program[bor]) match_meta(code: int, at_index: int): bol = {
+    var letter: int = [bor]self.buf_at(at_index);
+    when(letter) {
+        is(100) { return nodes::is_digit(code); }
+        is(68) { return .not(nodes::is_digit(code)); }
+        is(119) { return nodes::is_alnum(code); }
+        is(87) { return .not(nodes::is_alnum(code)); }
+        is(115) { return nodes::is_space(code); }
+        is(83) { return .not(nodes::is_space(code)); }
+        * { return code == letter; }
+    }
+};
+
+// `matchcharclass`. The walk is a `do ... while (*str++ != '\0')`, so the
+// terminator is inspected once before the loop gives up; the shape below keeps
+// that, with the terminator test at the bottom.
+//
+// The `str[-1]` read in the '-' case is why classes are addressed as offsets
+// into one shared buffer: slot 0 of that buffer is never written, so the first
+// class in a pattern still finds a NUL behind itself, exactly as the C static
+// array does.
+fun (Program[bor]) match_class(code: int, start: int): bol = {
+    ~var cursor: int = start;
+    loop(cursor < nodes::buf_len() + 8) {
+        when([bor]self.match_range(code, cursor)) {
+            case(true) { return true; }
+            * { }
+        };
+
+        var here: int = [bor]self.buf_at(cursor);
+        when(here == nodes::c_backslash()) {
+            case(true) {
+                cursor = cursor + 1;
+                when([bor]self.match_meta(code, cursor)) {
+                    case(true) { return true; }
+                    * { }
+                };
+                var escaped: bol = (code == [bor]self.buf_at(cursor))
+                and .not(nodes::is_meta(code));
+                when(escaped) {
+                    case(true) { return true; }
+                    * { }
+                };
+            }
+            * {
+                when(code == here) {
+                    case(true) {
+                        when(code == nodes::c_dash()) {
+                            case(true) {
+                                return ([bor]self.buf_at(cursor - 1) == nodes::c_nul())
+                                or ([bor]self.buf_at(cursor + 1) == nodes::c_nul());
+                            }
+                            * { return true; }
+                        };
+                    }
+                    * { }
+                };
+            }
+        };
+
+        var seen: int = [bor]self.buf_at(cursor);
+        cursor = cursor + 1;
+        when(seen == nodes::c_nul()) {
+            case(true) { return false; }
+            * { }
+        };
+    };
+    return false;
+};
+
+// `matchone`: does the single node at `pi` accept this byte?
+fun (Program[bor]) match_one(pi: int, code: int): bol = {
+    var kind: int = [bor]self.kind_at(pi);
+    when(kind) {
+        is(nodes::k_dot()) { return nodes::is_dot(code); }
+        is(nodes::k_class()) { return [bor]self.match_class(code, [bor]self.ccl_at(pi)); }
+        is(nodes::k_inv_class()) { return .not([bor]self.match_class(code, [bor]self.ccl_at(pi))); }
+        is(nodes::k_digit()) { return nodes::is_digit(code); }
+        is(nodes::k_not_digit()) { return .not(nodes::is_digit(code)); }
+        is(nodes::k_alpha()) { return nodes::is_alnum(code); }
+        is(nodes::k_not_alpha()) { return .not(nodes::is_alnum(code)); }
+        is(nodes::k_white()) { return nodes::is_space(code); }
+        is(nodes::k_not_white()) { return .not(nodes::is_space(code)); }
+        * { return [bor]self.ch_at(pi) == code; }
+    }
+};
+
+// `matchstar`: consume greedily, then give bytes back one at a time and retry
+// the rest of the pattern. The retry loop runs down to and *including* the
+// starting offset, which is what makes `*` accept zero repetitions.
+fun (Program[bor]) match_star(pi: int, rest: int, text: str, from: int, len: int): Res = {
+    var prelen: int = len;
+    var prepoint: int = from;
+    var stop: int = .len(text);
+    ~var cursor: int = from;
+    ~var taken: int = len;
+
+    loop((cursor < stop) and [bor]self.match_one(pi, nodes::byte_or_nul(text, cursor))) {
+        cursor = cursor + 1;
+        taken = taken + 1;
+    };
+
+    loop(cursor >= prepoint) {
+        var tail: Res = [bor]self.match_pattern(rest, text, cursor, taken);
+        when(tail.hit) {
+            case(true) { return tail; }
+            * { }
+        };
+        cursor = cursor - 1;
+        taken = taken - 1;
+    };
+
+    return { hit = false, len = prelen };
+};
+
+// `matchplus`: identical, except the retry loop stops one short so at least one
+// repetition is kept. It needs no explicit length reset: the give-backs exactly
+// undo the take-ups.
+fun (Program[bor]) match_plus(pi: int, rest: int, text: str, from: int, len: int): Res = {
+    var prepoint: int = from;
+    var stop: int = .len(text);
+    ~var cursor: int = from;
+    ~var taken: int = len;
+
+    loop((cursor < stop) and [bor]self.match_one(pi, nodes::byte_or_nul(text, cursor))) {
+        cursor = cursor + 1;
+        taken = taken + 1;
+    };
+
+    loop(cursor > prepoint) {
+        var tail: Res = [bor]self.match_pattern(rest, text, cursor, taken);
+        when(tail.hit) {
+            case(true) { return tail; }
+            * { }
+        };
+        cursor = cursor - 1;
+        taken = taken - 1;
+    };
+
+    return { hit = false, len = taken };
+};
+
+// `matchquestion`: try the empty branch first, hence "non-greedy".
+fun (Program[bor]) match_question(pi: int, rest: int, text: str, from: int, len: int): Res = {
+    when([bor]self.kind_at(pi) == nodes::k_unused()) {
+        case(true) { return { hit = true, len = len }; }
+        * { }
+    };
+
+    var skipped: Res = [bor]self.match_pattern(rest, text, from, len);
+    when(skipped.hit) {
+        case(true) { return skipped; }
+        * { }
+    };
+
+    var stop: int = .len(text);
+    var consumable: bol = (from < stop)
+    and [bor]self.match_one(pi, nodes::byte_or_nul(text, from));
+    when(consumable) {
+        case(true) {
+            var tail: Res = [bor]self.match_pattern(rest, text, from + 1, len);
+            when(tail.hit) {
+                case(true) { return { hit = true, len = tail.len + 1 }; }
+                * { }
+            };
+        }
+        * { }
+    };
+
+    return { hit = false, len = len };
+};
+
+// `matchpattern`, iterative form. The literal run is a loop rather than a
+// recursion; only the quantifiers recurse, and they recurse back into here.
+//
+// `pi + 1` is read on every turn. That is safe for the same reason it is safe
+// in C -- the compiler never fills the final slot, so a UNUSED sentinel is
+// always in range -- but `kind_at` clamps anyway, because the FOL cost of being
+// wrong is a fault rather than a stale byte.
+fun[exp] (Program[bor]) match_pattern(start: int, text: str, from: int, len: int): Res = {
+    var prelen: int = len;
+    var stop: int = .len(text);
+    ~var pi: int = start;
+    ~var cursor: int = from;
+    ~var taken: int = len;
+
+    loop(true) {
+        var head: int = [bor]self.kind_at(pi);
+        var next: int = [bor]self.kind_at(pi + 1);
+
+        when((head == nodes::k_unused()) or (next == nodes::k_question())) {
+            case(true) { return [bor]self.match_question(pi, pi + 2, text, cursor, taken); }
+            * { }
+        };
+        when(next == nodes::k_star()) {
+            case(true) { return [bor]self.match_star(pi, pi + 2, text, cursor, taken); }
+            * { }
+        };
+        when(next == nodes::k_plus()) {
+            case(true) { return [bor]self.match_plus(pi, pi + 2, text, cursor, taken); }
+            * { }
+        };
+        when((head == nodes::k_finish()) and (next == nodes::k_unused())) {
+            case(true) { return { hit = (cursor >= stop), len = taken }; }
+            * { }
+        };
+
+        taken = taken + 1;
+
+        var advanced: bol = (cursor < stop)
+        and [bor]self.match_one(pi, nodes::byte_or_nul(text, cursor));
+        when(advanced) {
+            case(true) { }
+            * { break; }
+        };
+        pi = pi + 1;
+        cursor = cursor + 1;
+    };
+
+    return { hit = false, len = prelen };
+};
+
+// `re_matchp`: anchored patterns are tried once, everything else slides the
+// start offset along the subject.
+//
+// The `cursor >= stop` guard inside the hit arm is the original's
+// `if (text[0] == '\0') return -1;` -- a pattern that succeeds only at the very
+// end of the subject reports no match at all, which is why `\S` against
+// whitespace is a documented NOK rather than a zero-length hit.
+fun[exp] (Program[bor]) find(text: str): Found = {
+    when(self.ok) {
+        case(true) { }
+        * { return no_match(); }
+    };
+
+    when([bor]self.kind_at(0) == nodes::k_begin()) {
+        case(true) {
+            var anchored: Res = [bor]self.match_pattern(1, text, 0, 0);
+            when(anchored.hit) {
+                case(true) { return { index = 0, len = anchored.len }; }
+                * { return no_match(); }
+            }
+        }
+        * { }
+    };
+
+    var stop: int = .len(text);
+    ~var cursor: int = 0;
+    loop(true) {
+        var here: Res = [bor]self.match_pattern(0, text, cursor, 0);
+        when(here.hit) {
+            case(true) {
+                when(cursor >= stop) {
+                    case(true) { return no_match(); }
+                    * { }
+                };
+                return { index = cursor, len = here.len };
+            }
+            * { }
+        };
+        when(cursor >= stop) {
+            case(true) { break; }
+            * { }
+        };
+        cursor = cursor + 1;
+    };
+    return no_match();
+};
+
+// `re_print`: the compiled node list, one line per node. Kept because the
+// original's own test driver dumps it whenever a case disagrees, and because it
+// is the only window onto what the class buffer ended up holding.
+fun[exp] (Program[bor]) show(): str = {
+    when(self.ok) {
+        case(true) { }
+        * { return "    <rejected pattern>\n"; }
+    };
+
+    ~var out: str = "";
+    ~var index: int = 0;
+    loop(index < nodes::max_objects()) {
+        var kind: int = [bor]self.kind_at(index);
+        when(kind == nodes::k_unused()) {
+            case(true) { break; }
+            * { }
+        };
+
+        out = out + "    " + nodes::kind_name(kind);
+        when((kind == nodes::k_class()) or (kind == nodes::k_inv_class())) {
+            case(true) { out = out + " [" + [bor]self.class_text(index) + "]"; }
+            * { }
+        };
+        when(kind == nodes::k_char()) {
+            case(true) { out = out + " '" + std::strn::from_byte([bor]self.ch_at(index)) + "'"; }
+            * { }
+        };
+        out = out + "\n";
+        index = index + 1;
+    };
+    return out;
+};
+
+// The bytes of one class, stopping where the original's printer stops.
+fun (Program[bor]) class_text(index: int): str = {
+    ~var out: str = "";
+    ~var cursor: int = [bor]self.ccl_at(index);
+    loop(cursor < nodes::buf_len()) {
+        var code: int = [bor]self.buf_at(cursor);
+        when((code == nodes::c_nul()) or (code == nodes::c_close_bracket())) {
+            case(true) { break; }
+            * { }
+        };
+        out = out + std::strn::from_byte(code);
+        cursor = cursor + 1;
+    };
+    return out;
+};

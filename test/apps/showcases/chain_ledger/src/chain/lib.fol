@@ -1,0 +1,198 @@
+use std: pkg = {"std"};
+
+// naivechain keeps its chain in a JavaScript array that grows on demand. FOL
+// containers cannot grow, so the chain is a fixed-capacity array plus a live
+// count; `append` writes one slot and bumps the count. CAPACITY is the ceiling
+// this translation imposes that the original does not have.
+con[exp] CAPACITY: int = 12;
+
+typ[exp] Chain: rec = {
+    count: int;
+    blocks: arr[block::Block, 12]
+};
+
+fun[exp] filled(): arr[block::Block, 12] = {
+    return {
+        block::empty_slot(), block::empty_slot(), block::empty_slot(),
+        block::empty_slot(), block::empty_slot(), block::empty_slot(),
+        block::empty_slot(), block::empty_slot(), block::empty_slot(),
+        block::empty_slot(), block::empty_slot(), block::empty_slot(),
+    };
+};
+
+fun[exp] empty(): Chain = {
+    return { count = 0, blocks = filled() };
+};
+
+// `var blockchain = [getGenesisBlock()];`
+fun[exp] booted(): Chain = {
+    var[mut] c: Chain = empty();
+    var seated: bol = c.append(block::genesis());
+    return c;
+};
+
+pro[exp] (Chain[mut, bor]) append(b: block::Block): bol = {
+    if(.ge(self.count, CAPACITY)) { return false; }
+    self.blocks[self.count] = b;
+    self.count = self.count + 1;
+    return true;
+};
+
+// Overwrite one slot in place. The original never needs this -- it is here so
+// `main` can corrupt a middle block the way a hostile peer would.
+pro[exp] (Chain[mut, bor]) rewrite_data(slot: int, data: str): bol = {
+    if(.lt(slot, 0) or .ge(slot, self.count)) { return false; }
+    var old: block::Block = self.blocks[slot];
+    self.blocks[slot] = {
+        index = old.index,
+        previous_hash = old.previous_hash,
+        timestamp = old.timestamp,
+        data = data,
+        hash = old.hash,
+    };
+    return true;
+};
+
+// `blockchain.sort((b1, b2) => (b1.index - b2.index))` from the p2p handler,
+// as an in-place insertion sort over the slot array.
+//
+// Every destination index is hoisted into its own `var`: a field-hop indexed
+// assignment parses only with a bare index, so `self.blocks[j + 1] = probe`
+// is a syntax error while `self.blocks[ahead] = probe` is fine.
+pro[exp] (Chain[mut, bor]) sort_by_index(): non = {
+    var[mut] i: int = 1;
+    loop(.lt(i, self.count)) {
+        var current: block::Block = self.blocks[i];
+        var[mut] j: int = i - 1;
+        loop(true) {
+            if(.lt(j, 0)) { break; }
+            var probe: block::Block = self.blocks[j];
+            if(.le(probe.index, current.index)) { break; }
+            var ahead: int = j + 1;
+            self.blocks[ahead] = probe;
+            j = j - 1;
+        }
+        var landing: int = j + 1;
+        self.blocks[landing] = current;
+        i = i + 1;
+    }
+    return;
+};
+
+fun[exp] length_of(c: Chain): int = {
+    return c.count;
+};
+
+fun[exp] block_at(c: Chain, index: int): opt[block::Block] = {
+    if(.lt(index, 0) or .ge(index, c.count)) { return nil; }
+    return c.blocks[index];
+};
+
+// `getLatestBlock`. An empty chain has no latest block; the original cannot
+// reach that state because it seeds with genesis, so the empty slot returned
+// here is unreachable in practice.
+fun[exp] latest(c: Chain): block::Block = {
+    if(.le(c.count, 0)) { return block::empty_slot(); }
+    return c.blocks[c.count - 1];
+};
+
+fun[exp] generate_next_block(c: Chain, block_data: str, timestamp: int): block::Block = {
+    var previous_block: block::Block = latest(c);
+    var next_index: int = previous_block.index + 1;
+    return {
+        index = next_index,
+        previous_hash = previous_block.hash,
+        timestamp = timestamp,
+        data = block_data,
+        hash = block::calculate_hash(next_index, previous_block.hash, timestamp, block_data),
+    };
+};
+
+// The three checks of `isValidNewBlock`, in the original's order. The original
+// console.logs its reason and returns a bare false; carrying the reason back as
+// an error shell keeps the same three messages and lets callers print them.
+fun[exp] fault_of(new_block: block::Block, previous_block: block::Block): err[str] = {
+    if(.nq(previous_block.index + 1, new_block.index)) {
+        return "invalid index";
+    }
+    if(.nq(previous_block.hash, new_block.previous_hash)) {
+        return "invalid previoushash";
+    }
+    var recomputed: str = block::calculate_hash_for_block(new_block);
+    if(.nq(recomputed, new_block.hash)) {
+        return "invalid hash: " + recomputed + " " + new_block.hash;
+    }
+    return nil;
+};
+
+fun[exp] is_valid_new_block(new_block: block::Block, previous_block: block::Block): bol = {
+    var fault: err[str] = fault_of(new_block, previous_block);
+    when(fault) {
+        on(reason) { return false; }
+        * { return true; }
+    }
+};
+
+// Index of the first block that breaks the chain, or -1 when the whole chain
+// holds. Index 0 means the genesis block itself did not match.
+fun[exp] first_invalid_index(c: Chain): int = {
+    if(.le(c.count, 0)) { return 0; }
+    if(.not(block::same(c.blocks[0], block::genesis()))) { return 0; }
+    var[mut] i: int = 1;
+    loop(.lt(i, c.count)) {
+        if(.not(is_valid_new_block(c.blocks[i], c.blocks[i - 1]))) {
+            return i;
+        }
+        i = i + 1;
+    }
+    return 0 - 1;
+};
+
+fun[exp] reason_at(c: Chain, index: int): str = {
+    if(.le(index, 0)) { return "genesis block does not match"; }
+    var fault: err[str] = fault_of(c.blocks[index], c.blocks[index - 1]);
+    when(fault) {
+        on(reason) { return reason; }
+        * { return "no fault"; }
+    }
+};
+
+fun[exp] is_valid_chain(c: Chain): bol = {
+    return .eq(first_invalid_index(c), 0 - 1);
+};
+
+// The outcome of `replaceChain`: which chain won, and the line the original
+// would have logged.
+typ[exp] Replacement: rec = {
+    chain: Chain;
+    replaced: bol;
+    note: str
+};
+
+fun[exp] replace_chain(current: Chain, candidate: Chain): Replacement = {
+    if(.not(is_valid_chain(candidate))) {
+        return { chain = current, replaced = false, note = "Received blockchain invalid" };
+    }
+    if(.le(candidate.count, current.count)) {
+        return {
+            chain = current,
+            replaced = false,
+            note = "Received blockchain is not longer than current blockchain",
+        };
+    }
+    return {
+        chain = candidate,
+        replaced = true,
+        note = "Received blockchain is valid. Replacing current blockchain with received blockchain",
+    };
+};
+
+fun[exp] show(c: Chain): str = {
+    var[mut] out: str = "";
+    var[mut] i: int = 0;
+    loop(.lt(i, c.count)) {
+        out = out + "    " + block::show(c.blocks[i]) + "\n";
+        i = i + 1;
+    }
+    return out;
+};

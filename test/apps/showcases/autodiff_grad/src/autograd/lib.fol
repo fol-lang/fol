@@ -1,0 +1,154 @@
+use engine: loc = {"../engine"};
+
+// micrograd's `Value.backward`: topologically order the graph, seed the root
+// gradient with 1, then walk the order in reverse applying each node's local
+// rule.
+//
+// The original's `build_topo` is a recursive closure over a `visited` set. A
+// mutable receiver cannot hand itself to a recursive helper here, so the same
+// depth-first post-order is run from an explicit stack. The two phases a
+// recursive call implicitly has -- descend into children, then emit -- are
+// spelled out as a mode flag beside each stack entry.
+
+// Both are `vec` for the same reason `engine::Slab` is: a fixed-size array of
+// more than 32 elements does not survive code generation. Neither ever grows.
+ali[exp] Marks: vec[int];
+
+// Deep enough for one entry per graph edge plus one emit entry per node.
+ali[exp] Stack: vec[int];
+
+typ[exp] Trace: rec = {
+    order: Marks,
+    count: int,
+};
+
+fun[exp] blank_marks(): Marks = {
+    return {
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    };
+};
+
+fun[exp] blank_stack(): Stack = {
+    return {
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    };
+};
+
+// Post-order depth-first search from `root`, so every node lands after all of
+// its children. Children are pushed right then left, which makes the emitted
+// order match a recursive walk that visits `lhs` first.
+fun[exp] order(tape[bor]: engine::Tape, root: int): Trace = {
+    var seen: Marks = blank_marks();
+    var out: Marks = blank_marks();
+    var emitted: int = 0;
+    var node_stack: Stack = blank_stack();
+    var mode_stack: Stack = blank_stack();
+    var top: int = 1;
+    node_stack[0] = root;
+    mode_stack[0] = 0;
+    loop(top > 0) {
+        top = top - 1;
+        var current: int = node_stack[top];
+        var mode: int = mode_stack[top];
+        if (mode == 1) {
+            out[emitted] = current;
+            emitted = emitted + 1;
+        } else {
+            if (seen[current] == 0) {
+                seen[current] = 1;
+                node_stack[top] = current;
+                mode_stack[top] = 1;
+                top = top + 1;
+                var right: int = tape.rhs_of(current);
+                if (right >= 0) {
+                    node_stack[top] = right;
+                    mode_stack[top] = 0;
+                    top = top + 1;
+                } else {
+                };
+                var left: int = tape.lhs_of(current);
+                if (left >= 0) {
+                    node_stack[top] = left;
+                    mode_stack[top] = 0;
+                    top = top + 1;
+                } else {
+                };
+            } else {
+            };
+        };
+    };
+    return { order = out, count = emitted };
+};
+
+// Proof that `order` earns its name. Arena order happens to be a valid
+// topological order here, so without this the stack walk could be silently
+// wrong and the gradients would still come out right.
+fun[exp] order_is_sound(tape[bor]: engine::Tape, trace: Trace): bol = {
+    var position: Marks = blank_marks();
+    var index: int = 0;
+    loop(index < trace.count) {
+        // The subscript is hoisted because an indexed assignment whose
+        // subscript reaches through a record field is rejected.
+        var slot: int = trace.order[index];
+        position[slot] = index;
+        index = index + 1;
+    };
+    var scan: int = 0;
+    loop(scan < trace.count) {
+        var current: int = trace.order[scan];
+        var left: int = tape.lhs_of(current);
+        if (left >= 0) {
+            if (position[left] > position[current]) {
+                return false;
+            } else {
+            };
+        } else {
+        };
+        var right: int = tape.rhs_of(current);
+        if (right >= 0) {
+            if (position[right] > position[current]) {
+                return false;
+            } else {
+            };
+        } else {
+        };
+        scan = scan + 1;
+    };
+    return true;
+};
+
+pro[exp] (engine::Tape[mut, bor]) backward(root: int): non = {
+    var trace: Trace = order([bor]self, root);
+    self.set_grad(root, 1.0);
+    var cursor: int = trace.count - 1;
+    loop(cursor >= 0) {
+        self.apply_local_grads(trace.order[cursor]);
+        cursor = cursor - 1;
+    };
+    return;
+};
+
+// Every gradient in the graph goes back to zero. nn.py resets only the
+// parameters; see net::clear_grads for that narrower form.
+pro[exp] (engine::Tape[mut, bor]) zero_all_grads(): non = {
+    var index: int = 0;
+    loop(index < self.count) {
+        self.set_grad(index, 0.0);
+        index = index + 1;
+    };
+    return;
+};

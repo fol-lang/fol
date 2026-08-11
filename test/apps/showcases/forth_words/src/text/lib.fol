@@ -1,0 +1,89 @@
+// Character work that does not touch the machine.
+//
+// jonesforth gets all of this from x86 instructions -- `cmpb $' '`, `idivl`,
+// `stosb`. FOL has no chr/int conversion in either direction, so every byte
+// here is an `int` and the only bridge to text is `std::strn::from_byte`.
+
+use std: pkg = {"std"};
+
+con SPACE: int = 32;
+con BACKSLASH: int = 92;
+con NEWLINE: int = 10;
+con MINUS: int = 45;
+con DIGIT_ZERO: int = 48;
+con UPPER_A: int = 65;
+
+// jonesforth treats everything at or below the space character as blank, which
+// folds tabs, carriage returns and newlines into one test.
+fun[exp] is_blank(code: int): bol = {
+    return code <= SPACE;
+};
+
+fun[exp] is_comment(code: int): bol = {
+    return code == BACKSLASH;
+};
+
+fun[exp] is_newline(code: int): bol = {
+    return code == NEWLINE;
+};
+
+fun[exp] is_minus(code: int): bol = {
+    return code == MINUS;
+};
+
+// Digit value in the given base, or -1 when the character does not belong to
+// it. This is _NUMBER's inner loop: subtract '0', fold letters down, reject
+// anything that lands outside the base.
+fun[exp] digit_value(code: int, base: int): int = {
+    var[mut] value: int = code - DIGIT_ZERO;
+    when(value > 9) {
+        case(true) { value = code - UPPER_A + 10; }
+        * { }
+    };
+    when((value < 0) or (value >= base)) {
+        case(true) { return -1; }
+        * { }
+    };
+    return value;
+};
+
+fun digit_char(value: int): str = {
+    when(value < 10) {
+        case(true) { return std::strn::from_byte(DIGIT_ZERO + value); }
+        * { }
+    };
+    return std::strn::from_byte(UPPER_A + value - 10);
+};
+
+// The number printer behind `.`. jonesforth builds it in Forth out of /MOD and
+// EMIT; the shape is the same, digits come off the bottom and the string grows
+// on the left.
+fun[exp] render(value: int, base: int): str = {
+    when(value == 0) {
+        case(true) { return "0"; }
+        * { }
+    };
+    var[mut] rest: int = value;
+    var[mut] sign: str = "";
+    when(value < 0) {
+        case(true) { sign = "-"; rest = -value; }
+        * { }
+    };
+    var[mut] out: str = "";
+    loop (rest > 0) {
+        out = digit_char(rest % base) + out;
+        rest = rest / base;
+    };
+    return sign + out;
+};
+
+// The last `width` characters read so far, which is the context jonesforth
+// prints after PARSE ERROR.
+fun[exp] tail(text: str, upto: int, width: int): str = {
+    var[mut] start: int = upto - width;
+    when(start < 0) {
+        case(true) { start = 0; }
+        * { }
+    };
+    return std::strn::sub(text, start, upto - start);
+};

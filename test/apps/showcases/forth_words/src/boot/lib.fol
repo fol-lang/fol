@@ -1,0 +1,208 @@
+// Assembling the initial dictionary.
+//
+// This is jonesforth's `defcode` / `defword` section. `defcode` entries carry a
+// codeword that names a primitive; `defword` entries carry DOCOL and are
+// followed by the codewords of the words they call, so `:` and `;` and the
+// branch words really are written in FORTH here, exactly as in the original.
+
+use words: loc = {"../words"};
+use forth: loc = {"../forth"};
+
+pro (forth::Forth[mut, bor]) defcode(name: str, code: int): non = {
+    self.def_header(name, 0, code);
+    return;
+};
+
+pro (forth::Forth[mut, bor]) defcode_immediate(name: str, code: int): non = {
+    self.def_header(name, words::F_IMMED, code);
+    return;
+};
+
+pro (forth::Forth[mut, bor]) defword(name: str): non = {
+    self.def_header(name, 0, words::DOCOL);
+    return;
+};
+
+pro (forth::Forth[mut, bor]) defword_immediate(name: str): non = {
+    self.def_header(name, words::F_IMMED, words::DOCOL);
+    return;
+};
+
+// `LIT n` compiles a number into a definition; the cell after LIT is the value.
+pro (forth::Forth[mut, bor]) literal(value: int): non = {
+    self.compile("LIT");
+    self.comma(value);
+    return;
+};
+
+pro[exp] (forth::Forth[mut, bor]) boot(): non = {
+    self.assemble_primitives();
+    self.assemble_definitions();
+    self.lit_cfa = self.lookup("LIT");
+    self.halt_cfa = self.lookup("HALT");
+    return;
+};
+
+pro (forth::Forth[mut, bor]) assemble_primitives(): non = {
+    self.defcode("DROP", words::P_DROP);
+    self.defcode("SWAP", words::P_SWAP);
+    self.defcode("DUP", words::P_DUP);
+    self.defcode("OVER", words::P_OVER);
+    self.defcode("ROT", words::P_ROT);
+    self.defcode("/MOD", words::P_DIVMOD);
+    self.defcode("+", words::P_ADD);
+    self.defcode("-", words::P_SUB);
+    self.defcode("*", words::P_MUL);
+    self.defcode("=", words::P_EQU);
+    self.defcode("<>", words::P_NEQU);
+    self.defcode("<", words::P_LT);
+    self.defcode(">", words::P_GT);
+    self.defcode("<=", words::P_LE);
+    self.defcode(">=", words::P_GE);
+    self.defcode("0=", words::P_ZEQU);
+    self.defcode("EXIT", words::P_EXIT);
+    self.defcode("LIT", words::P_LIT);
+    self.defcode("!", words::P_STORE);
+    self.defcode("@", words::P_FETCH);
+    self.defcode("STATE", words::P_STATE);
+    self.defcode("HERE", words::P_HERE);
+    self.defcode("LATEST", words::P_LATEST);
+    self.defcode("BASE", words::P_BASE);
+    self.defcode("WORD", words::P_WORD);
+    self.defcode("FIND", words::P_FIND);
+    self.defcode(">CFA", words::P_TCFA);
+    self.defcode("CREATE", words::P_CREATE);
+    self.defcode(",", words::P_COMMA);
+    self.defcode_immediate("[", words::P_LBRAC);
+    self.defcode("]", words::P_RBRAC);
+    self.defcode("HIDDEN", words::P_HIDDEN);
+    self.defcode_immediate("IMMEDIATE", words::P_IMMEDIATE);
+    self.defcode("BRANCH", words::P_BRANCH);
+    self.defcode("0BRANCH", words::P_ZBRANCH);
+    self.defcode("'", words::P_TICK);
+    self.defcode(".", words::P_DOT);
+    self.defcode("EMIT", words::P_EMIT);
+    self.defcode("CR", words::P_CR);
+    self.defcode("SPACE", words::P_SPACE);
+    self.defcode("DEPTH", words::P_DEPTH);
+    self.defcode("HALT", words::P_HALT);
+    return;
+};
+
+pro (forth::Forth[mut, bor]) assemble_definitions(): non = {
+    // : NAME ...  -- read the name, build the header, write DOCOL as the
+    // codeword, hide the half-built word, and switch to compile mode.
+    self.defword(":");
+    self.compile("WORD");
+    self.compile("CREATE");
+    self.literal(words::DOCOL);
+    self.compile(",");
+    self.compile("LATEST");
+    self.compile("@");
+    self.compile("HIDDEN");
+    self.compile("]");
+    self.compile("EXIT");
+
+    // ; -- append EXIT, unhide the word, leave compile mode. Immediate, or the
+    // compiler would swallow it like any other word.
+    self.defword_immediate(";");
+    var exit_cfa: int = self.lookup("EXIT");
+    self.literal(exit_cfa);
+    self.compile(",");
+    self.compile("LATEST");
+    self.compile("@");
+    self.compile("HIDDEN");
+    self.compile("[");
+    self.compile("EXIT");
+
+    self.defword("/");
+    self.compile("/MOD");
+    self.compile("SWAP");
+    self.compile("DROP");
+    self.compile("EXIT");
+
+    self.defword("MOD");
+    self.compile("/MOD");
+    self.compile("DROP");
+    self.compile("EXIT");
+
+    self.defword("NEGATE");
+    self.literal(0);
+    self.compile("SWAP");
+    self.compile("-");
+    self.compile("EXIT");
+
+    self.defword("TRUE");
+    self.literal(1);
+    self.compile("EXIT");
+
+    self.defword("FALSE");
+    self.literal(0);
+    self.compile("EXIT");
+
+    self.defword("NOT");
+    self.compile("0=");
+    self.compile("EXIT");
+
+    self.defword("DECIMAL");
+    self.literal(10);
+    self.compile("BASE");
+    self.compile("!");
+    self.compile("EXIT");
+
+    self.defword("HEX");
+    self.literal(16);
+    self.compile("BASE");
+    self.compile("!");
+    self.compile("EXIT");
+
+    self.assemble_branching();
+    return;
+};
+
+// IF, ELSE and THEN are ordinary immediate definitions that write 0BRANCH and
+// BRANCH into the word under construction and leave the offset cell blank; the
+// address of that blank cell waits on the data stack until THEN back-fills it.
+pro (forth::Forth[mut, bor]) assemble_branching(): non = {
+    var zbranch_cfa: int = self.lookup("0BRANCH");
+    var branch_cfa: int = self.lookup("BRANCH");
+
+    self.defword_immediate("IF");
+    self.compile("'");
+    self.comma(zbranch_cfa);
+    self.compile(",");
+    self.compile("HERE");
+    self.compile("@");
+    self.literal(0);
+    self.compile(",");
+    self.compile("EXIT");
+
+    self.defword_immediate("THEN");
+    self.compile("DUP");
+    self.compile("HERE");
+    self.compile("@");
+    self.compile("SWAP");
+    self.compile("-");
+    self.compile("SWAP");
+    self.compile("!");
+    self.compile("EXIT");
+
+    self.defword_immediate("ELSE");
+    self.compile("'");
+    self.comma(branch_cfa);
+    self.compile(",");
+    self.compile("HERE");
+    self.compile("@");
+    self.literal(0);
+    self.compile(",");
+    self.compile("SWAP");
+    self.compile("DUP");
+    self.compile("HERE");
+    self.compile("@");
+    self.compile("SWAP");
+    self.compile("-");
+    self.compile("SWAP");
+    self.compile("!");
+    self.compile("EXIT");
+    return;
+};

@@ -1,0 +1,88 @@
+// The two enums and the one struct that jsmn.h opens with.
+//
+// jsmn spells its type tags as bit flags -- `JSMN_OBJECT = 1 << 0` up to
+// `JSMN_PRIMITIVE = 1 << 3` -- so a caller can test a token against a mask.
+// FOL has no shift operator at all, so the same four values are written as the
+// literals they evaluate to. Nothing downstream masks, so the numbers are all
+// that had to survive; they are kept identical so a token dump can be compared
+// against the C original byte for byte.
+
+use std: pkg = {"std"};
+
+typ[exp] Kind: ent = {
+    con UNDEFINED: int = 0;
+    con OBJECT: int = 1;
+    con ARRAY: int = 2;
+    con STRING: int = 4;
+    con PRIMITIVE: int = 8;
+};
+
+// An `ent` member read only gets its member type when it initialises an
+// annotated binding, so every constant is re-exported through an accessor that
+// `when ... is` arms and comparisons can use.
+fun[exp] undefined(): int = { var value: int = Kind.UNDEFINED; return value; };
+fun[exp] object(): int = { var value: int = Kind.OBJECT; return value; };
+fun[exp] array(): int = { var value: int = Kind.ARRAY; return value; };
+fun[exp] string(): int = { var value: int = Kind.STRING; return value; };
+fun[exp] primitive(): int = { var value: int = Kind.PRIMITIVE; return value; };
+
+// jsmn's error codes. They share the return channel with the token count, so
+// they must stay negative and must keep their exact values: callers of
+// `jsmn_parse` distinguish "three tokens" from "invalid" by the sign alone.
+typ[exp] Fault: ent = {
+    con NOMEM: int = 0 - 1;
+    con INVAL: int = 0 - 2;
+    con PART: int = 0 - 3;
+};
+
+fun[exp] nomem(): int = { var value: int = Fault.NOMEM; return value; };
+fun[exp] inval(): int = { var value: int = Fault.INVAL; return value; };
+fun[exp] part(): int = { var value: int = Fault.PART; return value; };
+
+// `jsmntok_t`, with the `JSMN_PARENT_LINKS` field always present -- the port
+// compiles the parent-links variant of the parser, which is the one that walks
+// up the chain on a closing brace instead of rescanning the whole array.
+typ[exp] Tok: rec = {
+    var kind: int;
+    var start: int;
+    var stop: int;
+    var size: int;
+    var parent: int;
+};
+
+// `jsmn_alloc_token` hands back a token with start/end/parent at -1 and size at
+// 0; the sentinel -1 in `stop` is what later marks a container as still open.
+fun[exp] blank(): Tok = {
+    var fresh: Tok = { kind = undefined(), start = 0 - 1, stop = 0 - 1, size = 0, parent = 0 - 1 };
+    return fresh;
+};
+
+fun[exp] kind_name(kind: int): str = {
+    when(kind) {
+        is(1) { return "object"; }
+        is(2) { return "array"; }
+        is(4) { return "string"; }
+        is(8) { return "primitive"; }
+        * { return "undefined"; }
+    }
+};
+
+fun[exp] fault_name(code: int): str = {
+    when(code) {
+        is(0 - 1) { return "NOMEM"; }
+        is(0 - 2) { return "INVAL"; }
+        is(0 - 3) { return "PART"; }
+        * { return "OK"; }
+    }
+};
+
+// One token rendered as `kind start stop size parent`. The whole token array
+// joined with `;` is what `main` compares against the numbers the C build
+// printed, so this format is load-bearing rather than cosmetic.
+fun[exp] show(tok: Tok): str = {
+    return kind_name(tok.kind)
+    + " " + std::fmt::int_to_str(tok.start)
+    + " " + std::fmt::int_to_str(tok.stop)
+    + " " + std::fmt::int_to_str(tok.size)
+    + " " + std::fmt::int_to_str(tok.parent);
+};

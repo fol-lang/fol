@@ -1,0 +1,173 @@
+// The transport -- mini-redis `src/server.rs`.
+//
+// The original accepts TCP connections and spawns one `Handler` per socket,
+// every handler holding a clone of the same `Db`. FOL has no sockets, so the
+// listener is replaced by a fixed fan-out of `[spn]` tasks. Everything below
+// the socket is unchanged: each task frames a request, decodes it, dispatches
+// it against the shared `mux[Store]`, and writes the reply back -- here onto a
+// `chn[tx, Reply]` endpoint instead of into a `TcpStream`.
+
+use std: pkg = {"std"};
+use resp: loc = {"../resp"};
+use store: loc = {"../store"};
+use command: loc = {"../command"};
+
+con[exp] CLIENTS: int = 3;
+con[exp] OPS: int = 3;
+
+typ[exp] Reply: rec = {
+    client: int,
+    step: int,
+    wire: str,
+};
+
+typ[exp] Tally: rec = {
+    replies: int,
+    oks: int,
+    bulks: int,
+    errors: int,
+    started: int,
+};
+
+fun[exp] empty(): Tally = {
+    return { replies = 0, oks = 0, bulks = 0, errors = 0, started = 0 };
+};
+
+// Client `id`'s key space. Distinct per client, so a lost update shows up as a
+// missing key at the end rather than as a scrambled value.
+fun[exp] key_of(id: int, step: int): str = {
+    return "c" + std::fmt::int_to_str(id) + ":k" + std::fmt::int_to_str(step);
+};
+
+fun[exp] value_of(id: int, step: int): str = {
+    return "v" + std::fmt::int_to_str((id * 10) + step);
+};
+
+// Hand one reply back. A send yields a must-handle `err[T]` whose present
+// branch owns a payload nobody will receive, so `false` means the reader has
+// gone -- the analogue of a client hanging up mid-reply.
+fun deliver(out: chn[tx, Reply], message: Reply): bol = {
+    var[mut] accepted: bol = true;
+    var sent: err[Reply] = message | out;
+    when (sent) {
+        on (unsent) { accepted = false; }
+        * { accepted = true; }
+    };
+    return accepted;
+};
+
+// One connection. Runs on its own OS thread, contending with the others for the
+// same store handle.
+fun[exp] handler(out: chn[tx, Reply], notes: chn[tx, int], state: mux[store::Store], id: int, now: int): int = {
+    var announced: err[int] = 1 | notes;
+    var[mut] step: int = 0;
+    var[mut] sent: int = 0;
+    loop (step < OPS) {
+        var key: str = key_of(id, step);
+
+        var write_wire: str = command::wire_of("SET", key, value_of(id, step), "", "", 2);
+        var write_reply: str = command::serve(write_wire, state, now);
+        var wrote: bol = deliver(out, { client = id, step = step, wire = write_reply });
+
+        var read_wire: str = command::wire_of("GET", key, "", "", "", 1);
+        var read_reply: str = command::serve(read_wire, state, now);
+        var read: bol = deliver(out, { client = id, step = step, wire = read_reply });
+
+        when (wrote and read) {
+            case(true) { sent = sent + 2; }
+            * { step = OPS; }
+        };
+        step = step + 1;
+    };
+
+    // One key per client goes away again, so DEL is exercised under contention.
+    var gone_wire: str = command::wire_of("DEL", key_of(id, 0), "", "", "", 1);
+    var gone_reply: str = command::serve(gone_wire, state, now);
+    var gone: bol = deliver(out, { client = id, step = OPS, wire = gone_reply });
+    when (gone) {
+        case(true) { sent = sent + 1; }
+        * { }
+    };
+    return sent;
+};
+
+// Classify one reply by its leading byte, which is all a client needs to know.
+fun[exp] absorb(seen: Tally, message: Reply): Tally = {
+    var[mut] totals: Tally = seen;
+    totals.replies = totals.replies + 1;
+    var lead: int = std::strn::byte_at(message.wire, 0);
+    when (lead == resp::PLUS) {
+        case(true) { totals.oks = totals.oks + 1; }
+        * { }
+    };
+    when (lead == resp::DOLLAR) {
+        case(true) { totals.bulks = totals.bulks + 1; }
+        * { }
+    };
+    when (lead == resp::MINUS) {
+        case(true) { totals.errors = totals.errors + 1; }
+        * { }
+    };
+    return totals;
+};
+
+// Drain every reply. The loop ends when the last handler drops its sender, so
+// it doubles as the join point. The whole `chn[T]` is moved in: iterating an
+// extracted endpoint blocks forever while the channel binding is still alive.
+fun[exp] drain(inbox: chn[Reply]): Tally = {
+    var[mut] totals: Tally = empty();
+    for (message in inbox[rx]) {
+        totals = absorb(totals, message);
+    };
+    return totals;
+};
+
+// Run the whole fan-out and report what came back.
+fun[exp] serve_all(state: mux[store::Store], now: int): Tally = {
+    var replies: chn[Reply];
+    var notes: chn[int];
+
+    var[mut] id: int = 0;
+    loop (id < CLIENTS) {
+        [spn]handler(replies[tx], notes[tx], state, id, now);
+        id = id + 1;
+    };
+
+    var[mut] totals: Tally = drain([mov]replies);
+
+    // A first-class `chn[rx, int]` receiver endpoint. The `*` arm makes the
+    // select non-blocking, so the count settles once the queue is empty
+    // instead of waiting on senders that are already gone.
+    var inbox: chn[rx, int] = notes[rx];
+    var[mut] started: int = 0;
+    var[mut] draining: bol = true;
+    loop (draining) {
+        select {
+            when inbox as token {
+                started = started + token;
+            }
+            * {
+                draining = false;
+            }
+        };
+    };
+    totals.started = started;
+    return totals;
+};
+
+// Render the run summary. Pure, so it is safe on its own thread.
+fun[exp] compose(totals: Tally, alive: int, writes: int): str = {
+    return "clients=" + std::fmt::int_to_str(totals.started)
+    + " replies=" + std::fmt::int_to_str(totals.replies)
+    + " ok=" + std::fmt::int_to_str(totals.oks)
+    + " bulk=" + std::fmt::int_to_str(totals.bulks)
+    + " err=" + std::fmt::int_to_str(totals.errors)
+    + " keys=" + std::fmt::int_to_str(alive)
+    + " writes=" + std::fmt::int_to_str(writes);
+};
+
+// The one-shot result of the run. The eventual crosses a routine signature, so
+// its parent-scope lifetime `L` is spelled on both sides.
+fun[exp] summarize(L: lif)(totals: Tally, alive: int, writes: int): evt[L, str] = {
+    return compose(totals, alive, writes) | async;
+};

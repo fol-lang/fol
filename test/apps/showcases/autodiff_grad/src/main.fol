@@ -1,0 +1,356 @@
+// autodiff_grad -- a translation of micrograd.
+//
+// ORIGINAL:  micrograd, Andrej Karpathy, Python, ~150 LOC
+//            https://github.com/karpathy/micrograd
+//            engine.py (the Value class) and nn.py (Neuron / Layer / MLP)
+//
+// The design being mimicked: one Value per scalar, holding {data, grad,
+// _prev, _op}; operator overloads that build a computation graph as a side
+// effect of arithmetic; a topological sort of that graph; and backward()
+// walking the sort in reverse, applying each node's local derivative rule.
+// The two demos are the README's a/b expression (which must print 24.7041,
+// 138.8338 and 645.5773) and a 2 -> 2 -> 1 MLP forward pass.
+//
+// =====================================================================
+// DEVIATIONS
+// =====================================================================
+//
+// 1. SHARED MUTABLE NODES -> AN INDEX ARENA.
+//    micrograd's whole method rests on one property: `c = a + b` and
+//    `d = a * b` make two parents hold the SAME `a` object, so when
+//    backward() runs `self.grad += ...` through either parent, both see it.
+//    In FOL the graph shape is expressible -- a record may hold
+//    `opt ptr[shared, Value]` fields naming itself, and that compiles and
+//    runs (see the ptr_shared repro) -- but `ptr[shared, T]` is read-only,
+//    so the gradient write is not. `cell[].grad = g` is rejected with
+//    T1002, and the spelling that does compile,
+//    `var node: Value = [drf]cell; node.grad = node.grad + g;`,
+//    mutates a COPY: the probe prints 0.0000 where micrograd prints 1.0000.
+//    So a node here is a slot in `engine::Slab` and a child edge is that
+//    slot's index. Sharing is index equality, and accumulation is an
+//    indexed write into the arena through a `[mut, bor]` receiver. The
+//    semantics survive intact; what is lost is that the arena has a fixed
+//    capacity chosen up front, and that a node is reachable only through
+//    the tape that owns it.
+//
+// 2. PER-NODE `_backward` CLOSURES -> AN OP TAG AND A SWITCH.
+//    Each Python node stores a closure capturing its own operands. A FOL
+//    closure cannot capture a mutable loan on the arena, so it could not
+//    write a gradient. The node stores its op tag instead, and
+//    `engine::apply_local_grads` selects the same four closure bodies with
+//    `when(node.op)`. Cost: the op set is closed -- adding tanh means
+//    editing that switch, where Python only adds a method. `__pow__`'s
+//    captured exponent had to become a real field (`pw`) for the same
+//    reason.
+//
+// 3. RECURSIVE `build_topo` -> AN EXPLICIT STACK.
+//    A `[mut, bor]` receiver cannot hand itself to a recursive helper, so
+//    `autograd::order` runs the same depth-first post-order from a stack
+//    with an explicit descend/emit mode flag beside each entry. It is a
+//    real topological sort, not a shortcut: arena order happens to be a
+//    valid topological order here, and the sort deliberately does not rely
+//    on that.
+//
+// 4. `_prev` IS A SET OF ARBITRARY ARITY -> TWO FIXED FIELDS.
+//    Containers cannot grow, so a node carries `lhs`/`rhs` with -1 for
+//    absent. Every micrograd op is unary or binary, so nothing is lost,
+//    but an n-ary op could not be added without changing the record.
+//    The set-ness is not modelled, and it must not be: when a node is its
+//    own sibling, Python's `_prev` deduplicates while `_backward` still
+//    runs both `+=`. Re-reading the node between the two accumulate calls
+//    reproduces that.
+//
+// 5. PYTHON'S NUMBER COERCION -> NAMED METHODS.
+//    `a + 1`, `1 + a`, `3 * d`, `f / 2.0` and `10.0 / f` reach four
+//    different dunders. FOL has no operator overloading, so each appears
+//    as `add_scalar` / `mul_scalar` / `div_scalar` / `scalar_div`, and the
+//    call sites in `readme_example` read as a desugaring of the README
+//    rather than as the README. Each allocates exactly the nodes Python
+//    allocates, which is why the node-count self-check is meaningful:
+//    39 for the expression, 25 for the MLP, matching the Python run.
+//
+// 6. `random.uniform(-1, 1)` -> FIXED WEIGHTS. std exposes no generator.
+//
+// 7. RAGGED, RUNTIME-SIZED LAYERS -> ONE HARD-CODED SHAPE.
+//    `MLP(nin, nouts)` builds layers from a list at runtime. FOL sizes
+//    arrays in the type, so `net` is written for 2 -> 2 -> 1: `Pair` is
+//    both the input and the hidden width, and the one-neuron output layer
+//    pads with an idle neuron. A different shape is a different type, not
+//    a different argument. This is the deviation that hurts most -- the
+//    original's `MLP(3, [4, 4, 1])` is one line.
+//
+// 8. THE ARENA HAD TO BE A `vec`, NOT AN `arr`.
+//    The natural spelling for a fixed-capacity arena is `arr[Node, 64]`, and
+//    that is what this package was written with first. It passes
+//    `code check` and then fails in the backend: a record field of
+//    `arr[T, N]` with N above 32 emits Rust that derives Default, and std
+//    only implements Default for arrays up to length 32. 32 builds, 33 does
+//    not (see the arr33 repro). Every array here that could exceed 32 is a
+//    `vec` that is filled once and never grows, so the type no longer
+//    states the capacity that `engine::capacity` documents.
+//
+// 9. INDIRECT SUBSCRIPTS HAD TO BE HOISTED.
+//    `position[trace.order[index]] = index` -- the obvious way to invert a
+//    permutation -- is rejected, while the same subscript READS fine on the
+//    line above. Every such write here binds the subscript to a local first
+//    (see the index_expr repro).
+//
+// 10. NO `abs`. `close_enough` hand-rolls it; there is no library one.
+//
+// Easier than expected: indexed element assignment through a `[mut, bor]`
+// receiver carries a whole record per slot, so `self.nodes[i] = updated`
+// works and the arena did not have to be split into parallel scalar
+// arrays. `^` is a real float power including negative and fractional
+// exponents, so `__pow__` needed no emulation. Methods can be attached to
+// an imported record type, so `autograd` and `net` extend `engine::Tape`
+// from their own files exactly as Python's nn.py extends engine.py.
+
+use std: pkg = {"std"};
+use engine: loc = {"engine"};
+use autograd: loc = {"autograd"};
+use net: loc = {"net"};
+
+fun[] absolute(value: flt): flt = {
+    if (value < 0.0) {
+        return 0.0 - value;
+    } else {
+        return value;
+    };
+};
+
+fun[] close_enough(actual: flt, expected: flt): bol = {
+    return absolute(actual - expected) < 0.000001;
+};
+
+pro[] show_flt(label: str, value: flt): non = {
+    std::io::echo_str(label + std::fmt::float_to_str(value, 6));
+    return;
+};
+
+// Self-checks print their own verdict so a regression is visible in the
+// output, not only in the exit status.
+fun[] expect_flt(label: str, actual: flt, expected: flt): int = {
+    if (close_enough(actual, expected)) {
+        std::io::echo_str("  ok   " + label + " = " + std::fmt::float_to_str(actual, 6));
+        return 0;
+    } else {
+        std::io::echo_str("  FAIL " + label + " = " + std::fmt::float_to_str(actual, 6)
+            + " expected " + std::fmt::float_to_str(expected, 6));
+        return 1;
+    };
+};
+
+fun[] expect_bol(label: str, holds: bol): int = {
+    if (holds) {
+        std::io::echo_str("  ok   " + label);
+        return 0;
+    } else {
+        std::io::echo_str("  FAIL " + label);
+        return 1;
+    };
+};
+
+fun[] expect_int(label: str, actual: int, expected: int): int = {
+    if (actual == expected) {
+        std::io::echo_str("  ok   " + label + " = " + std::fmt::int_to_str(actual));
+        return 0;
+    } else {
+        std::io::echo_str("  FAIL " + label + " = " + std::fmt::int_to_str(actual)
+            + " expected " + std::fmt::int_to_str(expected));
+        return 1;
+    };
+};
+
+// The README program, statement for statement:
+//
+//   a = Value(-4.0); b = Value(2.0)
+//   c = a + b
+//   d = a * b + b**3
+//   c += c + 1
+//   c += 1 + c + (-a)
+//   d += d * 2 + (b + a).relu()
+//   d += 3 * d + (b - a).relu()
+//   e = c - d; f = e**2; g = f / 2.0; g += 10.0 / f
+//
+// Rebinding `c` and `d` mirrors Python's `+=` on an immutable-ish object:
+// the name moves to a new node, the old node stays in the graph as a child.
+fun[] readme_example(): int = {
+    var tape: engine::Tape = engine::new_tape();
+
+    var a: int = [mut, bor]tape.leaf(-4.0);
+    var b: int = [mut, bor]tape.leaf(2.0);
+    var c: int = [mut, bor]tape.add(a, b);
+
+    var ab: int = [mut, bor]tape.mul(a, b);
+    var b_cubed: int = [mut, bor]tape.pow(b, 3.0);
+    var d: int = [mut, bor]tape.add(ab, b_cubed);
+
+    var c_plus_one: int = [mut, bor]tape.add_scalar(c, 1.0);
+    c = [mut, bor]tape.add(c, c_plus_one);
+
+    // `1 + c` reaches __radd__, which is `c + 1` again.
+    var one_plus_c: int = [mut, bor]tape.add_scalar(c, 1.0);
+    var neg_a: int = [mut, bor]tape.neg(a);
+    var c_term: int = [mut, bor]tape.add(one_plus_c, neg_a);
+    c = [mut, bor]tape.add(c, c_term);
+
+    var d_twice: int = [mut, bor]tape.mul_scalar(d, 2.0);
+    var b_plus_a: int = [mut, bor]tape.add(b, a);
+    var gate_one: int = [mut, bor]tape.relu(b_plus_a);
+    var d_term: int = [mut, bor]tape.add(d_twice, gate_one);
+    d = [mut, bor]tape.add(d, d_term);
+
+    // `3 * d` reaches __rmul__, which is `d * 3`.
+    var d_thrice: int = [mut, bor]tape.mul_scalar(d, 3.0);
+    var b_minus_a: int = [mut, bor]tape.sub(b, a);
+    var gate_two: int = [mut, bor]tape.relu(b_minus_a);
+    var d_more: int = [mut, bor]tape.add(d_thrice, gate_two);
+    d = [mut, bor]tape.add(d, d_more);
+
+    var e: int = [mut, bor]tape.sub(c, d);
+    var f: int = [mut, bor]tape.pow(e, 2.0);
+    var g: int = [mut, bor]tape.div_scalar(f, 2.0);
+    var reciprocal_term: int = [mut, bor]tape.scalar_div(10.0, f);
+    g = [mut, bor]tape.add(g, reciprocal_term);
+
+    std::io::echo_str("-- forward --");
+    show_flt("  c    = ", [bor]tape.data_of(c));
+    show_flt("  d    = ", [bor]tape.data_of(d));
+    show_flt("  e    = ", [bor]tape.data_of(e));
+    show_flt("  f    = ", [bor]tape.data_of(f));
+    show_flt("  g    = ", [bor]tape.data_of(g));
+
+    var trace: autograd::Trace = autograd::order([bor]tape, g);
+    [mut, bor]tape.backward(g);
+
+    std::io::echo_str("-- backward --");
+    show_flt("  dg/da = ", [bor]tape.grad_of(a));
+    show_flt("  dg/db = ", [bor]tape.grad_of(b));
+
+    std::io::echo_str("-- checks --");
+    var failures: int = 0;
+    failures = failures + expect_int("nodes built", [bor]tape.size(), 39);
+    failures = failures + expect_int("topo order length", trace.count, 39);
+    // The arena cannot grow, so fitting is part of the contract, not luck.
+    failures = failures + expect_bol("within arena capacity",
+        [bor]tape.size() <= engine::capacity());
+    failures = failures + expect_bol("topo order is sound",
+        autograd::order_is_sound([bor]tape, trace));
+    failures = failures + expect_flt("g.data", [bor]tape.data_of(g), 24.7040816327);
+    failures = failures + expect_flt("c.data", [bor]tape.data_of(c), -1.0);
+    failures = failures + expect_flt("d.data", [bor]tape.data_of(d), 6.0);
+    failures = failures + expect_flt("e.data", [bor]tape.data_of(e), -7.0);
+    failures = failures + expect_flt("f.data", [bor]tape.data_of(f), 49.0);
+    failures = failures + expect_flt("a.grad", [bor]tape.grad_of(a), 138.8338192420);
+    failures = failures + expect_flt("b.grad", [bor]tape.grad_of(b), 645.5772594752);
+    failures = failures + expect_flt("c.grad", [bor]tape.grad_of(c), -6.9416909621);
+    failures = failures + expect_flt("d.grad", [bor]tape.grad_of(d), 6.9416909621);
+    failures = failures + expect_flt("e.grad", [bor]tape.grad_of(e), -6.9416909621);
+    failures = failures + expect_flt("f.grad", [bor]tape.grad_of(f), 0.4958350687);
+    failures = failures + expect_flt("g.grad", [bor]tape.grad_of(g), 1.0);
+
+    // The root's own gradient is the seed, so clearing must reach it too.
+    [mut, bor]tape.zero_all_grads();
+    failures = failures + expect_flt("g.grad after zero", [bor]tape.grad_of(g), 0.0);
+    failures = failures + expect_flt("a.grad after zero", [bor]tape.grad_of(a), 0.0);
+    return failures;
+};
+
+// One forward pass through MLP(2, [2, 1]) and one backward pass over its
+// parameters. x0 feeds both hidden neurons, so dL/dx0 is the sum of two
+// contributions -- the shared-node case that motivated the arena.
+fun[] mlp_example(): int = {
+    var tape: engine::Tape = engine::new_tape();
+    var model: net::Mlp = [mut, bor]tape.sample_mlp();
+
+    var x0: int = [mut, bor]tape.leaf(2.0);
+    var x1: int = [mut, bor]tape.leaf(-3.0);
+    var inputs: net::Pair = { x0, x1 };
+
+    var hidden: net::Pair = [mut, bor]tape.fire_layer(model.hidden, inputs);
+    var head: net::Pair = [mut, bor]tape.fire_layer(model.head, hidden);
+    var out: int = head[0];
+
+    std::io::echo_str("-- mlp forward --");
+    show_flt("  h0   = ", [bor]tape.data_of(hidden[0]));
+    show_flt("  h1   = ", [bor]tape.data_of(hidden[1]));
+    show_flt("  out  = ", [bor]tape.data_of(out));
+
+    [mut, bor]tape.backward(out);
+
+    var params: net::ParamList = net::parameters(model);
+    std::io::echo_str("-- mlp gradients --");
+    var index: int = 0;
+    loop(index < params.count) {
+        show_flt("  dparam[" + std::fmt::int_to_str(index) + "] = ",
+            [bor]tape.grad_of(params.slots[index]));
+        index = index + 1;
+    };
+
+    std::io::echo_str("-- checks --");
+    var failures: int = 0;
+    failures = failures + expect_int("mlp nodes", [bor]tape.size(), 25);
+    failures = failures + expect_int("parameter count", params.count, 9);
+    failures = failures + expect_flt("h0", [bor]tape.data_of(hidden[0]), 5.6);
+    failures = failures + expect_flt("h1", [bor]tape.data_of(hidden[1]), 0.25);
+    failures = failures + expect_flt("out", [bor]tape.data_of(out), 7.175);
+    // hidden neuron 0: w = {0.5, -1.5}, b = 0.1
+    failures = failures + expect_flt("dw1[0][0]", [bor]tape.grad_of(params.slots[0]), 2.5);
+    failures = failures + expect_flt("dw1[0][1]", [bor]tape.grad_of(params.slots[1]), -3.75);
+    failures = failures + expect_flt("db1[0]", [bor]tape.grad_of(params.slots[2]), 1.25);
+    // hidden neuron 1: w = {-0.25, 0.75}, b = 3.0
+    failures = failures + expect_flt("dw1[1][0]", [bor]tape.grad_of(params.slots[3]), -1.0);
+    failures = failures + expect_flt("dw1[1][1]", [bor]tape.grad_of(params.slots[4]), 1.5);
+    failures = failures + expect_flt("db1[1]", [bor]tape.grad_of(params.slots[5]), -0.5);
+    // output neuron: w = {1.25, -0.5}, b = 0.3
+    failures = failures + expect_flt("dw2[0]", [bor]tape.grad_of(params.slots[6]), 5.6);
+    failures = failures + expect_flt("dw2[1]", [bor]tape.grad_of(params.slots[7]), 0.25);
+    failures = failures + expect_flt("db2", [bor]tape.grad_of(params.slots[8]), 1.0);
+    // both hidden neurons pull on x0, so its gradient is w2[0]*w1[0][0]
+    // plus w2[1]*w1[1][0] = 1.25*0.5 + (-0.5)*(-0.25).
+    failures = failures + expect_flt("dx0", [bor]tape.grad_of(x0), 0.75);
+    failures = failures + expect_flt("dx1", [bor]tape.grad_of(x1), -2.25);
+
+    // Module.zero_grad touches parameters only; the inputs keep their
+    // gradients, which is exactly the distinction the original draws.
+    [mut, bor]tape.clear_grads(params);
+    failures = failures + expect_flt("dw2[0] after zero_grad",
+        [bor]tape.grad_of(params.slots[6]), 0.0);
+    failures = failures + expect_flt("dx0 survives zero_grad", [bor]tape.grad_of(x0), 0.75);
+    return failures;
+};
+
+// A three-node graph whose op tags are printed, so the `_op` field the
+// original keeps for graphviz is visible rather than merely stored.
+fun[] show_ops(): int = {
+    var tape: engine::Tape = engine::new_tape();
+    var p: int = [mut, bor]tape.leaf(3.0);
+    var q: int = [mut, bor]tape.leaf(4.0);
+    var r: int = [mut, bor]tape.mul(p, q);
+    var s: int = [mut, bor]tape.relu(r);
+    std::io::echo_str("-- op tags --");
+    var index: int = 0;
+    loop(index < [bor]tape.size()) {
+        std::io::echo_str("  node " + std::fmt::int_to_str(index) + " op "
+            + engine::op_name([bor]tape.op_of(index)));
+        index = index + 1;
+    };
+    var failures: int = 0;
+    failures = failures + expect_flt("relu(3*4)", [bor]tape.data_of(s), 12.0);
+    return failures;
+};
+
+fun[] main(): int = {
+    std::io::echo_str("== autodiff_grad (micrograd) ==");
+    var failures: int = 0;
+    failures = failures + readme_example();
+    failures = failures + mlp_example();
+    failures = failures + show_ops();
+    if (failures == 0) {
+        std::io::echo_str("all checks passed");
+        return 0;
+    } else {
+        std::io::echo_str("failures: " + std::fmt::int_to_str(failures));
+        return 1;
+    };
+};

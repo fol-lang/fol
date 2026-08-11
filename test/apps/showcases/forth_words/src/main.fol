@@ -1,0 +1,250 @@
+// forth_words -- a translation of jonesforth into FOL.
+//
+// Original: jonesforth, Richard W.M. Jones' literate FORTH for i386 Linux,
+//           taken from the fork at https://github.com/nornagon/jonesforth
+//           (jonesforth.S, the assembler kernel, plus the IF / ELSE / THEN and
+//           NEGATE / DECIMAL definitions from jonesforth.f).
+//
+// What is kept: the flat cell-addressed memory image, the four system variables
+// STATE / HERE / LATEST / BASE living at the bottom of it, the dictionary as a
+// backwards linked list threaded through that same memory with a link cell, a
+// combined flags-and-length field and the name stored one character per cell,
+// indirect-threaded code where a compiled body is a run of codeword addresses,
+// DOCOL / NEXT / EXIT with a separate return stack, the static 32-cell word
+// buffer that WORD overwrites, INTERPRET's exact decision order (FIND, then
+// NUMBER, then compile-or-execute with the immediate-word exception), and
+// `:` / `;` / IF / ELSE / THEN written as FORTH definitions compiled into that
+// memory rather than as host-language special cases.
+//
+// DEVIATIONS -----------------------------------------------------------------
+//
+// 1. Byte addressing became cell addressing. jonesforth counts bytes, packs the
+//    name into consecutive bytes and then aligns the codeword up to a 4-byte
+//    boundary (`addl $3,%edi; andl $~3,%edi`). FOL has no bitwise AND, so the
+//    alignment step cannot be written at all. Memory is therefore one `int` per
+//    cell, one character per cell, and the alignment step disappears. BRANCH
+//    offsets are in cells rather than bytes, so a compiled `IF ... THEN` in
+//    this port has offset 2 where jonesforth would have 8.
+//
+// 2. The flags byte is arithmetic, not bit masking. jonesforth stores
+//    F_IMMED (0x80), F_HIDDEN (0x20) and the name length in one byte and pulls
+//    them apart with `andb $(F_HIDDEN|F_LENMASK)`. With no `&`, `|` or `^` the
+//    same field is decoded with `/` and `%`: length is `field % 32`, the hidden
+//    test is `field % 64`, immediacy is `(field / 128) % 2`, and HIDDEN toggles
+//    by adding or subtracting 32. The constants are unchanged, so the trick
+//    that makes a hidden word's length unmatchable still works for the same
+//    reason it does in the original.
+//
+// 3. The input buffer is a `str`, not memory. jonesforth's KEY reads bytes out
+//    of the same address space as everything else, which is why WORD can hand
+//    back a pointer into it. FOL cannot take the address of a character, so the
+//    script text is a `str` field with an integer cursor and KEY reads it with
+//    `std::strn::byte_at`. WORD still copies into the in-memory word buffer, so
+//    FIND and CREATE work on real addresses exactly as in the original.
+//
+// 4. Codewords are tags, not addresses. A jonesforth codeword is the address of
+//    a block of assembly; here it is a small integer naming a case in `exec`.
+//    DOCOL keeps its meaning -- codeword 0 -- so `: ... ;` still compiles
+//    `LIT 0 ,` to write it, and the inner interpreter still decides what to do
+//    by reading the codeword out of memory.
+//
+// 5. INTERPRET and QUIT are host routines, not dictionary words. jonesforth's
+//    INTERPRET ends in `jmp *(%eax)`, handing control to a word and never
+//    returning; the outer loop is recovered because the word eventually EXITs
+//    into the middle of QUIT. FOL has no way to jump into a routine, so
+//    `run_cfa` threads a word through two reserved cells that hold the word and
+//    then HALT. The observable order of operations is identical, but INTERPRET
+//    and QUIT cannot be redefined from FORTH the way they can in the original.
+//
+// 6. `.` is a primitive. In jonesforth `.` is built in FORTH out of `/MOD`,
+//    `EMIT` and recursion into `U.`. That needs chr/int conversion in both
+//    directions, and FOL only has `std::strn::from_byte` going one way, so the
+//    digit loop lives in `text::render` instead. It still honours BASE, which
+//    is why `255 HEX .` prints FF.
+//
+// 7. Stack limits are checked and reported. jonesforth runs the data stack on
+//    %esp with no bounds test at all; `DROP` on an empty stack corrupts the
+//    process. Here every pop tests the depth and records a fault string that
+//    stops the machine, because a segmentation fault is not a behaviour worth
+//    reproducing. The stacks are 32 cells rather than jonesforth's 8192-byte
+//    return stack, since `arr[T, N]` stops compiling above N = 32.
+//
+// 8. The data segment is three literal pages. jonesforth reserves 64 KiB with
+//    `.set INITIAL_DATA_SEGMENT_SIZE,65536`. FOL cannot build a container at a
+//    computed size and no container can grow, so the segment has to be written
+//    out element by element -- and a literal stops parsing at 256 elements,
+//    while `arr[T, N]` fails to build at all above N = 32. The address space is
+//    therefore three 256-cell `vec` pages that `fetch` and `store` splice back
+//    together, and every address above them is one branch slower than it would
+//    be in a single array. 768 cells is the whole machine; the boot dictionary
+//    fills 464 of them.
+//
+// 9. Word set. The primitives here are jonesforth's, minus everything that
+//    needs bitwise arithmetic (AND, OR, XOR, INVERT), byte memory (C@, C!,
+//    CMOVE), the return-stack words (>R, R>, RSP@), syscalls, and the string
+//    words (LITSTRING, TELL). DEPTH is a primitive rather than being derived
+//    from S0 and DSP@, because there is no stack pointer to fetch.
+//
+// 10. Every dictionary write goes through a routine, not a place expression.
+//    `self.page0[addr] = value` compiles, but `self.page0[addr + 1] = value`
+//    does not: an indexed assignment through a field only accepts a primary
+//    index expression. Nothing in the port needs to write two adjacent cells in
+//    one statement, so this cost nothing beyond a named local, but it is the
+//    reason `store` exists in places where a plain subscript would have read
+//    better.
+//
+// EASIER THAN EXPECTED --------------------------------------------------------
+//
+// Indexed assignment through a mutable receiver is the whole reason this port
+// is a translation rather than a rewrite: `self.page1[slot] = value` is what
+// makes a flat, self-modifying memory image possible, and with it the byte-level
+// dictionary, `,`, HERE and the back-filled branch offsets all survived intact.
+// Receiver methods can also be declared in a module other than the one that
+// declares the type, so the defcode/defword section kept its own file even
+// though every line of it mutates the machine. And a FORTH needs no recursive
+// types at all -- everything is already an index into one array -- so the
+// boundary that usually bites a port of a linked structure never came up.
+
+use std: pkg = {"std"};
+use words: loc = {"words"};
+use forth: loc = {"forth"};
+use boot: loc = {"boot"};
+
+fun[] main(): int = {
+    std::io::echo_str("forth_words -- jonesforth translated into FOL");
+    std::io::echo_str("");
+
+    var[mut] image: forth::Forth = forth::fresh();
+    image.boot();
+    var used: int = image.fetch(words::ADDR_HERE);
+    std::io::echo_str("dictionary assembled: " + std::fmt::int_to_str(used)
+        + " of " + std::fmt::int_to_str(words::MEM_CELLS) + " cells used");
+    std::io::echo_str("");
+
+    var[mut] failures: int = 0;
+    failures = failures + arithmetic();
+    failures = failures + stack_words();
+    failures = failures + comparisons();
+    failures = failures + definitions();
+    failures = failures + branching();
+    failures = failures + machinery();
+    failures = failures + faults();
+
+    std::io::echo_str("");
+    std::io::echo_str("checks failed: " + std::fmt::int_to_str(failures));
+    when(failures == 0) {
+        case(true) { return 0; }
+        * { }
+    };
+    return 1;
+};
+
+pro arithmetic(): int = {
+    std::io::echo_str("== arithmetic ==");
+    var[mut] bad: int = 0;
+    bad = bad + run_case("plus/minus/times", "2 3 + . 10 3 - . 6 7 * .", "5 7 42 ", "");
+    bad = bad + run_case("divide and remainder", "20 3 / . 20 3 MOD . 7 NEGATE .", "6 2 -7 ", "");
+    bad = bad + run_case("base switching", "255 HEX . DECIMAL 255 .", "FF 255 ", "");
+    return bad;
+};
+
+pro stack_words(): int = {
+    std::io::echo_str("== stack words ==");
+    var[mut] bad: int = 0;
+    bad = bad + run_case("swap", "1 2 SWAP . .", "1 2 ", "");
+    bad = bad + run_case("dup", "3 DUP * .", "9 ", "");
+    bad = bad + run_case("over", "7 8 OVER . . .", "7 8 7 ", "");
+    bad = bad + run_case("rot", "1 2 3 ROT . . .", "1 3 2 ", "");
+    bad = bad + run_case("depth", "1 2 3 DEPTH . DROP DROP DROP DEPTH .", "3 0 ", "");
+    return bad;
+};
+
+pro comparisons(): int = {
+    std::io::echo_str("== comparisons ==");
+    var[mut] bad: int = 0;
+    bad = bad + run_case("less and greater", "1 2 < . 2 1 < . 4 2 > .", "1 0 1 ", "");
+    bad = bad + run_case("equality", "3 3 = . 5 0 = . 0 0= .", "1 0 1 ", "");
+    return bad;
+};
+
+pro definitions(): int = {
+    std::io::echo_str("== colon definitions ==");
+    var[mut] bad: int = 0;
+    bad = bad + run_case("square", ": SQUARE DUP * ; 5 SQUARE .", "25 ", "");
+    bad = bad + run_case("word calling a word",
+        ": SQUARE DUP * ; : QUAD SQUARE SQUARE ; 3 QUAD . 2 QUAD .", "81 16 ", "");
+    bad = bad + run_case("emit inside a definition",
+        ": STAR 42 EMIT ; STAR STAR CR", "**\n", "");
+    // The half-built word is hidden, so the body of the second A binds to the
+    // first A rather than to itself -- jonesforth's reason for the HIDDEN flag.
+    bad = bad + run_case("redefinition sees the older word",
+        ": A 1 ; : A A A + ; A .", "2 ", "");
+    bad = bad + run_case("three levels of return stack",
+        ": F1 1 + ; : F2 F1 F1 ; : F3 F2 F2 ; 0 F3 .", "4 ", "");
+    return bad;
+};
+
+pro branching(): int = {
+    std::io::echo_str("== IF / ELSE / THEN ==");
+    var[mut] bad: int = 0;
+    bad = bad + run_case("if without else",
+        ": ABS DUP 0 < IF NEGATE THEN ; -9 ABS . 9 ABS .", "9 9 ", "");
+    bad = bad + run_case("nested if and else",
+        ": SIGN DUP 0 > IF DROP 1 ELSE 0 < IF -1 ELSE 0 THEN THEN ; -7 SIGN . 0 SIGN . 5 SIGN .",
+        "-1 0 1 ", "");
+    return bad;
+};
+
+pro machinery(): int = {
+    std::io::echo_str("== interpreter machinery ==");
+    var[mut] bad: int = 0;
+    bad = bad + run_case("backslash comments", "\\ ignored to end of line\n2 2 + .", "4 ", "");
+    bad = bad + run_case("state is visible", "STATE @ . : N ; STATE @ .", "0 0 ", "");
+    bad = bad + run_case("memory can be poked", "42 300 ! 300 @ .", "42 ", "");
+    // WORD and FIND have to be called from inside one definition. Typing
+    // `WORD DUP FIND` at the prompt cannot work -- the outer interpreter reads
+    // FIND into the same static word buffer before FIND ever runs -- and that
+    // is true of the original too.
+    bad = bad + run_case("word, find and >CFA from a definition",
+        ": LOOKUP WORD FIND ; LOOKUP ZZZ . : XT WORD FIND >CFA ; XT DUP XT DUP = . XT SWAP XT DUP = .",
+        "-1 1 0 ", "");
+    // jonesforth's own example of extending the compiler: an immediate word
+    // that writes LIT and a value into whatever is being defined.
+    bad = bad + run_case("user immediate word extends the compiler",
+        ": LIT2 IMMEDIATE ' LIT , 2 , ; : DOUBLE LIT2 * ; 5 DOUBLE .", "10 ", "");
+    return bad;
+};
+
+pro faults(): int = {
+    std::io::echo_str("== faults ==");
+    var[mut] bad: int = 0;
+    bad = bad + run_case("underflow is reported", "5 DROP DROP", "", "stack underflow");
+    bad = bad + run_case("divide by zero is reported", "1 0 /", "", "division by zero");
+    bad = bad + run_case("unknown word keeps going", "2 3 + . BOGUS 1 .",
+        "5 PARSE ERROR: 2 3 + . BOGUS \n1 ", "");
+    return bad;
+};
+
+// One script on one freshly booted machine, printed and then checked.
+pro run_case(title: str, source: str, expect_out: str, expect_fault: str): int = {
+    var[mut] machine: forth::Forth = forth::fresh();
+    machine.boot();
+    machine.quit(source);
+
+    std::io::echo_str("  " + title);
+    std::io::echo_str("    script : " + source);
+    std::io::echo_str("    output : " + machine.out);
+    when(machine.fault != "") {
+        case(true) { std::io::echo_str("    fault  : " + machine.fault); }
+        * { }
+    };
+
+    var matched: bol = (machine.out == expect_out) and (machine.fault == expect_fault);
+    when(matched) {
+        case(true) { return 0; }
+        * { }
+    };
+    std::io::echo_str("    FAILED : wanted output [" + expect_out
+        + "] fault [" + expect_fault + "]");
+    return 1;
+};

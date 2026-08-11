@@ -1,0 +1,148 @@
+use std: pkg = {"std"};
+use reader: loc = {"../reader"};
+use table: loc = {"../table"};
+
+// input.c: turn makefile text into the name table.
+//
+// The original reads one line at a time from a FILE* and peeks ahead for the
+// tab-indented recipe, rewinding through a two-buffer shuffle (`str1`/`str2`).
+// FOL has no incremental reader, so the whole makefile arrives as one string
+// and the recipe is attached to whichever rule line was seen last -- the same
+// grammar, driven forwards instead of with a one-line lookahead.
+
+fun[exp] input(mk: table::Make, text: str): table::Make = {
+    var[mut] work: table::Make = [mov]mk;
+    var body: str = reader::splice(text);
+    var total: int = reader::line_count(body);
+    var[mut] index: int = 0;
+    loop(index < total) {
+        var raw: str = reader::strip_comment(reader::line_at(body, index));
+        var body_line: str = reader::trim(raw);
+        var is_cmd: bol = std::strn::byte_at(raw, 0) == reader::tab_code();
+        when(.len(body_line) == 0) {
+            case(true) { }
+            * {
+                when(is_cmd) {
+                    case(true) { work = take_command([mov]work, body_line); }
+                    * { work = take_rule([mov]work, raw); }
+                }
+            }
+        };
+        when(.len(work.problem) > 0) {
+            case(true) { break; }
+            * { }
+        };
+        index = index + 1;
+    };
+    return [mov]work;
+};
+
+// newcmd, fanned out over every target sharing the rule line.
+fun[exp] take_command(mk: table::Make, line: str): table::Make = {
+    var[mut] work: table::Make = [mov]mk;
+    var open_rule: str = work.open_rule;
+    when(.len(open_rule) == 0) {
+        case(true) {
+            [mut, bor]work.complain("Rules not allowed here");
+            return [mov]work;
+        }
+        * { }
+    };
+    var[mut] index: int = 0;
+    loop(index < reader::word_count(open_rule)) {
+        var node: int = [bor]work.lookup(reader::word_at(open_rule, index));
+        when(node >= 0) {
+            case(true) { [mut, bor]work.add_cmd(node, line); }
+            * { }
+        };
+        index = index + 1;
+    };
+    return [mov]work;
+};
+
+// A non-indented line is either a macro definition or a rule. The original
+// looks for '=' before it looks for ':', so `OBJ = a:b` is a macro and not a
+// rule; that ordering is kept.
+fun[exp] take_rule(mk: table::Make, raw: str): table::Make = {
+    var[mut] work: table::Make = [mov]mk;
+    var assign: int = std::strn::find(raw, "=");
+    when(assign >= 0) {
+        case(true) {
+            var name: str = reader::word_at(std::strn::sub(raw, 0, assign), 0);
+            var value: str = reader::trim(std::strn::sub(raw, assign + 1, .len(raw) - assign - 1));
+            when(.len(name) == 0) {
+                case(true) { [mut, bor]work.complain("No macro name"); }
+                * { [mut, bor]work.set_macro(name, value); }
+            };
+            [mut, bor]work.set_open("");
+            return [mov]work;
+        }
+        * { }
+    };
+
+    // A ';' splits the rule line from an inline recipe, before expansion, the
+    // way the original does it.
+    var semi: int = std::strn::find(raw, ";");
+    var[mut] head: str = raw;
+    var[mut] inline_cmd: str = "";
+    when(semi >= 0) {
+        case(true) {
+            head = std::strn::sub(raw, 0, semi);
+            inline_cmd = reader::trim(std::strn::sub(raw, semi + 1, .len(raw) - semi - 1));
+        }
+        * { }
+    };
+
+    var line: str = [bor]work.expand(head);
+    var colon: int = std::strn::find(line, ":");
+    when(colon < 0) {
+        case(true) {
+            [mut, bor]work.complain("No targets provided");
+            return [mov]work;
+        }
+        * { }
+    };
+    when(std::strn::byte_at(line, colon + 1) == 58) {
+        case(true) {
+            [mut, bor]work.complain("Double-colon rules are not supported");
+            return [mov]work;
+        }
+        * { }
+    };
+
+    var targets: str = std::strn::sub(line, 0, colon);
+    var wants: str = std::strn::sub(line, colon + 1, .len(line) - colon - 1);
+
+    var[mut] slot: int = 0;
+    loop(slot < reader::word_count(targets)) {
+        var target: str = reader::word_at(targets, slot);
+        [mut, bor]work.intern(target);
+        var node: int = [bor]work.lookup(target);
+        when(node < 0) {
+            case(true) { break; }
+            * { }
+        };
+        // "Commands defined twice for target": a second recipe for a
+        // single-colon target is an error, not an append.
+        when(([bor]work.cmd_count(node) > 0) and (.len(inline_cmd) > 0)) {
+            case(true) { [mut, bor]work.complain("Commands defined twice for target " + target); }
+            * { }
+        };
+        [mut, bor]work.mark_target(node);
+        var[mut] want: int = 0;
+        loop(want < reader::word_count(wants)) {
+            var dep: str = reader::word_at(wants, want);
+            [mut, bor]work.intern(dep);
+            [mut, bor]work.add_dep(node, dep);
+            want = want + 1;
+        };
+        when(.len(inline_cmd) > 0) {
+            case(true) { [mut, bor]work.add_cmd(node, inline_cmd); }
+            * { }
+        };
+        slot = slot + 1;
+    };
+
+    [mut, bor]work.set_open(targets);
+    return [mov]work;
+};

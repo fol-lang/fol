@@ -1,0 +1,253 @@
+// micrograd's engine.py: the Value node and the operator overloads that build
+// the computation graph, plus the per-op local gradient rules.
+//
+// Python keeps one Value object per node and lets several parents hold the same
+// object, so `self.grad += ...` inside a closure reaches every parent's view of
+// that node. FOL has no writable shared handle, so a node here is a slot in a
+// flat arena and a child edge is that slot's index. Two parents naming index 3
+// are the same node in exactly the way two Python parents holding the same
+// object are.
+
+typ[exp] Op: ent = {
+    var LEAF: int = 0;
+    var ADD: int = 1;
+    var MUL: int = 2;
+    var POW: int = 3;
+    var RELU: int = 4;
+};
+
+// One Value. `lhs`/`rhs` stand in for `_prev`; -1 means the edge is absent, so a
+// leaf has neither and a unary node only has `lhs`. `pw` is the exponent that
+// `__pow__` captured in its closure.
+typ[exp] Node: rec = {
+    data: flt,
+    grad: flt,
+    op: int,
+    lhs: int,
+    rhs: int,
+    pw: flt,
+};
+
+// A `vec` rather than `arr[Node, 64]` for one reason only: a record field of
+// type `arr[T, N]` with N above 32 emits Rust that does not compile (see the
+// arr33 repro). The vector never grows -- `new_tape` fixes its length and
+// `count` is the watermark.
+ali[exp] Slab: vec[Node];
+
+typ[exp] Tape: rec = {
+    nodes: Slab,
+    count: int,
+};
+
+fun[exp] capacity(): int = {
+    return 64;
+};
+
+// FOL has no array fill or repeat constructor, so the arena's backing store is
+// spelled out once here. Slots past `count` are never read.
+fun[exp] blank_slab(): Slab = {
+    var n: Node = { data = 0.0, grad = 0.0, op = 0, lhs = -1, rhs = -1, pw = 0.0 };
+    return {
+        n, n, n, n, n, n, n, n,
+        n, n, n, n, n, n, n, n,
+        n, n, n, n, n, n, n, n,
+        n, n, n, n, n, n, n, n,
+        n, n, n, n, n, n, n, n,
+        n, n, n, n, n, n, n, n,
+        n, n, n, n, n, n, n, n,
+        n, n, n, n, n, n, n, n,
+    };
+};
+
+fun[exp] new_tape(): Tape = {
+    return { nodes = blank_slab(), count = 0 };
+};
+
+fun[exp] (Tape[bor]) size(): int = {
+    return self.count;
+};
+
+fun[exp] (Tape[bor]) data_of(index: int): flt = {
+    return self.nodes[index].data;
+};
+
+fun[exp] (Tape[bor]) grad_of(index: int): flt = {
+    return self.nodes[index].grad;
+};
+
+fun[exp] (Tape[bor]) op_of(index: int): int = {
+    return self.nodes[index].op;
+};
+
+fun[exp] (Tape[bor]) lhs_of(index: int): int = {
+    return self.nodes[index].lhs;
+};
+
+fun[exp] (Tape[bor]) rhs_of(index: int): int = {
+    return self.nodes[index].rhs;
+};
+
+fun[exp] op_name(tag: int): str = {
+    when(tag) {
+        is(Op.LEAF) { return "leaf"; }
+        is(Op.ADD) { return "+"; }
+        is(Op.MUL) { return "*"; }
+        is(Op.POW) { return "**"; }
+        is(Op.RELU) { return "relu"; }
+        * { return "?"; }
+    }
+};
+
+// Value(data) with an empty `_prev`.
+pro[exp] (Tape[mut, bor]) leaf(value: flt): int = {
+    var slot: int = self.count;
+    self.nodes[slot] = {
+        data = value, grad = 0.0, op = Op.LEAF, lhs = -1, rhs = -1, pw = 0.0,
+    };
+    self.count = slot + 1;
+    return slot;
+};
+
+// __add__
+pro[exp] (Tape[mut, bor]) add(left: int, right: int): int = {
+    var value: flt = self.nodes[left].data + self.nodes[right].data;
+    var slot: int = self.count;
+    self.nodes[slot] = {
+        data = value, grad = 0.0, op = Op.ADD, lhs = left, rhs = right, pw = 0.0,
+    };
+    self.count = slot + 1;
+    return slot;
+};
+
+// __mul__
+pro[exp] (Tape[mut, bor]) mul(left: int, right: int): int = {
+    var value: flt = self.nodes[left].data * self.nodes[right].data;
+    var slot: int = self.count;
+    self.nodes[slot] = {
+        data = value, grad = 0.0, op = Op.MUL, lhs = left, rhs = right, pw = 0.0,
+    };
+    self.count = slot + 1;
+    return slot;
+};
+
+// __pow__, restricted to a constant exponent exactly as the original is.
+pro[exp] (Tape[mut, bor]) pow(base: int, exponent: flt): int = {
+    var value: flt = self.nodes[base].data ^ exponent;
+    var slot: int = self.count;
+    self.nodes[slot] = {
+        data = value, grad = 0.0, op = Op.POW, lhs = base, rhs = -1, pw = exponent,
+    };
+    self.count = slot + 1;
+    return slot;
+};
+
+// relu
+pro[exp] (Tape[mut, bor]) relu(inner: int): int = {
+    var raw: flt = self.nodes[inner].data;
+    var value: flt = 0.0;
+    if (raw < 0.0) {
+        value = 0.0;
+    } else {
+        value = raw;
+    };
+    var slot: int = self.count;
+    self.nodes[slot] = {
+        data = value, grad = 0.0, op = Op.RELU, lhs = inner, rhs = -1, pw = 0.0,
+    };
+    self.count = slot + 1;
+    return slot;
+};
+
+// The mixed Value/number forms. Python reaches these through `isinstance`
+// coercion inside `__add__`/`__mul__` and through the reflected dunders; each
+// one allocates exactly the same nodes here as it does there, which is why the
+// node totals in `main` match the Python run.
+
+// a + k
+pro[exp] (Tape[mut, bor]) add_scalar(left: int, k: flt): int = {
+    var wrapped: int = self.leaf(k);
+    return self.add(left, wrapped);
+};
+
+// a * k, and k * a via __rmul__ which is the same thing
+pro[exp] (Tape[mut, bor]) mul_scalar(left: int, k: flt): int = {
+    var wrapped: int = self.leaf(k);
+    return self.mul(left, wrapped);
+};
+
+// __neg__: self * -1
+pro[exp] (Tape[mut, bor]) neg(inner: int): int = {
+    return self.mul_scalar(inner, -1.0);
+};
+
+// __sub__: self + (-other)
+pro[exp] (Tape[mut, bor]) sub(left: int, right: int): int = {
+    var flipped: int = self.neg(right);
+    return self.add(left, flipped);
+};
+
+// __truediv__ against a plain number: `other**-1` is folded in host floats
+// before it can become a node, so this costs one leaf and one multiply.
+pro[exp] (Tape[mut, bor]) div_scalar(left: int, k: flt): int = {
+    return self.mul_scalar(left, 1.0 / k);
+};
+
+// __rtruediv__: other * self**-1, where the reciprocal IS a node.
+pro[exp] (Tape[mut, bor]) scalar_div(k: flt, right: int): int = {
+    var inverse: int = self.pow(right, -1.0);
+    return self.mul_scalar(inverse, k);
+};
+
+pro[exp] (Tape[mut, bor]) set_grad(index: int, value: flt): non = {
+    var node: Node = self.nodes[index];
+    self.nodes[index] = {
+        data = node.data, grad = value, op = node.op,
+        lhs = node.lhs, rhs = node.rhs, pw = node.pw,
+    };
+    return;
+};
+
+// `self.grad += delta`. Re-reading the node on every call is what preserves the
+// original's aliasing: when a node is its own sibling both halves of a binary
+// rule land on the same slot and both are counted.
+pro[exp] (Tape[mut, bor]) accumulate(index: int, delta: flt): non = {
+    var node: Node = self.nodes[index];
+    self.nodes[index] = {
+        data = node.data, grad = node.grad + delta, op = node.op,
+        lhs = node.lhs, rhs = node.rhs, pw = node.pw,
+    };
+    return;
+};
+
+// The bodies of micrograd's four `_backward` closures, selected by the stored
+// op tag instead of by the closure the node carries.
+pro[exp] (Tape[mut, bor]) apply_local_grads(index: int): non = {
+    var node: Node = self.nodes[index];
+    when(node.op) {
+        is(Op.ADD) {
+            self.accumulate(node.lhs, node.grad);
+            self.accumulate(node.rhs, node.grad);
+        }
+        is(Op.MUL) {
+            var left_data: flt = self.nodes[node.lhs].data;
+            var right_data: flt = self.nodes[node.rhs].data;
+            self.accumulate(node.lhs, right_data * node.grad);
+            self.accumulate(node.rhs, left_data * node.grad);
+        }
+        is(Op.POW) {
+            var base: flt = self.nodes[node.lhs].data;
+            self.accumulate(node.lhs, node.pw * (base ^ (node.pw - 1.0)) * node.grad);
+        }
+        is(Op.RELU) {
+            var gate: flt = 0.0;
+            if (node.data > 0.0) {
+                gate = 1.0;
+            } else {
+                gate = 0.0;
+            };
+            self.accumulate(node.lhs, gate * node.grad);
+        }
+        * { }
+    };
+    return;
+};

@@ -1,0 +1,182 @@
+// `re_compile`: one linear pass over the pattern that fills the node array.
+//
+// The original writes into two `static` buffers and hands back a pointer to
+// them, so every call quietly invalidates the previous result. FOL has no
+// function-local statics and no way to hand back an interior pointer, so this
+// returns a fresh owned `Program` instead. That is the one divergence where the
+// port comes out ahead: two compiled patterns can be alive at once.
+//
+// The pass is otherwise the same statement for statement, including the
+// refusals the original signals by returning a null pointer -- an unterminated
+// class, a class that would overrun the shared buffer, and `[^` at the very end
+// of the pattern. Those all become `ok = false`.
+//
+// The loop head below is deliberately one long line. Splitting a `loop`
+// condition across lines makes `fol tool format` indent the body an extra level
+// and then leak that indentation past the end of the routine; see deviation 11
+// in `src/main.fol`.
+
+use std: pkg = {"std"};
+use nodes: loc = {"../nodes"};
+use engine: loc = {"../engine"};
+
+fun blank_objects(): arr[int, 30] = {
+    return {
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    };
+};
+
+fun blank_buffer(): vec[int] = {
+    return {
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0,
+    };
+};
+
+// The original's `return 0`.
+fun[exp] rejected(): engine::Program = {
+    return {
+        kind = blank_objects(),
+        ch = blank_objects(),
+        ccl = blank_objects(),
+        buf = blank_buffer(),
+        ok = false,
+    };
+};
+
+fun[exp] compile(pattern: str): engine::Program = {
+    ~var kind: arr[int, 30] = blank_objects();
+    ~var ch: arr[int, 30] = blank_objects();
+    ~var ccl: arr[int, 30] = blank_objects();
+    ~var buf: vec[int] = blank_buffer();
+
+    // Slot 0 of the class buffer is never written, so `str[-1]` on the first
+    // class in a pattern still reads a NUL. The original relies on exactly that.
+    ~var ccl_next: int = 1;
+    ~var i: int = 0;
+    ~var j: int = 0;
+
+    loop((nodes::byte_or_nul(pattern, i) != nodes::c_nul()) and (j + 1 < nodes::max_objects())) {
+        var code: int = nodes::byte_or_nul(pattern, i);
+
+        when(code) {
+            is(94) { kind[j] = nodes::k_begin(); }
+            is(36) { kind[j] = nodes::k_finish(); }
+            is(46) { kind[j] = nodes::k_dot(); }
+            is(42) { kind[j] = nodes::k_star(); }
+            is(43) { kind[j] = nodes::k_plus(); }
+            is(63) { kind[j] = nodes::k_question(); }
+
+            is(92) {
+                // A trailing backslash writes no node at all. In C the slot then
+                // keeps whatever the previous compile left there; here it is
+                // freshly zeroed, so it reads as the UNUSED sentinel.
+                when(nodes::byte_or_nul(pattern, i + 1) != nodes::c_nul()) {
+                    case(true) {
+                        i = i + 1;
+                        var letter: int = nodes::byte_or_nul(pattern, i);
+                        when(letter) {
+                            is(100) { kind[j] = nodes::k_digit(); }
+                            is(68) { kind[j] = nodes::k_not_digit(); }
+                            is(119) { kind[j] = nodes::k_alpha(); }
+                            is(87) { kind[j] = nodes::k_not_alpha(); }
+                            is(115) { kind[j] = nodes::k_white(); }
+                            is(83) { kind[j] = nodes::k_not_white(); }
+                            * { kind[j] = nodes::k_char(); ch[j] = letter; }
+                        };
+                    }
+                    * { }
+                };
+            }
+
+            is(91) {
+                var begins: int = ccl_next;
+
+                when(nodes::byte_or_nul(pattern, i + 1) == nodes::c_caret()) {
+                    case(true) {
+                        kind[j] = nodes::k_inv_class();
+                        i = i + 1;
+                        when(nodes::byte_or_nul(pattern, i + 1) == nodes::c_nul()) {
+                            case(true) { return rejected(); }
+                            * { }
+                        };
+                    }
+                    * { kind[j] = nodes::k_class(); }
+                };
+
+                // `while (pattern[++i] != ']' && pattern[i] != '\0')`: the
+                // pre-increment is why the cursor moves before the test.
+                loop(true) {
+                    i = i + 1;
+                    var inner: int = nodes::byte_or_nul(pattern, i);
+                    var closed: bol = (inner == nodes::c_close_bracket()) or (inner == nodes::c_nul());
+                    when(closed) {
+                        case(true) { break; }
+                        * { }
+                    };
+
+                    // An escape inside a class keeps its backslash, so the two
+                    // bytes travel together into the buffer and the matcher can
+                    // tell `\s` from a literal 's'.
+                    when(inner == nodes::c_backslash()) {
+                        case(true) {
+                            when(ccl_next >= nodes::max_class_len() - 1) {
+                                case(true) { return rejected(); }
+                                * { }
+                            };
+                            when(nodes::byte_or_nul(pattern, i + 1) == nodes::c_nul()) {
+                                case(true) { return rejected(); }
+                                * { }
+                            };
+                            buf[ccl_next] = inner;
+                            ccl_next = ccl_next + 1;
+                            i = i + 1;
+                        }
+                        * {
+                            when(ccl_next >= nodes::max_class_len()) {
+                                case(true) { return rejected(); }
+                                * { }
+                            };
+                        }
+                    };
+
+                    buf[ccl_next] = nodes::byte_or_nul(pattern, i);
+                    ccl_next = ccl_next + 1;
+                };
+
+                when(ccl_next >= nodes::max_class_len()) {
+                    case(true) { return rejected(); }
+                    * { }
+                };
+                buf[ccl_next] = nodes::c_nul();
+                ccl_next = ccl_next + 1;
+                ccl[j] = begins;
+            }
+
+            * { kind[j] = nodes::k_char(); ch[j] = code; }
+        };
+
+        // An unterminated class leaves the cursor sitting on the terminator.
+        when(nodes::byte_or_nul(pattern, i) == nodes::c_nul()) {
+            case(true) { return rejected(); }
+            * { }
+        };
+
+        i = i + 1;
+        j = j + 1;
+    };
+
+    kind[j] = nodes::k_unused();
+    return { kind = kind, ch = ch, ccl = ccl, buf = buf, ok = true };
+};
+
+// `re_match`: compile then search, the whole public surface in one call.
+fun[exp] search(pattern: str, text: str): engine::Found = {
+    var program: engine::Program = compile(pattern);
+    return [bor]program.find(text);
+};

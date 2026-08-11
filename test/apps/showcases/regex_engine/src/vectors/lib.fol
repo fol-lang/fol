@@ -1,0 +1,99 @@
+// The original's own test table, carried over row for row.
+//
+// tiny-regex-c ships `tests/test1.c` with a `char* test_vector[][4]` whose four
+// columns are: should-it-match, pattern, subject, expected match length. The C
+// driver smuggles the flag and the length through the `char*` element type with
+// casts; here they are simply typed. Row order is preserved, duplicates
+// included, so a disagreement can be read straight back against the original.
+//
+// C string literals and FOL string literals process the same escapes, so every
+// pattern and subject below is spelled exactly as it is spelled there. `"\\d"`
+// is a two-character pattern, `"\\\\"` is a one-character one.
+
+typ[exp] Case: rec = {
+    want: bol,
+    pattern: str,
+    text: str,
+    len: int,
+};
+
+fun[exp] table(): seq[Case] = {
+    return {
+        { want = true, pattern = "\\d", text = "5", len = 1 },
+        { want = true, pattern = "\\w+", text = "hej", len = 3 },
+        { want = true, pattern = "\\s", text = "\t \n", len = 1 },
+        { want = false, pattern = "\\S", text = "\t \n", len = 0 },
+        { want = true, pattern = "[\\s]", text = "\t \n", len = 1 },
+        { want = false, pattern = "[\\S]", text = "\t \n", len = 0 },
+        { want = false, pattern = "\\D", text = "5", len = 0 },
+        { want = false, pattern = "\\W+", text = "hej", len = 0 },
+        { want = true, pattern = "[0-9]+", text = "12345", len = 5 },
+        { want = true, pattern = "\\D", text = "hej", len = 1 },
+        { want = false, pattern = "\\d", text = "hej", len = 0 },
+        { want = true, pattern = "[^\\w]", text = "\\", len = 1 },
+        { want = true, pattern = "[\\W]", text = "\\", len = 1 },
+        { want = false, pattern = "[\\w]", text = "\\", len = 0 },
+        { want = true, pattern = "[^\\d]", text = "d", len = 1 },
+        { want = false, pattern = "[\\d]", text = "d", len = 0 },
+        { want = false, pattern = "[^\\D]", text = "d", len = 0 },
+        { want = true, pattern = "[\\D]", text = "d", len = 1 },
+        { want = true, pattern = "^.*\\\\.*$", text = "c:\\Tools", len = 8 },
+        { want = true, pattern = "^.*\\\\.*$", text = "c:\\Tools", len = 8 },
+        { want = true, pattern = ".?\\w+jsj$", text = "%JxLLcVx8wxrjsj", len = 15 },
+        { want = true, pattern = ".?\\w+jsj$", text = "=KbvUQjsj", len = 9 },
+        { want = true, pattern = ".?\\w+jsj$", text = "^uDnoZjsj", len = 9 },
+        { want = true, pattern = ".?\\w+jsj$", text = "UzZbjsj", len = 7 },
+        { want = true, pattern = ".?\\w+jsj$", text = "\"wjsj", len = 5 },
+        { want = true, pattern = ".?\\w+jsj$", text = "zLa_FTEjsj", len = 10 },
+        { want = true, pattern = ".?\\w+jsj$", text = "\"mw3p8_Ojsj", len = 11 },
+        { want = true, pattern = "^[\\+-]*[\\d]+$", text = "+27", len = 3 },
+        { want = true, pattern = "[abc]", text = "1c2", len = 1 },
+        { want = false, pattern = "[abc]", text = "1C2", len = 0 },
+        { want = true, pattern = "[1-5]+", text = "0123456789", len = 5 },
+        { want = true, pattern = "[.2]", text = "1C2", len = 1 },
+        { want = true, pattern = "a*$", text = "Xaa", len = 2 },
+        { want = true, pattern = "a*$", text = "Xaa", len = 2 },
+        { want = true, pattern = "[a-h]+", text = "abcdefghxxx", len = 8 },
+        { want = false, pattern = "[a-h]+", text = "ABCDEFGH", len = 0 },
+        { want = true, pattern = "[A-H]+", text = "ABCDEFGH", len = 8 },
+        { want = false, pattern = "[A-H]+", text = "abcdefgh", len = 0 },
+        { want = true, pattern = "[^\\s]+", text = "abc def", len = 3 },
+        { want = true, pattern = "[^fc]+", text = "abc def", len = 2 },
+        { want = true, pattern = "[^d\\sf]+", text = "abc def", len = 3 },
+        { want = true, pattern = "\n", text = "abc\ndef", len = 1 },
+        { want = true, pattern = "b.\\s*\n", text = "aa\r\nbb\r\ncc\r\n\r\n", len = 4 },
+        { want = true, pattern = ".*c", text = "abcabc", len = 6 },
+        { want = true, pattern = ".+c", text = "abcabc", len = 6 },
+        { want = true, pattern = "[b-z].*", text = "ab", len = 1 },
+        { want = true, pattern = "b[k-z]*", text = "ab", len = 1 },
+        { want = false, pattern = "[0-9]", text = "  - ", len = 0 },
+        { want = true, pattern = "[^0-9]", text = "  - ", len = 1 },
+        { want = true, pattern = "0|", text = "0|", len = 2 },
+        { want = false, pattern = "\\d\\d:\\d\\d:\\d\\d", text = "0s:00:00", len = 0 },
+        { want = false, pattern = "\\d\\d:\\d\\d:\\d\\d", text = "000:00", len = 0 },
+        { want = false, pattern = "\\d\\d:\\d\\d:\\d\\d", text = "00:0000", len = 0 },
+        { want = false, pattern = "\\d\\d:\\d\\d:\\d\\d", text = "100:0:00", len = 0 },
+        { want = false, pattern = "\\d\\d:\\d\\d:\\d\\d", text = "00:100:00", len = 0 },
+        { want = false, pattern = "\\d\\d:\\d\\d:\\d\\d", text = "0:00:100", len = 0 },
+        { want = true, pattern = "\\d\\d?:\\d\\d?:\\d\\d?", text = "0:0:0", len = 5 },
+        { want = true, pattern = "\\d\\d?:\\d\\d?:\\d\\d?", text = "0:00:0", len = 6 },
+        { want = true, pattern = "\\d\\d?:\\d\\d?:\\d\\d?", text = "0:0:00", len = 5 },
+        { want = true, pattern = "\\d\\d?:\\d\\d?:\\d\\d?", text = "00:0:0", len = 6 },
+        { want = true, pattern = "\\d\\d?:\\d\\d?:\\d\\d?", text = "00:00:0", len = 7 },
+        { want = true, pattern = "\\d\\d?:\\d\\d?:\\d\\d?", text = "00:0:00", len = 6 },
+        { want = true, pattern = "\\d\\d?:\\d\\d?:\\d\\d?", text = "0:00:00", len = 6 },
+        { want = true, pattern = "\\d\\d?:\\d\\d?:\\d\\d?", text = "00:00:00", len = 7 },
+        { want = true, pattern = "[Hh]ello [Ww]orld\\s*[!]?", text = "Hello world !", len = 12 },
+        { want = true, pattern = "[Hh]ello [Ww]orld\\s*[!]?", text = "hello world !", len = 12 },
+        { want = true, pattern = "[Hh]ello [Ww]orld\\s*[!]?", text = "Hello World !", len = 12 },
+        { want = true, pattern = "[Hh]ello [Ww]orld\\s*[!]?", text = "Hello world!   ", len = 11 },
+        { want = true, pattern = "[Hh]ello [Ww]orld\\s*[!]?", text = "Hello world  !", len = 13 },
+        { want = true, pattern = "[Hh]ello [Ww]orld\\s*[!]?", text = "hello World    !", len = 15 },
+        { want = false, pattern = "\\d\\d?:\\d\\d?:\\d\\d?", text = "a:0", len = 0 },
+        { want = true, pattern = ".?bar", text = "real_bar", len = 4 },
+        { want = false, pattern = ".?bar", text = "real_foo", len = 0 },
+        { want = false, pattern = "X?Y", text = "Z", len = 0 },
+        { want = true, pattern = "[a-z]+\nbreak", text = "blahblah\nbreak", len = 14 },
+        { want = true, pattern = "[a-z\\s]+\nbreak", text = "bla bla \nbreak", len = 14 },
+    };
+};

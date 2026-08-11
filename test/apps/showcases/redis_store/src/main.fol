@@ -1,0 +1,383 @@
+// redis_store -- a translation of mini-redis, the Redis server core.
+//
+//   original: mini-redis (Tokio project), plus the DEL/EXISTS commands from
+//             the "Build Your Own Redis" challenge
+//   sources:  https://github.com/tokio-rs/mini-redis
+//               src/frame.rs   -> src/resp/lib.fol
+//               src/db.rs      -> src/store/lib.fol
+//               src/cmd/*.rs   -> src/command/lib.fol
+//               src/server.rs  -> src/server/lib.fol
+//             https://github.com/codecrafters-io/build-your-own-redis
+//
+// What is real: the RESP codec (simple strings, errors, integers, bulk
+// strings, null, arrays), the expiring key-value store, and the command
+// dispatch for PING, ECHO, SET, GET, DEL, EXISTS and SET ... PX. What is
+// simulated: the transport. There are no sockets, so the TCP listener becomes
+// a fan-out of `[spn]` connection handlers that share one `mux[Store]` and
+// write their replies onto `chn[tx, Reply]` endpoints.
+//
+// ============================ DEVIATIONS ============================
+//
+// 1. `Frame` is not a sum type. The original is
+//        enum Frame { Simple(String), Error(String), Integer(u64),
+//                     Bulk(Bytes), Null, Array(Vec<Frame>) }
+//    FOL has no variant carrying a payload, so all six collapse into one
+//    tagged record whose `kind` says which of `text`/`number`/`items` is
+//    meaningful. Nothing stops a caller reading `number` off a bulk frame:
+//    the type system no longer holds the variant discipline, the tag checks
+//    at the top of every routine do.
+//
+// 2. `Array(Vec<Frame>)` is self-referential, and a record containing itself
+//    needs nominal lowering FOL does not have. Array children are therefore
+//    stored as the *wire text* of each element, not as nested frames, and
+//    `resp::item_at` decodes one back on demand. Every RESP encoding is
+//    self-delimiting, so nesting still round-trips byte for byte -- but the
+//    cost is that reading an element is a re-parse rather than a field
+//    access, and a deeply nested array is re-parsed once per level.
+//
+// 3. Containers cannot grow. `Vec<Frame>` becomes `arr[str, 8]` with an
+//    explicit count, so an array frame is capped at 8 elements and a longer
+//    one is rejected as a protocol fault the original would have accepted.
+//    `HashMap<String, Entry>` becomes four parallel `arr[_, 16]` and a
+//    high-water mark, which turns every lookup from O(1) into a linear scan
+//    and caps the database at 16 live keys; a SET past that answers
+//    `-ERR OOM store is full` rather than growing.
+//
+// 4. `BTreeSet<(Instant, String)>` -- the expiration index -- is gone. There
+//    is no ordered container to keep it in, so `purge_expired_keys` scans all
+//    slots instead of walking the earliest deadline first: O(n) per command
+//    where the original is O(expired).
+//
+// 5. No timers, so no background purge task. `Db::new` spawns
+//    `purge_expired_tasks`, which sleeps until the next deadline and wakes on
+//    a `Notify`. Here `purge_expired_keys` is called at the top of every
+//    guarded command instead. Behaviour a client can observe is the same --
+//    an expired key reads as a null bulk string -- but a key that nobody
+//    asks about is never reclaimed, so it keeps its slot until the next
+//    command runs.
+//
+// 6. `Instant::now()` is replaced by an explicit `now: int` threaded through
+//    every command. `std::time::now_ms` exists, but there is no way to add a
+//    `Duration` to a real instant and no float/int conversion, and a wall
+//    clock would make the expiry assertions racy. The logical clock is also
+//    what makes the PX test deterministic.
+//
+// 7. `Db` is `Arc<Shared>` with `Mutex<State>` inside and is *cloned* into
+//    every connection. `mux[Store]` is the direct equivalent and needed no
+//    workaround -- this was the easiest part of the port.
+//
+// 8. But the guarded state could not be mutated in place. Element assignment
+//    into an array reached through a `mux[T]` is rejected by the checker with
+//    "lock it first and assign through the guard" *even when the handle is
+//    already locked*, and doing it through a named guard binding passes
+//    `check` and then fails the Rust backend (see FINDINGS 1 and 2). So
+//    `store::apply` copies the whole record out under the lock, mutates the
+//    copy, and writes every field back before unlocking. It is still one
+//    critical section per command, so it is still atomic -- but it copies
+//    16 keys, 16 values, 16 deadlines and 16 flags on every GET.
+//
+// 9. Multi-key DEL/EXISTS are capped at 4 keys, because the argument list is
+//    an `arr[str, 4]`. Real Redis takes any number.
+//
+// 10. `Connection::read_frame` streams from a `BytesMut` buffer and reports
+//    `Error::Incomplete` to ask for more bytes. There is no stream here, so
+//    `resp::decode` takes a whole buffer; the incomplete/protocol-error
+//    distinction survives as two fault strings rather than two variants,
+//    since `err[str]` cannot carry a discriminant.
+//
+// 11. A malformed frame answers with an error frame. The original drops the
+//    connection on a protocol error; there is no connection to drop, and the
+//    exercise asks for a reply rather than a crash.
+//
+// 12. mini-redis's PUBLISH/SUBSCRIBE are not ported: they need `broadcast`
+//    channels keyed by name in a growable map, which rules 3 and 4 already
+//    close off.
+//
+// 13. `store::apply` cannot do its branching inside the critical section. A
+//    `when` block between `state.lock()` and the next guarded field access
+//    makes the checker forget the lock (a `loop` block in the same position
+//    does not -- FINDINGS 3), so all the branching moved into `run_op`, which
+//    the locked routine calls. The critical section is unchanged at runtime;
+//    the source just cannot say so directly.
+//
+// 14. Command tags are written through `tag_of(...)` rather than assigned
+//    straight from the entry: `cmd.kind = Kind.SET` type-checks and then
+//    fails the Rust backend (FINDINGS 4). Passing the member through a call
+//    narrows it to `int` again.
+//
+// 15. Two signatures and one `when` condition are on single over-long lines
+//    because a header spanning several lines makes `fol tool format` indent
+//    the rest of the file one level deeper, cascading to the last line
+//    (FINDINGS 5). The package is a fixed point of the formatter as written.
+//
+// Easier than expected: `mux[Store]` shared across `[spn]` tasks needed no
+// ceremony at all, `chn[tx, T]` / `chn[rx, T]` endpoints made the direction of
+// each half of the transport explicit in a way the original's channel types do
+// not, and recursion through `decode_at` for nested arrays just worked.
+
+use std: pkg = {"std"};
+use resp: loc = {"resp"};
+use store: loc = {"store"};
+use command: loc = {"command"};
+use server: loc = {"server"};
+
+// Wall-clock free: every phase names the millisecond it happens at.
+con T0: int = 1000;
+
+fun[] main(): int = {
+    var[mut] faults: int = 0;
+    faults = faults + roundtrip();
+    faults = faults + malformed();
+    faults = faults + commands();
+    faults = faults + expiry();
+    faults = faults + concurrency();
+
+    std::io::echo_str("");
+    when (faults == 0) {
+        case(true) { std::io::echo_str("all checks passed"); }
+        * { std::io::echo_str("FAILED checks: " + std::fmt::int_to_str(faults)); }
+    };
+    return 0;
+};
+
+fun head(title: str): int = {
+    std::io::echo_str("");
+    std::io::echo_str("== " + title + " ==");
+    return 0;
+};
+
+fun claim(label: str, got: str, want: str): int = {
+    when (got == want) {
+        case(true) {
+            std::io::echo_str("  ok   " + label + " = " + got);
+            return 0;
+        }
+        * {
+            std::io::echo_str("  FAIL " + label + " = " + got + " (want " + want + ")");
+            return 1;
+        }
+    }
+};
+
+fun claim_int(label: str, got: int, want: int): int = {
+    return claim(label, std::fmt::int_to_str(got), std::fmt::int_to_str(want));
+};
+
+// Every RESP type out through `encode` and back in through `decode`.
+fun roundtrip(): int = {
+    head("resp round-trip");
+    var[mut] bad: int = 0;
+
+    var frames: arr[str, 6] = {
+        resp::encode(resp::simple("OK")),
+        resp::encode(resp::error("ERR unknown command 'frobnicate'")),
+        resp::encode(resp::integer(0 - 42)),
+        resp::encode(resp::bulk("hello")),
+        resp::encode(resp::null_frame()),
+        resp::encode(nested()),
+    };
+
+    var[mut] index: int = 0;
+    loop (index < 6) {
+        var wire: str = frames[index];
+        var seen: resp::Decoded = resp::decode(wire);
+        var again: str = resp::encode(seen.frame);
+        std::io::echo_str("  " + resp::kind_name(seen.frame.kind) + ": " + resp::show(wire));
+        bad = bad + claim("re-encode " + std::fmt::int_to_str(index),
+            resp::show(again), resp::show(wire));
+        index = index + 1;
+    };
+
+    // Field-level checks, so the round-trip is not just string equality.
+    var integer_frame: resp::Decoded = resp::decode(frames[2]);
+    bad = bad + claim_int("integer payload", integer_frame.frame.number, 0 - 42);
+    var bulk_frame: resp::Decoded = resp::decode(frames[3]);
+    bad = bad + claim("bulk payload", bulk_frame.frame.text, "hello");
+    var array_frame: resp::Decoded = resp::decode(frames[5]);
+    bad = bad + claim_int("array arity", array_frame.frame.count, 3);
+    bad = bad + claim("nested child",
+        resp::show(resp::encode(resp::item_at(array_frame.frame, 2))),
+        resp::show(resp::encode(inner())));
+    return bad;
+};
+
+// An array holding a bulk, an integer and another array -- the nesting the
+// wire-text representation has to survive.
+fun inner(): resp::Frame = {
+    return resp::push(resp::push_bulk(resp::array(), "deep"), resp::integer(7));
+};
+
+fun nested(): resp::Frame = {
+    var head_item: resp::Frame = resp::push_bulk(resp::array(), "ECHO");
+    return resp::push(resp::push(head_item, resp::integer(3)), inner());
+};
+
+// Broken input answers with an error frame; nothing faults.
+fun malformed(): int = {
+    head("malformed input");
+    var[mut] bad: int = 0;
+    var state: mux[store::Store] = store::fresh();
+
+    var cases: arr[str, 6] = {
+        "%2\r\nfoo\r\n",
+        "*1\r\n$5\r\nab\r\n",
+        "*1\r\n$3\r\nfoo",
+        ":twelve\r\n",
+        "*2\r\n$3\r\nGET\r\n:9\r\n",
+        "*9\r\n$4\r\nPING\r\n",
+    };
+    var labels: arr[str, 6] = {
+        "bad type byte", "length mismatch", "truncated bulk",
+        "non-numeric integer", "integer as argument", "array over cap",
+    };
+
+    var[mut] index: int = 0;
+    loop (index < 6) {
+        var reply: str = command::serve(cases[index], state, T0);
+        std::io::echo_str("  " + labels[index] + " -> " + resp::show(reply));
+        bad = bad + claim_int(labels[index] + " is an error",
+            std::strn::byte_at(reply, 0), resp::MINUS);
+        index = index + 1;
+    };
+
+    // The full text of one of them, so the check is not just the sigil byte.
+    bad = bad + claim("argument type text", resp::show(command::serve(cases[4], state, T0)),
+        "-ERR protocol error; expected simple frame or bulk frame, got integer frame\\r\\n");
+
+    // A well-formed frame that is simply not a command we know.
+    var unknown: str = command::serve(command::wire_of("FROBNICATE", "", "", "", "", 0), state, T0);
+    bad = bad + claim("unknown command", resp::show(unknown),
+        "-ERR unknown command 'frobnicate'\\r\\n");
+    return bad;
+};
+
+// The command surface, one client, no contention.
+fun commands(): int = {
+    head("commands");
+    var[mut] bad: int = 0;
+    var state: mux[store::Store] = store::fresh();
+
+    bad = bad + reply_is(state, "PING", "", "", "", "", 0, "+PONG\\r\\n");
+    bad = bad + reply_is(state, "PING", "hello", "", "", "", 1, "$5\\r\\nhello\\r\\n");
+    bad = bad + reply_is(state, "ECHO", "mini", "", "", "", 1, "$4\\r\\nmini\\r\\n");
+    bad = bad + reply_is(state, "SET", "colour", "amber", "", "", 2, "+OK\\r\\n");
+    bad = bad + reply_is(state, "GET", "colour", "", "", "", 1, "$5\\r\\namber\\r\\n");
+    bad = bad + reply_is(state, "GET", "missing", "", "", "", 1, "$-1\\r\\n");
+    bad = bad + reply_is(state, "SET", "colour", "teal", "", "", 2, "+OK\\r\\n");
+    bad = bad + reply_is(state, "GET", "colour", "", "", "", 1, "$4\\r\\nteal\\r\\n");
+    bad = bad + reply_is(state, "SET", "spare", "x", "", "", 2, "+OK\\r\\n");
+    bad = bad + reply_is(state, "EXISTS", "colour", "spare", "gone", "", 3, ":2\\r\\n");
+    bad = bad + reply_is(state, "DEL", "colour", "gone", "", "", 2, ":1\\r\\n");
+    bad = bad + reply_is(state, "EXISTS", "colour", "", "", "", 1, ":0\\r\\n");
+
+    // Argument shapes the original rejects too.
+    bad = bad + reply_is(state, "GET", "", "", "", "", 0,
+        "-ERR wrong number of arguments for 'get' command\\r\\n");
+    bad = bad + reply_is(state, "SET", "k", "v", "XX", "5", 4,
+        "-ERR currently SET only supports the expiration option EX and PX\\r\\n");
+    bad = bad + reply_is(state, "SET", "k", "v", "PX", "zero", 4,
+        "-ERR value is not an integer or out of range\\r\\n");
+
+    var totals: store::Outcome = store::stats(state);
+    bad = bad + claim_int("live keys", totals.used, 1);
+    return bad;
+};
+
+fun reply_is(state: mux[store::Store], name: str, one: str, two: str, three: str, four: str, count: int, want: str): int = {
+    var wire: str = command::wire_of(name, one, two, three, four, count);
+    var reply: str = command::serve(wire, state, T0);
+    return claim(name + "/" + std::fmt::int_to_str(count), resp::show(reply), want);
+};
+
+// SET ... PX, read before and after the deadline.
+fun expiry(): int = {
+    head("px expiry");
+    var[mut] bad: int = 0;
+    var state: mux[store::Store] = store::fresh();
+
+    var write: str = command::serve(
+        command::wire_of("SET", "session", "token", "PX", "50", 4), state, T0);
+    bad = bad + claim("set px", resp::show(write), "+OK\\r\\n");
+
+    var early: str = command::serve(command::wire_of("GET", "session", "", "", "", 1),
+        state, T0 + 20);
+    bad = bad + claim("before deadline", resp::show(early), "$5\\r\\ntoken\\r\\n");
+
+    var edge: str = command::serve(command::wire_of("GET", "session", "", "", "", 1),
+        state, T0 + 49);
+    bad = bad + claim("one ms early", resp::show(edge), "$5\\r\\ntoken\\r\\n");
+
+    var late: str = command::serve(command::wire_of("GET", "session", "", "", "", 1),
+        state, T0 + 60);
+    bad = bad + claim("after deadline", resp::show(late), "$-1\\r\\n");
+
+    var absent: str = command::serve(command::wire_of("EXISTS", "session", "", "", "", 1),
+        state, T0 + 60);
+    bad = bad + claim("exists after expiry", resp::show(absent), ":0\\r\\n");
+
+    // EX is the same path with a x1000 scale, so a 1s TTL is alive at 900ms.
+    var seconds: str = command::serve(
+        command::wire_of("SET", "lease", "held", "EX", "1", 4), state, T0);
+    bad = bad + claim("set ex", resp::show(seconds), "+OK\\r\\n");
+    var held: str = command::serve(command::wire_of("GET", "lease", "", "", "", 1),
+        state, T0 + 900);
+    bad = bad + claim("ex still held", resp::show(held), "$4\\r\\nheld\\r\\n");
+    var dropped: str = command::serve(command::wire_of("GET", "lease", "", "", "", 1),
+        state, T0 + 1100);
+    bad = bad + claim("ex elapsed", resp::show(dropped), "$-1\\r\\n");
+
+    var totals: store::Outcome = store::stats(state);
+    bad = bad + claim_int("purged keys", totals.purged, 2);
+    return bad;
+};
+
+// Several handlers against one guarded store. Every client owns its own keys,
+// so a lost update is a missing key, and every reply is accounted for.
+fun concurrency(): int = {
+    head("concurrent clients");
+    var[mut] bad: int = 0;
+    var state: mux[store::Store] = store::fresh();
+
+    var totals: server::Tally = server::serve_all(state, T0);
+    var after: store::Outcome = store::stats(state);
+
+    var pending: evt[str] = server::summarize(totals, after.used, after.writes);
+    std::io::echo_str("  " + (pending | await));
+
+    var expected_replies: int = server::CLIENTS * ((server::OPS * 2) + 1);
+    bad = bad + claim_int("handlers started", totals.started, server::CLIENTS);
+    bad = bad + claim_int("replies", totals.replies, expected_replies);
+    bad = bad + claim_int("+OK replies", totals.oks, server::CLIENTS * server::OPS);
+    bad = bad + claim_int("bulk replies", totals.bulks, server::CLIENTS * server::OPS);
+    bad = bad + claim_int("error replies", totals.errors, 0);
+
+    // Each client wrote OPS keys and deleted one of them.
+    bad = bad + claim_int("writes", after.writes, server::CLIENTS * server::OPS);
+    bad = bad + claim_int("surviving keys", after.used, server::CLIENTS * (server::OPS - 1));
+
+    // Read every key back on this thread: no update may have been lost.
+    var[mut] client: int = 0;
+    var[mut] present: int = 0;
+    loop (client < server::CLIENTS) {
+        var[mut] step: int = 1;
+        loop (step < server::OPS) {
+            var reply: str = command::serve(
+                command::wire_of("GET", server::key_of(client, step), "", "", "", 1),
+                state, T0);
+            var want: str = "$" + std::fmt::int_to_str(.len(server::value_of(client, step)))
+            + "\\r\\n" + server::value_of(client, step) + "\\r\\n";
+            when (resp::show(reply) == want) {
+                case(true) { present = present + 1; }
+                * { std::io::echo_str("  FAIL lost " + server::key_of(client, step)); }
+            };
+            step = step + 1;
+        };
+        // The deleted key must be gone for every client.
+        var gone: str = command::serve(
+            command::wire_of("GET", server::key_of(client, 0), "", "", "", 1), state, T0);
+        bad = bad + claim("deleted " + server::key_of(client, 0), resp::show(gone), "$-1\\r\\n");
+        client = client + 1;
+    };
+    bad = bad + claim_int("keys read back", present, server::CLIENTS * (server::OPS - 1));
+    return bad;
+};

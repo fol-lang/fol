@@ -1,0 +1,492 @@
+use std: pkg = {"std"};
+use reader: loc = {"../reader"};
+
+// h.h + macro.c + the storage half of input.c.
+//
+// The original keeps four intrusive linked lists -- `struct name`, `struct
+// line`, `struct depend`, `struct cmd` -- threaded through malloc'd nodes, and
+// packs eight booleans into one `uint8_t n_flag`. Neither shape survives:
+// a record that points at itself needs nominal lowering FOL does not have, and
+// FOL has no bitwise operators at all. So `struct name` becomes a fixed-size
+// arena of parallel arrays indexed by an interned id, the dependency and
+// command lists become delimited strings the reader re-tokenises on demand,
+// and `n_flag` becomes one boolean array per bit.
+
+fun[exp] capacity(): int = {
+    return 16;
+};
+
+fun[exp] macro_capacity(): int = {
+    return 8;
+};
+
+typ[exp] Make: rec = {
+    // struct name, one column per field
+    names: arr[str, 16],
+    deps: arr[str, 16],
+    cmds: arr[str, 16],
+    stamps: arr[int, 16],
+    recorded: arr[str, 16],
+    // n_flag, one column per bit
+    is_targ: arr[bol, 16],
+    exists: arr[bol, 16],
+    done: arr[bol, 16],
+    mark: arr[bol, 16],
+    executed: arr[bol, 16],
+    failed: arr[bol, 16],
+    count: int,
+    first: int,
+    // struct macro
+    mac_names: arr[str, 8],
+    mac_vals: arr[str, 8],
+    mac_count: int,
+    // main.c globals
+    silent: bol,
+    domake: bol,
+    // Targets of the rule line the reader is currently under, so a following
+    // tab line knows what it belongs to.
+    open_rule: str,
+    problem: str,
+    order: str,
+    rebuilt: str,
+    spoken: str,
+};
+
+fun[exp] empty(): Make = {
+    return {
+        names = {"","","","","","","","","","","","","","","",""},
+        deps = {"","","","","","","","","","","","","","","",""},
+        cmds = {"","","","","","","","","","","","","","","",""},
+        stamps = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+        recorded = {"","","","","","","","","","","","","","","",""},
+        is_targ = {false,false,false,false,false,false,false,false,
+            false,false,false,false,false,false,false,false},
+        exists = {false,false,false,false,false,false,false,false,
+            false,false,false,false,false,false,false,false},
+        done = {false,false,false,false,false,false,false,false,
+            false,false,false,false,false,false,false,false},
+        mark = {false,false,false,false,false,false,false,false,
+            false,false,false,false,false,false,false,false},
+        executed = {false,false,false,false,false,false,false,false,
+            false,false,false,false,false,false,false,false},
+        failed = {false,false,false,false,false,false,false,false,
+            false,false,false,false,false,false,false,false},
+        count = 0,
+        first = 0 - 1,
+        mac_names = {"","","","","","","",""},
+        mac_vals = {"","","","","","","",""},
+        mac_count = 0,
+        silent = false,
+        domake = true,
+        open_rule = "",
+        problem = "",
+        order = "",
+        rebuilt = "",
+        spoken = "",
+    };
+};
+
+// ---- queries -----------------------------------------------------------
+
+fun[exp] (Make[bor]) lookup(name: str): int = {
+    var[mut] pos: int = 0;
+    loop(pos < self.count) {
+        when(self.names[pos] == name) {
+            case(true) { return pos; }
+            * { }
+        };
+        pos = pos + 1;
+    };
+    return 0 - 1;
+};
+
+fun[exp] (Make[bor]) name_of(node: int): str = {
+    return self.names[node];
+};
+
+fun[exp] (Make[bor]) dep_count(node: int): int = {
+    return reader::word_count(self.deps[node]);
+};
+
+fun[exp] (Make[bor]) dep_name(node: int, index: int): str = {
+    return reader::word_at(self.deps[node], index);
+};
+
+fun[exp] (Make[bor]) dep_node(node: int, index: int): int = {
+    return [bor]self.lookup([bor]self.dep_name(node, index));
+};
+
+fun[exp] (Make[bor]) cmd_count(node: int): int = {
+    return reader::line_count(self.cmds[node]);
+};
+
+fun[exp] (Make[bor]) cmd_at(node: int, index: int): str = {
+    return reader::line_at(self.cmds[node], index);
+};
+
+fun[exp] (Make[bor]) macro_index(name: str): int = {
+    var[mut] pos: int = 0;
+    loop(pos < self.mac_count) {
+        when(self.mac_names[pos] == name) {
+            case(true) { return pos; }
+            * { }
+        };
+        pos = pos + 1;
+    };
+    return 0 - 1;
+};
+
+// getmacro: an undefined macro is the empty string, never an error.
+fun[exp] (Make[bor]) get_macro(name: str): str = {
+    var pos: int = [bor]self.macro_index(name);
+    when(pos < 0) {
+        case(true) { return ""; }
+        * { }
+    };
+    return self.mac_vals[pos];
+};
+
+// main.c asks this of .SILENT and .IGNORE: is the name present AND declared as
+// a target, rather than merely interned as somebody's dependency.
+fun[exp] (Make[bor]) has_target(name: str): bol = {
+    var node: int = [bor]self.lookup(name);
+    when(node < 0) {
+        case(true) { return false; }
+        * { }
+    };
+    return self.is_targ[node];
+};
+
+// The stamps of a target's dependencies, in rule order. This is the record
+// written to the stamp database when the target is built, and it is what the
+// original stored implicitly as the target's own mtime.
+fun[exp] (Make[bor]) dep_signature(node: int): str = {
+    var[mut] out: str = "";
+    var[mut] pos: int = 0;
+    loop(pos < [bor]self.dep_count(node)) {
+        var child: int = [bor]self.dep_node(node, pos);
+        var value: int = 0;
+        when(child >= 0) {
+            case(true) { value = self.stamps[child]; }
+            * { }
+        };
+        out = out + std::fmt::int_to_str(value) + " ";
+        pos = pos + 1;
+    };
+    return reader::trim(out);
+};
+
+// $?, and the staleness test with it. `np->n_time < dp->d_name->n_time` in the
+// original becomes "this dependency's bytes are not the bytes that were in
+// force when the target was last built".
+fun[exp] (Make[bor]) changed_deps(node: int): str = {
+    var[mut] out: str = "";
+    var[mut] pos: int = 0;
+    loop(pos < [bor]self.dep_count(node)) {
+        var child: int = [bor]self.dep_node(node, pos);
+        var now: str = "?";
+        when(child >= 0) {
+            case(true) { now = std::fmt::int_to_str(self.stamps[child]); }
+            * { }
+        };
+        when(reader::word_at(self.recorded[node], pos) == now) {
+            case(true) { }
+            * { out = out + [bor]self.dep_name(node, pos) + " "; }
+        };
+        pos = pos + 1;
+    };
+    return reader::trim(out);
+};
+
+fun[exp] (Make[bor]) out_of_date(node: int): bol = {
+    when(self.exists[node]) {
+        case(true) { }
+        * { return true; }
+    };
+    return .len([bor]self.changed_deps(node)) > 0;
+};
+
+// The stamp database, one line per target that has ever been built.
+fun[exp] (Make[bor]) db_text(): str = {
+    var[mut] out: str = "";
+    var[mut] pos: int = 0;
+    loop(pos < self.count) {
+        when(.len(self.recorded[pos]) > 0) {
+            case(true) { out = out + self.names[pos] + " " + self.recorded[pos] + "\n"; }
+            * { }
+        };
+        pos = pos + 1;
+    };
+    return out;
+};
+
+// ---- macro references --------------------------------------------------
+
+fun[exp] closer_for(open: int): int = {
+    when(open == 123) {
+        case(true) { return 125; }
+        * { }
+    };
+    when(open == 40) {
+        case(true) { return 41; }
+        * { }
+    };
+    return 0 - 1;
+};
+
+fun[exp] closer_index(text: str, dollar: int): int = {
+    var closer: int = closer_for(std::strn::byte_at(text, dollar + 1));
+    when(closer < 0) {
+        case(true) { return 0 - 1; }
+        * { }
+    };
+    var[mut] pos: int = dollar + 2;
+    loop(pos < .len(text)) {
+        when(std::strn::byte_at(text, pos) == closer) {
+            case(true) { return pos; }
+            * { }
+        };
+        pos = pos + 1;
+    };
+    return 0 - 1;
+};
+
+// How many bytes the reference starting at `dollar` occupies.
+fun[exp] ref_span(text: str, dollar: int): int = {
+    var next: int = std::strn::byte_at(text, dollar + 1);
+    when(next < 0) {
+        case(true) { return 1; }
+        * { }
+    };
+    when(closer_for(next) < 0) {
+        case(true) { return 2; }
+        * { }
+    };
+    var close: int = closer_index(text, dollar);
+    when(close < 0) {
+        case(true) { return .len(text) - dollar; }
+        * { }
+    };
+    return close - dollar + 1;
+};
+
+fun[exp] ref_name(text: str, dollar: int): str = {
+    var next: int = std::strn::byte_at(text, dollar + 1);
+    when(next < 0) {
+        case(true) { return ""; }
+        * { }
+    };
+    when(closer_for(next) < 0) {
+        case(true) { return std::strn::sub(text, dollar + 1, 1); }
+        * { }
+    };
+    var close: int = closer_index(text, dollar);
+    when(close < 0) {
+        case(true) { return std::strn::sub(text, dollar + 2, .len(text) - dollar - 2); }
+        * { }
+    };
+    return std::strn::sub(text, dollar + 2, close - dollar - 2);
+};
+
+// doexp. The original guards runaway recursion with an M_MARK bit it sets on
+// the macro while descending; a read-only receiver cannot set anything, so the
+// guard is a depth counter passed down instead.
+fun[exp] (Make[bor]) expand_at(text: str, depth: int): str = {
+    when(depth > 12) {
+        case(true) { return text; }
+        * { }
+    };
+    var[mut] out: str = "";
+    var[mut] pos: int = 0;
+    loop(pos < .len(text)) {
+        var code: int = std::strn::byte_at(text, pos);
+        when(code == 36) {
+            case(true) {
+                var name: str = ref_name(text, pos);
+                when(.len(name) == 0) {
+                    case(true) { out = out + "$"; }
+                    * { out = out + [bor]self.expand_at([bor]self.get_macro(name), depth + 1); }
+                };
+                pos = pos + ref_span(text, pos);
+            }
+            * {
+                out = out + std::strn::from_byte(code);
+                pos = pos + 1;
+            }
+        }
+    };
+    return out;
+};
+
+fun[exp] (Make[bor]) expand(text: str): str = {
+    return [bor]self.expand_at(text, 0);
+};
+
+// setDFmacro's four automatic macros. The original writes them into the macro
+// table right before running a rule's commands; that needs a mutable table pos
+// command time, and a mutating method may not call another mutating method
+// here, so they are substituted positionally instead.
+fun[exp] (Make[bor]) expand_cmd(text: str, whole: str, first_dep: str, changed: str, stem: str): str = {
+    var[mut] out: str = text;
+    out = std::strn::replace(out, "$@", whole);
+    out = std::strn::replace(out, "$<", first_dep);
+    out = std::strn::replace(out, "$?", changed);
+    out = std::strn::replace(out, "$*", stem);
+    return [bor]self.expand(out);
+};
+
+// ---- mutators ----------------------------------------------------------
+
+// newname: intern a file name, existing or not.
+pro[exp] (Make[mut, bor]) intern(name: str): non = {
+    var seen: int = [bor]self.lookup(name);
+    when(seen >= 0) {
+        case(true) { return; }
+        * { }
+    };
+    when(self.count >= 16) {
+        case(true) {
+            when(.len(self.problem) == 0) {
+                case(true) { self.problem = "name table full pos " + name; }
+                * { }
+            };
+            return;
+        }
+        * { }
+    };
+    self.names[self.count] = name;
+    self.count = self.count + 1;
+    return;
+};
+
+// newdep: append to the dependency list of a target line.
+pro[exp] (Make[mut, bor]) add_dep(node: int, name: str): non = {
+    when(.len(self.deps[node]) == 0) {
+        case(true) { self.deps[node] = name; }
+        * { self.deps[node] = self.deps[node] + " " + name; }
+    };
+    return;
+};
+
+// newcmd: append a command, blank lines dropped as the original does.
+pro[exp] (Make[mut, bor]) add_cmd(node: int, text: str): non = {
+    var body: str = reader::trim(text);
+    when(.len(body) == 0) {
+        case(true) { return; }
+        * { }
+    };
+    when(.len(self.cmds[node]) == 0) {
+        case(true) { self.cmds[node] = body; }
+        * { self.cmds[node] = self.cmds[node] + "\n" + body; }
+    };
+    return;
+};
+
+pro[exp] (Make[mut, bor]) mark_target(node: int): non = {
+    self.is_targ[node] = true;
+    when(self.first < 0) {
+        case(true) {
+            when(std::strn::byte_at(self.names[node], 0) == 46) {
+                case(true) { }
+                * { self.first = node; }
+            }
+        }
+        * { }
+    };
+    return;
+};
+
+pro[exp] (Make[mut, bor]) set_macro(name: str, value: str): non = {
+    var pos: int = [bor]self.macro_index(name);
+    when(pos >= 0) {
+        case(true) {
+            self.mac_vals[pos] = value;
+            return;
+        }
+        * { }
+    };
+    when(self.mac_count >= 8) {
+        case(true) {
+            when(.len(self.problem) == 0) {
+                case(true) { self.problem = "macro table full pos " + name; }
+                * { }
+            };
+            return;
+        }
+        * { }
+    };
+    self.mac_names[self.mac_count] = name;
+    self.mac_vals[self.mac_count] = value;
+    self.mac_count = self.mac_count + 1;
+    return;
+};
+
+pro[exp] (Make[mut, bor]) set_open(targets: str): non = {
+    self.open_rule = targets;
+    return;
+};
+
+pro[exp] (Make[mut, bor]) set_silent(): non = {
+    self.silent = true;
+    return;
+};
+
+pro[exp] (Make[mut, bor]) set_domake(value: bol): non = {
+    self.domake = value;
+    return;
+};
+
+pro[exp] (Make[mut, bor]) set_stamp(node: int, value: int): non = {
+    self.stamps[node] = value;
+    self.exists[node] = value != 0;
+    return;
+};
+
+pro[exp] (Make[mut, bor]) set_recorded(node: int, value: str): non = {
+    self.recorded[node] = value;
+    return;
+};
+
+pro[exp] (Make[mut, bor]) set_mark(node: int, value: bol): non = {
+    self.mark[node] = value;
+    return;
+};
+
+pro[exp] (Make[mut, bor]) set_done(node: int): non = {
+    self.done[node] = true;
+    return;
+};
+
+pro[exp] (Make[mut, bor]) set_executed(node: int): non = {
+    self.executed[node] = true;
+    self.rebuilt = self.rebuilt + self.names[node] + " ";
+    return;
+};
+
+pro[exp] (Make[mut, bor]) set_failed(node: int): non = {
+    self.failed[node] = true;
+    return;
+};
+
+pro[exp] (Make[mut, bor]) visit(node: int): non = {
+    self.order = self.order + self.names[node] + " ";
+    return;
+};
+
+// error()/fatal() in the original print and call exit(1). A showcase that
+// exits cannot self-check, so the first complaint is latched here and every
+// later stage checks it before doing more work.
+pro[exp] (Make[mut, bor]) complain(message: str): non = {
+    when(.len(self.problem) == 0) {
+        case(true) { self.problem = message; }
+        * { }
+    };
+    return;
+};
+
+// Everything the run would have printed, kept so main can assert on it.
+pro[exp] (Make[mut, bor]) say(line: str): non = {
+    std::io::echo_str(line);
+    self.spoken = self.spoken + line + "\n";
+    return;
+};

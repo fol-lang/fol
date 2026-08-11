@@ -1,0 +1,92 @@
+// The character classes jsmn spells as `switch` labels.
+//
+// `std::strn::byte_at` hands back an `int` and FOL has no `chr` to `int`
+// conversion in either direction, so every character literal in the C source
+// becomes a numeric code here. Naming them once keeps the parser readable and
+// keeps the comparison against the C source mechanical: each routine below is
+// one `case` group of one `switch` in jsmn.h.
+
+fun[exp] tab(): int = { return 9; };
+fun[exp] newline(): int = { return 10; };
+fun[exp] carriage(): int = { return 13; };
+fun[exp] space(): int = { return 32; };
+fun[exp] quote(): int = { return 34; };
+fun[exp] comma(): int = { return 44; };
+fun[exp] colon(): int = { return 58; };
+fun[exp] backslash(): int = { return 92; };
+fun[exp] open_brace(): int = { return 123; };
+fun[exp] close_brace(): int = { return 125; };
+fun[exp] open_bracket(): int = { return 91; };
+fun[exp] close_bracket(): int = { return 93; };
+fun[exp] letter_u(): int = { return 117; };
+
+// `case '\t': case '\r': case '\n': case ' ': case ',': case ']': case '}':`
+// in `jsmn_parse_primitive`. In strict mode ':' is deliberately absent, which
+// is what makes `{"a":1 2}` and a bare `42` fail rather than tokenize.
+fun[exp] ends_primitive(code: int): bol = {
+    when(code) {
+        is(9) { return true; }
+        is(13) { return true; }
+        is(10) { return true; }
+        is(32) { return true; }
+        is(44) { return true; }
+        is(93) { return true; }
+        is(125) { return true; }
+        * { return false; }
+    }
+};
+
+// The strict-mode primitive openers: `-`, `0`-`9`, `t`, `f`, `n`. Every other
+// unquoted byte falls through to `default:` and is rejected outright.
+fun[exp] starts_primitive(code: int): bol = {
+    when((code >= 48) and (code <= 57)) {
+        case(true) { return true; }
+        * { }
+    };
+    when(code) {
+        is(45) { return true; }
+        is(116) { return true; }
+        is(102) { return true; }
+        is(110) { return true; }
+        * { return false; }
+    }
+};
+
+// Anything outside printable ASCII aborts a primitive. jsmn writes this as
+// `js[pos] < 32 || js[pos] >= 127`.
+fun[exp] outside_printable(code: int): bol = {
+    return (code < 32) or (code >= 127);
+};
+
+// The escapes that need no argument: `"` `/` `\` `b` `f` `r` `n` `t`.
+fun[exp] simple_escape(code: int): bol = {
+    when(code) {
+        is(34) { return true; }
+        is(47) { return true; }
+        is(92) { return true; }
+        is(98) { return true; }
+        is(102) { return true; }
+        is(114) { return true; }
+        is(110) { return true; }
+        is(116) { return true; }
+        * { return false; }
+    }
+};
+
+// The four bytes after `\u` must each be 0-9, A-F or a-f.
+fun[exp] hex_digit(code: int): bol = {
+    when((code >= 48) and (code <= 57)) {
+        case(true) { return true; }
+        * { }
+    };
+    when((code >= 65) and (code <= 70)) {
+        case(true) { return true; }
+        * { }
+    };
+    return (code >= 97) and (code <= 102);
+};
+
+// `case '\t': case '\r': case '\n': case ' ': break;` in the main loop.
+fun[exp] blank_space(code: int): bol = {
+    return (code == 9) or (code == 13) or (code == 10) or (code == 32);
+};

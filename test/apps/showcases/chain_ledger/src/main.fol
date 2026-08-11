@@ -1,0 +1,404 @@
+// chain_ledger -- a translation of naivechain into FOL.
+//
+// ORIGINAL: naivechain, by Lauri Hartikka (JavaScript, ~200 LOC, MIT)
+//   https://github.com/lhartikk/naivechain  (single file: main.js)
+//
+// The original is a blockchain with the ceremony removed: a Block of
+// {index, previousHash, timestamp, data, hash}, a SHA-256 `calculateHash`,
+// `generateNextBlock`, the three-check `isValidNewBlock`, `isValidChain`,
+// the longest-chain `replaceChain`, an Express HTTP API and a WebSocket peer
+// protocol with three message kinds. Everything here follows that shape;
+// where it could not, the reason is below.
+//
+// ============================ DEVIATIONS ============================
+//
+// 1. SHA-256 -> polynomial rolling hash. THIS CHAIN IS NOT CRYPTOGRAPHIC.
+//    FOL has no bitwise operators of any kind -- no &, |, ^-as-xor, <<, >> --
+//    and SHA-256 is nothing but rotates, shifts and xors over 32-bit words.
+//    There is no way to express it, not even slowly. src/hash uses
+//    `h = (h * 31 + byte) % 1000000007` instead, folded modulo the prime on
+//    every single step because FOL traps on integer overflow in debug builds
+//    rather than wrapping, then rendered as eight hex digits so a digest still
+//    prints at a fixed width. Collisions are trivial to construct and there is
+//    no preimage resistance; tamper-detection here is integrity checking, not
+//    security. Every structural property the rest of the program relies on --
+//    determinism, sensitivity to each input field -- survives intact.
+//
+// 2. The growable chain array -> fixed-capacity array plus a count.
+//    `blockchain.push(block)` has no equivalent: FOL containers cannot grow,
+//    there is no vec append and no map insert. The chain is `arr[Block, 12]`
+//    with a live `count`, mutated through `pro (Chain[mut, bor]) append`,
+//    which is the only shape that can write an element at all -- a free
+//    routine cannot take `[mut, bor]`. Cost: a hard ceiling of 12 blocks that
+//    the original does not have, `append` returning bol so overflow is visible,
+//    and every unused slot needing a filler Block (index -1).
+//
+// 3. Express HTTP server -> gone; WebSocket peers -> in-process handoff.
+//    FOL has no sockets and no HTTP. POST /mineBlock becomes a direct call to
+//    `chain::generate_next_block`; GET /blocks becomes `node::blocks_response`,
+//    which returns the same body the endpoint would have. The p2p half kept
+//    the part that carries the algorithm -- QUERY_LATEST / QUERY_ALL /
+//    RESPONSE_BLOCKCHAIN and `handleBlockchainResponse`, branch for branch --
+//    and two chains are handed to each other in-process. `connectToPeers`,
+//    `initP2PServer` and the broadcast fan-out have no analogue and are not
+//    simulated.
+//
+// 4. JSON.stringify/parse -> pipe-and-semicolon codec.
+//    The wire format is `index|prev|timestamp|data|hash`, blocks joined with
+//    ';'. Writing a JSON parser without growable containers would be a large
+//    detour for no fidelity gain. Consequence: block data may not contain '|'
+//    or ';'. `isValidChain`'s `JSON.stringify(a) !== JSON.stringify(b)`
+//    genesis comparison became `block::same`, field-by-field equality, which
+//    is the same predicate without the round trip.
+//
+// 5. `new Date().getTime() / 1000` -> an injected timestamp.
+//    `generate_next_block` takes the clock reading as a parameter instead of
+//    reading it. Two reasons: FOL has no int->flt or flt->int conversion at
+//    all, so a JS-style `/ 1000` on a float millisecond count cannot come back
+//    to an integer second; and the self-checks below assert on exact digests,
+//    which a wall clock would make irreproducible. `std::time::now_ms()` is
+//    still exercised, on one live-mined block whose validity is asserted but
+//    whose hash is not.
+//
+// 6. Genesis hash. The original hardcodes a SHA-256 literal and never checks
+//    it -- `isValidChain` compares candidate genesis against stored genesis and
+//    starts real validation at index 1, so the literal is never re-derived.
+//    `block::genesis_hash` keeps that hardcoded-literal shape, and `main`
+//    additionally asserts it equals `calculate_hash` of the genesis fields,
+//    which is a check the original does not perform.
+//
+// 7. console.log inside a predicate -> an error shell.
+//    `isValidNewBlock` logs 'invalid index' / 'invalid previoushash' /
+//    'invalid hash: X Y' and returns a bare false. `chain::fault_of` returns
+//    those exact strings through `err[str]`, and `is_valid_new_block` is
+//    `fault_of` reduced to a bol. Strictly more useful, and it is what let
+//    this program report WHICH block a tamper broke and why.
+//
+// 8. `arr[T, N]` will only take a decimal literal for N, not a `con`. So the
+//    capacity exists twice: `con CAPACITY: int = 12` guards `append`, and the
+//    literal 12 sizes `arr[block::Block, 12]`. Nothing ties them together. Set
+//    them apart and the guard lets a write past the end of the array through,
+//    which reaches the user as a raw Rust panic and exit 101 rather than a FOL
+//    diagnostic (repro: mimicry-repros/chain_ledger/arr_con).
+//
+// 9. Two compiler defects had to be routed around, both reported separately:
+//    - `self.blocks[j + 1] = probe` does not parse. A field-hop indexed
+//      assignment accepts only a bare index, though `cells[j + 1] = probe` on
+//      a local container is fine. Every destination index in `sort_by_index`
+//      is therefore hoisted into its own `var`.
+//    - `.nq(x, node::MessageType.QUERY_ALL)` reports the operand as the ent
+//      type rather than int, so the constant is hoisted into an `int` var
+//      first. `==` and ordinary call arguments handle the same expression.
+//
+// 10. EASIER than expected. Records copy freely by value, so `replaceChain`
+//    returning a whole chain needed no ownership ceremony at all. Indexed
+//    element assignment through a mutable receiver (`self.blocks[i] = b`) does
+//    exactly what push and the p2p sort need. `err[str]` carried the original's
+//    log strings with no loss. The insertion sort that replaces the original's
+//    `.sort((b1, b2) => b1.index - b2.index)` writes array slots in place and
+//    was no harder than in JavaScript.
+// ====================================================================
+
+use std: pkg = {"std"};
+use hash: loc = {"hash"};
+use block: loc = {"block"};
+use chain: loc = {"chain"};
+use node: loc = {"node"};
+
+pro[] show(text: str): non = {
+    std::io::echo_str(text);
+    return;
+};
+
+pro[] rule(): non = {
+    show("  ------------------------------------------------------------");
+    return;
+};
+
+// Deterministic stand-in for `new Date().getTime() / 1000`: one block per
+// minute after the genesis timestamp.
+fun[] tick(step: int): int = {
+    return block::GENESIS_TIMESTAMP + step * 60;
+};
+
+// Mines `count` blocks of canned data onto a booted chain, the way repeated
+// POST /mineBlock calls would.
+fun[] mined(count: int): chain::Chain = {
+    var[mut] c: chain::Chain = chain::booted();
+    var payloads: seq[str] = {
+        "first payment", "second payment", "third payment",
+        "fourth payment", "fifth payment",
+    };
+    var[mut] i: int = 0;
+    loop(.lt(i, count)) {
+        var next: block::Block = chain::generate_next_block(c, payloads[i % 5], tick(i + 1));
+        var seated: bol = c.append(next);
+        if(.not(seated)) { return c; }
+        i = i + 1;
+    }
+    return c;
+};
+
+pro[] report_chain(title: str, c: chain::Chain): non = {
+    show("  " + title + "  (" + std::fmt::int_to_str(chain::length_of(c)) + " blocks)");
+    std::io::write(chain::show(c));
+    return;
+};
+
+// `chain::block_at` hands back `opt`, which `||` does not accept -- that form
+// wants a `/ ErrorType` call. Unwrapping to the empty slot keeps callers flat.
+fun[] block_or_empty(c: chain::Chain, index: int): block::Block = {
+    var found: opt[block::Block] = chain::block_at(c, index);
+    when(found) {
+        on(b) { return b; }
+        * { return block::empty_slot(); }
+    }
+};
+
+fun[] verdict(c: chain::Chain): str = {
+    var bad: int = chain::first_invalid_index(c);
+    if(.eq(bad, 0 - 1)) { return "valid"; }
+    return "INVALID at index " + std::fmt::int_to_str(bad) + ": " + chain::reason_at(c, bad);
+};
+
+fun[] main(): int = {
+    var[mut] failures: int = 0;
+
+    show("chain_ledger  ::  naivechain, in FOL");
+    show("");
+
+    // --- genesis -------------------------------------------------------
+    show("GENESIS");
+    rule();
+    var seed: block::Block = block::genesis();
+    show("  " + block::show(seed));
+    var derived: str = block::calculate_hash_for_block(seed);
+    show("  recomputed hash: " + derived);
+    if(.nq(derived, seed.hash)) {
+        show("  FAIL: hardcoded genesis hash does not match calculate_hash");
+        failures = failures + 1;
+    }
+    show("");
+
+    // --- mining --------------------------------------------------------
+    show("MINING");
+    rule();
+    var[mut] main_chain: chain::Chain = mined(4);
+    report_chain("local chain", main_chain);
+    show("  verdict: " + verdict(main_chain));
+    if(.not(chain::is_valid_chain(main_chain))) {
+        show("  FAIL: freshly mined chain did not validate");
+        failures = failures + 1;
+    }
+    if(.nq(chain::length_of(main_chain), 5)) {
+        show("  FAIL: expected five blocks after four minings");
+        failures = failures + 1;
+    }
+    show("");
+
+    // Mining is a pure function of (previous block, data, timestamp), so the
+    // same script mined twice has to produce the same hashes.
+    var replay: chain::Chain = mined(4);
+    if(.nq(chain::latest(replay).hash, chain::latest(main_chain).hash)) {
+        show("  FAIL: mining is not deterministic");
+        failures = failures + 1;
+    }
+
+    // --- tamper --------------------------------------------------------
+    show("TAMPER");
+    rule();
+    var[mut] forged: chain::Chain = mined(4);
+    var edited: bol = forged.rewrite_data(2, "attacker payment");
+    show("  rewrote the data of block #2, leaving its stored hash alone");
+    show("  verdict: " + verdict(forged));
+    var bad_at: int = chain::first_invalid_index(forged);
+    if(.nq(bad_at, 2)) {
+        show("  FAIL: expected the break to surface at index 2");
+        failures = failures + 1;
+    }
+    if(.nq(chain::reason_at(forged, 2), "invalid hash: "
+            + block::calculate_hash_for_block(forged.blocks[2]) + " " + forged.blocks[2].hash)) {
+                show("  FAIL: expected an 'invalid hash' reason at index 2");
+                failures = failures + 1;
+            }
+            if(chain::is_valid_chain(forged)) {
+                show("  FAIL: a tampered chain validated");
+                failures = failures + 1;
+            }
+            show("");
+
+            // A block whose index is right and whose hash is right but whose
+            // previousHash points elsewhere is the second of the three checks.
+            var orphan: block::Block = chain::generate_next_block(chain::booted(), "orphan", tick(9));
+            var link_fault: err[str] = chain::fault_of(orphan, chain::latest(main_chain));
+            when(link_fault) {
+                on(reason) {
+                    show("  detached block rejected: " + reason);
+                    if(.nq(reason, "invalid index")) {
+                        show("  FAIL: expected the index check to fire first");
+                        failures = failures + 1;
+                    }
+                }
+                * {
+                    show("  FAIL: a detached block was accepted");
+                    failures = failures + 1;
+                }
+            }
+            show("");
+
+            // --- longest chain -------------------------------------------------
+            show("REPLACE CHAIN");
+            rule();
+            var short_chain: chain::Chain = mined(2);
+            var long_chain: chain::Chain = mined(5);
+
+            var grow: chain::Replacement = chain::replace_chain(short_chain, long_chain);
+            show("  longer valid candidate: " + grow.note);
+            if(.not(grow.replaced)) {
+                show("  FAIL: a longer valid chain did not win");
+                failures = failures + 1;
+            }
+            if(.nq(chain::length_of(grow.chain), 6)) {
+                show("  FAIL: the winning chain has the wrong length");
+                failures = failures + 1;
+            }
+
+            var shrink: chain::Replacement = chain::replace_chain(long_chain, short_chain);
+            show("  shorter valid candidate: " + shrink.note);
+            if(shrink.replaced) {
+                show("  FAIL: a shorter chain replaced a longer one");
+                failures = failures + 1;
+            }
+
+            var[mut] long_forged: chain::Chain = mined(5);
+            var spoiled: bol = long_forged.rewrite_data(3, "attacker payment");
+            var reject: chain::Replacement = chain::replace_chain(short_chain, long_forged);
+            show("  longer INVALID candidate: " + reject.note);
+            if(reject.replaced) {
+                show("  FAIL: an invalid chain replaced a valid one");
+                failures = failures + 1;
+            }
+            if(.nq(chain::length_of(reject.chain), 3)) {
+                show("  FAIL: the rejected candidate still changed the held chain");
+                failures = failures + 1;
+            }
+            show("");
+
+            // --- peer protocol -------------------------------------------------
+            show("PEER PROTOCOL");
+            rule();
+            var wire: str = node::blocks_response(long_chain);
+            show("  GET /blocks -> " + std::fmt::int_to_str(.len(wire)) + " bytes");
+
+            var round_trip: chain::Chain = node::decode_chain(wire) || panic "our own wire format did not parse";
+            if(.nq(chain::length_of(round_trip), chain::length_of(long_chain))) {
+                show("  FAIL: codec lost blocks");
+                failures = failures + 1;
+            }
+            if(.not(chain::is_valid_chain(round_trip))) {
+                show("  FAIL: a decoded chain stopped validating");
+                failures = failures + 1;
+            }
+
+            // A peer one block ahead: the held chain's tip is the received tip's
+            // previousHash, so the original appends without asking for anything else.
+            var ahead: chain::Chain = mined(3);
+            var tip_only: str = node::encode_block(chain::latest(ahead));
+            var behind: chain::Chain = mined(2);
+            var step: node::Reaction = node::handle_blockchain_response(behind, tip_only)
+            || panic "well-formed tip message was rejected";
+            show("  " + node::type_name(node::MessageType.RESPONSE_BLOCKCHAIN) + " (tip only) -> " + step.action);
+            if(.nq(chain::length_of(step.chain), 4)) {
+                show("  FAIL: the peer's tip was not appended");
+                failures = failures + 1;
+            }
+            if(.not(chain::is_valid_chain(step.chain))) {
+                show("  FAIL: appending the peer's tip broke the chain");
+                failures = failures + 1;
+            }
+
+            // A peer far ahead sends a lone tip that does not link: the original
+            // answers QUERY_ALL rather than guessing.
+            var far: chain::Chain = mined(5);
+            var far_tip: str = node::encode_block(chain::latest(far));
+            var gap: node::Reaction = node::handle_blockchain_response(behind, far_tip)
+            || panic "well-formed tip message was rejected";
+            show("  RESPONSE_BLOCKCHAIN (tip only, gap) -> " + gap.action);
+            when(gap.reply) {
+                on(message) {
+                    show("  replies with " + node::type_name(message.kind));
+                    // Hoisted: `.nq(x, node::MessageType.QUERY_ALL)` mistypes the
+                    // qualified ent member as the ent itself.
+                    var expected: int = node::MessageType.QUERY_ALL;
+                    if(.nq(message.kind, expected)) {
+                        show("  FAIL: expected QUERY_ALL for a gapped tip");
+                        failures = failures + 1;
+                    }
+                }
+                * {
+                    show("  FAIL: a gapped tip produced no reply");
+                    failures = failures + 1;
+                }
+            }
+
+            // The whole longer chain arrives: replaceChain territory.
+            var full: node::Reaction = node::handle_blockchain_response(behind, node::encode_chain(far))
+            || panic "well-formed chain message was rejected";
+            show("  RESPONSE_BLOCKCHAIN (full chain) -> " + full.action);
+            if(.nq(chain::length_of(full.chain), 6)) {
+                show("  FAIL: the longer peer chain did not take over");
+                failures = failures + 1;
+            }
+
+            // A shorter peer is ignored outright.
+            var stale: node::Reaction = node::handle_blockchain_response(far, node::encode_chain(behind))
+            || panic "well-formed chain message was rejected";
+            show("  RESPONSE_BLOCKCHAIN (shorter) -> " + stale.action);
+            if(.nq(chain::length_of(stale.chain), 6)) {
+                show("  FAIL: a shorter peer chain disturbed the held chain");
+                failures = failures + 1;
+            }
+
+            // Blocks that arrive out of order are sorted by index before the handler
+            // looks at the tip, exactly as the original does.
+            var second: block::Block = block_or_empty(far, 1);
+            var scrambled: str = node::encode_block(chain::latest(far))
+            + ";" + node::encode_block(second)
+            + ";" + node::encode_block(block::genesis());
+            var[mut] reordered: chain::Chain = node::decode_chain(scrambled)
+            || panic "scrambled wire did not parse";
+            reordered.sort_by_index();
+            var head: block::Block = block_or_empty(reordered, 0);
+            var tail: block::Block = chain::latest(reordered);
+            show("  out-of-order message sorted to indices "
+                + std::fmt::int_to_str(head.index) + ".." + std::fmt::int_to_str(tail.index));
+            if(.not(block::same(head, block::genesis()))) {
+                show("  FAIL: sorting did not put genesis first");
+                failures = failures + 1;
+            }
+            if(.nq(tail.index, chain::latest(far).index)) {
+                show("  FAIL: sorting did not put the highest index last");
+                failures = failures + 1;
+            }
+            show("");
+
+            // --- live clock ----------------------------------------------------
+            show("LIVE MINE");
+            rule();
+            var seconds: int = std::time::now_ms() / 1000;
+            var live: block::Block = chain::generate_next_block(main_chain, "mined now", seconds);
+            show("  " + block::show(live));
+            if(.not(chain::is_valid_new_block(live, chain::latest(main_chain)))) {
+                show("  FAIL: a live-mined block did not validate against its parent");
+                failures = failures + 1;
+            }
+            show("");
+
+            rule();
+            if(.eq(failures, 0)) {
+                show("  all self-checks passed");
+                return 0;
+            }
+            show("  self-check failures: " + std::fmt::int_to_str(failures));
+            return 1;
+        };

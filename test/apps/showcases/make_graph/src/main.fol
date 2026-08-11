@@ -1,0 +1,376 @@
+// make_graph -- a port of MINIX `make`.
+//
+// ORIGINAL
+//   "make" as shipped in MINIX 1.7 through 2.0.4, revived by Fred N. van
+//   Kempen as MiniMake for use with TCC.
+//   https://github.com/waltje/MiniMake  (src/h.h, reader.c, input.c, macro.c,
+//   check.c, make.c, main.c)
+//
+// The structure is the original's, file for file: `reader` is reader.c (line
+// and token scanning), `table` is h.h plus macro.c plus the storage half of
+// input.c (the name table, the macro table, expand), `parser` is input.c's
+// grammar, `engine` is check.c plus make.c (the cycle walk and the recursive
+// maker), and this file is main.c. Rule syntax, macro syntax, the '@' and '-'
+// command prefixes, `$@ $< $? $*`, .SILENT, -n, "Don't know how to make X",
+// "Circular dependency from X" and "make: 'X' is up to date" all behave as
+// they do in the original.
+//
+// DEVIATIONS
+//
+// 1. mtimes -> content stamps.  `std::fs` offers read/write/dir_list and no
+//    stat, so there is no mtime to compare. `n_time` becomes a stamp derived
+//    from a file's bytes (reader::stamp), and the "is my dependency newer than
+//    me" test becomes "are my dependencies' bytes the bytes that were in force
+//    when I was last built". Those recorded stamps live in a stamp database
+//    (<dir>/.minimake.db, one line per target) because content, unlike an
+//    mtime, is not stored on the target itself. The visible consequence is
+//    that rewriting a source with identical bytes does NOT trigger a rebuild
+//    where real make would; scenario 5 asserts exactly that difference.
+//    Zero is reserved for "no such file", which is this port's N_EXISTS.
+//    A file that exists but is empty is indistinguishable from a missing one,
+//    because `read_file` answers "" for both.
+//
+// 2. Linked lists -> a fixed arena of parallel arrays.  `struct name` points
+//    at `struct line` points at `struct depend` points back at `struct name`.
+//    A FOL record cannot contain itself without nominal lowering the language
+//    does not have, and no FOL container can grow -- there is no vec append
+//    and no map insert. So the four lists collapse into 16-slot arrays indexed
+//    by an interned name id, and the two inner lists become delimited strings
+//    (`deps` is space separated, `cmds` is newline separated) that the reader
+//    re-tokenises on demand. The capacity is a hard ceiling; overflowing it is
+//    reported as "name table full" rather than growing.
+//
+// 3. `uint8_t n_flag` -> six boolean arrays.  FOL has no bitwise operators at
+//    all: no &, no |, no ~, no shifts, and `^` is exponentiation. N_TARG,
+//    N_EXISTS, N_DONE, N_MARK, N_EXEC and N_ERROR therefore each get their own
+//    column. Costs six arrays instead of one byte; gains legibility.
+//
+// 4. Mutating recursion -> the machine is passed by value.  A
+//    `pro (T[mut, bor])` method may not call another `[mut, bor]` method on
+//    `self` (O2003), so a mutating method can neither recurse nor call a
+//    mutating helper. check() and make() are both recursive AND mutate the
+//    name table. Every routine in `engine` and `parser` therefore takes the
+//    `Make` machine by value, moves it into a local `var[mut]` owner -- which
+//    IS allowed to call mutators -- and returns it. Recursion and composition
+//    come back; the price is a whole-record move per call, so the arena is
+//    memcpy'd once per graph edge instead of being pointed at.
+//
+// 5. fatal()/error() exit(1) -> a latched complaint.  A showcase that calls
+//    exit cannot self-check, so the first complaint is stored in `problem` and
+//    every later stage returns early when it is set. Cycles are reported, not
+//    fatal -- which is what makes scenario 6 assertable.
+//
+// 6. setDFmacro -> positional arguments.  The original writes `$@ $< $? $*`
+//    into the macro table just before running a recipe. That needs a mutating
+//    call from inside command execution, which deviation 4 rules out, so the
+//    four automatic macros are substituted positionally in expand_cmd and the
+//    general macro pass runs after them.
+//
+// 7. A one-character double-quoted literal is a `chr`, and a comparison
+//    operand does not widen it to `str`, so `expand("$$") == "$"` is rejected
+//    as `Eq` between `str` and `chr`. The expected string has to be bound to a
+//    `var ...: str` first. Cheap, but it catches every port that compares
+//    against a single punctuation mark.
+//
+// 8. Reads of the receiver may not appear inside the arguments of a mutating
+//    call on that same receiver: `work.complain("..." + work.name_of(node))`
+//    passes `code check` and then fails to compile as Rust (E0502, surfaced as
+//    F1004). Every such argument here is hoisted into a local first. The
+//    original writes exactly that shape all over make.c.
+//
+// 9. Dropped, and deliberately so: suffix/implicit rules (rules.c, dyndep),
+//    archive members (archive.c), double-colon targets (reported as an error),
+//    include lines, .PRECIOUS/.SUFFIXES, the "make the target look old after a
+//    failed command" recovery, -k/-t/-i/-e, and the MAKEFLAGS round trip. None
+//    of them is blocked by FOL; they are simply outside a showcase-sized port.
+//    .SILENT, -n, ';' recipes and the '@'/'-' prefixes are kept because they
+//    are observable without a compiler on the far end.
+//
+// 10. Easier than expected: shelling out is a one-liner (`std::os::shell` is
+//    `sh -c` with the real exit status), so recipes run for real against real
+//    files, and macro expansion recursed happily -- a read-only receiver
+//    method may call itself, it is only the mutating ones that may not.
+//    Indexed element assignment through a mutable receiver made the arena
+//    practical at all.
+
+use std: pkg = {"std"};
+use reader: loc = {"reader"};
+use table: loc = {"table"};
+use parser: loc = {"parser"};
+use engine: loc = {"engine"};
+
+fun[] work_dir(): str = {
+    return "/tmp/fol-make-graph-showcase";
+};
+
+fun[] db_path(): str = {
+    return work_dir() + "/.minimake.db";
+};
+
+fun[] contains(text: str, needle: str): bol = {
+    return std::strn::find(text, needle) >= 0;
+};
+
+// main.c: set the command-line macros, read the makefile, look for cycles,
+// then make the goal.
+fun[] drive(text: str, goal: str, domake: bol): table::Make = {
+    var[mut] mk: table::Make = table::empty();
+    // setmacro("$", "$") is what makes `$$` expand to a single dollar.
+    [mut, bor]mk.set_macro("$", "$");
+    // A command-line macro override, the way `make DIR=/tmp/...` supplies one.
+    [mut, bor]mk.set_macro("DIR", work_dir());
+    [mut, bor]mk.set_domake(domake);
+
+    mk = parser::input([mov]mk, text);
+    when(.len(mk.problem) > 0) {
+        case(true) { return [mov]mk; }
+        * { }
+    };
+
+    when([bor]mk.has_target(".SILENT")) {
+        case(true) { [mut, bor]mk.set_silent(); }
+        * { }
+    };
+
+    when(mk.first < 0) {
+        case(true) {
+            [mut, bor]mk.complain("No targets defined");
+            return [mov]mk;
+        }
+        * { }
+    };
+
+    mk = engine::circles([mov]mk);
+    when(.len(mk.problem) > 0) {
+        case(true) { return [mov]mk; }
+        * { }
+    };
+
+    mk = engine::load_db([mov]mk, std::fs::read_file(db_path()));
+
+    var[mut] node: int = mk.first;
+    when(.len(goal) > 0) {
+        case(true) { node = [bor]mk.lookup(goal); }
+        * { }
+    };
+    when(node < 0) {
+        case(true) {
+            [mut, bor]mk.complain("Don't know how to make " + goal);
+            return [mov]mk;
+        }
+        * { }
+    };
+
+    mk = engine::build([mov]mk, node, 0);
+
+    // A dry run must leave no trace, so the stamp database is only rewritten
+    // when commands actually ran.
+    when(domake) {
+        case(true) {
+            var wrote: int = std::fs::write_file(db_path(), [bor]mk.db_text());
+            when(wrote != 0) {
+                case(true) { [mut, bor]mk.complain("cannot write the stamp database"); }
+                * { }
+            }
+        }
+        * { }
+    };
+    return [mov]mk;
+};
+
+// The diamond: d needs b and c, and both of those need the one source.
+fun[] diamond(): str = {
+    return "SRC = $(DIR)/a.txt\n"
+    + "\n"
+    + "# the default goal is the first target named\n"
+    + "$(DIR)/d.txt: $(DIR)/b.txt $(DIR)/c.txt\n"
+    + "\tcat $(DIR)/b.txt $(DIR)/c.txt > $@\n"
+    + "\techo $? >> $(DIR)/changed.log\n"
+    + "\n"
+    + "$(DIR)/b.txt: $(SRC)\n"
+    + "\tsed -e s/^/B:/ $< > $@\n"
+    + "\n"
+    + "$(DIR)/c.txt: $(SRC)\n"
+    + "\tsed -e s/^/C:/ $< > $@\n";
+};
+
+fun[] tangle(): str = {
+    return "$(DIR)/x.txt: $(DIR)/y.txt\n"
+    + "\ttouch $@\n"
+    + "$(DIR)/y.txt: $(DIR)/z.txt\n"
+    + "\ttouch $@\n"
+    + "$(DIR)/z.txt: $(DIR)/x.txt\n"
+    + "\ttouch $@\n";
+};
+
+fun[] orphan(): str = {
+    return "$(DIR)/e.txt: $(DIR)/ghost.txt\n"
+    + "\tcat $< > $@\n";
+};
+
+// .SILENT plus a recipe written inline after a semicolon.
+fun[] hushed(): str = {
+    return ".SILENT:\n"
+    + "$(DIR)/q.txt: ; echo inline > $@\n";
+};
+
+// A '-' prefix means "keep going even if this one fails".
+fun[] forgiving(): str = {
+    return "$(DIR)/r.txt:\n"
+    + "\t-false\n"
+    + "\techo ok > $@\n";
+};
+
+fun[] doomed(): str = {
+    return "$(DIR)/s.txt:\n"
+    + "\tfalse\n";
+};
+
+// A recipe with no rule above it.
+fun[] stray(): str = {
+    return "\techo nowhere\n";
+};
+
+// Every name must be preceded in the visit order by all of its dependencies.
+fun[] topological(mk: table::Make): bol = {
+    var[mut] node: int = 0;
+    loop(node < mk.count) {
+        var here: int = std::strn::find(mk.order, [bor]mk.name_of(node) + " ");
+        when(here >= 0) {
+            case(true) {
+                var[mut] pos: int = 0;
+                loop(pos < [bor]mk.dep_count(node)) {
+                    var there: int = std::strn::find(mk.order, [bor]mk.dep_name(node, pos) + " ");
+                    when((there < 0) or (there > here)) {
+                        case(true) { return false; }
+                        * { }
+                    };
+                    pos = pos + 1;
+                }
+            }
+            * { }
+        };
+        node = node + 1;
+    };
+    return true;
+};
+
+fun[] expect(label: str, ok: bol): int = {
+    when(ok) {
+        case(true) {
+            std::io::echo_str("  ok   " + label);
+            return 0;
+        }
+        * {
+            std::io::echo_str("  FAIL " + label);
+            return 1;
+        }
+    }
+};
+
+fun[] main(): int = {
+    var dir: str = work_dir();
+    var wiped: int = std::os::shell("rm -rf " + dir + " && mkdir -p " + dir);
+    var seeded: int = std::fs::write_file(dir + "/a.txt", "one\n");
+    var[mut] bad: int = 0;
+    bad = bad + expect("temp directory prepared", (wiped == 0) and (seeded == 0));
+
+    std::io::echo_str("-- dry run (-n): the plan, without running it");
+    var dry: table::Make = drive(diamond(), "", false);
+    bad = bad + expect("dry run is clean", .len(dry.problem) == 0);
+    bad = bad + expect("dry run echoes all four recipe lines", reader::line_count(dry.spoken) == 4);
+    bad = bad + expect("dry run built nothing", .len(std::fs::read_file(dir + "/d.txt")) == 0);
+
+    std::io::echo_str("-- first build");
+    var first: table::Make = drive(diamond(), "", true);
+    bad = bad + expect("first build is clean", .len(first.problem) == 0);
+    std::io::echo_str("   order: " + first.order);
+    std::io::echo_str("   made:  " + first.rebuilt);
+    bad = bad + expect("visit order is topological", topological(first));
+    bad = bad + expect("a is visited before b", std::strn::find(first.order, "/a.txt") < std::strn::find(first.order, "/b.txt"));
+    bad = bad + expect("c is visited before d", std::strn::find(first.order, "/c.txt") < std::strn::find(first.order, "/d.txt"));
+    bad = bad + expect("all three targets were made", contains(first.rebuilt, "/b.txt") and contains(first.rebuilt, "/c.txt") and contains(first.rebuilt, "/d.txt"));
+    bad = bad + expect("d.txt holds both branches", std::fs::read_file(dir + "/d.txt") == "B:one\nC:one\n");
+
+    std::io::echo_str("-- second build, nothing changed");
+    var again: table::Make = drive(diamond(), "", true);
+    bad = bad + expect("second build is clean", .len(again.problem) == 0);
+    bad = bad + expect("nothing was remade", .len(again.rebuilt) == 0);
+    bad = bad + expect("the goal reports up to date", contains(again.spoken, "is up to date"));
+    bad = bad + expect("the whole graph is still walked", topological(again));
+
+    std::io::echo_str("-- rewrite the source with the same bytes");
+    var idle: int = std::fs::write_file(dir + "/a.txt", "one\n");
+    var same: table::Make = drive(diamond(), "", true);
+    // Real make rebuilds here: the mtime moved. This port compares content, so
+    // it does not. Deviation 1, made visible.
+    bad = bad + expect("identical content is not a change", (idle == 0) and (.len(same.rebuilt) == 0));
+
+    std::io::echo_str("-- change the source");
+    var touched: int = std::fs::write_file(dir + "/a.txt", "two\n");
+    var third: table::Make = drive(diamond(), "", true);
+    std::io::echo_str("   made:  " + third.rebuilt);
+    bad = bad + expect("third build is clean", (touched == 0) and (.len(third.problem) == 0));
+    bad = bad + expect("everything downstream was remade", contains(third.rebuilt, "/b.txt") and contains(third.rebuilt, "/c.txt") and contains(third.rebuilt, "/d.txt"));
+    bad = bad + expect("d.txt was rewritten", std::fs::read_file(dir + "/d.txt") == "B:two\nC:two\n");
+    // $? named the dependencies that actually moved, once per rebuild of d.
+    bad = bad + expect("the changed-dependency log has one line per rebuild", reader::line_count(std::fs::read_file(dir + "/changed.log")) == 2);
+
+    std::io::echo_str("-- build just one branch");
+    var branch: table::Make = drive(diamond(), dir + "/b.txt", true);
+    bad = bad + expect("a single goal walks only its own cone", (.len(branch.problem) == 0) and .not(contains(branch.order, "/c.txt")));
+
+    std::io::echo_str("-- a dependency cycle");
+    var cycle: table::Make = drive(tangle(), "", true);
+    std::io::echo_str("   " + cycle.problem);
+    bad = bad + expect("the cycle is reported, not looped", contains(cycle.problem, "Circular dependency from"));
+    bad = bad + expect("no command ran inside the cycle", .len(cycle.rebuilt) == 0);
+
+    std::io::echo_str("-- a source that does not exist and has no rule");
+    var missing: table::Make = drive(orphan(), "", true);
+    std::io::echo_str("   " + missing.problem);
+    bad = bad + expect("the unmakeable name is named", contains(missing.problem, "Don't know how to make") and contains(missing.problem, "ghost.txt"));
+
+    std::io::echo_str("-- .SILENT and an inline recipe");
+    var quiet: table::Make = drive(hushed(), "", true);
+    bad = bad + expect("the inline recipe ran", std::fs::read_file(dir + "/q.txt") == "inline\n");
+    bad = bad + expect(".SILENT printed nothing", (.len(quiet.problem) == 0) and (.len(quiet.spoken) == 0));
+
+    std::io::echo_str("-- a command that fails");
+    var kept: table::Make = drive(forgiving(), "", true);
+    bad = bad + expect("a '-' command's failure is ignored", (.len(kept.problem) == 0) and (std::fs::read_file(dir + "/r.txt") == "ok\n"));
+    var stopped: table::Make = drive(doomed(), "", true);
+    std::io::echo_str("   " + stopped.problem);
+    bad = bad + expect("an unprefixed failure stops the build", contains(stopped.problem, "Command failed for"));
+
+    std::io::echo_str("-- a recipe with no rule");
+    var loose: table::Make = drive(stray(), "", true);
+    std::io::echo_str("   " + loose.problem);
+    bad = bad + expect("a recipe needs a rule above it", contains(loose.problem, "Rules not allowed here"));
+
+    std::io::echo_str("-- macro expansion");
+    var[mut] probe: table::Make = table::empty();
+    [mut, bor]probe.set_macro("$", "$");
+    [mut, bor]probe.set_macro("CC", "cc");
+    [mut, bor]probe.set_macro("CFLAGS", "-O $(EXTRA)");
+    [mut, bor]probe.set_macro("EXTRA", "-g");
+    bad = bad + expect("nested macros expand", [bor]probe.expand("$(CC) $(CFLAGS)") == "cc -O -g");
+    bad = bad + expect("braces and single letters expand", [bor]probe.expand("${CC}") == "cc");
+    bad = bad + expect("an undefined macro is empty", [bor]probe.expand("[$(NOPE)]") == "[]");
+    // A one-character literal is a `chr` unless something forces it wider, and
+    // a comparison operand does not count as forcing, so the expected string
+    // has to be spelled out as a binding first.
+    var dollar: str = "$";
+    bad = bad + expect("$$ is one dollar", [bor]probe.expand("$$") == dollar);
+
+    when(bad == 0) {
+        case(true) {
+            std::io::echo_str("make_graph: all checks passed");
+            return 0;
+        }
+        * {
+            std::io::echo_str("make_graph: " + std::fmt::int_to_str(bad) + " checks failed");
+            return 1;
+        }
+    }
+};

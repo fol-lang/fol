@@ -1,0 +1,135 @@
+use engine: loc = {"../engine"};
+
+// micrograd's nn.py. A Neuron owns its weights and bias, a Layer owns its
+// Neurons, an MLP owns its Layers, and every one of those owned things is an
+// arena index rather than a Value object.
+//
+// Python sizes each Layer at construction time from `nin`/`nout`. FOL arrays
+// are sized in the type, so this file is built for the 2 -> 2 -> 1 network the
+// demo uses: `Pair` is both the input width and the hidden width. A different
+// shape needs different types, not different arguments.
+
+ali[exp] Pair: arr[int, 2];
+ali[exp] Params: arr[int, 16];
+
+typ[exp] Neuron: rec = {
+    w: Pair,
+    b: int,
+    nonlin: bol,
+};
+
+typ[exp] Layer: rec = {
+    neurons: arr[Neuron, 2],
+    width: int,
+};
+
+typ[exp] Mlp: rec = {
+    hidden: Layer,
+    head: Layer,
+};
+
+typ[exp] ParamList: rec = {
+    slots: Params,
+    count: int,
+};
+
+fun[exp] blank_params(): Params = {
+    return { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+};
+
+// A slot the Layer never fires. It holds no arena indices, so it can never
+// contribute a node or a gradient.
+fun[exp] idle_neuron(): Neuron = {
+    return { w = { -1, -1 }, b = -1, nonlin = false };
+};
+
+// `random.uniform(-1, 1)` in the original. std exposes no generator, so the
+// weights are fixed and the whole run is reproducible.
+pro[exp] (engine::Tape[mut, bor]) make_neuron(w0: flt, w1: flt, bias: flt, nonlin: bol): Neuron = {
+    var first: int = self.leaf(w0);
+    var second: int = self.leaf(w1);
+    var offset: int = self.leaf(bias);
+    return { w = { first, second }, b = offset, nonlin = nonlin };
+};
+
+// MLP(2, [2, 1]): the last layer is linear, every earlier one is ReLU, which is
+// nn.py's `nonlin = i != len(nouts) - 1`.
+pro[exp] (engine::Tape[mut, bor]) sample_mlp(): Mlp = {
+    var h0: Neuron = self.make_neuron(0.5, -1.5, 0.1, true);
+    var h1: Neuron = self.make_neuron(-0.25, 0.75, 3.0, true);
+    var out: Neuron = self.make_neuron(1.25, -0.5, 0.3, false);
+    return {
+        hidden = { neurons = { h0, h1 }, width = 2 },
+        head = { neurons = { out, idle_neuron() }, width = 1 },
+    };
+};
+
+// `act = sum((wi*xi for wi,xi in zip(self.w, x)), self.b)`, then the optional
+// ReLU. Starting the sum at the bias is what makes the node count match.
+pro[exp] (engine::Tape[mut, bor]) fire(cell: Neuron, x: Pair): int = {
+    var act: int = cell.b;
+    var index: int = 0;
+    loop(index < 2) {
+        var term: int = self.mul(cell.w[index], x[index]);
+        act = self.add(act, term);
+        index = index + 1;
+    };
+    if (cell.nonlin) {
+        return self.relu(act);
+    } else {
+        return act;
+    };
+};
+
+// Unused lanes stay at -1 so a wrong width shows up as an out-of-range index
+// rather than as a plausible wrong answer.
+pro[exp] (engine::Tape[mut, bor]) fire_layer(layer: Layer, x: Pair): Pair = {
+    var produced: Pair = { -1, -1 };
+    var index: int = 0;
+    loop(index < layer.width) {
+        produced[index] = self.fire(layer.neurons[index], x);
+        index = index + 1;
+    };
+    return produced;
+};
+
+pro[exp] (engine::Tape[mut, bor]) forward(model: Mlp, x: Pair): int = {
+    var hidden_out: Pair = self.fire_layer(model.hidden, x);
+    var head_out: Pair = self.fire_layer(model.head, hidden_out);
+    return head_out[0];
+};
+
+// `parameters()`: weights then bias, layer by layer, in construction order.
+fun[exp] parameters(model: Mlp): ParamList = {
+    var slots: Params = blank_params();
+    var filled: int = 0;
+    var layer: int = 0;
+    loop(layer < 2) {
+        var current: Layer = model.hidden;
+        if (layer == 1) {
+            current = model.head;
+        } else {
+        };
+        var which: int = 0;
+        loop(which < current.width) {
+            var cell: Neuron = current.neurons[which];
+            slots[filled] = cell.w[0];
+            slots[filled + 1] = cell.w[1];
+            slots[filled + 2] = cell.b;
+            filled = filled + 3;
+            which = which + 1;
+        };
+        layer = layer + 1;
+    };
+    return { slots = slots, count = filled };
+};
+
+// nn.py's Module.zero_grad: parameters only, not the whole graph.
+pro[exp] (engine::Tape[mut, bor]) clear_grads(list: ParamList): non = {
+    var index: int = 0;
+    loop(index < list.count) {
+        self.set_grad(list.slots[index], 0.0);
+        index = index + 1;
+    };
+    return;
+};

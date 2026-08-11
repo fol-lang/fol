@@ -1,0 +1,349 @@
+// Command parsing and execution -- mini-redis `src/cmd/*.rs`.
+//
+// The original has one struct per command behind
+//
+//     pub enum Command { Get(Get), Set(Set), Ping(Ping), Unknown(Unknown), ... }
+//
+// with `Command::from_frame` reading the name, lowercasing it, and handing the
+// rest of the array to that command's `parse_frames`. FOL has no payload-
+// carrying variants, so the seven shapes share one record and the tag says
+// which fields are meaningful. DEL and EXISTS come from the codecrafters
+// challenge rather than from mini-redis, which has PUBLISH/SUBSCRIBE instead.
+
+use std: pkg = {"std"};
+use resp: loc = {"../resp"};
+use store: loc = {"../store"};
+
+typ[exp] Kind: ent = {
+    var PING: int = 1;
+    var ECHO: int = 2;
+    var SET: int = 3;
+    var GET: int = 4;
+    var DEL: int = 5;
+    var EXISTS: int = 6;
+    var UNKNOWN: int = 7;
+};
+
+typ[exp] Command: rec = {
+    kind: int,
+    name: str,
+    args: arr[str, 4],
+    nargs: int,
+    value: str,
+    expire_ms: int,
+    fault: str,
+};
+
+fun blank(): Command = {
+    return {
+        kind = Kind.UNKNOWN, name = "", args = store::no_keys(), nargs = 0,
+        value = "", expire_ms = 0, fault = "",
+    };
+};
+
+// An entry member narrows to `int` in a record literal, in a call argument and
+// in an annotated binding, but not on the right of a field assignment: that
+// path reaches the Rust backend still carrying the enum type (FINDINGS 4).
+// Routing the member through a call puts the narrowing back.
+fun tag_of(value: int): int = {
+    return value;
+};
+
+fun faulted(why: str): Command = {
+    var[mut] bad: Command = blank();
+    bad.fault = why;
+    return bad;
+};
+
+// `to_lowercase` on the command name, byte by byte: ASCII is all the protocol
+// admits here.
+fun[exp] lower(text: str): str = {
+    var[mut] out: str = "";
+    var[mut] cursor: int = 0;
+    var size: int = .len(text);
+    loop (cursor < size) {
+        var code: int = std::strn::byte_at(text, cursor);
+        when ((code >= 65) and (code <= 90)) {
+            case(true) { out = out + std::strn::from_byte(code + 32); }
+            * { out = out + std::strn::from_byte(code); }
+        };
+        cursor = cursor + 1;
+    };
+    return out;
+};
+
+// `Parse::next_string`: an array element is usable as a string only when it is
+// a bulk or simple frame.
+fun text_of(frame: resp::Frame): resp::Decoded = {
+    when ((frame.kind == resp::Kind.BULK) or (frame.kind == resp::Kind.SIMPLE)) {
+        case(true) { return { ok = true, fault = "", upto = 0, frame = frame }; }
+        * { }
+    };
+    return {
+        ok = false,
+        fault = "ERR protocol error; expected simple frame or bulk frame, got "
+        + resp::kind_name(frame.kind) + " frame",
+        upto = 0,
+        frame = frame,
+    };
+};
+
+// `Command::from_frame`.
+fun[exp] from_frame(frame: resp::Frame): Command = {
+    when (frame.kind != resp::Kind.ARRAY) {
+        case(true) {
+            return faulted("ERR protocol error; expected array, got "
+                + resp::kind_name(frame.kind) + " frame");
+        }
+        * { }
+    };
+    when (frame.count == 0) {
+        case(true) { return faulted("ERR protocol error; empty command"); }
+        * { }
+    };
+
+    var head: resp::Decoded = text_of(resp::item_at(frame, 0));
+    when (head.ok == false) {
+        case(true) { return faulted(head.fault); }
+        * { }
+    };
+    var name: str = lower(head.frame.text);
+
+    var[mut] args: arr[str, 4] = store::no_keys();
+    var[mut] nargs: int = 0;
+    var[mut] index: int = 1;
+    loop (index < frame.count) {
+        var part: resp::Decoded = text_of(resp::item_at(frame, index));
+        when (part.ok == false) {
+            case(true) { return faulted(part.fault); }
+            * { }
+        };
+        when (nargs >= store::MAX_KEYS) {
+            case(true) { return faulted("ERR too many arguments for '" + name + "' command"); }
+            * { }
+        };
+        args[nargs] = part.frame.text;
+        nargs = nargs + 1;
+        index = index + 1;
+    };
+
+    return dispatch(name, args, nargs);
+};
+
+fun dispatch(name: str, args: arr[str, 4], nargs: int): Command = {
+    var[mut] cmd: Command = blank();
+    cmd.name = name;
+    cmd.args = args;
+    cmd.nargs = nargs;
+
+    when (name == "ping") {
+        case(true) {
+            when (nargs > 1) {
+                case(true) { return arity_fault(name); }
+                * { }
+            };
+            cmd.kind = tag_of(Kind.PING);
+            return cmd;
+        }
+        * { }
+    };
+
+    when (name == "echo") {
+        case(true) {
+            when (nargs != 1) {
+                case(true) { return arity_fault(name); }
+                * { }
+            };
+            cmd.kind = tag_of(Kind.ECHO);
+            return cmd;
+        }
+        * { }
+    };
+
+    when (name == "get") {
+        case(true) {
+            when (nargs != 1) {
+                case(true) { return arity_fault(name); }
+                * { }
+            };
+            cmd.kind = tag_of(Kind.GET);
+            return cmd;
+        }
+        * { }
+    };
+
+    when (name == "set") {
+        case(true) { return parse_set(cmd); }
+        * { }
+    };
+
+    when ((name == "del") or (name == "exists")) {
+        case(true) {
+            when (nargs < 1) {
+                case(true) { return arity_fault(name); }
+                * { }
+            };
+            when (name == "del") {
+                case(true) { cmd.kind = tag_of(Kind.DEL); }
+                * { cmd.kind = tag_of(Kind.EXISTS); }
+            };
+            return cmd;
+        }
+        * { }
+    };
+
+    // Unrecognised names are not a protocol fault: they become an Unknown
+    // command that answers with an error, exactly as the original does.
+    cmd.kind = tag_of(Kind.UNKNOWN);
+    return cmd;
+};
+
+fun arity_fault(name: str): Command = {
+    return faulted("ERR wrong number of arguments for '" + name + "' command");
+};
+
+// `Set::parse_frames`: key, value, then an optional EX/PX pair.
+fun parse_set(seed: Command): Command = {
+    var[mut] cmd: Command = seed;
+    when (cmd.nargs < 2) {
+        case(true) { return arity_fault("set"); }
+        * { }
+    };
+    cmd.kind = tag_of(Kind.SET);
+    cmd.value = cmd.args[1];
+
+    when (cmd.nargs == 2) {
+        case(true) { return cmd; }
+        * { }
+    };
+    when (cmd.nargs != 4) {
+        case(true) { return arity_fault("set"); }
+        * { }
+    };
+
+    var option: str = lower(cmd.args[2]);
+    var amount: resp::Number = resp::parse_int(cmd.args[3]);
+    when (amount.ok == false) {
+        case(true) { return faulted("ERR value is not an integer or out of range"); }
+        * { }
+    };
+    when (amount.value <= 0) {
+        case(true) { return faulted("ERR invalid expire time in 'set' command"); }
+        * { }
+    };
+
+    when (option == "px") {
+        case(true) { cmd.expire_ms = amount.value; return cmd; }
+        * { }
+    };
+    when (option == "ex") {
+        case(true) { cmd.expire_ms = amount.value * 1000; return cmd; }
+        * { }
+    };
+    return faulted("ERR currently SET only supports the expiration option EX and PX");
+};
+
+// The `apply` half of each command struct. `now` stands in for `Instant::now()`
+// so the whole run is reproducible.
+fun[exp] apply(cmd: Command, state: mux[store::Store], now: int): resp::Frame = {
+    when (.len(cmd.fault) > 0) {
+        case(true) { return resp::error(cmd.fault); }
+        * { }
+    };
+
+    when (cmd.kind == Kind.PING) {
+        case(true) {
+            when (cmd.nargs == 0) {
+                case(true) { return resp::simple("PONG"); }
+                * { return resp::bulk(cmd.args[0]); }
+            }
+        }
+        * { }
+    };
+
+    when (cmd.kind == Kind.ECHO) {
+        case(true) { return resp::bulk(cmd.args[0]); }
+        * { }
+    };
+
+    when (cmd.kind == Kind.SET) {
+        case(true) {
+            var[mut] req: store::Request = store::request(store::Op.SET, cmd.args[0], now);
+            req.value = cmd.value;
+            when (cmd.expire_ms > 0) {
+                case(true) { req.expire_at = now + cmd.expire_ms; }
+                * { }
+            };
+            var result: store::Outcome = store::apply(state, req);
+            when (result.full) {
+                case(true) { return resp::error("ERR OOM store is full"); }
+                * { }
+            };
+            return resp::simple("OK");
+        }
+        * { }
+    };
+
+    when (cmd.kind == Kind.GET) {
+        case(true) {
+            var req: store::Request = store::request(store::Op.GET, cmd.args[0], now);
+            var result: store::Outcome = store::apply(state, req);
+            when (result.found) {
+                case(true) { return resp::bulk(result.value); }
+                * { return resp::null_frame(); }
+            }
+        }
+        * { }
+    };
+
+    when ((cmd.kind == Kind.DEL) or (cmd.kind == Kind.EXISTS)) {
+        case(true) {
+            var[mut] req: store::Request = store::request(store::Op.DEL, cmd.args[0], now);
+            when (cmd.kind == Kind.EXISTS) {
+                case(true) { req.op = tag_of(store::Op.EXISTS); }
+                * { }
+            };
+            req.keys = cmd.args;
+            req.nkeys = cmd.nargs;
+            var result: store::Outcome = store::apply(state, req);
+            return resp::integer(result.count);
+        }
+        * { }
+    };
+
+    return resp::error("ERR unknown command '" + cmd.name + "'");
+};
+
+// One request in, one reply out -- `Handler::run`'s body without the socket.
+// A decode fault answers with an error frame instead of dropping the
+// connection, which is what a client driving this store gets to observe.
+fun[exp] serve(wire: str, state: mux[store::Store], now: int): str = {
+    var seen: resp::Decoded = resp::decode(wire);
+    when (seen.ok == false) {
+        case(true) { return resp::encode(resp::error("ERR " + seen.fault)); }
+        * { }
+    };
+    return resp::encode(apply(from_frame(seen.frame), state, now));
+};
+
+// Build the request wire for a command, the way a client library would.
+fun[exp] wire_of(name: str, one: str, two: str, three: str, four: str, count: int): str = {
+    var[mut] frame: resp::Frame = resp::push_bulk(resp::array(), name);
+    when (count > 0) {
+        case(true) { frame = resp::push_bulk(frame, one); }
+        * { }
+    };
+    when (count > 1) {
+        case(true) { frame = resp::push_bulk(frame, two); }
+        * { }
+    };
+    when (count > 2) {
+        case(true) { frame = resp::push_bulk(frame, three); }
+        * { }
+    };
+    when (count > 3) {
+        case(true) { frame = resp::push_bulk(frame, four); }
+        * { }
+    };
+    return resp::encode(frame);
+};

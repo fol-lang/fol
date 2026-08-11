@@ -1,0 +1,19 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "chess_search", version = "0.1.0", kind = "exe",
+        description = "sunfish: mailbox move generation and alpha-beta search",
+        license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+    var app = graph.add_exe({
+        name = "chess_search", root = "src/main.fol", fol_model = "memo",
+        target = target, optimize = optimize,
+    });
+    graph.install(app);
+    graph.add_run(app);
+    return;
+};

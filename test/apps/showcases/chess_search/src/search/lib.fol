@@ -1,0 +1,311 @@
+use std: pkg = {"std"};
+use board: loc = {"../board"};
+use eval: loc = {"../eval"};
+use moves: loc = {"../moves"};
+
+// Alpha-beta with a null window, driven by iterative deepening.
+//
+// `probe` is the original's `bound`: it never returns an exact score, only a
+// bound relative to `gamma`. If gamma is above the true score it returns an
+// upper bound below gamma; otherwise it returns a lower bound at or above
+// gamma. The driver squeezes the true score between two of those calls, which
+// is the original's MTD-bi loop.
+//
+// Everything the original hangs off its transposition table is gone here --
+// see the DEVIATIONS header. What remains is the null-move probe, quiescence
+// as a value threshold rather than a separate routine, futility pruning at the
+// frontier, and the mate/stalemate correction.
+
+fun[exp] qs(): int = {
+    return 40;
+};
+
+fun[exp] qs_slope(): int = {
+    return 140;
+};
+
+fun[exp] eval_roughness(): int = {
+    return 15;
+};
+
+typ[exp] Engine: rec = {
+    pst: eval::Pst,
+};
+
+// One answer from `probe`: the bound, the move that produced the cutoff (or
+// -1), and how many nodes it cost. The original keeps the move in a table and
+// the node count on the searcher; without either, both ride back on the result.
+typ[exp] Bound: rec = {
+    score: int,
+    move: int,
+    nodes: int,
+};
+
+// The running best, folded one candidate at a time. `cut` stands in for the
+// original's `break` out of a generator that is still mid-yield.
+typ Fold: rec = {
+    best: int,
+    move: int,
+    live: bol,
+    cut: bol,
+};
+
+fun[hid] consider(state: Fold, code: int, score: int, gamma: int): Fold = {
+    ~var best: int = state.best;
+    when(score > best) {
+        case(true) { best = score; }
+        * { }
+    };
+    var live: bol = state.live or ((code >= 0) and (score > 0 - eval::mate_upper()));
+    ~var move: int = state.move;
+    ~var cut: bol = false;
+    when(best >= gamma) {
+        case(true) {
+            cut = true;
+            when(code >= 0) {
+                case(true) { move = code; }
+                * { }
+            };
+        }
+        * { }
+    };
+    return { best = best, move = move, live = live, cut = cut };
+};
+
+fun[exp] (Engine[bor]) probe(pos: board::Pos, gamma: int, depth: int, root: bol): Bound = {
+    // Below zero every depth behaves the same, so the original clamps rather
+    // than branching into a separate quiescence routine.
+    ~var level: int = depth;
+    when(level < 0) {
+        case(true) { level = 0; }
+        * { }
+    };
+
+    ~var nodes: int = 1;
+
+    // The only termination test there is: sunfish plays on through check and
+    // notices it lost by finding its own king gone.
+    when(pos.score <= 0 - eval::mate_lower()) {
+        case(true) { return { score = 0 - eval::mate_upper(), move = -1, nodes = nodes }; }
+        * { }
+    };
+
+    ~var state: Fold = {
+        best = 0 - eval::mate_upper(),
+        move = -1,
+        live = false,
+        cut = false,
+    };
+
+    var may_pass: bol = .not(root) and (level > 2)
+    and (eval::magnitude(pos.score) < 500)
+    and board::has_material(pos);
+    when(may_pass) {
+        case(true) {
+            var passed: board::Pos = board::rotate(pos, true);
+            var reply: Bound = [bor]self.probe(passed, 1 - gamma, level - 3, false);
+            nodes = nodes + reply.nodes;
+            var score: int = 0 - reply.score;
+
+            // A fail-high on a pass is only a claim. It is allowed to cut if
+            // the pass would actually win the king, and that has to be shown
+            // by producing the capture.
+            ~var proof: int = -1;
+            when(score >= gamma) {
+                case(true) { proof = board::king_capture(pos); }
+                * { }
+            };
+            ~var settled: bol = false;
+            when(proof >= 0) {
+                case(true) {
+                    when(board::value(pos, proof, self.pst) >= eval::mate_lower()) {
+                        case(true) {
+                            state = consider(state, proof, eval::mate_upper(), gamma);
+                            settled = true;
+                        }
+                        * { }
+                    };
+                }
+                * { }
+            };
+            when(.not(settled)) {
+                case(true) {
+                    ~var admissible: bol = score < gamma;
+                    when(.not(admissible)) {
+                        case(true) {
+                            var band: Bound = [bor]self.probe(board::rotate(pos, true),
+                                1 - eval::mate_lower(), level - 3, false);
+                            nodes = nodes + band.nodes;
+                            admissible = band.score >= 1 - eval::mate_lower();
+                        }
+                        * { }
+                    };
+                    when(admissible) {
+                        case(true) { state = consider(state, -1, score, gamma); }
+                        * { }
+                    };
+                }
+                * { }
+            };
+        }
+        * { }
+    };
+
+    // Quiescence's own null move: stop capturing and take the position as it
+    // stands.
+    when(.not(state.cut) and .eq(level, 0)) {
+        case(true) { state = consider(state, -1, pos.score, gamma); }
+        * { }
+    };
+
+    var floor: int = qs() - level * qs_slope();
+    when(.not(state.cut)) {
+        case(true) {
+            var ordered: str = ranked(pos, self.pst);
+            var total: int = moves::key_count(ordered);
+            ~var index: int = 0;
+            loop((index < total) and .not(state.cut)) {
+                var key: int = moves::key_slot(ordered, index);
+                var worth: int = moves::key_score(key);
+                var code: int = moves::key_code(key);
+
+                // Generalised quiescence: as depth runs out the bar a move has
+                // to clear rises, until only captures survive it.
+                when(worth < floor) {
+                    case(true) { break; }
+                    * { }
+                };
+
+                // Futility: at the frontier a move that cannot reach gamma is
+                // one the opponent will answer by standing pat, and the list is
+                // sorted, so nothing after it can do better either.
+                when((level <= 1) and (pos.score + worth < gamma)) {
+                    case(true) {
+                        when(worth >= eval::mate_lower()) {
+                            case(true) { state = consider(state, code, eval::mate_upper(), gamma); }
+                            * { state = consider(state, -1, pos.score + worth, gamma); }
+                        };
+                        break;
+                    }
+                    * { }
+                };
+
+                var child: Bound = [bor]self.probe(board::advance(pos, code, self.pst),
+                    1 - gamma, level - 1, false);
+                nodes = nodes + child.nodes;
+                state = consider(state, code, 0 - child.score, gamma);
+                index = index + 1;
+            };
+        }
+        * { }
+    };
+
+    // Seeing no legal move may only mean the null move cut the search short, so
+    // mate and stalemate have to be confirmed the long way.
+    when((level > 0) and .not(state.live)) {
+        case(true) {
+            when(all_illegal(pos, self.pst)) {
+                case(true) {
+                    ~var verdict: int = 0;
+                    when(board::king_capture(board::rotate(pos, true)) >= 0) {
+                        case(true) { verdict = 0 - eval::mate_lower(); }
+                        * { }
+                    };
+                    state = { best = verdict, move = state.move, live = state.live, cut = state.cut };
+                }
+                * { }
+            };
+        }
+        * { }
+    };
+
+    return { score = state.best, move = state.move, nodes = nodes };
+};
+
+// Every move scored once and filed in descending order.
+fun[hid] ranked(pos: board::Pos, pst: eval::Pst): str = {
+    var list: str = board::gen(pos);
+    var total: int = moves::count(list);
+    ~var out: str = "";
+    ~var index: int = 0;
+    loop(index < total) {
+        var code: int = moves::code_slot(list, index);
+        out = moves::insert_key(out, moves::make_key(board::value(pos, code, pst), code));
+        index = index + 1;
+    };
+    return out;
+};
+
+fun[hid] all_illegal(pos: board::Pos, pst: eval::Pst): bol = {
+    var list: str = board::gen(pos);
+    var total: int = moves::count(list);
+    ~var index: int = 0;
+    loop(index < total) {
+        var next: board::Pos = board::advance(pos, moves::code_slot(list, index), pst);
+        when(board::king_capture(next) < 0) {
+            case(true) { return false; }
+            * { }
+        };
+        index = index + 1;
+    };
+    return true;
+};
+
+typ[exp] Answer: rec = {
+    depth: int,
+    score: int,
+    move: int,
+    nodes: int,
+    probes: int,
+};
+
+// Iterative deepening around a binary search on the score.
+//
+// `gamma` deliberately survives from one depth to the next, as in the original:
+// the previous depth's answer is the best first guess the next one has.
+fun[exp] (Engine[bor]) run(pos: board::Pos, max_depth: int): Answer = {
+    ~var gamma: int = 0;
+    ~var best_move: int = -1;
+    ~var best_score: int = 0;
+    ~var nodes: int = 0;
+    ~var probes: int = 0;
+    ~var depth: int = 1;
+
+    loop(depth <= max_depth) {
+        ~var lower: int = 1 - eval::mate_upper();
+        ~var upper: int = eval::mate_upper();
+        loop(lower < upper - eval_roughness()) {
+            var found: Bound = [bor]self.probe(pos, gamma, depth, true);
+            nodes = nodes + found.nodes;
+            probes = probes + 1;
+            when(found.score >= gamma) {
+                case(true) { lower = found.score; }
+                * { upper = found.score; }
+            };
+            when(found.move >= 0) {
+                case(true) { best_move = found.move; }
+                * { }
+            };
+            best_score = found.score;
+            gamma = halve(lower + upper + 1);
+        };
+        depth = depth + 1;
+    };
+
+    return {
+        depth = max_depth,
+        score = best_score,
+        move = best_move,
+        nodes = nodes,
+        probes = probes,
+    };
+};
+
+// Floor division by two. FOL truncates toward zero and the original floors, and
+// the midpoint here is routinely negative, so the difference is real.
+fun[hid] halve(value: int): int = {
+    when((value < 0) and .not(.eq(value % 2, 0))) {
+        case(true) { return value / 2 - 1; }
+        * { return value / 2; }
+    }
+};

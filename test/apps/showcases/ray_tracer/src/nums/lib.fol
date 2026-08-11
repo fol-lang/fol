@@ -1,0 +1,144 @@
+// Numeric primitives the C++ original gets from <cmath> and <cstdlib>.
+//
+// FOL has no int-to-flt conversion, no flt-to-int conversion, no sqrt and no
+// infinity literal, so every one of those is rebuilt here from the operators
+// that do exist. Nothing in this module is in the original book; all of it
+// stands in for something the host language handed the original for free.
+
+// One MINSTD draw: the advanced generator state plus the [0,1) real it maps to.
+typ[exp] Rand: rec = {
+    state: int,
+    value: flt,
+};
+
+// Park-Miller minimal standard, state = 16807 * state mod 2^31-1. This replaces
+// std::rand(); the multiply peaks near 3.6e13, well inside the range where FOL's
+// trapping integer arithmetic stays quiet.
+fun[exp] modulus(): int = {
+    return 2147483647;
+};
+
+fun[exp] multiplier(): int = {
+    return 16807;
+};
+
+// The C++ `infinity` used as the initial ray_t.max. There is no infinity
+// literal in FOL, but flt division by zero follows IEEE-754 rather than
+// faulting the way integer division does, so the real value is reachable.
+fun[exp] far(): flt = {
+    var nothing: flt = 0.0;
+    return 1.0 / nothing;
+};
+
+// The ten digit literals, keyed by value. This table is the whole reason an
+// int can become a flt at all: there is no conversion operator, but a digit
+// can be matched and a matching flt literal returned.
+fun[exp] digit(d: int): flt = {
+    when(d) {
+        case(0) { return 0.0; }
+        case(1) { return 1.0; }
+        case(2) { return 2.0; }
+        case(3) { return 3.0; }
+        case(4) { return 4.0; }
+        case(5) { return 5.0; }
+        case(6) { return 6.0; }
+        case(7) { return 7.0; }
+        case(8) { return 8.0; }
+        * { return 9.0; }
+    }
+};
+
+// int -> flt by base-10 digit expansion. Exact for every int whose magnitude a
+// flt can hold exactly, which covers the whole generator range and every pixel
+// index. Ten iterations at worst.
+fun[exp] to_flt(n: int): flt = {
+    when(n < 0) {
+        case(true) { return -to_flt(-n); }
+        * { }
+    }
+    var rest: int = n;
+    var scale: flt = 1.0;
+    var out: flt = 0.0;
+    loop (rest > 0) {
+        out = out + digit(rest % 10) * scale;
+        scale = scale * 10.0;
+        rest = rest / 10;
+    }
+    return out;
+};
+
+// Newton's method for std::sqrt. Twenty-four halving steps take the relative
+// error below flt resolution for every magnitude this renderer produces, and
+// the guard covers both the zero case and the slightly-negative discriminants
+// that grazing rays generate.
+fun[exp] root(value: flt): flt = {
+    when(value <= 0.0) {
+        case(true) { return 0.0; }
+        * { }
+    }
+    var guess: flt = value;
+    var step: int = 0;
+    loop (step < 24) {
+        guess = 0.5 * (guess + value / guess);
+        step = step + 1;
+    }
+    return guess;
+};
+
+// interval(0.000, 0.999).clamp from the original's colour writer.
+fun[exp] clamp_intensity(value: flt): flt = {
+    when(value < 0.0) {
+        case(true) { return 0.0; }
+        * { }
+    }
+    when(value > 0.999) {
+        case(true) { return 0.999; }
+        * { }
+    }
+    return value;
+};
+
+// flt -> int, the direction FOL cannot go at all. `int(256 * v)` becomes a
+// binary search for the largest byte whose flt image does not exceed the
+// target; eight steps, each one an int -> flt comparison.
+fun[exp] to_byte(value: flt): int = {
+    var target: flt = 256.0 * value;
+    var low: int = 0;
+    var high: int = 255;
+    loop (low < high) {
+        var mid: int = (low + high + 1) / 2;
+        when(to_flt(mid) <= target) {
+            case(true) { low = mid; }
+            * { high = mid - 1; }
+        }
+    }
+    return low;
+};
+
+// One draw in [0,1), the shape of the original's
+// `std::rand() / (RAND_MAX + 1.0)`.
+fun[exp] next(state: int): Rand = {
+    var moved: int = (multiplier() * state) % modulus();
+    return { state = moved, value = to_flt(moved) / to_flt(modulus()) };
+};
+
+fun[exp] next_between(state: int, low: flt, high: flt): Rand = {
+    var drawn: Rand = next(state);
+    return { state = drawn.state, value = low + (high - low) * drawn.value };
+};
+
+// Per-pixel seeding. The original draws from one global stream, so a pixel's
+// colour depends on how many pixels preceded it; seeding from the pixel index
+// makes each pixel independently reproducible, which is what the self-checks
+// need. Four warm-up draws break up the near-linear first outputs MINSTD gives
+// to small seeds.
+fun[exp] seed_at(column: int, row: int): int = {
+    var raw: int = ((column + 1) * 1973 + (row + 1) * 9277 + 26699) % modulus();
+    var state: int = raw;
+    var step: int = 0;
+    loop (step < 4) {
+        state = next(state).state;
+        step = step + 1;
+    }
+    return state;
+};
