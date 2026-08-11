@@ -1,0 +1,210 @@
+// Eager adapters over vectors, written in FOL with routine-typed parameters.
+//
+// Eager, not lazy, and deliberately: a lazy adapter needs a protocol — a type
+// that carries "how to get the next element" — and FOL has no trait or
+// interface surface to declare one. Every routine here therefore builds and
+// returns a whole new vector.
+//
+// Spelled per element type for the same reason `std::vecs` is: a generic `T` is
+// conservatively move-only, so indexing one inside a generic routine is refused
+// (O1001). Note that a routine type must name its parameters —
+// `{fun (value: int): int}`, not `{fun (int): int}`.
+
+fun[exp] map_int(values: vec[int], step: {fun (value: int): int}): vec[int] = {
+    var[mut] out: vec[int] = {};
+    var[mut] i: int = 0;
+    var total: int = .len(values);
+    loop (i < total) {
+        out.push(step(values[i]));
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[exp] map_int_to_str(values: vec[int], step: {fun (value: int): str}): vec[str] = {
+    var[mut] out: vec[str] = {};
+    var[mut] i: int = 0;
+    var total: int = .len(values);
+    loop (i < total) {
+        out.push(step(values[i]));
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[exp] map_str(values: vec[str], step: {fun (value: str): str}): vec[str] = {
+    var[mut] out: vec[str] = {};
+    var[mut] i: int = 0;
+    var total: int = .len(values);
+    loop (i < total) {
+        out.push(step(values[i]));
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[exp] filter_int(values: vec[int], keep: {fun (value: int): bol}): vec[int] = {
+    var[mut] out: vec[int] = {};
+    var[mut] i: int = 0;
+    var total: int = .len(values);
+    loop (i < total) {
+        if (keep(values[i])) {
+            out.push(values[i]);
+        } else {
+        };
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[exp] filter_str(values: vec[str], keep: {fun (value: str): bol}): vec[str] = {
+    var[mut] out: vec[str] = {};
+    var[mut] i: int = 0;
+    var total: int = .len(values);
+    loop (i < total) {
+        if (keep(values[i])) {
+            out.push(values[i]);
+        } else {
+        };
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[exp] fold_int(
+    values: vec[int],
+    start: int,
+    step: {fun (carried: int, value: int): int},
+): int = {
+    var[mut] carried: int = start;
+    var[mut] i: int = 0;
+    var total: int = .len(values);
+    loop (i < total) {
+        carried = step(carried, values[i]);
+        i = i + 1;
+    };
+    return carried;
+};
+
+fun[exp] any_int(values: vec[int], test: {fun (value: int): bol}): bol = {
+    var[mut] i: int = 0;
+    var total: int = .len(values);
+    loop (i < total) {
+        if (test(values[i])) {
+            return true;
+        } else {
+        };
+        i = i + 1;
+    };
+    return false;
+};
+
+fun[exp] all_int(values: vec[int], test: {fun (value: int): bol}): bol = {
+    var[mut] i: int = 0;
+    var total: int = .len(values);
+    loop (i < total) {
+        if (test(values[i])) {
+        } else {
+            return false;
+        };
+        i = i + 1;
+    };
+    return true;
+};
+
+// The POSITION of the first match, or -1. Returning the value itself would be
+// ambiguous for a vector that legitimately holds the sentinel.
+fun[exp] position_int(values: vec[int], test: {fun (value: int): bol}): int = {
+    var[mut] i: int = 0;
+    var total: int = .len(values);
+    loop (i < total) {
+        if (test(values[i])) {
+            return i;
+        } else {
+        };
+        i = i + 1;
+    };
+    return 0 - 1;
+};
+
+fun[exp] count_if_int(values: vec[int], test: {fun (value: int): bol}): int = {
+    var[mut] found: int = 0;
+    var[mut] i: int = 0;
+    var total: int = .len(values);
+    loop (i < total) {
+        if (test(values[i])) {
+            found = found + 1;
+        } else {
+        };
+        i = i + 1;
+    };
+    return found;
+};
+
+fun[exp] take_int(values: vec[int], count: int): vec[int] = {
+    var[mut] out: vec[int] = {};
+    var[mut] i: int = 0;
+    var total: int = .len(values);
+    loop (i < count and i < total) {
+        out.push(values[i]);
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[exp] skip_int(values: vec[int], count: int): vec[int] = {
+    var[mut] out: vec[int] = {};
+    var[mut] i: int = count;
+    var total: int = .len(values);
+    loop (i < total) {
+        if (i >= 0) {
+            out.push(values[i]);
+        } else {
+        };
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[exp] take_while_int(values: vec[int], test: {fun (value: int): bol}): vec[int] = {
+    var[mut] out: vec[int] = {};
+    var[mut] i: int = 0;
+    var total: int = .len(values);
+    loop (i < total) {
+        if (test(values[i])) {
+            out.push(values[i]);
+        } else {
+            return out;
+        };
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[exp] skip_while_int(values: vec[int], test: {fun (value: int): bol}): vec[int] = {
+    var[mut] out: vec[int] = {};
+    var[mut] i: int = 0;
+    var total: int = .len(values);
+    loop (i < total and test(values[i])) {
+        i = i + 1;
+    };
+    loop (i < total) {
+        out.push(values[i]);
+        i = i + 1;
+    };
+    return out;
+};
+
+// Element-wise sum of two vectors, stopping at the shorter one. This is `zip`
+// with the pairing already consumed: FOL has no tuple value to hand back.
+fun[exp] zip_add_int(left: vec[int], right: vec[int]): vec[int] = {
+    var[mut] out: vec[int] = {};
+    var[mut] i: int = 0;
+    var stop: int = .len(left);
+    var other: int = .len(right);
+    loop (i < stop and i < other) {
+        out.push(left[i] + right[i]);
+        i = i + 1;
+    };
+    return out;
+};
