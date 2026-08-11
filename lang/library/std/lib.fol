@@ -13,3 +13,5 @@ use hash: loc = {"hash"};
 use nums: loc = {"nums"};
 use grid: loc = {"grid"};
 use heap: loc = {"heap"};
+use csv: loc = {"csv"};
+use json: loc = {"json"};

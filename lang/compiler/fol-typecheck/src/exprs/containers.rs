@@ -57,6 +57,12 @@ fn vector_method(method: &str) -> Option<(&'static [ArgShape], ResultShape)> {
     }
 }
 
+// Methods that only read. They still route through the container path because
+// they address the binding.s own local, but they must not demand a mutable one.
+fn reads_only(method: &str) -> bool {
+    matches!(method, "get" | "contains" | "keys" | "values")
+}
+
 fn map_method(method: &str) -> Option<(&'static [ArgShape], ResultShape)> {
     match method {
         "insert" => Some((
@@ -172,6 +178,7 @@ pub(crate) fn type_container_method_call(
         context.scope_id,
         object,
         method,
+        reads_only(method),
     )?;
     // The receiver's family decides which method table applies, so `.push` on a
     // map and `.insert` on a vector are both named as wrong-family mistakes

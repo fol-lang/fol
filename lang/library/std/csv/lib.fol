@@ -1,0 +1,109 @@
+// RFC 4180 CSV, written in FOL.
+//
+// Quoted fields are handled properly, including the doubled `""` escape and
+// commas inside quotes, because a splitter that ignores quoting is worse than
+// none: it fails silently on exactly the data that needed a parser.
+//
+// Embedded newlines inside quoted fields are NOT supported. Splitting records
+// on newline before parsing fields is what makes the row parser streamable, and
+// the alternative needs a character-level state machine over the whole
+// document. That boundary is deliberate, not an oversight.
+
+use strn: loc = {"../strn"};
+
+con COMMA: str = ",";
+con QUOTE: str = "\"";
+
+fun[exp] parse_row(line: str): vec[str] = {
+    var[mut] fields: vec[str] = {};
+    var[mut] current: str = "";
+    var[mut] quoted: bol = false;
+    var[mut] i: int = 0;
+    var total: int = .len(line);
+    loop (i < total) {
+        var piece: str = .str_sub(line, i, 1);
+        if (quoted) {
+            if (piece == QUOTE) {
+                // A doubled quote inside a quoted field is one literal quote.
+                if (i + 1 < total and .str_sub(line, i + 1, 1) == QUOTE) {
+                    current = current + QUOTE;
+                    i = i + 1;
+                } else {
+                    quoted = false;
+                };
+            } else {
+                current = current + piece;
+            };
+        } else {
+            if (piece == QUOTE) {
+                quoted = true;
+            } else {
+                if (piece == COMMA) {
+                    fields.push(current);
+                    current = "";
+                } else {
+                    current = current + piece;
+                };
+            };
+        };
+        i = i + 1;
+    };
+    fields.push(current);
+    return fields;
+};
+
+// A field needs quoting when it holds a comma, a quote or a newline; quoting
+// everything would round-trip but is noisy to read.
+fun[exp] encode_field(value: str): str = {
+    var plain: bol = strn::contains(value, COMMA) or strn::contains(value, QUOTE);
+    if (plain) {
+        return QUOTE + strn::replace(value, QUOTE, QUOTE + QUOTE) + QUOTE;
+    } else {
+    };
+    return value;
+};
+
+fun[exp] encode_row(fields: vec[str]): str = {
+    var[mut] out: str = "";
+    var[mut] i: int = 0;
+    var total: int = .len(fields);
+    loop (i < total) {
+        if (i > 0) {
+            out = out + COMMA;
+        } else {
+        };
+        out = out + encode_field(fields[i]);
+        i = i + 1;
+    };
+    return out;
+};
+
+// A trailing newline yields no extra empty record, which is what every CSV
+// writer produces and every reader expects.
+fun[exp] parse(text: str): vec[str] = {
+    var lines: vec[str] = strn::lines(text);
+    var[mut] out: vec[str] = {};
+    var[mut] i: int = 0;
+    var total: int = .len(lines);
+    loop (i < total) {
+        if (i == total - 1 and .len(lines[i]) == 0) {
+        } else {
+            out.push(lines[i]);
+        };
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[exp] field_at(line: str, index: int, fallback: str): str = {
+    var fields: vec[str] = parse_row(line);
+    if (index < 0 or index >= .len(fields)) {
+        return fallback;
+    } else {
+    };
+    return fields[index];
+};
+
+fun[exp] column_count(line: str): int = {
+    return .len(parse_row(line));
+};

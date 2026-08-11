@@ -1619,6 +1619,7 @@ pub(crate) fn resolve_container_method_receiver(
     scope_id: ScopeId,
     receiver: &AstNode,
     method: &str,
+    reads_only: bool,
 ) -> Result<ContainerMethodReceiver, TypecheckError> {
     let (binding_name, through_field) = match strip_comments(receiver) {
         AstNode::Identifier { name, .. } => (name.clone(), None),
@@ -1658,30 +1659,35 @@ pub(crate) fn resolve_container_method_receiver(
             SymbolKind::Parameter,
         )
     });
-    // The loan is checked before plain mutability so a `[bor]` parameter is told
-    // its view is read-only, rather than to "declare it 'var[mut]'" — advice a
-    // parameter cannot take.
-    if let Some(CheckedType::Borrowed { mutable: false, .. }) = symbol
-        .and_then(|symbol| typed.typed_symbol(symbol))
-        .and_then(|symbol| symbol.declared_type)
-        .and_then(|type_id| typed.type_table().get(type_id))
-    {
-        return Err(TypecheckError::new(
-            TypecheckErrorKind::BorrowMutability,
-            format!(
-                "cannot '.{method}' through the shared loan '{binding_name}'; \
-                 a '[bor]' view is read-only"
-            ),
-        ));
-    }
-    if !binding_is_mutable_by_name(typed, resolved, source_unit_id, scope_id, &binding_name) {
-        return Err(TypecheckError::new(
-            TypecheckErrorKind::InvalidInput,
-            format!(
-                "cannot '.{method}' through immutable binding '{binding_name}'; \
-                 declare it with 'var[mut]' to allow container mutation"
-            ),
-        ));
+    // A read-only method (`get`, `contains`, `keys`, `values`) needs no mutable
+    // place: requiring one would force every caller to declare `var[mut]` just
+    // to look inside a container.
+    if !reads_only {
+        // The loan is checked before plain mutability so a `[bor]` parameter is
+        // told its view is read-only, rather than to "declare it 'var[mut]'" —
+        // advice a parameter cannot take.
+        if let Some(CheckedType::Borrowed { mutable: false, .. }) = symbol
+            .and_then(|symbol| typed.typed_symbol(symbol))
+            .and_then(|symbol| symbol.declared_type)
+            .and_then(|type_id| typed.type_table().get(type_id))
+        {
+            return Err(TypecheckError::new(
+                TypecheckErrorKind::BorrowMutability,
+                format!(
+                    "cannot '.{method}' through the shared loan '{binding_name}'; \
+                     a '[bor]' view is read-only"
+                ),
+            ));
+        }
+        if !binding_is_mutable_by_name(typed, resolved, source_unit_id, scope_id, &binding_name) {
+            return Err(TypecheckError::new(
+                TypecheckErrorKind::InvalidInput,
+                format!(
+                    "cannot '.{method}' through immutable binding '{binding_name}'; \
+                     declare it with 'var[mut]' to allow container mutation"
+                ),
+            ));
+        }
     }
     // A `mux[T]` binding is a managed mutex, not the container itself; its
     // contents are reached through a guard, not through the handle.

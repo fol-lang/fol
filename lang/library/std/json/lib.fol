@@ -1,0 +1,339 @@
+// JSON string escaping, scanning, and flat-object decoding, written in FOL.
+//
+// There is no general `decode` returning a JSON value tree, and that is a
+// language boundary rather than missing effort: FOL has no sum type that can
+// hold "string or number or bool or array or object", and no pair value to hand
+// back a key with its value. What CAN be expressed is the useful subset:
+//
+//   - escape and unescape, which are exact;
+//   - a validating scanner that reports whether a document is well-formed;
+//   - `decode_flat`, which reads a one-level object into `map[str, str]`.
+//
+// `decode_flat` renders every scalar as its source text: `1` stays `"1"`,
+// `true` stays `"true"`, `null` stays `"null"`. Callers convert with
+// `strn::to_int` or `.parse_flt`. Nested objects and arrays are returned as
+// their raw source text, so nothing is silently dropped.
+
+use strn: loc = {"../strn"};
+use chars: loc = {"../chars"};
+
+con QUOTE: str = "\"";
+con BACKSLASH: str = "\\";
+// A one-character literal infers as `chr` where nothing expects a `str`, so
+// every single-character comparison below goes through a typed constant.
+con ESC_N: str = "n";
+con ESC_R: str = "r";
+con ESC_T: str = "t";
+con ESC_U: str = "u";
+con OPEN_OBJ: str = "{";
+con CLOSE_OBJ: str = "}";
+con OPEN_ARR: str = "[";
+con CLOSE_ARR: str = "]";
+con COMMA: str = ",";
+con COLON: str = ":";
+
+fun[exp] escape(text: str): str = {
+    var[mut] out: str = "";
+    var[mut] i: int = 0;
+    var total: int = .len(text);
+    loop (i < total) {
+        var byte: int = .str_byte(text, i);
+        if (byte == 34) {
+            out = out + BACKSLASH + QUOTE;
+        } else {
+            if (byte == 92) {
+                out = out + BACKSLASH + BACKSLASH;
+            } else {
+                if (byte == 10) {
+                    out = out + BACKSLASH + "n";
+                } else {
+                    if (byte == 13) {
+                        out = out + BACKSLASH + "r";
+                    } else {
+                        if (byte == 9) {
+                            out = out + BACKSLASH + "t";
+                        } else {
+                            out = out + .byte_to_str(byte);
+                        };
+                    };
+                };
+            };
+        };
+        i = i + 1;
+    };
+    return out;
+};
+
+// `\uXXXX` is decoded for the Basic Multilingual Plane. Surrogate pairs are
+// left as-is rather than silently producing a wrong character.
+fun[exp] unescape(text: str): str = {
+    var[mut] out: str = "";
+    var[mut] i: int = 0;
+    var total: int = .len(text);
+    loop (i < total) {
+        var piece: str = .str_sub(text, i, 1);
+        if (piece == BACKSLASH and i + 1 < total) {
+            var next: str = .str_sub(text, i + 1, 1);
+            if (next == ESC_N) {
+                out = out + .byte_to_str(10);
+            } else {
+                if (next == ESC_R) {
+                    out = out + .byte_to_str(13);
+                } else {
+                    if (next == ESC_T) {
+                        out = out + .byte_to_str(9);
+                    } else {
+                        if (next == ESC_U and i + 5 < total) {
+                            var hex: str = .str_sub(text, i + 2, 4);
+                            var point: int = hex_value(hex);
+                            if (point >= 0 and point < 55296) {
+                                out = out + .chr_to_str(.int_to_chr(point));
+                                i = i + 4;
+                            } else {
+                                out = out + next;
+                            };
+                        } else {
+                            out = out + next;
+                        };
+                    };
+                };
+            };
+            i = i + 2;
+        } else {
+            out = out + piece;
+            i = i + 1;
+        };
+    };
+    return out;
+};
+
+fun hex_value(text: str): int = {
+    var[mut] total: int = 0;
+    var[mut] i: int = 0;
+    var width: int = .len(text);
+    loop (i < width) {
+        var digit: int = chars::digit_value(.int_to_chr(.str_byte(text, i)));
+        if (digit < 0) {
+            return 0 - 1;
+        } else {
+        };
+        total = total * 16 + digit;
+        i = i + 1;
+    };
+    return total;
+};
+
+fun[exp] encode_string(text: str): str = {
+    return QUOTE + escape(text) + QUOTE;
+};
+
+// Balanced-delimiter check that respects strings and their escapes, so a brace
+// inside `"{"` does not count. This is a well-formedness screen, not a full
+// grammar check: it does not verify that values follow colons.
+fun[exp] is_balanced(text: str): bol = {
+    var[mut] depth: int = 0;
+    var[mut] in_string: bol = false;
+    var[mut] escaped: bol = false;
+    var[mut] i: int = 0;
+    var total: int = .len(text);
+    loop (i < total) {
+        var piece: str = .str_sub(text, i, 1);
+        if (escaped) {
+            escaped = false;
+        } else {
+            if (in_string) {
+                if (piece == BACKSLASH) {
+                    escaped = true;
+                } else {
+                    if (piece == QUOTE) {
+                        in_string = false;
+                    } else {
+                    };
+                };
+            } else {
+                if (piece == QUOTE) {
+                    in_string = true;
+                } else {
+                    if (piece == OPEN_OBJ or piece == OPEN_ARR) {
+                        depth = depth + 1;
+                    } else {
+                        if (piece == CLOSE_OBJ or piece == CLOSE_ARR) {
+                            depth = depth - 1;
+                            if (depth < 0) {
+                                return false;
+                            } else {
+                            };
+                        } else {
+                        };
+                    };
+                };
+            };
+        };
+        i = i + 1;
+    };
+    return depth == 0 and in_string == false;
+};
+
+// Split the body of an object or array on top-level commas, ignoring commas
+// nested inside strings, braces or brackets.
+fun[exp] split_top_level(text: str): vec[str] = {
+    var[mut] parts: vec[str] = {};
+    var[mut] current: str = "";
+    var[mut] depth: int = 0;
+    var[mut] in_string: bol = false;
+    var[mut] escaped: bol = false;
+    var[mut] i: int = 0;
+    var total: int = .len(text);
+    loop (i < total) {
+        var piece: str = .str_sub(text, i, 1);
+        if (escaped) {
+            current = current + piece;
+            escaped = false;
+        } else {
+            if (in_string) {
+                current = current + piece;
+                if (piece == BACKSLASH) {
+                    escaped = true;
+                } else {
+                    if (piece == QUOTE) {
+                        in_string = false;
+                    } else {
+                    };
+                };
+            } else {
+                if (piece == QUOTE) {
+                    in_string = true;
+                    current = current + piece;
+                } else {
+                    if (piece == OPEN_OBJ or piece == OPEN_ARR) {
+                        depth = depth + 1;
+                        current = current + piece;
+                    } else {
+                        if (piece == CLOSE_OBJ or piece == CLOSE_ARR) {
+                            depth = depth - 1;
+                            current = current + piece;
+                        } else {
+                            if (piece == COMMA and depth == 0) {
+                                parts.push(strn::trim(current));
+                                current = "";
+                            } else {
+                                current = current + piece;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        i = i + 1;
+    };
+    var last: str = strn::trim(current);
+    if (.len(last) > 0) {
+        parts.push(last);
+    } else {
+    };
+    return parts;
+};
+
+fun strip_outer(text: str, open: str, close: str): str = {
+    var body: str = strn::trim(text);
+    if (strn::starts_with(body, open) and strn::ends_with(body, close)) {
+        return .str_sub(body, 1, .len(body) - 2);
+    } else {
+    };
+    return body;
+};
+
+fun unquote(text: str): str = {
+    var body: str = strn::trim(text);
+    if (strn::starts_with(body, QUOTE) and strn::ends_with(body, QUOTE)) {
+        return unescape(.str_sub(body, 1, .len(body) - 2));
+    } else {
+    };
+    return body;
+};
+
+// One level of an object into `map[str, str]`. Scalars keep their source text;
+// a nested object or array is kept as its raw text so the caller can recurse
+// with `decode_flat` again rather than losing it.
+fun[exp] decode_flat(text: str): map[str, str] = {
+    var[mut] out: map[str, str] = {};
+    var body: str = strip_outer(text, OPEN_OBJ, CLOSE_OBJ);
+    var entries: vec[str] = split_top_level(body);
+    var[mut] i: int = 0;
+    var total: int = .len(entries);
+    loop (i < total) {
+        var entry: str = entries[i];
+        var cut: int = key_split_point(entry);
+        if (cut > 0) {
+            var key: str = unquote(.str_sub(entry, 0, cut));
+            var value: str = strn::trim(.str_sub(entry, cut + 1, .len(entry) - cut - 1));
+            out.insert(key, unquote(value));
+        } else {
+        };
+        i = i + 1;
+    };
+    return out;
+};
+
+// The first colon that is not inside a string.
+fun key_split_point(entry: str): int = {
+    var[mut] in_string: bol = false;
+    var[mut] escaped: bol = false;
+    var[mut] i: int = 0;
+    var total: int = .len(entry);
+    loop (i < total) {
+        var piece: str = .str_sub(entry, i, 1);
+        if (escaped) {
+            escaped = false;
+        } else {
+            if (piece == BACKSLASH) {
+                escaped = true;
+            } else {
+                if (piece == QUOTE) {
+                    in_string = in_string == false;
+                } else {
+                    if (piece == COLON and in_string == false) {
+                        return i;
+                    } else {
+                    };
+                };
+            };
+        };
+        i = i + 1;
+    };
+    return 0 - 1;
+};
+
+fun[exp] decode_array(text: str): vec[str] = {
+    var body: str = strip_outer(text, OPEN_ARR, CLOSE_ARR);
+    var items: vec[str] = split_top_level(body);
+    var[mut] out: vec[str] = {};
+    var[mut] i: int = 0;
+    var total: int = .len(items);
+    loop (i < total) {
+        out.push(unquote(items[i]));
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[exp] encode_flat(values: map[str, str]): str = {
+    var keys: vec[str] = values.keys();
+    var[mut] out: str = OPEN_OBJ;
+    var[mut] i: int = 0;
+    var total: int = .len(keys);
+    loop (i < total) {
+        if (i > 0) {
+            out = out + COMMA;
+        } else {
+        };
+        var key: str = keys[i];
+        var found: opt[str] = values.get(key);
+        when(found) {
+            on(value) { out = out + encode_string(key) + COLON + encode_string(value); }
+            * { }
+        }
+        i = i + 1;
+    };
+    return out + CLOSE_OBJ;
+};
