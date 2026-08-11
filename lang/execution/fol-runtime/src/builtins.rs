@@ -109,6 +109,59 @@ pub fn parse_flt(text: FolStr, fallback: crate::value::FolFloat) -> crate::value
         .unwrap_or(fallback)
 }
 
+/// Float mathematics. A negative square root faults rather than producing NaN,
+/// so a mistake surfaces where it happened instead of propagating silently.
+pub fn sqrt(value: crate::value::FolFloat) -> crate::value::FolFloat {
+    if value < 0.0 {
+        panic!("fol runtime fault: sqrt of a negative number: {value}");
+    }
+    value.sqrt()
+}
+
+pub fn flt_abs(value: crate::value::FolFloat) -> crate::value::FolFloat {
+    value.abs()
+}
+
+pub fn sin(value: crate::value::FolFloat) -> crate::value::FolFloat {
+    value.sin()
+}
+
+pub fn cos(value: crate::value::FolFloat) -> crate::value::FolFloat {
+    value.cos()
+}
+
+pub fn tan(value: crate::value::FolFloat) -> crate::value::FolFloat {
+    value.tan()
+}
+
+pub fn atan2(y: crate::value::FolFloat, x: crate::value::FolFloat) -> crate::value::FolFloat {
+    y.atan2(x)
+}
+
+pub fn ln(value: crate::value::FolFloat) -> crate::value::FolFloat {
+    value.ln()
+}
+
+pub fn log10(value: crate::value::FolFloat) -> crate::value::FolFloat {
+    value.log10()
+}
+
+pub fn exp(value: crate::value::FolFloat) -> crate::value::FolFloat {
+    value.exp()
+}
+
+pub fn hypot(x: crate::value::FolFloat, y: crate::value::FolFloat) -> crate::value::FolFloat {
+    x.hypot(y)
+}
+
+pub fn is_nan(value: crate::value::FolFloat) -> crate::value::FolBool {
+    value.is_nan()
+}
+
+pub fn is_inf(value: crate::value::FolFloat) -> crate::value::FolBool {
+    value.is_infinite()
+}
+
 /// Integer division with the documented fault semantics (arithmetics
 /// chapter): division by zero faults instead of surfacing a raw Rust panic
 /// that points into generated code.

@@ -793,6 +793,16 @@ pub fn render_core_instruction_in_workspace(
                 | ("chr_to_int", [value])
                 | ("int_to_chr", [value])
                 | ("chr_to_str", [value])
+                | ("sqrt", [value])
+                | ("flt_abs", [value])
+                | ("sin", [value])
+                | ("cos", [value])
+                | ("tan", [value])
+                | ("ln", [value])
+                | ("log10", [value])
+                | ("exp", [value])
+                | ("is_nan", [value])
+                | ("is_inf", [value])
                 | ("raw_mode", [value])
                 | ("sleep_ms", [value])
                 | ("byte_to_str", [value])
@@ -812,6 +822,8 @@ pub fn render_core_instruction_in_workspace(
                 | ("str_find", [path, contents])
                 | ("parse_int", [path, contents])
                 | ("parse_flt", [path, contents])
+                | ("atan2", [path, contents])
+                | ("hypot", [path, contents])
                 | ("float_to_str", [path, contents]) => {
                     let first = render_transfer_expr(type_table, package_identity, routine, *path)?;
                     let second =

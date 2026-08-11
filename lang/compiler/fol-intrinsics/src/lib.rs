@@ -388,12 +388,9 @@ mod tests {
                 IntrinsicCategory::Arithmetic,
                 IntrinsicArity::Exactly(1),
             ),
-            (
-                "sqrt",
-                IntrinsicId::new(36),
-                IntrinsicCategory::Arithmetic,
-                IntrinsicArity::Exactly(1),
-            ),
+            // `sqrt` (id 36) used to sit here. It graduated to Implemented /
+            // RuntimeHook rather than being shadowed by a second entry, so it is
+            // no longer a roadmap placeholder.
             (
                 "bit_and",
                 IntrinsicId::new(37),

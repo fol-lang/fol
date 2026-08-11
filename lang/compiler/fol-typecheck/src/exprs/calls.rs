@@ -533,6 +533,11 @@ fn terminal_intrinsic_signature(
         "int_to_chr" => Some((vec![builtins.int], builtins.char_)),
         "chr_to_str" => Some((vec![builtins.char_], builtins.str_)),
         "parse_flt" => Some((vec![builtins.str_, builtins.float], builtins.float)),
+        "sqrt" | "flt_abs" | "sin" | "cos" | "tan" | "ln" | "log10" | "exp" => {
+            Some((vec![builtins.float], builtins.float))
+        }
+        "atan2" | "hypot" => Some((vec![builtins.float, builtins.float], builtins.float)),
+        "is_nan" | "is_inf" => Some((vec![builtins.float], builtins.bool_)),
         "str_sub" => Some((
             vec![builtins.str_, builtins.int, builtins.int],
             builtins.str_,
