@@ -331,6 +331,12 @@ fn translate_checked_type(
                         nominal: Some(format!("{}::{name}", declaring_root)),
                     })
                 }
+                // Entries keep their structural identity; the declared name is
+                // recorded beside the table so `.type_name` can report it.
+                Some(LoweredType::Entry { .. }) => {
+                    lowered_types.note_declared_entry_name(lowered, name);
+                    lowered
+                }
                 _ => lowered,
             }
         }

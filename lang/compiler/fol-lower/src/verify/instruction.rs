@@ -327,6 +327,25 @@ pub(super) fn verify_instruction(
                 verify_local_reference(routine, instr.id.0, "runtime hook arg", *arg, errors);
             }
         }
+        crate::LoweredInstrKind::TypeNameOf { operand }
+        | crate::LoweredInstrKind::SizeOfValue { operand } => {
+            if instr.result.is_none() {
+                errors.push(LoweringError::with_kind(
+                    LoweringErrorKind::InvalidInput,
+                    format!(
+                        "lowered routine '{}' introspection instruction {} must write a result local",
+                        routine.name, instr.id.0
+                    ),
+                ));
+            }
+            verify_local_reference(
+                routine,
+                instr.id.0,
+                "introspection operand",
+                *operand,
+                errors,
+            );
+        }
         crate::LoweredInstrKind::LengthOf { operand } => {
             if instr.result.is_none() {
                 errors.push(LoweringError::with_kind(

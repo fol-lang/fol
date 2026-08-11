@@ -308,6 +308,18 @@ pub enum LoweredInstrKind {
     LengthOf {
         operand: LoweredLocalId,
     },
+    /// `.type_name(x)` and `.size_of(x)`. Neither carries a `LoweredTypeId`:
+    /// the backend reads the operand local's type instead, which is what makes
+    /// them correct after monomorphization — `instantiate_template` substitutes
+    /// every local's type, so a templated copy sees its concrete type with no
+    /// arm needed in `mono.rs`. Baking the answer in at lowering time would
+    /// freeze the generic parameter's spelling instead.
+    TypeNameOf {
+        operand: LoweredLocalId,
+    },
+    SizeOfValue {
+        operand: LoweredLocalId,
+    },
     ConstructRecord {
         type_id: LoweredTypeId,
         fields: Vec<(String, LoweredLocalId)>,

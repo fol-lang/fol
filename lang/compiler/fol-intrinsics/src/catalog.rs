@@ -2325,6 +2325,30 @@ const INTRINSICS: &[IntrinsicEntry] = &[
         IntrinsicLoweringMode::RuntimeHook,
         "the call stack at this point, as text",
     ),
+    IntrinsicEntry::new(
+        IntrinsicId::new(198),
+        "type_name",
+        &[],
+        IntrinsicCategory::Introspection,
+        IntrinsicSurface::DotRootCall,
+        IntrinsicAvailability::V1,
+        IntrinsicStatus::Implemented,
+        IntrinsicArity::Exactly(1),
+        IntrinsicLoweringMode::DedicatedIr,
+        "the FOL spelling of an operand's type",
+    ),
+    IntrinsicEntry::new(
+        IntrinsicId::new(199),
+        "size_of",
+        &[],
+        IntrinsicCategory::Introspection,
+        IntrinsicSurface::DotRootCall,
+        IntrinsicAvailability::V1,
+        IntrinsicStatus::Implemented,
+        IntrinsicArity::Exactly(1),
+        IntrinsicLoweringMode::DedicatedIr,
+        "the in-memory size of an operand, in bytes",
+    ),
 ];
 
 pub const fn intrinsic_registry() -> &'static [IntrinsicEntry] {
@@ -2397,7 +2421,10 @@ pub fn intrinsics_for_roadmap(roadmap: IntrinsicRoadmap) -> Vec<&'static Intrins
 pub fn backend_role_for_intrinsic(id: IntrinsicId) -> Option<IntrinsicBackendRole> {
     intrinsic_by_id(id).and_then(|entry| match entry.id.index() {
         0..=6 => Some(IntrinsicBackendRole::PureOp),
-        7 | 12 => Some(IntrinsicBackendRole::TargetHelper),
+        // 7 = len; 198-199 = the introspection pair, which like len read a fact
+        // the backend derives from the operand's lowered type rather than
+        // calling into the runtime.
+        7 | 12 | 198 | 199 => Some(IntrinsicBackendRole::TargetHelper),
         // 8 = echo; 57..=80 = the terminal, string, time, OS, and CLI hooks;
         // 81..=89 = the numeric and character conversions.
         // 36 = sqrt, promoted in place from its Deferred placeholder rather than

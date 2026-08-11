@@ -150,6 +150,9 @@ pub(crate) fn type_dot_intrinsic_call(
                 Some(QueryOperandContract::LengthQueryable) => {
                     type_query_intrinsic(typed, resolved, context, entry, args, syntax_id)?
                 }
+                Some(QueryOperandContract::AnyValue) => {
+                    type_introspection_intrinsic(typed, resolved, context, entry, args, syntax_id)?
+                }
                 None if entry.name == "echo" => type_echo_intrinsic(
                     typed,
                     resolved,
@@ -351,6 +354,52 @@ fn type_boolean_intrinsic(
     )?;
     Ok(TypedExpr::value(typed.builtin_types().bool_)
         .with_optional_effect(operand_expr.recoverable_effect))
+}
+
+/// `.type_name(x)` and `.size_of(x)`. Both read a fact about the operand's
+/// type and never read the value, so no type is rejected — a generic parameter
+/// least of all, since generic code is the reason these exist.
+///
+/// The operand is typed for its side effects (recoverable-effect merging, and
+/// so the node carries a type for lowering) but its type is deliberately not
+/// constrained.
+fn type_introspection_intrinsic(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    context: TypeContext,
+    entry: &fol_intrinsics::IntrinsicEntry,
+    args: &[AstNode],
+    syntax_id: SyntaxNodeId,
+) -> Result<TypedExpr, TypecheckError> {
+    let origin = origin_for(resolved, syntax_id);
+    if args.len() != 1 {
+        return Err(match origin {
+            Some(origin) => TypecheckError::with_origin(
+                TypecheckErrorKind::InvalidInput,
+                wrong_arity_message(entry, args.len()),
+                origin,
+            ),
+            None => TypecheckError::new(
+                TypecheckErrorKind::InvalidInput,
+                wrong_arity_message(entry, args.len()),
+            ),
+        });
+    }
+    let operand_raw = type_node(typed, resolved, context, &args[0])?;
+    let operand_expr = plain_value_expr(
+        typed,
+        context,
+        operand_raw,
+        node_origin(resolved, &args[0]),
+        "plain use of an errorful intrinsic operand",
+    )?;
+    let _ = operand_expr.required_value("intrinsic operand does not have a type")?;
+    let result = match entry.name {
+        "type_name" => typed.builtin_types().str_,
+        _ => typed.builtin_types().int,
+    };
+    typed.record_node_type(syntax_id, context.source_unit_id, result)?;
+    Ok(TypedExpr::value(result).with_optional_effect(operand_expr.recoverable_effect))
 }
 
 fn type_query_intrinsic(

@@ -109,6 +109,16 @@ pub enum LoweredType {
 pub struct LoweredTypeTable {
     types: Vec<LoweredType>,
     canonical_ids: BTreeMap<LoweredType, LoweredTypeId>,
+    /// Declared names for `ent` types, purely so `.type_name(x)` can answer
+    /// `Shade` instead of `ent { DARK: int, LIGHT: int }`.
+    ///
+    /// A side table rather than a `nominal` field on the variant, because that
+    /// field is part of the interning key: adding one would make two
+    /// structurally identical `ent` declarations distinct types and change
+    /// dispatch. This is display metadata and changes nothing about identity —
+    /// with the matching limitation that two such declarations share an id, so
+    /// the first name recorded is what both report.
+    declared_entry_names: BTreeMap<LoweredTypeId, String>,
 }
 
 impl LoweredTypeTable {
@@ -126,6 +136,165 @@ impl LoweredTypeTable {
 
     pub fn get(&self, id: LoweredTypeId) -> Option<&LoweredType> {
         self.types.get(id.0)
+    }
+
+    /// Records the source name of a declared `ent` type. First name wins, so
+    /// the result does not depend on lowering order.
+    pub fn note_declared_entry_name(&mut self, type_id: LoweredTypeId, name: impl Into<String>) {
+        self.declared_entry_names
+            .entry(type_id)
+            .or_insert_with(|| name.into());
+    }
+
+    /// The FOL surface spelling of a lowered type, for `.type_name(x)`.
+    ///
+    /// This mirrors the checked table's renderer used by diagnostics, with one
+    /// deliberate difference: an array renders as `arr[int, 8]` rather than
+    /// `[int]`, because `arr[T, N]` is how FOL actually spells the type and
+    /// this string is read by programs, not only by people.
+    ///
+    /// A structural record with no declared name renders its fields. Nominal
+    /// records short-circuit to their name, which is also what stops a
+    /// self-referential type from recursing forever; `depth` is the backstop
+    /// for any structural cycle that slips past that.
+    pub fn render_type(&self, type_id: LoweredTypeId) -> String {
+        self.render_type_at(type_id, 0)
+    }
+
+    fn render_type_at(&self, type_id: LoweredTypeId, depth: usize) -> String {
+        if depth > 16 {
+            return "...".to_string();
+        }
+        let nested = |inner: LoweredTypeId| self.render_type_at(inner, depth + 1);
+        let join = |items: &[LoweredTypeId]| {
+            items
+                .iter()
+                .map(|item| self.render_type_at(*item, depth + 1))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        match self.get(type_id) {
+            Some(LoweredType::Builtin(builtin)) => match builtin {
+                LoweredBuiltinType::Int => "int".to_string(),
+                LoweredBuiltinType::Float => "flt".to_string(),
+                LoweredBuiltinType::Bool => "bol".to_string(),
+                LoweredBuiltinType::Char => "chr".to_string(),
+                LoweredBuiltinType::Str => "str".to_string(),
+                LoweredBuiltinType::Never => "never".to_string(),
+            },
+            Some(LoweredType::GenericParameter { name })
+            | Some(LoweredType::Named { name, .. }) => name.clone(),
+            Some(LoweredType::Owned { inner }) => format!("@{}", nested(*inner)),
+            Some(LoweredType::Borrowed { inner, mutable }) => {
+                if *mutable {
+                    format!("bor[mut, {}]", nested(*inner))
+                } else {
+                    format!("bor[{}]", nested(*inner))
+                }
+            }
+            Some(LoweredType::Pointer {
+                target,
+                shared,
+                weak,
+                sync,
+            }) => {
+                if *weak {
+                    format!("ptr[weak, {}]", nested(*target))
+                } else if *shared && *sync {
+                    format!("ptr[shared, sync, {}]", nested(*target))
+                } else if *shared {
+                    format!("ptr[shared, {}]", nested(*target))
+                } else {
+                    format!("ptr[{}]", nested(*target))
+                }
+            }
+            Some(LoweredType::Array { element_type, size }) => match size {
+                Some(size) => format!("arr[{}, {size}]", nested(*element_type)),
+                None => format!("arr[{}]", nested(*element_type)),
+            },
+            Some(LoweredType::Vector { element_type }) => format!("vec[{}]", nested(*element_type)),
+            Some(LoweredType::Sequence { element_type }) => {
+                format!("seq[{}]", nested(*element_type))
+            }
+            Some(LoweredType::Channel { element_type }) => {
+                format!("chn[{}]", nested(*element_type))
+            }
+            Some(LoweredType::ChannelSender { element_type }) => {
+                format!("chn[tx, {}]", nested(*element_type))
+            }
+            Some(LoweredType::ChannelReceiver { element_type }) => {
+                format!("chn[rx, {}]", nested(*element_type))
+            }
+            Some(LoweredType::Eventual {
+                value_type,
+                error_type,
+            }) => match error_type {
+                Some(error_type) => {
+                    format!("evt[{} / {}]", nested(*value_type), nested(*error_type))
+                }
+                None => format!("evt[{}]", nested(*value_type)),
+            },
+            Some(LoweredType::Set { member_types }) => format!("set[{}]", join(member_types)),
+            Some(LoweredType::Map {
+                key_type,
+                value_type,
+            }) => format!("map[{}, {}]", nested(*key_type), nested(*value_type)),
+            Some(LoweredType::Optional { inner }) => format!("opt[{}]", nested(*inner)),
+            Some(LoweredType::Error { inner }) => match inner {
+                Some(inner) => format!("err[{}]", nested(*inner)),
+                None => "err[]".to_string(),
+            },
+            Some(LoweredType::Record {
+                fields, nominal, ..
+            }) => match nominal {
+                // `nominal` is package-qualified, and a package identity can be
+                // an absolute build path — which must never reach a
+                // user-visible string. The declared name is what the source
+                // wrote and what `Point` means to the reader.
+                Some(name) => name.rsplit("::").next().unwrap_or(name).to_string(),
+                None => {
+                    let rendered = fields
+                        .iter()
+                        .map(|(name, field_type)| {
+                            format!("{name}: {}", self.render_type_at(*field_type, depth + 1))
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("rec {{ {rendered} }}")
+                }
+            },
+            Some(LoweredType::Entry { variants }) => {
+                if let Some(name) = self.declared_entry_names.get(&type_id) {
+                    return name.clone();
+                }
+                let rendered = variants
+                    .iter()
+                    .map(|(name, payload)| match payload {
+                        Some(payload) => {
+                            format!("{name}: {}", self.render_type_at(*payload, depth + 1))
+                        }
+                        None => name.clone(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("ent {{ {rendered} }}")
+            }
+            Some(LoweredType::Routine(routine)) => {
+                let params = join(&routine.params);
+                let returns = routine
+                    .return_type
+                    .map(|value| self.render_type_at(value, depth + 1))
+                    .unwrap_or_else(|| "non".to_string());
+                match routine.error_type {
+                    Some(error_type) => format!(
+                        "fun({params}): {returns} / {}",
+                        self.render_type_at(error_type, depth + 1)
+                    ),
+                    None => format!("fun({params}): {returns}"),
+                }
+            }
+            None => "?".to_string(),
+        }
     }
 
     pub fn find(&self, ty: &LoweredType) -> Option<LoweredTypeId> {
@@ -707,5 +876,121 @@ mod tests {
         assert!(table.contains_shared_pointer(nested));
         assert!(!table.contains_borrowed(int_id));
         assert!(!table.contains_shared_pointer(int_id));
+    }
+}
+
+#[cfg(test)]
+mod render_type_tests {
+    use super::*;
+
+    #[test]
+    fn renders_builtins_and_containers_in_fol_spelling() {
+        let mut table = LoweredTypeTable::new();
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let str_id = table.intern_builtin(LoweredBuiltinType::Str);
+        assert_eq!(table.render_type(int_id), "int");
+        assert_eq!(table.render_type(str_id), "str");
+
+        let vec_id = table.intern(LoweredType::Vector {
+            element_type: int_id,
+        });
+        assert_eq!(table.render_type(vec_id), "vec[int]");
+        let map_id = table.intern(LoweredType::Map {
+            key_type: str_id,
+            value_type: vec_id,
+        });
+        assert_eq!(table.render_type(map_id), "map[str, vec[int]]");
+        let opt_id = table.intern(LoweredType::Optional { inner: int_id });
+        assert_eq!(table.render_type(opt_id), "opt[int]");
+    }
+
+    // An array keeps its length, unlike the diagnostic renderer's `[int]`.
+    #[test]
+    fn renders_arrays_with_their_declared_length() {
+        let mut table = LoweredTypeTable::new();
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let sized = table.intern(LoweredType::Array {
+            element_type: int_id,
+            size: Some(8),
+        });
+        let unsized_array = table.intern(LoweredType::Array {
+            element_type: int_id,
+            size: None,
+        });
+        assert_eq!(table.render_type(sized), "arr[int, 8]");
+        assert_eq!(table.render_type(unsized_array), "arr[int]");
+    }
+
+    // A package identity can be an absolute build path; only the declared name
+    // may reach a user-visible string.
+    #[test]
+    fn nominal_records_render_the_declared_name_without_the_package_path() {
+        let mut table = LoweredTypeTable::new();
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let record = table.intern(LoweredType::Record {
+            fields: BTreeMap::from([("x".to_string(), int_id)]),
+            finalized: false,
+            nominal: Some("/tmp/build/scratch/pkg::Point".to_string()),
+        });
+        assert_eq!(table.render_type(record), "Point");
+    }
+
+    #[test]
+    fn structural_records_render_their_fields() {
+        let mut table = LoweredTypeTable::new();
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let record = table.intern(LoweredType::Record {
+            fields: BTreeMap::from([("x".to_string(), int_id)]),
+            finalized: false,
+            nominal: None,
+        });
+        assert_eq!(table.render_type(record), "rec { x: int }");
+    }
+
+    #[test]
+    fn entries_prefer_a_noted_declared_name_over_their_variants() {
+        let mut table = LoweredTypeTable::new();
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let entry = table.intern(LoweredType::Entry {
+            variants: BTreeMap::from([("DARK".to_string(), Some(int_id))]),
+        });
+        assert_eq!(table.render_type(entry), "ent { DARK: int }");
+        table.note_declared_entry_name(entry, "Shade");
+        assert_eq!(table.render_type(entry), "Shade");
+        // First name wins, so lowering order cannot change the answer.
+        table.note_declared_entry_name(entry, "Other");
+        assert_eq!(table.render_type(entry), "Shade");
+    }
+
+    // Borrows are peeled at the call site, not here, so the renderer must still
+    // spell them out when asked directly.
+    #[test]
+    fn renders_loans_and_pointers_distinctly() {
+        let mut table = LoweredTypeTable::new();
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let shared = table.intern(LoweredType::Borrowed {
+            inner: int_id,
+            mutable: false,
+        });
+        let unique = table.intern(LoweredType::Borrowed {
+            inner: int_id,
+            mutable: true,
+        });
+        let weak = table.intern(LoweredType::Pointer {
+            target: int_id,
+            shared: false,
+            weak: true,
+            sync: false,
+        });
+        let sync = table.intern(LoweredType::Pointer {
+            target: int_id,
+            shared: true,
+            weak: false,
+            sync: true,
+        });
+        assert_eq!(table.render_type(shared), "bor[int]");
+        assert_eq!(table.render_type(unique), "bor[mut, int]");
+        assert_eq!(table.render_type(weak), "ptr[weak, int]");
+        assert_eq!(table.render_type(sync), "ptr[shared, sync, int]");
     }
 }

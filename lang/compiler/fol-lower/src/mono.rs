@@ -170,11 +170,32 @@ fn collect_templates(
                     .and_then(|local| local.type_id)
                     .is_some_and(|type_id| type_contains_generic_parameter(type_table, type_id))
             });
+            // `.type_name(x)` is resolved at emission from the operand's type,
+            // so on the Rust-generics path it would answer "T" for every
+            // caller — the one question nobody asked. Templating makes the
+            // answer the caller's own type.
+            //
+            // `.size_of(x)` deliberately does NOT force templating: it emits
+            // `size_of_val`, a real call that Rust resolves per instantiation,
+            // so it is already correct on the generics path. Templating for it
+            // would only duplicate code. Verified by removing this condition:
+            // the names collapsed to "T" while every size stayed right.
+            let names_generic_operand = routine.instructions.iter().any(|instr| {
+                let LoweredInstrKind::TypeNameOf { operand } = instr.kind else {
+                    return false;
+                };
+                routine
+                    .locals
+                    .get(operand)
+                    .and_then(|local| local.type_id)
+                    .is_some_and(|type_id| type_contains_generic_parameter(type_table, type_id))
+            });
             if generic_receiver
                 || has_constraint_calls
                 || uses_generic_structural
                 || indexes_generic_element
                 || mutates_generic_container
+                || names_generic_operand
             {
                 templates.insert(
                     routine.id,

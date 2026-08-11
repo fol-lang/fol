@@ -31,12 +31,17 @@ impl BooleanOperandContract {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum QueryOperandContract {
     LengthQueryable,
+    /// Introspection reads a fact about the operand's type without reading the
+    /// value, so every type is admissible — including a generic parameter,
+    /// which is the case these intrinsics exist for.
+    AnyValue,
 }
 
 impl QueryOperandContract {
     pub const fn expected_operands(self) -> &'static str {
         match self {
             Self::LengthQueryable => "one string, array, vector, sequence, set, or map operand",
+            Self::AnyValue => "one operand of any type",
         }
     }
 }
@@ -61,6 +66,7 @@ pub const fn boolean_operand_contract(entry: &IntrinsicEntry) -> Option<BooleanO
 pub const fn query_operand_contract(entry: &IntrinsicEntry) -> Option<QueryOperandContract> {
     match entry.id.index() {
         7 => Some(QueryOperandContract::LengthQueryable),
+        198 | 199 => Some(QueryOperandContract::AnyValue),
         _ => None,
     }
 }

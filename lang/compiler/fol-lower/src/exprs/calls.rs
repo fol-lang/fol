@@ -365,6 +365,52 @@ pub(crate) fn lower_dot_intrinsic_call(
             recoverable_error_type: None,
         });
     }
+    if matches!(
+        lowering_mode,
+        Some(fol_intrinsics::IntrinsicLoweringMode::DedicatedIr)
+    ) && matches!(canonical_name, "type_name" | "size_of")
+    {
+        let [operand] = args else {
+            return Err(LoweringError::with_kind(
+                LoweringErrorKind::InvalidInput,
+                format!("dot intrinsic '.{name}(...)' expected exactly 1 operand"),
+            ));
+        };
+        // Introspection observes the operand's type, never its value, so it
+        // must not route through LoadLocal and move a move-only operand out.
+        let operand = direct_local_identifier_value(typed_package, cursor, operand).map_or_else(
+            || {
+                lower_expression(
+                    typed_package,
+                    type_table,
+                    checked_type_map,
+                    current_identity,
+                    decl_index,
+                    cursor,
+                    source_unit_id,
+                    scope_id,
+                    operand,
+                )
+            },
+            Ok,
+        )?;
+        let result_local = cursor.allocate_local(result_type, None);
+        let kind = if canonical_name == "type_name" {
+            LoweredInstrKind::TypeNameOf {
+                operand: operand.local_id,
+            }
+        } else {
+            LoweredInstrKind::SizeOfValue {
+                operand: operand.local_id,
+            }
+        };
+        cursor.push_instr(Some(result_local), kind)?;
+        return Ok(LoweredValue {
+            local_id: result_local,
+            type_id: result_type,
+            recoverable_error_type: None,
+        });
+    }
     // A two-operand comparison narrows an entry-variant read to the value it
     // carries, exactly as the `==` operator does. Typecheck already agreed to
     // the call; without the same narrowing here the operand lowers as the

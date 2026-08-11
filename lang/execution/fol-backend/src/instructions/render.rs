@@ -766,6 +766,37 @@ pub fn render_core_instruction_in_workspace(
                 None => Ok(format!("{expression};")),
             }
         }
+        // Both peel `@` and `bor` first, so `.type_name` of a loaned Point says
+        // `Point` and `.size_of` measures the Point rather than the loan.
+        // `ptr[...]` is deliberately not peeled: a pointer is a value you hold.
+        LoweredInstrKind::TypeNameOf { operand } | LoweredInstrKind::SizeOfValue { operand } => {
+            let result = rendered_result_local(package_identity, routine, instruction)?;
+            let operand_id = *operand;
+            let operand_name = render_local_name(package_identity, routine, operand_id)?;
+            let operand_type = routine
+                .locals
+                .get(operand_id)
+                .and_then(|local| local.type_id)
+                .ok_or_else(|| {
+                    BackendError::new(
+                        BackendErrorKind::InvalidInput,
+                        "introspection operand local does not retain a lowered type",
+                    )
+                })?;
+            let (peeled, observed) =
+                observed_storage_reference(type_table, operand_type, &operand_name);
+            if matches!(instruction.kind, LoweredInstrKind::TypeNameOf { .. }) {
+                // Resolved here, not at lowering time: monomorphization has
+                // already replaced a templated copy's generic locals, so this
+                // reads the concrete type.
+                let spelling = type_table.render_type(peeled);
+                Ok(format!("{result} = rt_model::FolStr::from({spelling:?});"))
+            } else {
+                Ok(format!(
+                    "{result} = std::mem::size_of_val({observed}) as i64;"
+                ))
+            }
+        }
         LoweredInstrKind::LengthOf { operand } => {
             let result = rendered_result_local(package_identity, routine, instruction)?;
             let operand_id = *operand;
