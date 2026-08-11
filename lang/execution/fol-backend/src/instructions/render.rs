@@ -384,7 +384,17 @@ pub fn render_core_instruction_in_workspace(
             value,
         } => {
             let base_id = *base;
-            let base_name = render_local_name(package_identity, routine, base_id)?;
+            // A guard binding aliases its mutex local, so the container lives
+            // behind the held guard rather than on the handle -- addressing the
+            // handle directly emits a field access on `FolMutex` (E0609).
+            let base_name = if routine.mutex_params.contains(&base_id) {
+                format!(
+                    "{}.as_mut().expect(\"mutex element assignment requires .lock()\")",
+                    render_mutex_guard_name(base_id)
+                )
+            } else {
+                render_local_name(package_identity, routine, base_id)?
+            };
             let base_type = routine
                 .locals
                 .get(base_id)
