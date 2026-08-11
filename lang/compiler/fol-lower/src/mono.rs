@@ -144,7 +144,24 @@ fn collect_templates(
                 || routine.signature.is_some_and(|signature| {
                     type_table.contains_generic_structural_type(signature)
                 });
-            if generic_receiver || has_constraint_calls || uses_generic_structural {
+            // Reading an element out of a generic container cannot ride the
+            // Rust-generics path either: the backend classifies a still-generic
+            // element type as move-only and refuses the index. Template it so
+            // the element type is concrete before emission, the same reason
+            // `uses_generic_structural` templates structural types.
+            let indexes_generic_element = routine.instructions.iter().any(|instr| {
+                matches!(instr.kind, LoweredInstrKind::IndexAccess { .. })
+                    && instr
+                        .result
+                        .and_then(|result| routine.locals.get(result))
+                        .and_then(|local| local.type_id)
+                        .is_some_and(|type_id| type_contains_generic_parameter(type_table, type_id))
+            });
+            if generic_receiver
+                || has_constraint_calls
+                || uses_generic_structural
+                || indexes_generic_element
+            {
                 templates.insert(
                     routine.id,
                     Template {
