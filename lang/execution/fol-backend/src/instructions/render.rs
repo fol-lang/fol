@@ -861,6 +861,11 @@ pub fn render_core_instruction_in_workspace(
                 | ("flt_bits", [value])
                 | ("flt_from_bits", [value])
                 | ("flt_is_finite", [value])
+                | ("tcp_try_read", [value])
+                | ("tcp_peer_addr", [value])
+                | ("udp_bind", [value])
+                | ("udp_recv_from", [value])
+                | ("dns_resolve", [value])
                 | ("set_current_dir", [value])
                 | ("raw_mode", [value])
                 | ("sleep_ms", [value])
@@ -927,13 +932,18 @@ pub fn render_core_instruction_in_workspace(
                 | ("wrapping_mul", [path, contents])
                 | ("saturating_mul", [path, contents])
                 | ("checked_div", [path, contents])
+                | ("tcp_set_timeout", [path, contents])
+                | ("tcp_set_nodelay", [path, contents])
+                | ("tcp_shutdown", [path, contents])
                 | ("float_to_str", [path, contents]) => {
                     let first = render_transfer_expr(type_table, package_identity, routine, *path)?;
                     let second =
                         render_transfer_expr(type_table, package_identity, routine, *contents)?;
                     format!("rt::{}({first}, {second})", entry.name)
                 }
-                ("str_replace", [text, from, to]) | ("flt_mul_add", [text, from, to]) => {
+                ("str_replace", [text, from, to])
+                | ("flt_mul_add", [text, from, to])
+                | ("udp_send_to", [text, from, to]) => {
                     let text = render_transfer_expr(type_table, package_identity, routine, *text)?;
                     let from = render_transfer_expr(type_table, package_identity, routine, *from)?;
                     let to = render_transfer_expr(type_table, package_identity, routine, *to)?;

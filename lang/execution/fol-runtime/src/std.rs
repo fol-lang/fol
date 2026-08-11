@@ -1236,6 +1236,7 @@ pub fn str_replace(text: FolStr, from: FolStr, to: FolStr) -> FolStr {
 enum SocketSlot {
     Listener(std::net::TcpListener),
     Stream(std::net::TcpStream),
+    Datagram(std::net::UdpSocket),
 }
 
 fn sockets() -> &'static Mutex<std::collections::HashMap<crate::value::FolInt, SocketSlot>> {
@@ -1338,6 +1339,141 @@ pub fn tcp_close(handle: crate::value::FolInt) -> crate::value::FolInt {
     }
 }
 
+fn clone_datagram(handle: crate::value::FolInt) -> Option<std::net::UdpSocket> {
+    let guard = sockets().lock().unwrap_or_else(|error| error.into_inner());
+    match guard.get(&handle) {
+        Some(SocketSlot::Datagram(socket)) => socket.try_clone().ok(),
+        _ => None,
+    }
+}
+
+/// Read and write timeouts, in milliseconds. **Without this a blocked
+/// `tcp_read` waits forever**, which is how a server ends up with threads
+/// pinned to peers that went away. A value of 0 or less clears the timeout.
+pub fn tcp_set_timeout(
+    handle: crate::value::FolInt,
+    millis: crate::value::FolInt,
+) -> crate::value::FolInt {
+    let timeout = if millis > 0 {
+        Some(std::time::Duration::from_millis(millis as u64))
+    } else {
+        None
+    };
+    let Some(stream) = clone_stream(handle) else {
+        return -1;
+    };
+    if stream.set_read_timeout(timeout).is_err() || stream.set_write_timeout(timeout).is_err() {
+        return -1;
+    }
+    0
+}
+
+pub fn tcp_set_nodelay(
+    handle: crate::value::FolInt,
+    enabled: crate::value::FolBool,
+) -> crate::value::FolInt {
+    let Some(stream) = clone_stream(handle) else {
+        return -1;
+    };
+    stream.set_nodelay(enabled).map_or(-1, |()| 0)
+}
+
+/// A non-blocking read: empty when nothing has arrived YET, which is not the
+/// same as the peer closing. `tcp_read` cannot distinguish those either, so a
+/// poll loop should pair this with a liveness check of its own.
+pub fn tcp_try_read(handle: crate::value::FolInt) -> FolStr {
+    use std::io::Read;
+    let Some(mut stream) = clone_stream(handle) else {
+        return FolStr::new(String::new());
+    };
+    if stream.set_nonblocking(true).is_err() {
+        return FolStr::new(String::new());
+    }
+    let mut buffer = vec![0u8; 65536];
+    let read = stream.read(&mut buffer);
+    let _ = stream.set_nonblocking(false);
+    match read {
+        Ok(0) | Err(_) => FolStr::new(String::new()),
+        Ok(count) => FolStr::new(String::from_utf8_lossy(&buffer[..count]).into_owned()),
+    }
+}
+
+pub fn tcp_peer_addr(handle: crate::value::FolInt) -> FolStr {
+    clone_stream(handle)
+        .and_then(|stream| stream.peer_addr().ok())
+        .map_or_else(
+            || FolStr::new(String::new()),
+            |addr| FolStr::new(addr.to_string()),
+        )
+}
+
+/// Half-close: 0 stops reading, 1 stops writing, 2 both. Distinct from
+/// `tcp_close`, which releases the handle — shutting down the write side is how
+/// a peer is told "no more data" while the read side stays open for its reply.
+pub fn tcp_shutdown(
+    handle: crate::value::FolInt,
+    how: crate::value::FolInt,
+) -> crate::value::FolInt {
+    let direction = match how {
+        0 => std::net::Shutdown::Read,
+        1 => std::net::Shutdown::Write,
+        _ => std::net::Shutdown::Both,
+    };
+    clone_stream(handle).map_or(-1, |stream| stream.shutdown(direction).map_or(-1, |()| 0))
+}
+
+pub fn udp_bind(address: FolStr) -> crate::value::FolInt {
+    match std::net::UdpSocket::bind(address.as_str()) {
+        Ok(socket) => register_socket(SocketSlot::Datagram(socket)),
+        Err(_) => -1,
+    }
+}
+
+pub fn udp_send_to(
+    handle: crate::value::FolInt,
+    address: FolStr,
+    payload: FolStr,
+) -> crate::value::FolInt {
+    let Some(socket) = clone_datagram(handle) else {
+        return -1;
+    };
+    socket
+        .send_to(payload.as_str().as_bytes(), address.as_str())
+        .map_or(-1, |sent| sent as crate::value::FolInt)
+}
+
+/// Blocks for one datagram, returning `[payload, sender]`. Datagrams arrive
+/// whole or not at all, so unlike a stream there is no partial-read case.
+pub fn udp_recv_from(handle: crate::value::FolInt) -> FolVec<FolStr> {
+    let empty = || FolVec::from_items(vec![FolStr::new(String::new()); 2]);
+    let Some(socket) = clone_datagram(handle) else {
+        return empty();
+    };
+    let mut buffer = vec![0u8; 65536];
+    match socket.recv_from(&mut buffer) {
+        Ok((count, from)) => FolVec::from_items(vec![
+            FolStr::new(String::from_utf8_lossy(&buffer[..count]).into_owned()),
+            FolStr::new(from.to_string()),
+        ]),
+        Err(_) => empty(),
+    }
+}
+
+/// Every address a host name resolves to. The port is stripped: callers want
+/// addresses, and `to_socket_addrs` requires one to be present.
+pub fn dns_resolve(host: FolStr) -> FolVec<FolStr> {
+    use std::net::ToSocketAddrs;
+    let query = format!("{}:0", host.as_str());
+    match query.to_socket_addrs() {
+        Ok(addresses) => FolVec::from_items(
+            addresses
+                .map(|addr| FolStr::new(addr.ip().to_string()))
+                .collect(),
+        ),
+        Err(_) => FolVec::from_items(Vec::new()),
+    }
+}
+
 /// The address a listener actually bound, which is how a caller learns the port
 /// after binding to `:0`.
 pub fn tcp_local_addr(handle: crate::value::FolInt) -> FolStr {
@@ -1345,6 +1481,7 @@ pub fn tcp_local_addr(handle: crate::value::FolInt) -> FolStr {
     let rendered = match guard.get(&handle) {
         Some(SocketSlot::Listener(listener)) => listener.local_addr().ok().map(|a| a.to_string()),
         Some(SocketSlot::Stream(stream)) => stream.local_addr().ok().map(|a| a.to_string()),
+        Some(SocketSlot::Datagram(socket)) => socket.local_addr().ok().map(|a| a.to_string()),
         None => None,
     };
     FolStr::new(rendered.unwrap_or_default())

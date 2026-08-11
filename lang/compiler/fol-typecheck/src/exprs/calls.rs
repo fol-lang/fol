@@ -527,6 +527,8 @@ const CONTAINER_TYPED_INTRINSICS: &[&str] = &[
     "env_vars",
     "run_capture",
     "run_status",
+    "udp_recv_from",
+    "dns_resolve",
 ];
 
 /// Fixed (params, result) signature for a terminal/OS runtime hook, or None
@@ -616,6 +618,16 @@ fn terminal_intrinsic_signature(
         "checked_mul" | "wrapping_mul" | "saturating_mul" | "checked_div" => {
             Some((vec![builtins.int, builtins.int], builtins.int))
         }
+        "tcp_set_timeout" | "tcp_shutdown" => {
+            Some((vec![builtins.int, builtins.int], builtins.int))
+        }
+        "tcp_set_nodelay" => Some((vec![builtins.int, builtins.bool_], builtins.int)),
+        "tcp_try_read" | "tcp_peer_addr" => Some((vec![builtins.int], builtins.str_)),
+        "udp_bind" => Some((vec![builtins.str_], builtins.int)),
+        "udp_send_to" => Some((
+            vec![builtins.int, builtins.str_, builtins.str_],
+            builtins.int,
+        )),
         "str_sub" => Some((
             vec![builtins.str_, builtins.int, builtins.int],
             builtins.str_,
@@ -682,6 +694,8 @@ fn type_terminal_intrinsic(
             "env_vars" => (Vec::new(), strs),
             "run_capture" => (vec![str_, strs], strs),
             "run_status" => (vec![str_, strs], int_),
+            "udp_recv_from" => (vec![int_], strs),
+            "dns_resolve" => (vec![str_], strs),
             other => unreachable!("container-typed intrinsic '{other}' has no signature"),
         }
     } else {
