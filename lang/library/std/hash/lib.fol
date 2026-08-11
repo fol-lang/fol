@@ -1,0 +1,163 @@
+// SHA-256, written in FOL over the bitwise intrinsics.
+//
+// This is the routine the mimicry round had to abandon: with no bitwise
+// operators, `chain_ledger` fell back to a polynomial hash mod a prime. It is
+// here now as the proof that the bitwise surface is complete enough for real
+// cryptographic primitives.
+//
+// `int` is signed 64-bit while SHA-256 is defined on 32-bit words, so every
+// arithmetic step masks back down with `MASK32`. Skipping a single mask lets
+// the sign bit leak into a shift and the digest silently stops matching.
+
+con MASK32: int = 4294967295;
+con HEX: str = "0123456789abcdef";
+
+fun add32(left: int, right: int): int = {
+    return .bit_and(left + right, MASK32);
+};
+
+fun rotr32(value: int, count: int): int = {
+    var right: int = .shr(value, count);
+    var left: int = .shl(value, 32 - count);
+    return .bit_and(.bit_or(right, left), MASK32);
+};
+
+fun[exp] round_constants(): vec[int] = {
+    return {
+        1116352408, 1899447441, 3049323471, 3921009573, 961987163, 1508970993,
+        2453635748, 2870763221, 3624381080, 310598401, 607225278, 1426881987,
+        1925078388, 2162078206, 2614888103, 3248222580, 3835390401, 4022224774,
+        264347078, 604807628, 770255983, 1249150122, 1555081692, 1996064986,
+        2554220882, 2821834349, 2952996808, 3210313671, 3336571891, 3584528711,
+        113926993, 338241895, 666307205, 773529912, 1294757372, 1396182291,
+        1695183700, 1986661051, 2177026350, 2456956037, 2730485921, 2820302411,
+        3259730800, 3345764771, 3516065817, 3600352804, 4094571909, 275423344,
+        430227734, 506948616, 659060556, 883997877, 958139571, 1322822218,
+        1537002063, 1747873779, 1955562222, 2024104815, 2227730452, 2361852424,
+        2428436474, 2756734187, 3204031479, 3329325298,
+    };
+};
+
+// The message, padded to a whole number of 64-byte blocks: a single 0x80 byte,
+// then zeros, then the original length in bits as eight big-endian bytes.
+fun padded_bytes(text: str): vec[int] = {
+    var[mut] out: vec[int] = {};
+    var[mut] i: int = 0;
+    var total: int = .len(text);
+    loop (i < total) {
+        out.push(.str_byte(text, i));
+        i = i + 1;
+    };
+    out.push(128);
+    loop (.len(out) % 64 != 56) {
+        out.push(0);
+    };
+    var bits: int = total * 8;
+    var[mut] shift: int = 56;
+    loop (shift >= 0) {
+        out.push(.bit_and(.shr(bits, shift), 255));
+        shift = shift - 8;
+    };
+    return out;
+};
+
+fun[exp] sha256_hex(text: str): str = {
+    var k: vec[int] = round_constants();
+    var[mut] h0: int = 1779033703;
+    var[mut] h1: int = 3144134277;
+    var[mut] h2: int = 1013904242;
+    var[mut] h3: int = 2773480762;
+    var[mut] h4: int = 1359893119;
+    var[mut] h5: int = 2600822924;
+    var[mut] h6: int = 528734635;
+    var[mut] h7: int = 1541459225;
+
+    var data: vec[int] = padded_bytes(text);
+    var blocks: int = .len(data) / 64;
+    var[mut] block: int = 0;
+    loop (block < blocks) {
+        var base: int = block * 64;
+        var[mut] w: vec[int] = {};
+        var[mut] t: int = 0;
+        loop (t < 16) {
+            var pos: int = base + t * 4;
+            var word: int = .shl(data[pos], 24) + .shl(data[pos + 1], 16)
+            + .shl(data[pos + 2], 8) + data[pos + 3];
+            w.push(.bit_and(word, MASK32));
+            t = t + 1;
+        };
+        loop (t < 64) {
+            var prev15: int = w[t - 15];
+            var prev2: int = w[t - 2];
+            var s0: int = .bit_xor(.bit_xor(rotr32(prev15, 7), rotr32(prev15, 18)), .shr(prev15, 3));
+            var s1: int = .bit_xor(.bit_xor(rotr32(prev2, 17), rotr32(prev2, 19)), .shr(prev2, 10));
+            w.push(add32(add32(w[t - 16], s0), add32(w[t - 7], s1)));
+            t = t + 1;
+        };
+
+        var[mut] a: int = h0;
+        var[mut] b: int = h1;
+        var[mut] c: int = h2;
+        var[mut] d: int = h3;
+        var[mut] e: int = h4;
+        var[mut] f: int = h5;
+        var[mut] g: int = h6;
+        var[mut] h: int = h7;
+
+        var[mut] round: int = 0;
+        loop (round < 64) {
+            var big1: int = .bit_xor(.bit_xor(rotr32(e, 6), rotr32(e, 11)), rotr32(e, 25));
+            var choice: int = .bit_xor(.bit_and(e, f), .bit_and(.bit_xor(e, MASK32), g));
+            var temp1: int = add32(add32(add32(h, big1), add32(choice, k[round])), w[round]);
+            var big0: int = .bit_xor(.bit_xor(rotr32(a, 2), rotr32(a, 13)), rotr32(a, 22));
+            var majority: int = .bit_xor(.bit_xor(.bit_and(a, b), .bit_and(a, c)), .bit_and(b, c));
+            var temp2: int = add32(big0, majority);
+            h = g;
+            g = f;
+            f = e;
+            e = add32(d, temp1);
+            d = c;
+            c = b;
+            b = a;
+            a = add32(temp1, temp2);
+            round = round + 1;
+        };
+
+        h0 = add32(h0, a);
+        h1 = add32(h1, b);
+        h2 = add32(h2, c);
+        h3 = add32(h3, d);
+        h4 = add32(h4, e);
+        h5 = add32(h5, f);
+        h6 = add32(h6, g);
+        h7 = add32(h7, h);
+        block = block + 1;
+    };
+
+    var words: vec[int] = {h0, h1, h2, h3, h4, h5, h6, h7};
+    var[mut] out: str = "";
+    var[mut] i: int = 0;
+    loop (i < 8) {
+        var[mut] shift: int = 28;
+        loop (shift >= 0) {
+            out = out + .str_sub(HEX, .bit_and(.shr(words[i], shift), 15), 1);
+            shift = shift - 4;
+        };
+        i = i + 1;
+    };
+    return out;
+};
+
+// A cheap non-cryptographic hash for bucketing, kept beside the real one so the
+// difference is obvious at the call site.
+fun[exp] fnv1a(text: str): int = {
+    var[mut] hash: int = 2166136261;
+    var[mut] i: int = 0;
+    var total: int = .len(text);
+    loop (i < total) {
+        hash = .bit_xor(hash, .str_byte(text, i));
+        hash = .bit_and(hash * 16777619, MASK32);
+        i = i + 1;
+    };
+    return hash;
+};

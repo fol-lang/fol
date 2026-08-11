@@ -9,3 +9,4 @@ use path: loc = {"path"};
 use iter: loc = {"iter"};
 use sets: loc = {"sets"};
 use codec: loc = {"codec"};
+use hash: loc = {"hash"};
