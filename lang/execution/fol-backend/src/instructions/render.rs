@@ -820,6 +820,12 @@ pub fn render_core_instruction_in_workspace(
                 | ("remove_file", [value])
                 | ("exit_process", [value])
                 | ("shell_out", [value])
+                | ("tcp_listen", [value])
+                | ("tcp_accept", [value])
+                | ("tcp_connect", [value])
+                | ("tcp_read", [value])
+                | ("tcp_close", [value])
+                | ("tcp_local_addr", [value])
                 | ("raw_mode", [value])
                 | ("sleep_ms", [value])
                 | ("byte_to_str", [value])
@@ -862,6 +868,7 @@ pub fn render_core_instruction_in_workspace(
                 | ("rename_file", [path, contents])
                 | ("copy_file", [path, contents])
                 | ("append_file", [path, contents])
+                | ("tcp_write", [path, contents])
                 | ("float_to_str", [path, contents]) => {
                     let first = render_transfer_expr(type_table, package_identity, routine, *path)?;
                     let second =

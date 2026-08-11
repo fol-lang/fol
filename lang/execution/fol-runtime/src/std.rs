@@ -813,6 +813,128 @@ pub fn str_replace(text: FolStr, from: FolStr, to: FolStr) -> FolStr {
 /// The fallback is an argument rather than a fixed sentinel because every
 /// sentinel is also a legitimate parse result: -1 cannot mean both "the text
 /// said -1" and "the text was not a number".
+/// TCP sockets are handed to FOL as integer handles rather than opaque values:
+/// FOL has no foreign-handle type, and an `int` keyed into a runtime registry
+/// needs no language surface at all. A handle is valid until `tcp_close`;
+/// every routine returns -1 (or the empty string) rather than faulting, because
+/// a peer disappearing is an ordinary event a server must handle, not a bug.
+enum SocketSlot {
+    Listener(std::net::TcpListener),
+    Stream(std::net::TcpStream),
+}
+
+fn sockets() -> &'static Mutex<std::collections::HashMap<crate::value::FolInt, SocketSlot>> {
+    static SOCKETS: OnceLock<Mutex<std::collections::HashMap<crate::value::FolInt, SocketSlot>>> =
+        OnceLock::new();
+    SOCKETS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+fn register_socket(slot: SocketSlot) -> crate::value::FolInt {
+    static NEXT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
+    let id = NEXT.fetch_add(1, Ordering::Relaxed);
+    sockets()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .insert(id, slot);
+    id
+}
+
+pub fn tcp_listen(address: FolStr) -> crate::value::FolInt {
+    match std::net::TcpListener::bind(address.as_str()) {
+        Ok(listener) => register_socket(SocketSlot::Listener(listener)),
+        Err(_) => -1,
+    }
+}
+
+/// Every blocking call clones its socket out of the registry and releases the
+/// lock BEFORE blocking. Holding it across `accept`/`read` deadlocks instantly:
+/// the blocked thread owns the map that the peer needs in order to register its
+/// own handle.
+fn clone_listener(handle: crate::value::FolInt) -> Option<std::net::TcpListener> {
+    let guard = sockets().lock().unwrap_or_else(|error| error.into_inner());
+    match guard.get(&handle) {
+        Some(SocketSlot::Listener(listener)) => listener.try_clone().ok(),
+        _ => None,
+    }
+}
+
+fn clone_stream(handle: crate::value::FolInt) -> Option<std::net::TcpStream> {
+    let guard = sockets().lock().unwrap_or_else(|error| error.into_inner());
+    match guard.get(&handle) {
+        Some(SocketSlot::Stream(stream)) => stream.try_clone().ok(),
+        _ => None,
+    }
+}
+
+/// Blocks until a peer connects. The accepted stream gets its own handle; the
+/// listener stays open for the next call.
+pub fn tcp_accept(handle: crate::value::FolInt) -> crate::value::FolInt {
+    let Some(listener) = clone_listener(handle) else {
+        return -1;
+    };
+    match listener.accept() {
+        Ok((stream, _)) => register_socket(SocketSlot::Stream(stream)),
+        Err(_) => -1,
+    }
+}
+
+pub fn tcp_connect(address: FolStr) -> crate::value::FolInt {
+    match std::net::TcpStream::connect(address.as_str()) {
+        Ok(stream) => register_socket(SocketSlot::Stream(stream)),
+        Err(_) => -1,
+    }
+}
+
+/// Up to 64 KiB of whatever has arrived. An empty string means the peer closed
+/// or the handle is not a stream, which is the same terminating condition a
+/// read loop already tests for.
+pub fn tcp_read(handle: crate::value::FolInt) -> FolStr {
+    use std::io::Read;
+    let Some(mut stream) = clone_stream(handle) else {
+        return FolStr::new(String::new());
+    };
+    let mut buffer = vec![0u8; 65536];
+    match stream.read(&mut buffer) {
+        Ok(0) | Err(_) => FolStr::new(String::new()),
+        Ok(read) => FolStr::new(String::from_utf8_lossy(&buffer[..read]).into_owned()),
+    }
+}
+
+pub fn tcp_write(handle: crate::value::FolInt, payload: FolStr) -> crate::value::FolInt {
+    use std::io::Write;
+    let Some(mut stream) = clone_stream(handle) else {
+        return -1;
+    };
+    stream
+        .write_all(payload.as_str().as_bytes())
+        .and_then(|()| stream.flush())
+        .map_or(-1, |()| 0)
+}
+
+pub fn tcp_close(handle: crate::value::FolInt) -> crate::value::FolInt {
+    let removed = sockets()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .remove(&handle);
+    if removed.is_some() {
+        0
+    } else {
+        -1
+    }
+}
+
+/// The address a listener actually bound, which is how a caller learns the port
+/// after binding to `:0`.
+pub fn tcp_local_addr(handle: crate::value::FolInt) -> FolStr {
+    let guard = sockets().lock().unwrap_or_else(|error| error.into_inner());
+    let rendered = match guard.get(&handle) {
+        Some(SocketSlot::Listener(listener)) => listener.local_addr().ok().map(|a| a.to_string()),
+        Some(SocketSlot::Stream(stream)) => stream.local_addr().ok().map(|a| a.to_string()),
+        None => None,
+    };
+    FolStr::new(rendered.unwrap_or_default())
+}
+
 /// One line of standard input, newline stripped. End of input is an empty
 /// string rather than a fault, so a read loop terminates on emptiness.
 pub fn read_line() -> FolStr {

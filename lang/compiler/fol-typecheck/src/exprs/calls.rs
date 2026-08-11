@@ -558,6 +558,10 @@ fn terminal_intrinsic_signature(
         }
         "exit_process" => Some((vec![builtins.int], builtins.never)),
         "shell_out" => Some((vec![builtins.str_], builtins.str_)),
+        "tcp_listen" | "tcp_connect" => Some((vec![builtins.str_], builtins.int)),
+        "tcp_accept" | "tcp_close" => Some((vec![builtins.int], builtins.int)),
+        "tcp_read" | "tcp_local_addr" => Some((vec![builtins.int], builtins.str_)),
+        "tcp_write" => Some((vec![builtins.int, builtins.str_], builtins.int)),
         "str_sub" => Some((
             vec![builtins.str_, builtins.int, builtins.int],
             builtins.str_,
