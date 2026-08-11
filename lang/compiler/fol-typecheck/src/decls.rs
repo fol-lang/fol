@@ -2458,20 +2458,27 @@ fn type_satisfies_capability(
     // nested aggregate fields (V3_MEM §4.1) — mirroring the recursive claim
     // verification. (`copy` stays structural here, matching the still-structural
     // `[cpy]` operand check; requiring the declared claim is a later step.)
+    // A `fin` value owns a finalizable resource and is affine by construction:
+    // duplicating it would run the finalizer twice or not at all, so it can
+    // never satisfy `copy` or `clone` however copy-safe its fields look
+    // structurally (V3_MEM §4.1: `copy` and `fin` cannot coexist). The
+    // structural checks below do not see the claim, so it is tested first.
+    let claims_fin = {
+        let apparent = crate::exprs::helpers::apparent_type_id(typed, type_id)?;
+        typed.type_resolves_to_fin(apparent)
+    };
     Ok(match capability {
-        "copy" => !type_lacks_copy(typed, type_id)?,
+        "copy" => !claims_fin && !type_lacks_copy(typed, type_id)?,
         "clone" => {
-            !type_is_known_non_clone(typed, type_id)?
+            !claims_fin
+                && !type_is_known_non_clone(typed, type_id)?
                 && first_field_transitively_non_clone(typed, type_id)?.is_none()
         }
         "send" | "share" => {
             !type_is_known_non_thread_safe(typed, type_id)?
                 && first_field_transitively_non_thread_safe(typed, type_id)?.is_none()
         }
-        "fin" => {
-            let apparent = crate::exprs::helpers::apparent_type_id(typed, type_id)?;
-            typed.type_resolves_to_fin(apparent)
-        }
+        "fin" => claims_fin,
         _ => true,
     })
 }
