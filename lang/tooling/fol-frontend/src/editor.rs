@@ -66,9 +66,68 @@ pub fn editor_completion_command(
 }
 
 pub fn editor_format_command(path: &str) -> FrontendResult<FrontendCommandResult> {
-    fol_editor::editor_format_file(Path::new(path))
+    let target = Path::new(path);
+    if target.is_dir() {
+        return editor_format_directory(target);
+    }
+    fol_editor::editor_format_file(target)
         .map(editor_summary_to_result)
         .map_err(lower_editor_error)
+}
+
+/// Format every `.fol` file under a directory.
+///
+/// Formatting a package one file at a time is what everyone actually wants, and
+/// passing the package root used to fail with a raw `Is a directory` OS error
+/// under an unrelated build code — which also made "the package is
+/// formatter-stable" trivially true for anyone who checked it that way.
+fn editor_format_directory(root: &Path) -> FrontendResult<FrontendCommandResult> {
+    let mut sources = Vec::new();
+    collect_fol_sources(root, &mut sources)?;
+    sources.sort();
+    let mut changed = 0usize;
+    for source in &sources {
+        let summary = fol_editor::editor_format_file(source).map_err(lower_editor_error)?;
+        if summary
+            .details
+            .iter()
+            .any(|detail| detail == "changed=true")
+        {
+            changed += 1;
+        }
+    }
+    Ok(FrontendCommandResult::new(
+        "tool format",
+        format!(
+            "formatted {} file(s) under {} ({} changed)",
+            sources.len(),
+            root.display(),
+            changed
+        ),
+    ))
+}
+
+fn collect_fol_sources(root: &Path, out: &mut Vec<std::path::PathBuf>) -> FrontendResult<()> {
+    let entries = std::fs::read_dir(root).map_err(|error| {
+        FrontendError::new(
+            FrontendErrorKind::InvalidInput,
+            format!("failed to read '{}': {error}", root.display()),
+        )
+    })?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        // A symlink could walk out of the tree the caller named.
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        if metadata.is_dir() {
+            collect_fol_sources(&path, out)?;
+        } else if metadata.is_file() && path.extension().is_some_and(|extension| extension == "fol")
+        {
+            out.push(path);
+        }
+    }
+    Ok(())
 }
 
 pub fn editor_parse_command(path: &str) -> FrontendResult<FrontendCommandResult> {
