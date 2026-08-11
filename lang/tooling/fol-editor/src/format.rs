@@ -14,8 +14,11 @@ pub fn format_document(text: &str) -> String {
     // literal split across lines is held open by `(`/`[` instead, and without
     // counting those every continuation line was parked at the statement's own
     // indent -- the arguments of a wrapped call sat level with the call itself.
+    // `masked_code` blanks BOTH comments and string bodies. The comment-only
+    // mask counts a `[` inside a string literal as structural, which silently
+    // adds an indent level to every line after it for the rest of the file.
     let masked_lines = source_scan
-        .comment_masked_code
+        .masked_code
         .split('\n')
         .map(str::to_string)
         .collect::<Vec<_>>();
@@ -69,9 +72,11 @@ pub fn format_document(text: &str) -> String {
         let opens_block = line_events
             .iter()
             .any(|event| event.kind == BraceKind::Open);
-        if !opens_block {
-            continuation = update_group_depth(masked_line, continuation);
-        }
+        // A line that opens a block must not ALSO add a group level -- the
+        // block already indents what follows. Its group CLOSERS still count,
+        // though: `) {` ending a wrapped `loop` condition closes the group it
+        // opened, and skipping that left the level stuck on for the whole file.
+        continuation = update_group_depth(masked_line, continuation, opens_block);
     }
 
     let ends_in_protected_content = source_scan.terminal_unclosed;
@@ -211,11 +216,11 @@ fn leading_group_closers(masked_line: &str) -> usize {
 /// Net unclosed `(`/`[` after this line. Braces are the block structure and are
 /// counted separately; these two only ever mean "this statement continues".
 /// Only consulted for lines that do not open a block of their own.
-fn update_group_depth(masked_line: &str, initial_depth: usize) -> usize {
+fn update_group_depth(masked_line: &str, initial_depth: usize, opens_block: bool) -> usize {
     masked_line
         .chars()
         .fold(initial_depth, |depth, ch| match ch {
-            '(' | '[' => depth + 1,
+            '(' | '[' if !opens_block => depth + 1,
             ')' | ']' => depth.saturating_sub(1),
             _ => depth,
         })
