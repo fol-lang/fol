@@ -282,6 +282,11 @@ Floating point:
 Conversions:
 
 - `.int_to_str(value)` / `.float_to_str(value, decimals)`
+- `.flt_to_str_exact(value)` — the shortest text that parses back to the
+  identical value. `.float_to_str(...)` takes a fixed number of decimals, which
+  either loses precision or pads noise, so neither setting round-trips: `0.1`
+  renders as `0.100000` at six decimals but as `0.1` here. `.flt_bits(...)`
+  remains the exact *machine* form; this is the exact human-readable one
 - `.int_to_flt(value)` / `.flt_to_int(value)` / `.parse_flt(text, fallback)`
 
 #### Text and characters
@@ -297,6 +302,31 @@ which one they belong to:
 
 `.str_char_index(text, char_index)` is the only bridge between them: it turns a
 character index into a byte index.
+
+There is a third measure that is neither: **terminal columns**. `日本` is 6
+bytes, 2 characters, and 4 columns, so padding a table with `.len(...)` or
+`.str_char_len(...)` misaligns it. `.str_width(text)` and `.chr_width(c)` are
+what a column width has to be computed from.
+
+- `.str_bytes(text)` / `.str_from_bytes(bytes)` — text to its UTF-8 bytes and
+  back. `.str_from_bytes(...)` is the **only** way to rebuild text from
+  `.read_bytes(...)`, `.random_bytes(...)`, or `.file_read(...)`:
+  `.byte_to_str(...)` handles one byte and so cannot express a multi-byte
+  character at all. Invalid input yields the empty string rather than
+  substituting replacement characters, so a caller never acts on
+  half-decoded text
+- `.bytes_valid_utf8(bytes)` — whether a byte vector decodes; worth asking when
+  empty input and invalid input have to be told apart
+- `.utf8_prefix_len(bytes)` — how many leading bytes form *complete* UTF-8.
+  Required by any chunked reader: a fixed-size read splits characters across
+  chunk boundaries, and a chunk ending mid-character decodes to the empty
+  string. Decode the prefix, carry the remainder. `std::fs::decoder` wraps the
+  whole pattern, and `std::fs::read_streamed` uses it
+- `.str_width(text)` / `.chr_width(c)` — terminal columns: 0 for combining
+  marks and controls, 2 for CJK, kana, Hangul, fullwidth forms and the common
+  emoji planes, 1 otherwise. It is a range table, as `wcwidth` always is, so a
+  rare combining mark outside the listed ranges counts as one column instead of
+  zero
 
 - `.str_sub(text, start, count)` — a byte-range slice snapped to UTF-8
   boundaries
@@ -330,6 +360,8 @@ FOL. Same seed, same stream, every run.
 
 #### Files and directories
 
+Whole-file access:
+
 - `.read_file(path)` / `.write_file(path, contents)` / `.append_file(path, text)`
 - `.read_bytes(path)` / `.write_bytes(path, bytes)` — for content that is not
   UTF-8; the text forms assume it is
@@ -343,6 +375,28 @@ FOL. Same seed, same stream, every run.
 - `.read_link(path)`, `.permissions(path)`, `.set_permissions(path, mode)`
 - `.current_dir()`, `.set_current_dir(path)`, `.temp_dir()`, `.home_dir()`
 
+Streaming, for a file larger than memory or one still being written — the
+whole-file forms cannot do either:
+
+- `.file_open(path, mode)` — mode `0` read, `1` truncate-or-create, `2` append,
+  `3` read-write. An integer rather than `"r"`/`"w"`, because FOL types a
+  one-character double-quoted literal as `chr`, so `.file_open(path, "r")` does
+  not typecheck. `std::fs` exports `MODE_READ`…`MODE_UPDATE` and
+  `open_read`/`open_write`/`open_append`/`open_update` so nobody has to
+  remember the numbers
+- `.file_read(handle, count)` — up to `count` **bytes**; an empty result means
+  end of file
+- `.file_write(handle, bytes)` — the byte count written, or `-1`
+- `.file_seek(handle, offset, whence)` — `whence` `0` start, `1` current, `2`
+  end; returns the new absolute position
+- `.file_flush(handle)` / `.file_close(handle)`
+
+Reads and writes are bytes, not text, so the surface is binary-safe;
+`.str_bytes(...)` and `.str_from_bytes(...)` bridge to text. **Do not feed a
+raw chunk to `.str_from_bytes(...)`** — see `.utf8_prefix_len(...)` above, and
+prefer `std::fs::read_streamed(path, chunk)`, which is lossless at every chunk
+size.
+
 #### Process and environment
 
 - `.arg_count()` / `.arg_at(index)` — the command-line arguments, excluding the
@@ -355,7 +409,25 @@ FOL. Same seed, same stream, every run.
 - `.shell_out(command)` — the same, capturing standard output
 - `.run_capture(program, args)` / `.run_status(program, args)` — run a program
   directly, without a shell, so no quoting or word-splitting applies
+- `.run_input(program, args, stdin)` — the same, with text on the child's
+  standard input. `.run_capture(...)` gives the child a closed stdin, so every
+  filter-shaped program (`sort`, `sha256sum`, `git hash-object --stdin`) needs
+  this one
 - `.exit_process(status)`
+
+Signals:
+
+- `.signal_trap(signum)` — record a signal instead of dying from it. Returns
+  `0`, or `-1` for an out-of-range number or one the kernel refuses (`SIGKILL`
+  and `SIGSTOP` cannot be caught)
+- `.signal_pending()` — the lowest trapped signal that has arrived since the
+  last call, or `0`. Reading it clears the flag, so each delivery is reported
+  once
+
+The surface is a poll rather than a callback on purpose: the handler itself can
+only do async-signal-safe work, and running FOL code inside one would not be
+safe. Trap the signal, then check for it at a point of your choosing — the top
+of an event loop, or between units of work.
 
 #### Network
 
