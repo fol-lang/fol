@@ -484,8 +484,12 @@ module.exports = grammar({
     await_expr: _ => 'await',
     do_expr: _ => 'do',
     identifier: _ => /[A-Za-z_][A-Za-z0-9_]*/,
-    float_literal: _ => /[0-9]+\.[0-9]+/,
-    integer_literal: _ => /[0-9]+/,
+    float_literal: _ => /[0-9][0-9_]*\.[0-9][0-9_]*/,
+    // The lexer accepts hex, binary and octal bases and `_` separators
+    // (`0xF0`, `0b1010`, `0o17`, `1_000`), so the grammar has to as well —
+    // otherwise every source using one parses to an ERROR node.
+    integer_literal: _ =>
+      /0[xX][0-9a-fA-F][0-9a-fA-F_]*|0[bB][01][01_]*|0[oO][0-7][0-7_]*|[0-9][0-9_]*/,
     // Single quotes are the compiler's raw-quoted family: one Unicode scalar
     // lowers as a character, while empty/two-or-more scalars lower as a raw
     // string. Backslashes have no escape meaning in this family.
