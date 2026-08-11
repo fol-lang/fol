@@ -186,7 +186,7 @@ fun exercise(item: suite::Case): int = {
     };
     std::io::echo_str("    input   " + visible(item.json)
         + "   (" + std::fmt::int_to_str(length) + " bytes, cap "
-            + std::fmt::int_to_str(item.cap) + ")");
+        + std::fmt::int_to_str(item.cap) + ")");
     std::io::echo_str("    result  " + verdict_of(result)
         + ", pos " + std::fmt::int_to_str(session.pos)
         + ", toknext " + std::fmt::int_to_str(session.toknext));

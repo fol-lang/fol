@@ -242,12 +242,12 @@ fun malformed(): int = {
 
     // The full text of one of them, so the check is not just the sigil byte.
     bad = bad + claim("argument type text", resp::show(command::serve(cases[4], state, T0)),
-        "-ERR protocol error; expected simple frame or bulk frame, got integer frame\\r\\n");
+    "-ERR protocol error; expected simple frame or bulk frame, got integer frame\\r\\n");
 
     // A well-formed frame that is simply not a command we know.
     var unknown: str = command::serve(command::wire_of("FROBNICATE", "", "", "", "", 0), state, T0);
     bad = bad + claim("unknown command", resp::show(unknown),
-        "-ERR unknown command 'frobnicate'\\r\\n");
+    "-ERR unknown command 'frobnicate'\\r\\n");
     return bad;
 };
 
@@ -272,11 +272,11 @@ fun commands(): int = {
 
     // Argument shapes the original rejects too.
     bad = bad + reply_is(state, "GET", "", "", "", "", 0,
-        "-ERR wrong number of arguments for 'get' command\\r\\n");
+    "-ERR wrong number of arguments for 'get' command\\r\\n");
     bad = bad + reply_is(state, "SET", "k", "v", "XX", "5", 4,
-        "-ERR currently SET only supports the expiration option EX and PX\\r\\n");
+    "-ERR currently SET only supports the expiration option EX and PX\\r\\n");
     bad = bad + reply_is(state, "SET", "k", "v", "PX", "zero", 4,
-        "-ERR value is not an integer or out of range\\r\\n");
+    "-ERR value is not an integer or out of range\\r\\n");
 
     var totals: store::Outcome = store::stats(state);
     bad = bad + claim_int("live keys", totals.used, 1);

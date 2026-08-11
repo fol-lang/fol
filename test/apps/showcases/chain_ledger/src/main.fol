@@ -218,187 +218,187 @@ fun[] main(): int = {
     }
     if(.nq(chain::reason_at(forged, 2), "invalid hash: "
             + block::calculate_hash_for_block(forged.blocks[2]) + " " + forged.blocks[2].hash)) {
-                show("  FAIL: expected an 'invalid hash' reason at index 2");
-                failures = failures + 1;
-            }
-            if(chain::is_valid_chain(forged)) {
-                show("  FAIL: a tampered chain validated");
-                failures = failures + 1;
-            }
-            show("");
+        show("  FAIL: expected an 'invalid hash' reason at index 2");
+        failures = failures + 1;
+    }
+    if(chain::is_valid_chain(forged)) {
+        show("  FAIL: a tampered chain validated");
+        failures = failures + 1;
+    }
+    show("");
 
-            // A block whose index is right and whose hash is right but whose
-            // previousHash points elsewhere is the second of the three checks.
-            var orphan: block::Block = chain::generate_next_block(chain::booted(), "orphan", tick(9));
-            var link_fault: err[str] = chain::fault_of(orphan, chain::latest(main_chain));
-            when(link_fault) {
-                on(reason) {
-                    show("  detached block rejected: " + reason);
-                    if(.nq(reason, "invalid index")) {
-                        show("  FAIL: expected the index check to fire first");
-                        failures = failures + 1;
-                    }
-                }
-                * {
-                    show("  FAIL: a detached block was accepted");
-                    failures = failures + 1;
-                }
+    // A block whose index is right and whose hash is right but whose
+    // previousHash points elsewhere is the second of the three checks.
+    var orphan: block::Block = chain::generate_next_block(chain::booted(), "orphan", tick(9));
+    var link_fault: err[str] = chain::fault_of(orphan, chain::latest(main_chain));
+    when(link_fault) {
+        on(reason) {
+            show("  detached block rejected: " + reason);
+            if(.nq(reason, "invalid index")) {
+                show("  FAIL: expected the index check to fire first");
+                failures = failures + 1;
             }
-            show("");
+        }
+        * {
+            show("  FAIL: a detached block was accepted");
+            failures = failures + 1;
+        }
+    }
+    show("");
 
-            // --- longest chain -------------------------------------------------
-            show("REPLACE CHAIN");
-            rule();
-            var short_chain: chain::Chain = mined(2);
-            var long_chain: chain::Chain = mined(5);
+    // --- longest chain -------------------------------------------------
+    show("REPLACE CHAIN");
+    rule();
+    var short_chain: chain::Chain = mined(2);
+    var long_chain: chain::Chain = mined(5);
 
-            var grow: chain::Replacement = chain::replace_chain(short_chain, long_chain);
-            show("  longer valid candidate: " + grow.note);
-            if(.not(grow.replaced)) {
-                show("  FAIL: a longer valid chain did not win");
-                failures = failures + 1;
-            }
-            if(.nq(chain::length_of(grow.chain), 6)) {
-                show("  FAIL: the winning chain has the wrong length");
-                failures = failures + 1;
-            }
+    var grow: chain::Replacement = chain::replace_chain(short_chain, long_chain);
+    show("  longer valid candidate: " + grow.note);
+    if(.not(grow.replaced)) {
+        show("  FAIL: a longer valid chain did not win");
+        failures = failures + 1;
+    }
+    if(.nq(chain::length_of(grow.chain), 6)) {
+        show("  FAIL: the winning chain has the wrong length");
+        failures = failures + 1;
+    }
 
-            var shrink: chain::Replacement = chain::replace_chain(long_chain, short_chain);
-            show("  shorter valid candidate: " + shrink.note);
-            if(shrink.replaced) {
-                show("  FAIL: a shorter chain replaced a longer one");
-                failures = failures + 1;
-            }
+    var shrink: chain::Replacement = chain::replace_chain(long_chain, short_chain);
+    show("  shorter valid candidate: " + shrink.note);
+    if(shrink.replaced) {
+        show("  FAIL: a shorter chain replaced a longer one");
+        failures = failures + 1;
+    }
 
-            var[mut] long_forged: chain::Chain = mined(5);
-            var spoiled: bol = long_forged.rewrite_data(3, "attacker payment");
-            var reject: chain::Replacement = chain::replace_chain(short_chain, long_forged);
-            show("  longer INVALID candidate: " + reject.note);
-            if(reject.replaced) {
-                show("  FAIL: an invalid chain replaced a valid one");
-                failures = failures + 1;
-            }
-            if(.nq(chain::length_of(reject.chain), 3)) {
-                show("  FAIL: the rejected candidate still changed the held chain");
-                failures = failures + 1;
-            }
-            show("");
+    var[mut] long_forged: chain::Chain = mined(5);
+    var spoiled: bol = long_forged.rewrite_data(3, "attacker payment");
+    var reject: chain::Replacement = chain::replace_chain(short_chain, long_forged);
+    show("  longer INVALID candidate: " + reject.note);
+    if(reject.replaced) {
+        show("  FAIL: an invalid chain replaced a valid one");
+        failures = failures + 1;
+    }
+    if(.nq(chain::length_of(reject.chain), 3)) {
+        show("  FAIL: the rejected candidate still changed the held chain");
+        failures = failures + 1;
+    }
+    show("");
 
-            // --- peer protocol -------------------------------------------------
-            show("PEER PROTOCOL");
-            rule();
-            var wire: str = node::blocks_response(long_chain);
-            show("  GET /blocks -> " + std::fmt::int_to_str(.len(wire)) + " bytes");
+    // --- peer protocol -------------------------------------------------
+    show("PEER PROTOCOL");
+    rule();
+    var wire: str = node::blocks_response(long_chain);
+    show("  GET /blocks -> " + std::fmt::int_to_str(.len(wire)) + " bytes");
 
-            var round_trip: chain::Chain = node::decode_chain(wire) || panic "our own wire format did not parse";
-            if(.nq(chain::length_of(round_trip), chain::length_of(long_chain))) {
-                show("  FAIL: codec lost blocks");
-                failures = failures + 1;
-            }
-            if(.not(chain::is_valid_chain(round_trip))) {
-                show("  FAIL: a decoded chain stopped validating");
-                failures = failures + 1;
-            }
+    var round_trip: chain::Chain = node::decode_chain(wire) || panic "our own wire format did not parse";
+    if(.nq(chain::length_of(round_trip), chain::length_of(long_chain))) {
+        show("  FAIL: codec lost blocks");
+        failures = failures + 1;
+    }
+    if(.not(chain::is_valid_chain(round_trip))) {
+        show("  FAIL: a decoded chain stopped validating");
+        failures = failures + 1;
+    }
 
-            // A peer one block ahead: the held chain's tip is the received tip's
-            // previousHash, so the original appends without asking for anything else.
-            var ahead: chain::Chain = mined(3);
-            var tip_only: str = node::encode_block(chain::latest(ahead));
-            var behind: chain::Chain = mined(2);
-            var step: node::Reaction = node::handle_blockchain_response(behind, tip_only)
-            || panic "well-formed tip message was rejected";
-            show("  " + node::type_name(node::MessageType.RESPONSE_BLOCKCHAIN) + " (tip only) -> " + step.action);
-            if(.nq(chain::length_of(step.chain), 4)) {
-                show("  FAIL: the peer's tip was not appended");
-                failures = failures + 1;
-            }
-            if(.not(chain::is_valid_chain(step.chain))) {
-                show("  FAIL: appending the peer's tip broke the chain");
-                failures = failures + 1;
-            }
+    // A peer one block ahead: the held chain's tip is the received tip's
+    // previousHash, so the original appends without asking for anything else.
+    var ahead: chain::Chain = mined(3);
+    var tip_only: str = node::encode_block(chain::latest(ahead));
+    var behind: chain::Chain = mined(2);
+    var step: node::Reaction = node::handle_blockchain_response(behind, tip_only)
+    || panic "well-formed tip message was rejected";
+    show("  " + node::type_name(node::MessageType.RESPONSE_BLOCKCHAIN) + " (tip only) -> " + step.action);
+    if(.nq(chain::length_of(step.chain), 4)) {
+        show("  FAIL: the peer's tip was not appended");
+        failures = failures + 1;
+    }
+    if(.not(chain::is_valid_chain(step.chain))) {
+        show("  FAIL: appending the peer's tip broke the chain");
+        failures = failures + 1;
+    }
 
-            // A peer far ahead sends a lone tip that does not link: the original
-            // answers QUERY_ALL rather than guessing.
-            var far: chain::Chain = mined(5);
-            var far_tip: str = node::encode_block(chain::latest(far));
-            var gap: node::Reaction = node::handle_blockchain_response(behind, far_tip)
-            || panic "well-formed tip message was rejected";
-            show("  RESPONSE_BLOCKCHAIN (tip only, gap) -> " + gap.action);
-            when(gap.reply) {
-                on(message) {
-                    show("  replies with " + node::type_name(message.kind));
-                    // Hoisted: `.nq(x, node::MessageType.QUERY_ALL)` mistypes the
-                    // qualified ent member as the ent itself.
-                    var expected: int = node::MessageType.QUERY_ALL;
-                    if(.nq(message.kind, expected)) {
-                        show("  FAIL: expected QUERY_ALL for a gapped tip");
-                        failures = failures + 1;
-                    }
-                }
-                * {
-                    show("  FAIL: a gapped tip produced no reply");
-                    failures = failures + 1;
-                }
-            }
-
-            // The whole longer chain arrives: replaceChain territory.
-            var full: node::Reaction = node::handle_blockchain_response(behind, node::encode_chain(far))
-            || panic "well-formed chain message was rejected";
-            show("  RESPONSE_BLOCKCHAIN (full chain) -> " + full.action);
-            if(.nq(chain::length_of(full.chain), 6)) {
-                show("  FAIL: the longer peer chain did not take over");
+    // A peer far ahead sends a lone tip that does not link: the original
+    // answers QUERY_ALL rather than guessing.
+    var far: chain::Chain = mined(5);
+    var far_tip: str = node::encode_block(chain::latest(far));
+    var gap: node::Reaction = node::handle_blockchain_response(behind, far_tip)
+    || panic "well-formed tip message was rejected";
+    show("  RESPONSE_BLOCKCHAIN (tip only, gap) -> " + gap.action);
+    when(gap.reply) {
+        on(message) {
+            show("  replies with " + node::type_name(message.kind));
+            // Hoisted: `.nq(x, node::MessageType.QUERY_ALL)` mistypes the
+            // qualified ent member as the ent itself.
+            var expected: int = node::MessageType.QUERY_ALL;
+            if(.nq(message.kind, expected)) {
+                show("  FAIL: expected QUERY_ALL for a gapped tip");
                 failures = failures + 1;
             }
+        }
+        * {
+            show("  FAIL: a gapped tip produced no reply");
+            failures = failures + 1;
+        }
+    }
 
-            // A shorter peer is ignored outright.
-            var stale: node::Reaction = node::handle_blockchain_response(far, node::encode_chain(behind))
-            || panic "well-formed chain message was rejected";
-            show("  RESPONSE_BLOCKCHAIN (shorter) -> " + stale.action);
-            if(.nq(chain::length_of(stale.chain), 6)) {
-                show("  FAIL: a shorter peer chain disturbed the held chain");
-                failures = failures + 1;
-            }
+    // The whole longer chain arrives: replaceChain territory.
+    var full: node::Reaction = node::handle_blockchain_response(behind, node::encode_chain(far))
+    || panic "well-formed chain message was rejected";
+    show("  RESPONSE_BLOCKCHAIN (full chain) -> " + full.action);
+    if(.nq(chain::length_of(full.chain), 6)) {
+        show("  FAIL: the longer peer chain did not take over");
+        failures = failures + 1;
+    }
 
-            // Blocks that arrive out of order are sorted by index before the handler
-            // looks at the tip, exactly as the original does.
-            var second: block::Block = block_or_empty(far, 1);
-            var scrambled: str = node::encode_block(chain::latest(far))
-            + ";" + node::encode_block(second)
-            + ";" + node::encode_block(block::genesis());
-            var[mut] reordered: chain::Chain = node::decode_chain(scrambled)
-            || panic "scrambled wire did not parse";
-            reordered.sort_by_index();
-            var head: block::Block = block_or_empty(reordered, 0);
-            var tail: block::Block = chain::latest(reordered);
-            show("  out-of-order message sorted to indices "
-                + std::fmt::int_to_str(head.index) + ".." + std::fmt::int_to_str(tail.index));
-            if(.not(block::same(head, block::genesis()))) {
-                show("  FAIL: sorting did not put genesis first");
-                failures = failures + 1;
-            }
-            if(.nq(tail.index, chain::latest(far).index)) {
-                show("  FAIL: sorting did not put the highest index last");
-                failures = failures + 1;
-            }
-            show("");
+    // A shorter peer is ignored outright.
+    var stale: node::Reaction = node::handle_blockchain_response(far, node::encode_chain(behind))
+    || panic "well-formed chain message was rejected";
+    show("  RESPONSE_BLOCKCHAIN (shorter) -> " + stale.action);
+    if(.nq(chain::length_of(stale.chain), 6)) {
+        show("  FAIL: a shorter peer chain disturbed the held chain");
+        failures = failures + 1;
+    }
 
-            // --- live clock ----------------------------------------------------
-            show("LIVE MINE");
-            rule();
-            var seconds: int = std::time::now_ms() / 1000;
-            var live: block::Block = chain::generate_next_block(main_chain, "mined now", seconds);
-            show("  " + block::show(live));
-            if(.not(chain::is_valid_new_block(live, chain::latest(main_chain)))) {
-                show("  FAIL: a live-mined block did not validate against its parent");
-                failures = failures + 1;
-            }
-            show("");
+    // Blocks that arrive out of order are sorted by index before the handler
+    // looks at the tip, exactly as the original does.
+    var second: block::Block = block_or_empty(far, 1);
+    var scrambled: str = node::encode_block(chain::latest(far))
+    + ";" + node::encode_block(second)
+    + ";" + node::encode_block(block::genesis());
+    var[mut] reordered: chain::Chain = node::decode_chain(scrambled)
+    || panic "scrambled wire did not parse";
+    reordered.sort_by_index();
+    var head: block::Block = block_or_empty(reordered, 0);
+    var tail: block::Block = chain::latest(reordered);
+    show("  out-of-order message sorted to indices "
+        + std::fmt::int_to_str(head.index) + ".." + std::fmt::int_to_str(tail.index));
+    if(.not(block::same(head, block::genesis()))) {
+        show("  FAIL: sorting did not put genesis first");
+        failures = failures + 1;
+    }
+    if(.nq(tail.index, chain::latest(far).index)) {
+        show("  FAIL: sorting did not put the highest index last");
+        failures = failures + 1;
+    }
+    show("");
 
-            rule();
-            if(.eq(failures, 0)) {
-                show("  all self-checks passed");
-                return 0;
-            }
-            show("  self-check failures: " + std::fmt::int_to_str(failures));
-            return 1;
-        };
+    // --- live clock ----------------------------------------------------
+    show("LIVE MINE");
+    rule();
+    var seconds: int = std::time::now_ms() / 1000;
+    var live: block::Block = chain::generate_next_block(main_chain, "mined now", seconds);
+    show("  " + block::show(live));
+    if(.not(chain::is_valid_new_block(live, chain::latest(main_chain)))) {
+        show("  FAIL: a live-mined block did not validate against its parent");
+        failures = failures + 1;
+    }
+    show("");
+
+    rule();
+    if(.eq(failures, 0)) {
+        show("  all self-checks passed");
+        return 0;
+    }
+    show("  self-check failures: " + std::fmt::int_to_str(failures));
+    return 1;
+};
