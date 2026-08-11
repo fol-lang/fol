@@ -369,8 +369,19 @@ impl<T> FolMutex<T> {
     }
 }
 
+/// Write a line to stdout, treating a closed pipe as a normal end.
+///
+/// `println!` PANICS when the reader is gone, so `prog | head -2` used to end
+/// with a Rust panic and exit 101 — a stack trace naming a std source file, for
+/// something every Unix tool does silently. A broken pipe means the consumer
+/// stopped listening, which is not this program's failure.
 pub fn echo<T: FolEchoFormat>(value: T) -> T {
-    println!("{}", value.fol_echo_format());
+    use std::io::Write as _;
+    let rendered = value.fol_echo_format();
+    let mut out = std::io::stdout().lock();
+    if writeln!(out, "{rendered}").is_err() {
+        std::process::exit(0);
+    }
     value
 }
 
@@ -378,8 +389,10 @@ pub fn echo<T: FolEchoFormat>(value: T) -> T {
 /// frame-rendering primitive for terminal programs.
 pub fn write(value: FolStr) -> FolStr {
     use std::io::Write as _;
-    print!("{}", value.as_str());
-    let _ = std::io::stdout().flush();
+    let mut out = std::io::stdout().lock();
+    if write!(out, "{}", value.as_str()).is_err() || out.flush().is_err() {
+        std::process::exit(0);
+    }
     value
 }
 
