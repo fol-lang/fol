@@ -58,6 +58,7 @@ impl AstParser {
             );
         }
         let mut found_compound_symbol = false;
+        let mut saw_index = false;
         let mut square_depth = 0usize;
         let mut round_depth = 0usize;
         let mut expect_member_ident = false;
@@ -74,6 +75,12 @@ impl AstParser {
             }
 
             if matches!(key, KEYWORD::Symbol(SYMBOL::SquarO)) {
+                // Only an index on the TARGET counts. A `[` inside call
+                // arguments -- `echo(c.b[2])` -- belongs to the call, and
+                // treating it as a target index misroutes the whole statement.
+                if round_depth == 0 {
+                    saw_index = true;
+                }
                 square_depth += 1;
                 continue;
             }
@@ -151,6 +158,10 @@ impl AstParser {
             }
 
             if matches!(key, KEYWORD::Symbol(SYMBOL::RoundO)) {
+                // `handlers[idx](a; b;)` indexes and then CALLS: the brackets
+                // belong to an invoke target, not to an assignment, so the
+                // index seen earlier no longer argues for one.
+                saw_index = false;
                 round_depth = 1;
                 continue;
             }
@@ -164,7 +175,17 @@ impl AstParser {
                 || self.compound_assignment_op(&key).is_some();
         }
 
-        false
+        // The window is a fixed nine tokens and WHITESPACE FILLS SLOTS, so a
+        // longer target runs out of lookahead before the `=` comes into view:
+        // `c.b[i+1] = 5` fits, `c.b[i + 1] = 5` does not, and the two spaces
+        // are the only difference. Running out after an index means the answer
+        // was cut off, not that it is no.
+        //
+        // Assume an assignment in that case: a statement of the form
+        // `name...[...]` that is NOT one is a discarded read, which is rejected
+        // anyway, and parsing it as an assignment reports the real problem
+        // rather than a bare "expected ';'".
+        saw_index
     }
 
     pub(super) fn lookahead_is_call(&self, tokens: &fol_lexer::lexer::stage3::Elements) -> bool {
