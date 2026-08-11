@@ -1280,6 +1280,21 @@ pub(crate) fn lower_body_node(
                 )?;
                 return Ok(None);
             }
+            if super::helpers::lower_container_method_call(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                object,
+                method,
+                args,
+            )? {
+                return Ok(None);
+            }
             let receiver = lower_expression(
                 typed_package,
                 type_table,

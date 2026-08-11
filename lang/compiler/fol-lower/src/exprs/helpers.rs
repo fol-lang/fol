@@ -502,6 +502,88 @@ pub(crate) fn lower_assignment_target(
     Ok(lowered_value)
 }
 
+/// Lower a growable-container method (`values.push(x)`) into a
+/// `ContainerMutate`. Returns `false` when the call is not one, so ordinary
+/// method lowering proceeds.
+///
+/// Called from BOTH copies of the method-call lowering — expression position and
+/// statement position. A `push` returns nothing and so takes the statement copy,
+/// but wiring only one has silently done nothing before.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn lower_container_method_call(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    current_identity: &PackageIdentity,
+    decl_index: &WorkspaceDeclIndex,
+    cursor: &mut RoutineCursor<'_>,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    object: &AstNode,
+    method: &str,
+    args: &[AstNode],
+) -> Result<bool, LoweringError> {
+    if method != "push" {
+        return Ok(false);
+    }
+    // The binding's OWN local, not a loaded copy -- mutating a copy would be
+    // observed by nobody. The indexed-store path takes the same shortcut.
+    let (base_node, field) = match object {
+        AstNode::FieldAccess { object, field } => (object.as_ref(), Some(field.clone())),
+        other => (other, None),
+    };
+    let Some(base) =
+        super::expressions::direct_local_identifier_value(typed_package, cursor, base_node)
+    else {
+        return Ok(false);
+    };
+    let container_type = match &field {
+        None => base.type_id,
+        Some(field) => {
+            match super::containers::field_access_type(type_table, decl_index, base.type_id, field)
+            {
+                Some(type_id) => type_id,
+                None => return Ok(false),
+            }
+        }
+    };
+    let Some(crate::types::LoweredType::Vector { element_type }) = type_table.get(container_type)
+    else {
+        return Ok(false);
+    };
+    let element_type = *element_type;
+    let [value] = args else {
+        return Err(LoweringError::with_kind(
+            LoweringErrorKind::InvalidInput,
+            format!("'.{method}' expects exactly 1 argument, got {}", args.len()),
+        ));
+    };
+    // Lower against the ELEMENT type so a bare literal picks up the right one --
+    // a `vec[flt]` taking `1` would otherwise lower as an int.
+    let lowered_value = lower_expression_expected(
+        typed_package,
+        type_table,
+        checked_type_map,
+        current_identity,
+        decl_index,
+        cursor,
+        source_unit_id,
+        scope_id,
+        Some(element_type),
+        value,
+    )?;
+    cursor.push_instr(
+        None,
+        LoweredInstrKind::ContainerMutate {
+            base: base.local_id,
+            field,
+            op: crate::control::ContainerMutateOp::VecPush,
+            args: vec![lowered_value.local_id],
+        },
+    )?;
+    Ok(true)
+}
+
 /// Lower `<binding>.<field> = <value>` into a `StoreField` against the binding's
 /// own local. Typecheck has already verified the binding is a mutable record.
 /// Lower `container[index] = value` into a `StoreIndex`.

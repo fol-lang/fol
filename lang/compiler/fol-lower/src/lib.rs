@@ -16,9 +16,9 @@ mod verify;
 
 pub use boundaries::{v1_lowering_boundaries, UnsupportedLoweringSurface};
 pub use control::{
-    FinalizeEachForm, LoweredBinaryOp, LoweredBlock, LoweredInstr, LoweredInstrKind,
-    LoweredLinearKind, LoweredLocal, LoweredOperand, LoweredRoutine, LoweredTerminator,
-    LoweredUnaryOp,
+    ContainerMutateOp, FinalizeEachForm, LoweredBinaryOp, LoweredBlock, LoweredInstr,
+    LoweredInstrKind, LoweredLinearKind, LoweredLocal, LoweredOperand, LoweredRoutine,
+    LoweredTerminator, LoweredUnaryOp,
 };
 pub use errors::{LoweringError, LoweringErrorKind};
 pub use ids::{

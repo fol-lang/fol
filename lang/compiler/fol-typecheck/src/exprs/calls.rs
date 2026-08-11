@@ -1007,6 +1007,15 @@ pub(crate) fn type_method_call(
         }
         return Ok(TypedExpr::none());
     }
+    // Growable-container methods (`values.push(x)`). Checked before user-defined
+    // method resolution so a user routine cannot shadow the container surface,
+    // and before the receiver is typed as a value -- the receiver is a mutable
+    // place here, not a transferred value.
+    if let Some(result) = crate::exprs::containers::type_container_method_call(
+        typed, resolved, context, node, object, method, args,
+    )? {
+        return Ok(result);
+    }
     let receiver_raw = type_node(typed, resolved, context, object)?;
     let receiver_expr = plain_value_expr(
         typed,

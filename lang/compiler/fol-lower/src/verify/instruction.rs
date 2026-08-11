@@ -217,6 +217,23 @@ pub(super) fn verify_instruction(
             verify_local_reference(routine, instr.id.0, "index store index", *index, errors);
             verify_local_reference(routine, instr.id.0, "index store value", *value, errors);
         }
+        crate::LoweredInstrKind::ContainerMutate {
+            base,
+            field: _,
+            op: _,
+            args,
+        } => {
+            verify_local_reference(routine, instr.id.0, "container mutate base", *base, errors);
+            for arg in args {
+                verify_local_reference(
+                    routine,
+                    instr.id.0,
+                    "container mutate argument",
+                    *arg,
+                    errors,
+                );
+            }
+        }
         crate::LoweredInstrKind::StoreMutexValue { mutex, value } => {
             verify_local_reference(routine, instr.id.0, "mutex", *mutex, errors);
             verify_local_reference(routine, instr.id.0, "mutex value", *value, errors);

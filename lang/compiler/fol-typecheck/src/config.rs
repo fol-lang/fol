@@ -23,6 +23,12 @@ impl TypecheckCapabilityModel {
     pub fn supports_processor(self) -> bool {
         matches!(self, Self::Std)
     }
+
+    /// Container growth is heap allocation, so it starts at `memo`. `core` keeps
+    /// fixed `arr[T,N]` and no allocator, matching the runtime tier split.
+    pub fn supports_container_growth(self) -> bool {
+        matches!(self, Self::Memo | Self::Std)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

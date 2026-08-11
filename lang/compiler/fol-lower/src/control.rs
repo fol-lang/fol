@@ -58,6 +58,21 @@ pub enum LoweredUnaryOp {
 }
 
 /// How a container yields the `fin` values it owns.
+/// Growable-container operations reachable through method syntax. Growth is
+/// allocation, so every variant here lands in the `memo` runtime tier and above.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContainerMutateOp {
+    VecPush,
+}
+
+impl ContainerMutateOp {
+    pub fn method_name(self) -> &'static str {
+        match self {
+            Self::VecPush => "push",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FinalizeEachForm {
     /// `vec`/`seq`: `into_vec()`.
@@ -134,6 +149,20 @@ pub enum LoweredInstrKind {
         field: Option<String>,
         index: LoweredLocalId,
         value: LoweredLocalId,
+    },
+    /// Mutate a growable container in place, e.g. `values.push(7)` or
+    /// `self.items.push(7)`. `base` is the binding's own local (not a cloned
+    /// copy) so the mutation is observed by later reads, and `field` names the
+    /// container when it is held in a record field.
+    ///
+    /// Carries no `LoweredTypeId` for the same reason `StoreIndex` does not:
+    /// the backend derives the container type from the base local plus the
+    /// field name, which keeps `mono.rs` out of this instruction entirely.
+    ContainerMutate {
+        base: LoweredLocalId,
+        field: Option<String>,
+        op: ContainerMutateOp,
+        args: Vec<LoweredLocalId>,
     },
     Call {
         callee: LoweredRoutineId,

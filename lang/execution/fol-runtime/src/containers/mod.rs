@@ -83,6 +83,13 @@ pub fn store_vec<T>(values: &mut FolVec<T>, index: FolInt, value: T) -> Result<(
     Ok(())
 }
 
+/// Append one element to a vector. Growth is allocation, so this helper is
+/// re-exported from `memo` upward and never from `core`, which keeps fixed
+/// arrays and no allocator.
+pub fn push_vec<T>(values: &mut FolVec<T>, value: T) {
+    values.push(value);
+}
+
 pub fn index_seq<T>(values: &FolSeq<T>, index: FolInt) -> Result<&T, RuntimeError> {
     let index = normalize_index(index, values.len())?;
     Ok(&values.as_slice()[index])

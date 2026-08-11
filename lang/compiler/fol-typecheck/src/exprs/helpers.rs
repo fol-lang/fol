@@ -1586,6 +1586,178 @@ pub(crate) fn symbol_allows_mutable_borrow(typed: &TypedProgram, symbol: SymbolI
 
 /// Whether the value/label binding reachable under `name` in the scope chain was
 /// declared mutable. Bindings are immutable by default (variables chapter).
+/// A growable container reached by method syntax (`values.push(x)`), resolved to
+/// the binding that owns it. Mirrors the checks the indexed-assignment path runs
+/// — same rules, own wording, because "indexed assignment" reads wrong on a
+/// `.push`.
+pub(crate) struct ContainerMethodReceiver {
+    pub binding_name: String,
+    pub element_type: CheckedTypeId,
+}
+
+/// Resolve the receiver of a growable-container method to its owning binding and
+/// element type, rejecting every receiver that cannot legally be mutated.
+///
+/// One field hop only, for the same reason the indexed path allows one: a free
+/// routine cannot take a `[mut, bor]` parameter, so real state lives in a record
+/// reached through its receiver.
+pub(crate) fn resolve_container_method_receiver(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    receiver: &AstNode,
+    method: &str,
+) -> Result<ContainerMethodReceiver, TypecheckError> {
+    let (binding_name, through_field) = match strip_comments(receiver) {
+        AstNode::Identifier { name, .. } => (name.clone(), None),
+        AstNode::QualifiedIdentifier { path } => (path.joined(), None),
+        AstNode::FieldAccess { object, field } => match strip_comments(object) {
+            AstNode::Identifier { name, .. } => (name.clone(), Some(field.clone())),
+            AstNode::QualifiedIdentifier { path } => (path.joined(), Some(field.clone())),
+            _ => {
+                return Err(TypecheckError::new(
+                    TypecheckErrorKind::Unsupported,
+                    format!(
+                        "'.{method}' requires a container binding, or one of its fields, directly"
+                    ),
+                ))
+            }
+        },
+        _ => {
+            return Err(TypecheckError::new(
+                TypecheckErrorKind::Unsupported,
+                format!("'.{method}' requires a container binding directly"),
+            ))
+        }
+    };
+    let symbol = find_symbol_in_scope_chain(
+        resolved,
+        source_unit_id,
+        scope_id,
+        &binding_name,
+        SymbolKind::ValueBinding,
+    )
+    .or_else(|| {
+        find_symbol_in_scope_chain(
+            resolved,
+            source_unit_id,
+            scope_id,
+            &binding_name,
+            SymbolKind::Parameter,
+        )
+    });
+    // The loan is checked before plain mutability so a `[bor]` parameter is told
+    // its view is read-only, rather than to "declare it 'var[mut]'" — advice a
+    // parameter cannot take.
+    if let Some(CheckedType::Borrowed { mutable: false, .. }) = symbol
+        .and_then(|symbol| typed.typed_symbol(symbol))
+        .and_then(|symbol| symbol.declared_type)
+        .and_then(|type_id| typed.type_table().get(type_id))
+    {
+        return Err(TypecheckError::new(
+            TypecheckErrorKind::BorrowMutability,
+            format!(
+                "cannot '.{method}' through the shared loan '{binding_name}'; \
+                 a '[bor]' view is read-only"
+            ),
+        ));
+    }
+    if !binding_is_mutable_by_name(typed, resolved, source_unit_id, scope_id, &binding_name) {
+        return Err(TypecheckError::new(
+            TypecheckErrorKind::InvalidInput,
+            format!(
+                "cannot '.{method}' through immutable binding '{binding_name}'; \
+                 declare it with 'var[mut]' to allow container mutation"
+            ),
+        ));
+    }
+    // A `mux[T]` binding is a managed mutex, not the container itself; its
+    // contents are reached through a guard, not through the handle.
+    if symbol
+        .and_then(|symbol| typed.typed_symbol(symbol))
+        .is_some_and(|symbol| symbol.is_mutex)
+    {
+        return Err(TypecheckError::new(
+            TypecheckErrorKind::Unsupported,
+            format!(
+                "cannot '.{method}' on 'mux[T]' binding '{binding_name}'; \
+                 lock it first and mutate through the guard"
+            ),
+        ));
+    }
+    let declared = symbol
+        .and_then(|symbol| typed.typed_symbol(symbol))
+        .and_then(|symbol| symbol.declared_type);
+    let Some(binding_type) = declared.map(|type_id| apparent_type_id(typed, type_id)) else {
+        return Err(TypecheckError::new(
+            TypecheckErrorKind::InvalidInput,
+            format!("'.{method}' receiver '{binding_name}' does not retain a type"),
+        ));
+    };
+    let container_type = match &through_field {
+        None => binding_type?,
+        Some(field) => {
+            let Some(CheckedType::Record { fields }) = typed.type_table().get(binding_type?) else {
+                return Err(TypecheckError::new(
+                    TypecheckErrorKind::InvalidInput,
+                    format!("'.{method}' through '.{field}' requires a record binding"),
+                ));
+            };
+            let Some(field_type) = fields.get(field).copied() else {
+                return Err(TypecheckError::new(
+                    TypecheckErrorKind::InvalidInput,
+                    format!("'{binding_name}' does not expose a field named '{field}'"),
+                ));
+            };
+            apparent_type_id(typed, field_type)?
+        }
+    };
+    let element_type = match typed.type_table().get(container_type) {
+        Some(CheckedType::Vector { element_type }) => *element_type,
+        Some(CheckedType::Array { .. }) => {
+            return Err(TypecheckError::new(
+                TypecheckErrorKind::Unsupported,
+                format!(
+                    "'arr[T,N]' is fixed-size, so '.{method}' cannot grow it; use 'vec[T]', \
+                     or assign an element with 'values[i] = ...'"
+                ),
+            ))
+        }
+        Some(CheckedType::Sequence { .. }) => {
+            return Err(TypecheckError::new(
+                TypecheckErrorKind::Unsupported,
+                format!(
+                    "'seq[T]' is the persistent linked-list family; '.{method}' mutates in place, \
+                     which is not part of its contract — use 'vec[T]'"
+                ),
+            ))
+        }
+        _ => {
+            return Err(TypecheckError::new(
+                TypecheckErrorKind::InvalidInput,
+                format!("'.{method}' requires a 'vec[T]' binding, but '{binding_name}' is not one"),
+            ))
+        }
+    };
+    // A container's `fin` elements are finalized by a scope-exit walk. Growth
+    // itself is safe, but keeping the gate aligned with the indexed path means
+    // one rule to reason about for `fin` containers.
+    if typed.type_resolves_to_fin(element_type) {
+        return Err(TypecheckError::new(
+            TypecheckErrorKind::Unsupported,
+            format!(
+                "cannot '.{method}' onto a container of 'fin' elements; its elements are finalized \
+                 by a scope-exit walk, which does not model growth"
+            ),
+        ));
+    }
+    Ok(ContainerMethodReceiver {
+        binding_name,
+        element_type,
+    })
+}
+
 fn binding_is_mutable_by_name(
     typed: &TypedProgram,
     resolved: &ResolvedProgram,

@@ -127,6 +127,62 @@ fn render_call_arguments(
         .map(|args| args.join(", "))
 }
 
+/// Resolve the mutable place a container mutation writes through: the binding's
+/// own local, or one field hop into a record it holds. Shared by `StoreIndex`
+/// and `ContainerMutate`, which differ only in the runtime call they then emit.
+fn mutable_container_place(
+    type_table: &LoweredTypeTable,
+    package_identity: &PackageIdentity,
+    routine: &LoweredRoutine,
+    base_id: fol_lower::LoweredLocalId,
+    field: &Option<String>,
+    what: &str,
+) -> BackendResult<(LoweredTypeId, String)> {
+    // A guard binding aliases its mutex local, so the container lives behind the
+    // held guard rather than on the handle -- addressing the handle directly
+    // emits a field access on `FolMutex` (E0609).
+    let base_name = if routine.mutex_params.contains(&base_id) {
+        format!(
+            "{}.as_mut().expect(\"mutex {what} requires .lock()\")",
+            render_mutex_guard_name(base_id)
+        )
+    } else {
+        render_local_name(package_identity, routine, base_id)?
+    };
+    let base_type = routine
+        .locals
+        .get(base_id)
+        .and_then(|local| local.type_id)
+        .ok_or_else(|| {
+            BackendError::new(
+                BackendErrorKind::InvalidInput,
+                format!("{what} base does not retain a lowered type"),
+            )
+        })?;
+    // A container held in a record field is reached through the field; the base
+    // itself is the record.
+    match field {
+        Some(field) => {
+            let (record_type, _) = observed_storage_reference(type_table, base_type, &base_name);
+            let Some(LoweredType::Record { fields, .. }) = type_table.get(record_type) else {
+                return Err(BackendError::new(
+                    BackendErrorKind::InvalidInput,
+                    format!("{what} through a field requires a record base"),
+                ));
+            };
+            let field_type = fields.get(field).copied().ok_or_else(|| {
+                BackendError::new(
+                    BackendErrorKind::InvalidInput,
+                    format!("{what} names unknown field '{field}'"),
+                )
+            })?;
+            let place = format!("{base_name}.{}", crate::escape_rust_field_ident(field));
+            mutable_storage_reference(type_table, field_type, &place)
+        }
+        None => mutable_storage_reference(type_table, base_type, &base_name),
+    }
+}
+
 pub fn render_core_instruction_in_workspace(
     workspace: Option<&LoweredWorkspace>,
     package_identity: &PackageIdentity,
@@ -383,52 +439,14 @@ pub fn render_core_instruction_in_workspace(
             index,
             value,
         } => {
-            let base_id = *base;
-            // A guard binding aliases its mutex local, so the container lives
-            // behind the held guard rather than on the handle -- addressing the
-            // handle directly emits a field access on `FolMutex` (E0609).
-            let base_name = if routine.mutex_params.contains(&base_id) {
-                format!(
-                    "{}.as_mut().expect(\"mutex element assignment requires .lock()\")",
-                    render_mutex_guard_name(base_id)
-                )
-            } else {
-                render_local_name(package_identity, routine, base_id)?
-            };
-            let base_type = routine
-                .locals
-                .get(base_id)
-                .and_then(|local| local.type_id)
-                .ok_or_else(|| {
-                    BackendError::new(
-                        BackendErrorKind::InvalidInput,
-                        "indexed assignment base does not retain a lowered type",
-                    )
-                })?;
-            // A container held in a record field is reached through the field;
-            // the base itself is the record.
-            let (container_type, container_ref) = match field {
-                Some(field) => {
-                    let (record_type, _) =
-                        observed_storage_reference(type_table, base_type, &base_name);
-                    let Some(LoweredType::Record { fields, .. }) = type_table.get(record_type)
-                    else {
-                        return Err(BackendError::new(
-                            BackendErrorKind::InvalidInput,
-                            "indexed assignment through a field requires a record base",
-                        ));
-                    };
-                    let field_type = fields.get(field).copied().ok_or_else(|| {
-                        BackendError::new(
-                            BackendErrorKind::InvalidInput,
-                            format!("indexed assignment names unknown field '{field}'"),
-                        )
-                    })?;
-                    let place = format!("{base_name}.{}", crate::escape_rust_field_ident(field));
-                    mutable_storage_reference(type_table, field_type, &place)?
-                }
-                None => mutable_storage_reference(type_table, base_type, &base_name)?,
-            };
+            let (container_type, container_ref) = mutable_container_place(
+                type_table,
+                package_identity,
+                routine,
+                *base,
+                field,
+                "indexed assignment",
+            )?;
             let index_name = render_local_name(package_identity, routine, *index)?;
             let value = render_transfer_expr(type_table, package_identity, routine, *value)?;
             let call = match type_table.get(container_type) {
@@ -448,6 +466,47 @@ pub fn render_core_instruction_in_workspace(
                 }
             };
             Ok(format!("rt::require({call});"))
+        }
+        LoweredInstrKind::ContainerMutate {
+            base,
+            field,
+            op,
+            args,
+        } => {
+            use fol_lower::ContainerMutateOp;
+            let (container_type, container_ref) = mutable_container_place(
+                type_table,
+                package_identity,
+                routine,
+                *base,
+                field,
+                "container mutation",
+            )?;
+            match op {
+                ContainerMutateOp::VecPush => {
+                    if !matches!(
+                        type_table.get(container_type),
+                        Some(LoweredType::Vector { .. })
+                    ) {
+                        return Err(BackendError::new(
+                            BackendErrorKind::InvalidInput,
+                            format!(
+                                "'.push' expected a vector local but found {:?}",
+                                type_table.get(container_type)
+                            ),
+                        ));
+                    }
+                    let [value] = args.as_slice() else {
+                        return Err(BackendError::new(
+                            BackendErrorKind::InvalidInput,
+                            "'.push' expects exactly one lowered argument",
+                        ));
+                    };
+                    let value =
+                        render_transfer_expr(type_table, package_identity, routine, *value)?;
+                    Ok(format!("rt::push_vec({container_ref}, {value});"))
+                }
+            }
         }
         LoweredInstrKind::StoreMutexValue { mutex, value } => {
             let guard = render_mutex_guard_name(*mutex);
