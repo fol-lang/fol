@@ -71,9 +71,12 @@ Current `V1` intrinsic note:
 
 - `.eq(...)` is implemented for scalar equality
 - `.len(...)` is implemented for strings and supported containers
-- string `.len(...)` counts UTF-8 BYTES, not characters (`.len("héllo")` is 6)
-- older helper surfaces such as `.assert(...)`, `.typeof(...)`, and related
-  compile-time queries are not part of the current implemented intrinsic subset
+- string `.len(...)` counts UTF-8 BYTES, not characters (`.len("héllo")` is 6);
+  `.str_char_len("héllo")` is 5
+- `assert` is a keyword, not a dot call: `assert a == b;`, optionally with a
+  message as `assert a == b, "why this matters";`
+- `.type_name(value)` reports a value's type as its FOL spelling, and
+  `.size_of(value)` its size in bytes; both accept an operand of any type
 ```
 ### Boolean type
 The boolean type is named `bol` in Fol and can be one of the two pre-defined values `true` and `false`. 

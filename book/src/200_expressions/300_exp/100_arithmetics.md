@@ -1,10 +1,9 @@
 # Calculations
 
-Current boundary:
-
-- the two-argument `assert(a, b)` form used in this chapter's examples is
-  illustrative; `assert` is registry-owned but deferred, and the intrinsic is
-  not yet dispatchable in the current compiler (see the intrinsics chapter)
+`assert` in this chapter's examples is the real intrinsic: it takes one boolean
+condition, optionally followed by a message, and faults when the condition does
+not hold. It is a keyword rather than a dot call, so it takes no parentheses of
+its own — `assert a == b;`, never `assert(a, b)`. See the intrinsics chapter.
 
 In fol, every calcultaion, needs to be enclosed in rounded brackets `( //to evaluate )` - except in one line evaluating, the curly brackets are allowed too `{ // to evaluate }`:
 
@@ -48,11 +47,11 @@ The behavior of arithmetic operators is only on intiger and floating point primi
 ^    | exponent
 
 ```
-assert((3 + 6), 9);
-assert((5.5 - 1.25), 4.25);
-assert((-5 * 14), -70);
-assert((14 / 3), 4);
-assert((100 % 7), 2);
+assert (3 + 6) == 9;
+assert (5.5 - 1.25) == 4.25;
+assert (-5 * 14) == -70;
+assert (14 / 3) == 4;
+assert (100 % 7) == 2;
 ```
 
 Current integer semantics:
@@ -84,12 +83,12 @@ Symbol  |	Meaning
 
 
 ```
-assert((123 == 123));
-assert((23 != -12));
-assert((12.5 > 12.2));
-assert((1 < 3));
-assert(('A' <= 'B'));
-assert(("World" >= "Hello"));
+assert 123 == 123;
+assert 23 != -12;
+assert 12.5 > 12.2;
+assert 1 < 3;
+assert 'A' <= 'B';
+assert "World" >= "Hello";
 ```
 
 ## Logical
@@ -101,9 +100,9 @@ A branch of algebra in which all operations are either true or false, thus opera
 - `not` (negation), denoted `(not x)`, satisfies `(not x) = 0` if `x = 1` and (not x) = 1` if `x = 0`.
 
 ```
-assert((true and false), (false and true));
-assert((true or false), true)
-assert((not true), false)
+assert (true and false) == (false and true);
+assert (true or false) == true;
+assert (not true) == false;
 ```
 
 Current evaluation note:

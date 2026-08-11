@@ -13,7 +13,7 @@ For example here is how the `!=` is defined:
 ```
 fun '!='(a, b: int): bol = { return .not(.eq(a, b)) }
 
-.assert( 5 != 4 )
+assert 5 != 4;
 ```
 
 or define `$` to return the string version of an object (careful, it is `object$` and not `$object`, the latest is a macro, not a template):

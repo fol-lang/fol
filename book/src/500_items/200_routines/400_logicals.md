@@ -172,8 +172,8 @@ log horizontal(line: axi): bol = {
     B[*->X2,Y]:
 }
 
-assert(vertical(line.at(0))
-assert(horizontal(line.at(1))
+assert vertical(line.at(0));
+assert horizontal(line.at(1));
 ```
 
 ## Filtering

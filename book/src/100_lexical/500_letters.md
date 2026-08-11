@@ -29,7 +29,7 @@ var a: str = "foobar";
 var b: str = "foo\
               bar";
 
-assert(a,b);
+assert a == b;
 ```
 
 ### Escape sequences

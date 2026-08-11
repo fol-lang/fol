@@ -57,11 +57,16 @@ These look like language keywords rather than dot calls:
 
 ```fol
 check(read_code(path))
-panic("unreachable state")
+panic "unreachable state"
+assert count > 0, "the queue was drained twice"
 ```
 
-The current `V1` compiler treats `check` and `panic` as intrinsics too, even
-though they are not written with `.`.
+The current compiler treats `check`, `panic`, and `assert` as intrinsics too,
+even though they are not written with `.`.
+
+`panic` and `assert` take their arguments without parentheses, like the
+keywords they are. `assert(flag)` happens to parse only because `(flag)` is a
+parenthesized expression; `assert(flag, "message")` is a parse error.
 
 ## Operator aliases
 
@@ -149,7 +154,10 @@ Current `V1` rule:
   - `set[...]`
   - `map[...]`
 
-In the current compiler, `.len(...)` is the only implemented query intrinsic.
+`.len(...)` measures **bytes** for a `str`, not characters. `.str_char_len(...)`
+is the character count; see "Text and characters" below for why the two worlds
+are kept apart.
+
 Under the runtime model split, array `.len(...)` belongs to `core`, while
 string and dynamic-container `.len(...)` belongs to `memo`. It remains
 available when a `memo` artifact also declares bundled `std` because the hosted
@@ -170,63 +178,259 @@ Current `V1` rule:
 
 `.echo(...)` belongs to `std`, not `core` or `memo`.
 
+### Introspection
+
+```fol
+.type_name(value)
+.size_of(value)
+```
+
+Both read a fact about the operand's **type** and never read the value, so they
+accept an operand of any type — including a generic parameter, which is what
+they exist for:
+
+```fol
+fun[exp] describe(T)(value: T): str = {
+    return .type_name(value) + " (" + .int_to_str(.size_of(value)) + " bytes)";
+};
+```
+
+Called with an `int` that yields `int (8 bytes)`; called with a `vec[int]`,
+`vec[int] (24 bytes)`. The answer follows the caller, not the declaration.
+
+Current rule:
+
+- `.type_name(...)` returns the FOL spelling: `int`, `vec[int]`,
+  `map[str, int]`, `opt[int]`, and the declared name for a `rec` or `ent` type
+- `.size_of(...)` returns the size of the **value**, not of what it owns — a
+  `str` and a `vec[int]` both report `24`, the size of the handle, because the
+  characters and elements live on the heap
+- both peel `@` and `bor` first, so a loaned `Ledger` describes as `Ledger` and
+  measures the Ledger rather than the loan; `ptr[...]` is *not* peeled, because
+  a pointer is a value you hold
+- `.size_of(...)` works in `core`; `.type_name(...)` returns `str` and so needs
+  `memo`, by virtue of its return type rather than any capability gate
+
 ### Terminal and OS hooks
 
-The primitive layer for interactive terminal programs shares `.echo(...)`'s
-build contract (a `memo` artifact with the explicit bundled `std`
-dependency):
-
-- `.write(text)` — write a string to stdout without a trailing newline and
-  flush it; forwards the string unchanged
-- `.read_key()` — block for one byte of standard input; yields `-1` at end of
-  input
-- `.raw_mode(enable)` — enable or disable terminal raw mode; forwards the
-  requested state
-- `.sleep_ms(ms)` — sleep the current thread; forwards the duration
-- `.now_ms()` — milliseconds since the unix epoch
-- `.term_cols()` / `.term_rows()` — terminal size (80×24 when it cannot be
-  determined)
-- `.int_to_str(value)` — render an integer as its decimal string
-- `.read_key_ms(timeout)` — like `.read_key()` but gives up after the timeout,
-  yielding `-2` on timeout and `-1` at end of input
-- `.str_sub(text, start, count)` — a byte-range slice snapped to UTF-8
-  boundaries
-- `.str_byte(text, index)` / `.byte_to_str(value)` — byte inspection and
-  single-byte construction
-- `.env_var(name)` — an environment variable's value
-- `.shell(command)` — run a command through `sh -c` with inherited streams and
-  yield its exit status; `128 + signal` if a signal killed it, `127` if the
-  shell could not be launched
-- `.dir_list(path)` — the sorted entries of a directory, directories suffixed
-  with `/`
-- `.read_file(path)` — a file's contents
-- `.write_file(path, contents)` — write text to a path, yielding `0` on success
-  and `-1` when the write fails
-- `.arg_count()` / `.arg_at(index)` — the command-line arguments, excluding the
-  program name; an index past the end reads as the empty string
-- `.write_err(text)` — write to standard error without a trailing newline
-- `.str_find(text, needle)` — the byte index of the first occurrence, or `-1`
-- `.str_replace(text, from, to)` — replace every occurrence
-- `.parse_int(text, fallback)` — parse an integer, or the caller's fallback; the
-  fallback is an argument because every sentinel is also a valid parse result
-- `.float_to_str(value, decimals)` — a float at a fixed number of decimals
-
-The bundled `std` package wraps them as `std::io::write`, `std::io::read_key`,
-`std::io::read_key_ms`, `std::term::raw_mode`, `std::term::cols`,
-`std::term::rows`, `std::time::sleep_ms`, `std::time::now_ms`,
-`std::fmt::int_to_str`, `std::strn::sub`, `std::strn::byte_at`,
-`std::strn::from_byte`, `std::strn::find`, `std::strn::replace`,
-`std::strn::to_int`, `std::fmt::float_to_str`, `std::os::env`,
-`std::os::shell`, `std::os::arg_count`, `std::os::arg`, `std::io::write_err`,
-`std::fs::dir_list`, `std::fs::read_file`, and `std::fs::write_file`.
+Everything from here down shares `.echo(...)`'s build contract: a `memo`
+artifact with the explicit bundled `std` dependency. That includes the purely
+numeric operations such as `.bit_and(...)` and `.sqrt(...)`, which touch no OS
+facility but are still gated this way today.
 
 With that build contract, this is valid:
 
 ```fol
 fun[] main(flag: bol): bol = {
-    return .echo(flag)
+    return .echo(flag);
 };
 ```
+
+#### Console and terminal
+
+- `.write(text)` — write a string to stdout without a trailing newline and
+  flush it; forwards the string unchanged
+- `.write_err(text)` — write to standard error without a trailing newline
+- `.read_key()` — block for one byte of standard input; yields `-1` at end of
+  input
+- `.read_key_ms(timeout)` — like `.read_key()` but gives up after the timeout,
+  yielding `-2` on timeout and `-1` at end of input
+- `.read_line()` / `.read_all()` — a line, or the whole of standard input
+- `.raw_mode(enable)` — enable or disable terminal raw mode; forwards the
+  requested state
+- `.term_cols()` / `.term_rows()` — terminal size (80×24 when it cannot be
+  determined)
+
+#### Numbers
+
+Integer helpers:
+
+- `.min(a, b)` / `.max(a, b)` / `.abs(value)`
+- `.parse_int(text, fallback)` — parse an integer, or the caller's fallback; the
+  fallback is an argument because every sentinel is also a valid parse result
+
+Bitwise, on non-negative integers:
+
+- `.bit_and(a, b)` / `.bit_or(a, b)` / `.bit_xor(a, b)`
+- `.shl(value, count)` / `.shr(value, count)` — `.shr(...)` is arithmetic, so a
+  negative value shifts sign bits in
+- `.rotl(value, count)` / `.rotr(value, count)`
+- `.pop_count(value)` / `.clz(value)` / `.ctz(value)` — set bits, leading
+  zeros, trailing zeros
+
+Overflow-mode arithmetic. Plain `+`, `-`, and `*` fault on overflow; these are
+how you choose a different answer:
+
+- `.checked_add(a, b)` / `.checked_sub(a, b)` / `.checked_mul(a, b)` /
+  `.checked_div(a, b)`
+- `.wrapping_add(a, b)` / `.wrapping_sub(a, b)` / `.wrapping_mul(a, b)`
+- `.saturating_add(a, b)` / `.saturating_sub(a, b)` / `.saturating_mul(a, b)`
+
+Floating point:
+
+- `.sqrt(value)`, `.flt_abs(value)`
+- `.sin(value)`, `.cos(value)`, `.tan(value)`, `.asin(value)`, `.acos(value)`,
+  `.atan(value)`, `.atan2(y, x)`, `.hypot(x, y)`
+- `.ln(value)`, `.log2(value)`, `.log10(value)`, `.exp(value)`
+- `.is_nan(value)`, `.is_inf(value)`, `.flt_is_finite(value)`
+- `.flt_floor(value)`, `.flt_ceil(value)`, `.flt_round(value)`
+- `.flt_copysign(magnitude, sign)`, `.flt_rem(a, b)`,
+  `.flt_mul_add(a, b, c)`, `.flt_next_after(from, toward)`
+- `.flt_bits(value)` / `.flt_from_bits(bits)` — the IEEE-754 bit pattern, which
+  is how you compare or hash a float exactly
+
+Conversions:
+
+- `.int_to_str(value)` / `.float_to_str(value, decimals)`
+- `.int_to_flt(value)` / `.flt_to_int(value)` / `.parse_flt(text, fallback)`
+
+#### Text and characters
+
+FOL strings are UTF-8, and the intrinsics are split into a **byte** world and a
+**character** world. Mixing them is the usual source of bugs, so the names say
+which one they belong to:
+
+- byte world: `.len(text)`, `.str_sub(text, start, count)`,
+  `.str_find(text, needle)`, `.str_byte(text, index)`
+- character world: `.str_char_len(text)`, `.str_char(text, index)`,
+  `.str_chars(text)`
+
+`.str_char_index(text, char_index)` is the only bridge between them: it turns a
+character index into a byte index.
+
+- `.str_sub(text, start, count)` — a byte-range slice snapped to UTF-8
+  boundaries
+- `.str_byte(text, index)` / `.byte_to_str(value)` — byte inspection and
+  single-byte construction
+- `.str_byte_len(text)` / `.str_char_len(text)` — length in bytes, length in
+  characters
+- `.str_valid_utf8(text)` — whether the bytes decode
+- `.str_find(text, needle)` — the byte index of the first occurrence, or `-1`
+- `.str_replace(text, from, to)` — replace every occurrence
+- `.str_trim(text)`, `.str_upper(text)`, `.str_lower(text)`
+- `.str_chars(text)` / `.str_from_chars(chars)` — a string as `vec[chr]` and
+  back
+- `.chr_upper(c)` / `.chr_lower(c)` — full Unicode case, not ASCII-only
+- `.chr_is_alpha(c)` / `.chr_is_digit(c)` / `.chr_is_space(c)`
+- `.chr_to_int(c)` / `.int_to_chr(value)` / `.chr_to_str(c)`
+
+#### Time and randomness
+
+- `.now_ms()` / `.now_ns()` — since the unix epoch; wall-clock, so it can jump
+- `.mono_ns()` — a monotonic reading, which is the one to measure durations with
+- `.sleep_ms(ms)` / `.sleep_ns(ns)`
+- `.time_parts(epoch_secs)` — a timestamp split into calendar fields
+- `.time_from_parts(fields)` — the inverse
+- `.random_int(low, high)` / `.random_flt()` — from the operating system, so
+  unpredictable and unrepeatable
+- `.random_bytes(count)` — raw entropy
+
+For a *repeatable* sequence, use `std::rand`, which is seeded and written in
+FOL. Same seed, same stream, every run.
+
+#### Files and directories
+
+- `.read_file(path)` / `.write_file(path, contents)` / `.append_file(path, text)`
+- `.read_bytes(path)` / `.write_bytes(path, bytes)` — for content that is not
+  UTF-8; the text forms assume it is
+- `.file_exists(path)`, `.is_file(path)`, `.is_dir(path)`,
+  `.file_is_link(path)`
+- `.file_size(path)`, `.file_mtime(path)`
+- `.make_dir(path)`, `.remove_file(path)`, `.remove_dir_all(path)`
+- `.rename_file(from, to)`, `.copy_file(from, to)`
+- `.dir_list(path)` — the sorted entries, directories suffixed with `/`
+- `.dir_entries(path)` — the same as a vector
+- `.read_link(path)`, `.permissions(path)`, `.set_permissions(path, mode)`
+- `.current_dir()`, `.set_current_dir(path)`, `.temp_dir()`, `.home_dir()`
+
+#### Process and environment
+
+- `.arg_count()` / `.arg_at(index)` — the command-line arguments, excluding the
+  program name; an index past the end reads as the empty string
+- `.env_var(name)`, `.env_vars()`, `.set_env_var(name, value)`
+- `.process_id()`
+- `.shell(command)` — run through `sh -c` with inherited streams and yield the
+  exit status; `128 + signal` if a signal killed it, `127` if the shell could
+  not be launched
+- `.shell_out(command)` — the same, capturing standard output
+- `.run_capture(program, args)` / `.run_status(program, args)` — run a program
+  directly, without a shell, so no quoting or word-splitting applies
+- `.exit_process(status)`
+
+#### Network
+
+TCP sockets are integer handles:
+
+- `.tcp_listen(address)`, `.tcp_accept(handle)`, `.tcp_connect(address)`
+- `.tcp_read(handle)`, `.tcp_write(handle, text)`, `.tcp_close(handle)`
+- `.tcp_local_addr(handle)`, `.tcp_peer_addr(handle)`
+- `.tcp_set_timeout(handle, ms)` — without it, a read on a peer that stopped
+  talking blocks until the peer goes away
+- `.tcp_set_nodelay(handle, enable)`
+- `.tcp_try_read(handle)` — returns empty when nothing has arrived **yet**,
+  which is not the same as the connection being closed; neither read form
+  distinguishes those, so a poll loop needs its own liveness signal
+- `.tcp_shutdown(handle, how)` — half-close: `0` read, `1` write, `2` both.
+  This is not `.tcp_close(...)`; shutting down the write side tells the peer no
+  more data is coming while the read side stays open for its reply
+
+UDP and name resolution:
+
+- `.udp_bind(address)`, `.udp_send_to(handle, address, text)`,
+  `.udp_recv_from(handle)` — the receive form returns the payload and the
+  sender's address
+- `.dns_resolve(host)` — every address a name resolves to; an empty vector when
+  it resolves to none, rather than a fault
+
+#### Concurrency
+
+- `.cpu_count()` — how many threads can genuinely run at once; sizing a worker
+  pool above this adds scheduling cost, not throughput
+- `.thread_yield()` — hand back the rest of the time slice
+- `.thread_id()` — a small integer per thread, stable within a run
+
+Atomic counters are shared integers addressed by handle. They are deliberately
+narrower than `mux[T]`: a mutex protects arbitrary compound state and costs a
+lock, while these compile to one instruction and cannot deadlock, because there
+is no window in which the value is held. Reach for `mux[T]` the moment two
+fields have to agree.
+
+- `.atomic_new(initial)` — create one, yielding its handle
+- `.atomic_load(handle)` / `.atomic_store(handle, value)`
+- `.atomic_add(handle, delta)` — returns the value **before** the addition, so
+  concurrent callers each receive a distinct number; that is what makes it a
+  ticket dispenser
+- `.atomic_cas(handle, expected, desired)` — swap if unchanged, returning the
+  value it **found**. Equal to `expected` means the swap happened; anything
+  else is the current value to retry against, which is what a lock-free update
+  loop needs
+
+Because a handle is an ordinary `int`, a counter crosses a `[spn]` boundary
+with no reference threading. A missing handle is inert: a load reads `0` and a
+store yields `-1`.
+
+#### Hashing and secrets
+
+- `.hash_bytes(text)` — a stable 64-bit SipHash-2-4. The same input gives the
+  same number in every run and every build, so it is safe to persist or shard
+  on, unlike the randomly-keyed hash behind `map[K, V]`. That stability is also
+  the limit: the key is fixed, so it does **not** resist an attacker who
+  chooses inputs to collide, and it is not a cryptographic digest. Use
+  `std::hash` for SHA-256 when an adversary is involved. The result covers the
+  full 64-bit range and is often negative.
+- `.bytes_equal_ct(left, right)` — compare in time that depends only on length,
+  never on where the two first differ. Ordinary `==` returns as soon as it
+  finds a mismatching byte, so anyone who can time it learns how many leading
+  bytes they guessed correctly and can recover a secret one byte at a time. A
+  FOL loop compiles to the same early exit, which is why this cannot be written
+  in FOL. Use it for tokens, MACs, and password hashes; use `==` everywhere
+  else, since this is slower by design.
+
+The bundled `std` package wraps much of this surface — `std::io::write`,
+`std::fs::read_file`, `std::os::env`, `std::fmt::int_to_str`, `std::strn::find`,
+`std::time::now_ms`, `std::sync::counter`, and so on. Prefer the wrappers: they
+are named for what you are doing rather than for the primitive underneath, and
+they are where the shared logic accumulates.
 
 ### The entry point's command line and exit status
 
@@ -284,48 +488,95 @@ echoed value the status too. Return `0` explicitly when a program succeeds.
 
 ```fol
 check(read_code(path))
-panic("fatal")
+panic "fatal"
+assert total >= 0;
+assert total >= 0, "a ledger total went negative";
 ```
 
-Current `V1` rule:
+Current rule:
 
 - `check(expr)` asks whether a recoverable `/ ErrorType` expression failed and
   returns `bol`; that expression may be a direct routine call or, in V3, an
   awaited recoverable eventual
 - `panic(...)` aborts control flow immediately
+- `assert condition` and `assert condition, message` fault unless the condition
+  holds
 
-These are described in more detail in the recoverable-error chapter.
+`assert` is **not** a terminator the way `panic` is. Control continues when the
+condition holds, so it is an ordinary effect rather than a diverging one; the
+compiler does not treat the code after it as unreachable.
 
-## Current `V1` deferred intrinsics
+A failing assert produces a normal runtime fault:
 
-The registry already reserves more names than the compiler implements.
+```text
+fol runtime fault: assertion failed: a ledger total went negative
+```
 
-That does **not** mean they work today.
+The bare form works in every capability model. The message form takes a `str`
+and so needs `memo`, since `str` does not exist below it.
 
-### Reserved but deferred for likely `V1.x`
+`check` and `panic` are described in more detail in the recoverable-error
+chapter.
+
+### Backtraces
+
+```fol
+.backtrace()
+```
+
+Returns the call stack at that point as text, captured whether or not
+`RUST_BACKTRACE` is set. Frames carry the generated symbol names rather than
+FOL source spellings, and an optimized build may inline frames away entirely.
+It is a debugging aid, not something to parse. Like the other hosted hooks it
+needs a `memo` artifact with bundled `std`.
+
+## Deferred intrinsics
+
+The registry reserves more names than the compiler implements. A reserved name
+is recognized as a registry-owned language surface and rejected with an
+explicit milestone-boundary diagnostic — it does **not** work today.
+
+Twenty-one names are currently in that state.
+
+### Conversions
 
 - `as`
 - `cast`
-- `assert`
+
+The explicit conversion contract is not frozen. Use the named conversions —
+`.int_to_flt(...)`, `.flt_to_int(...)`, `.int_to_str(...)`, `.parse_int(...)`
+— which say in their name exactly which direction and which failure mode you
+are asking for.
+
+### Container queries
+
 - `.cap(...)`
 - `.is_empty(...)`
 - `.low(...)`
 - `.high(...)`
 
-These are recognized as registry-owned language surfaces, but the current
-compiler rejects them with explicit milestone-boundary diagnostics.
+`.len(...) == 0` covers the common case of `.is_empty(...)` today.
 
-### Reserved for later `V2`
+### Arithmetic kept as candidates for the library
 
-- bitwise helpers such as `.bit_and(...)`, `.bit_or(...)`, `.shl(...)`,
-  `.shr(...)`, `.rotl(...)`, `.rotr(...)`, `.pop_count(...)`, `.clz(...)`,
-  `.ctz(...)`, `.byte_swap(...)`, `.bit_reverse(...)`
-- overflow-mode helpers such as `.checked_add(...)`, `.wrapping_add(...)`,
-  `.saturating_add(...)`, `.overflowing_add(...)`, and their subtraction forms
+- `.add(...)`, `.sub(...)`, `.mul(...)`, `.div(...)`
+- `.clamp(...)`
+- `.floor(...)`, `.ceil(...)`, `.round(...)`, `.trunc(...)`
+- `.pow(...)`
 
-These are intentionally reserved now so the language can grow without
-accidental user-space name collisions, but they are not part of the current
-`V1` compiler.
+These stay reserved so the names cannot be claimed by user code, but the
+direction is that most of them belong in a library rather than in the compiler.
+The float-specific spellings `.flt_floor(...)`, `.flt_ceil(...)`, and
+`.flt_round(...)` are implemented and are what to use now.
+
+### Bitwise and overflow remainders
+
+- `.byte_swap(...)`, `.bit_reverse(...)`
+- `.overflowing_add(...)`, `.overflowing_sub(...)`
+
+The rest of both families shipped. The `overflowing_*` pair returns a value
+**and** a flag, which a record already expresses; that is why it was not
+urgent.
 
 ### Reserved for `V4` interop
 
@@ -335,31 +586,6 @@ Explicit deallocation is not part of the V3 memory model. Unique heap values
 drop implicitly, borrowing uses `[bor]owner` and `[end]borrow`, and typed pointers use
 `[ref]value` and `[drf]pointer`. The old dot-root memory spellings are not reserved or
 supported aliases.
-
-## Library-preferred surfaces
-
-Some names are kept in the registry roadmap only as placeholders while the
-language decides whether they should really stay compiler-owned.
-
-Current examples:
-
-- `.add(...)`
-- `.sub(...)`
-- `.mul(...)`
-- `.div(...)`
-- `.abs(...)`
-- `.min(...)`
-- `.max(...)`
-- `.clamp(...)`
-- `.floor(...)`
-- `.ceil(...)`
-- `.round(...)`
-- `.trunc(...)`
-- `.pow(...)`
-- `.sqrt(...)`
-
-The current direction is that many of these may fit better in `core` or `std`
-instead of becoming permanent compiler intrinsics.
 
 ## Intrinsics are not shell operations
 

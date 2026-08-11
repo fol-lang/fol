@@ -277,7 +277,7 @@ var oneVar, twoVar: int[8] = 2;
 However, each of them gets a copy of the variable on a new memory address:
 
 ```
-.assert([ref]oneVar == [ref]twoVar)           // this will return false
+assert [ref]oneVar == [ref]twoVar;          // this fails: the addresses differ
 ```
 
 ### One to many

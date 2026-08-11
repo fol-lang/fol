@@ -30,7 +30,7 @@ Underscore character `U+005F` (`_`) is a special character, that does not repres
 var aNumber: int = 540_467;
 var bNumber: int = 540467;
 
-assert(aNumber, bNumber)
+assert aNumber == bNumber;
 ```
 
 ## Floating points
