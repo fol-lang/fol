@@ -1368,6 +1368,12 @@ pub(crate) fn lower_body_node(
             // `pro (Type[mut, bor])m()`) auto-borrows the object (V3_MEM §4.2/
             // §8.3). Borrow the object's PLACE (binding local), not a value copy,
             // so a `[mut, bor]` receiver's mutations reach the original binding.
+            let mut deferred_receiver_borrow: Option<(
+                crate::ids::LoweredLocalId,
+                crate::LoweredTypeId,
+                crate::ids::LoweredLocalId,
+                bool,
+            )> = None;
             let receiver_arg = match param_types
                 .first()
                 .and_then(|type_id| type_table.get(*type_id))
@@ -1383,14 +1389,24 @@ pub(crate) fn lower_body_node(
                     .map(|value| value.local_id)
                     .unwrap_or(receiver.local_id);
                     let borrow_local = cursor.allocate_local(borrow_type, None);
-                    cursor.push_instr(
-                        Some(borrow_local),
-                        crate::LoweredInstrKind::ConstructBorrow {
-                            type_id: borrow_type,
-                            owner,
-                            mutable,
-                        },
-                    )?;
+                    // A MUTABLE receiver loan is taken AFTER the arguments are
+                    // evaluated: `self.bump(self.n)` reads a field of the value
+                    // being borrowed, and taking the loan first makes that read
+                    // illegal in the emitted Rust (E0502). A `[mut, bor]`
+                    // receiver is a place, so nothing observable is reordered.
+                    if mutable {
+                        deferred_receiver_borrow =
+                            Some((borrow_local, borrow_type, owner, mutable));
+                    } else {
+                        cursor.push_instr(
+                            Some(borrow_local),
+                            crate::LoweredInstrKind::ConstructBorrow {
+                                type_id: borrow_type,
+                                owner,
+                                mutable,
+                            },
+                        )?;
+                    }
                     borrow_local
                 }
                 _ => receiver.local_id,
@@ -1492,6 +1508,18 @@ pub(crate) fn lower_body_node(
                     })
                     .collect::<Result<Vec<_>, _>>()?,
             );
+            // Every argument is in its own local now, so the mutable receiver
+            // loan can be taken without covering those reads.
+            if let Some((borrow_local, borrow_type, owner, mutable)) = deferred_receiver_borrow {
+                cursor.push_instr(
+                    Some(borrow_local),
+                    crate::LoweredInstrKind::ConstructBorrow {
+                        type_id: borrow_type,
+                        owner,
+                        mutable,
+                    },
+                )?;
+            }
             match result_type {
                 Some(result_type) => {
                     let result_local = cursor.allocate_local(result_type, None);

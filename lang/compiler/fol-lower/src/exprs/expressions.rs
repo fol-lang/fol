@@ -1251,6 +1251,12 @@ fn lower_expression_observed_inner(
             // §8.3). The borrow must reference the object's PLACE (its binding
             // local), not a lowered value copy, so a `[mut, bor]` receiver's
             // mutations reach the original binding.
+            let mut deferred_receiver_borrow: Option<(
+                crate::ids::LoweredLocalId,
+                LoweredTypeId,
+                crate::ids::LoweredLocalId,
+                bool,
+            )> = None;
             let mut lowered_args = if callee_has_receiver {
                 let receiver_arg = match param_types
                     .first()
@@ -1267,14 +1273,25 @@ fn lower_expression_observed_inner(
                         .map(|value| value.local_id)
                         .unwrap_or(receiver.local_id);
                         let borrow_local = cursor.allocate_local(borrow_type, None);
-                        cursor.push_instr(
-                            Some(borrow_local),
-                            LoweredInstrKind::ConstructBorrow {
-                                type_id: borrow_type,
-                                owner,
-                                mutable,
-                            },
-                        )?;
+                        // A MUTABLE receiver borrow has to be taken AFTER the
+                        // arguments are evaluated: `self.bump(self.n)` reads a
+                        // field of the very value being borrowed, and taking
+                        // the loan first makes that read illegal in the emitted
+                        // Rust (E0502). A `[mut, bor]` receiver is a place, not
+                        // an effectful expression, so nothing observable moves.
+                        if mutable {
+                            deferred_receiver_borrow =
+                                Some((borrow_local, borrow_type, owner, mutable));
+                        } else {
+                            cursor.push_instr(
+                                Some(borrow_local),
+                                LoweredInstrKind::ConstructBorrow {
+                                    type_id: borrow_type,
+                                    owner,
+                                    mutable,
+                                },
+                            )?;
+                        }
                         borrow_local
                     }
                     _ => receiver.local_id,
@@ -1379,6 +1396,18 @@ fn lower_expression_observed_inner(
                     })
                     .collect::<Result<Vec<_>, _>>()?,
             );
+            // Now that every argument is in its own local, the mutable receiver
+            // loan can be taken without covering those reads.
+            if let Some((borrow_local, borrow_type, owner, mutable)) = deferred_receiver_borrow {
+                cursor.push_instr(
+                    Some(borrow_local),
+                    LoweredInstrKind::ConstructBorrow {
+                        type_id: borrow_type,
+                        owner,
+                        mutable,
+                    },
+                )?;
+            }
             let result_local = cursor.allocate_local(result_type, None);
             cursor.push_instr(
                 Some(result_local),
