@@ -545,6 +545,9 @@ fn render_local_declaration(
         Some(_)
             if local.type_id.is_some_and(|type_id| {
                 crate::types::type_transitively_contains_routine(workspace, type_table, type_id)
+                    || crate::types::type_transitively_contains_underivable_array(
+                        workspace, type_table, type_id,
+                    )
             }) =>
         {
             let type_id = local

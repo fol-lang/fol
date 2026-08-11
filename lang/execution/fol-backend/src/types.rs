@@ -325,6 +325,32 @@ pub fn type_transitively_contains_routine(
     )
 }
 
+/// Whether the type reaches a fixed array Rust cannot derive `Default` for.
+///
+/// `impl Default` on `[T; N]` stops at N = 32 in std, so `arr[int, 40]` — an
+/// emulator's RAM, a token table, a board — compiles until codegen and then
+/// fails with an unsatisfied trait bound. Every site that would rely on the
+/// derive has to build the value explicitly instead.
+pub fn type_transitively_contains_underivable_array(
+    workspace: &LoweredWorkspace,
+    type_table: &LoweredTypeTable,
+    type_id: LoweredTypeId,
+) -> bool {
+    const RUST_ARRAY_DEFAULT_LIMIT: usize = 32;
+    type_transitively_contains(
+        workspace,
+        type_table,
+        type_id,
+        &|ty| {
+            matches!(
+                ty,
+                LoweredType::Array { size: Some(size), .. } if *size > RUST_ARRAY_DEFAULT_LIMIT
+            )
+        },
+        &mut std::collections::BTreeSet::new(),
+    )
+}
+
 fn aggregate_derives(
     workspace: &LoweredWorkspace,
     type_table: &LoweredTypeTable,
@@ -334,6 +360,7 @@ fn aggregate_derives(
     let mut has_float = false;
     let mut has_routine = false;
     let mut has_weak = false;
+    let mut has_underivable_array = false;
     // Derive blockers propagate transitively through named/pointer fields (a
     // Rust derive bound on the aggregate reaches every referenced type), so each
     // check crosses `Named` boundaries via the workspace declarations.
@@ -349,6 +376,9 @@ fn aggregate_derives(
         }
         if type_transitively_contains_routine(workspace, type_table, type_id) {
             has_routine = true;
+        }
+        if type_transitively_contains_underivable_array(workspace, type_table, type_id) {
+            has_underivable_array = true;
         }
         if type_transitively_contains(
             workspace,
@@ -374,7 +404,7 @@ fn aggregate_derives(
             derives.push("Eq");
         }
     }
-    if include_default && !has_routine {
+    if include_default && !has_routine && !has_underivable_array {
         derives.push("Default");
     }
     format!("#[derive({})]", derives.join(", "))
@@ -417,10 +447,10 @@ pub fn render_record_definition(
     // A record holding a routine value cannot derive `Default` (an `Rc<dyn Fn>`
     // has none), so hand-write one that builds every field from its own default
     // expression. Callers still reach the record through `Default::default()`.
-    let default_impl = if fields
-        .iter()
-        .any(|field| type_transitively_contains_routine(workspace, type_table, field.type_id))
-    {
+    let default_impl = if fields.iter().any(|field| {
+        type_transitively_contains_routine(workspace, type_table, field.type_id)
+            || type_transitively_contains_underivable_array(workspace, type_table, field.type_id)
+    }) {
         let rendered_defaults = fields
             .iter()
             .map(|field| {

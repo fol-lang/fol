@@ -23,7 +23,10 @@ impl AstParser {
     ) -> Result<AstNode, ParseError> {
         let mut fields = Vec::new();
         let mut closed = false;
-        for _ in 0..256 {
+        // Bounded to stop a runaway loop on malformed input, not to cap real
+        // data: a fixed array standing in for an emulator's RAM or a font table
+        // is legitimately thousands of elements long.
+        for _ in 0..65_536 {
             self.skip_ignorable(tokens)?;
             let token = tokens.curr(false)?;
             if matches!(token.key(), KEYWORD::Symbol(SYMBOL::CurlyC)) {
@@ -558,7 +561,10 @@ impl AstParser {
         }
 
         let mut elements = Vec::new();
-        for _ in 0..256 {
+        // Bounded to stop a runaway loop on malformed input, not to cap real
+        // data: a fixed array standing in for an emulator's RAM or a font table
+        // is legitimately thousands of elements long.
+        for _ in 0..65_536 {
             self.skip_layout(tokens)?;
             let pending_comments = self.collect_comment_nodes(tokens)?;
             let token = tokens.curr(false)?;
