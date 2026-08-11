@@ -1,0 +1,153 @@
+// Encodings and checksums, written in FOL over the bitwise intrinsics.
+//
+// `int` is signed 64-bit, so every routine that models a 32-bit register masks
+// back down with `MASK32` after each step. Without that the sign bit of a
+// 64-bit value leaks into a shift and the result stops matching the reference
+// implementations.
+
+use strn: loc = {"../strn"};
+
+con MASK32: int = 4294967295;
+con HEX: str = "0123456789abcdef";
+con B64: str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+con PAD: str = "=";
+
+fun[exp] hex_encode(text: str): str = {
+    var[mut] out: str = "";
+    var[mut] i: int = 0;
+    var total: int = .len(text);
+    loop (i < total) {
+        var byte: int = .str_byte(text, i);
+        out = out + .str_sub(HEX, .shr(byte, 4), 1) + .str_sub(HEX, .bit_and(byte, 15), 1);
+        i = i + 1;
+    };
+    return out;
+};
+
+// An odd-length or non-hex input yields the empty string rather than a partial
+// decode, so a caller cannot silently act on half a value.
+fun[exp] hex_decode(text: str): str = {
+    var total: int = .len(text);
+    if (total % 2 != 0) {
+        return "";
+    } else {
+    };
+    var[mut] out: str = "";
+    var[mut] i: int = 0;
+    loop (i < total) {
+        var high: int = .str_find(HEX, .str_sub(text, i, 1));
+        var low: int = .str_find(HEX, .str_sub(text, i + 1, 1));
+        if (high < 0 or low < 0) {
+            return "";
+        } else {
+        };
+        out = out + .byte_to_str(.shl(high, 4) + low);
+        i = i + 2;
+    };
+    return out;
+};
+
+fun[exp] base64_encode(text: str): str = {
+    var[mut] out: str = "";
+    var total: int = .len(text);
+    var[mut] i: int = 0;
+    loop (i < total) {
+        var first: int = .str_byte(text, i);
+        var[mut] packed: int = .shl(first, 16);
+        var[mut] have: int = 1;
+        if (i + 1 < total) {
+            packed = packed + .shl(.str_byte(text, i + 1), 8);
+            have = 2;
+        } else {
+        };
+        if (i + 2 < total) {
+            packed = packed + .str_byte(text, i + 2);
+            have = 3;
+        } else {
+        };
+        out = out + .str_sub(B64, .bit_and(.shr(packed, 18), 63), 1);
+        out = out + .str_sub(B64, .bit_and(.shr(packed, 12), 63), 1);
+        if (have > 1) {
+            out = out + .str_sub(B64, .bit_and(.shr(packed, 6), 63), 1);
+        } else {
+            out = out + PAD;
+        };
+        if (have > 2) {
+            out = out + .str_sub(B64, .bit_and(packed, 63), 1);
+        } else {
+            out = out + PAD;
+        };
+        i = i + 3;
+    };
+    return out;
+};
+
+fun[exp] base64_decode(text: str): str = {
+    var[mut] out: str = "";
+    var stripped: str = strn::strip_suffix(strn::strip_suffix(text, PAD), PAD);
+    var total: int = .len(stripped);
+    var[mut] i: int = 0;
+    loop (i < total) {
+        var[mut] packed: int = 0;
+        var[mut] have: int = 0;
+        var[mut] j: int = 0;
+        loop (j < 4) {
+            var[mut] value: int = 0;
+            if (i + j < total) {
+                value = .str_find(B64, .str_sub(stripped, i + j, 1));
+                if (value < 0) {
+                    return "";
+                } else {
+                };
+                have = have + 1;
+            } else {
+            };
+            packed = .shl(packed, 6) + value;
+            j = j + 1;
+        };
+        out = out + .byte_to_str(.bit_and(.shr(packed, 16), 255));
+        if (have > 2) {
+            out = out + .byte_to_str(.bit_and(.shr(packed, 8), 255));
+        } else {
+        };
+        if (have > 3) {
+            out = out + .byte_to_str(.bit_and(packed, 255));
+        } else {
+        };
+        i = i + 4;
+    };
+    return out;
+};
+
+// CRC-32 as used by zip and png: the reflected polynomial, no lookup table.
+fun[exp] crc32(text: str): int = {
+    var[mut] crc: int = MASK32;
+    var[mut] i: int = 0;
+    var total: int = .len(text);
+    loop (i < total) {
+        crc = .bit_xor(crc, .str_byte(text, i));
+        var[mut] bit: int = 0;
+        loop (bit < 8) {
+            if (.bit_and(crc, 1) == 1) {
+                crc = .bit_xor(.shr(crc, 1), 3988292384);
+            } else {
+                crc = .shr(crc, 1);
+            };
+            crc = .bit_and(crc, MASK32);
+            bit = bit + 1;
+        };
+        i = i + 1;
+    };
+    return .bit_and(.bit_xor(crc, MASK32), MASK32);
+};
+
+fun[exp] crc32_hex(text: str): str = {
+    var value: int = crc32(text);
+    var[mut] out: str = "";
+    var[mut] shift: int = 28;
+    loop (shift >= 0) {
+        out = out + .str_sub(HEX, .bit_and(.shr(value, shift), 15), 1);
+        shift = shift - 4;
+    };
+    return out;
+};
