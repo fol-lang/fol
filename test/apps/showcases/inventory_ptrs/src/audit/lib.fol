@@ -58,15 +58,15 @@ pro[exp] dump(cell: ptr[shared, zones::Zone], depth: int, fuel: int): non = {
     };
     var pad: str = indent(depth);
     std::io::echo_str(pad + zones::zone_name(cell)
-    + " [dock=" + zones::dock_name(cell) + "]");
+        + " [dock=" + zones::dock_name(cell) + "]");
     ~var index: int = 0;
     var bins: int = zones::bin_count(cell);
     loop(index < bins) {
         var bin: zones::Bin = zones::bin_at(cell, index);
         std::io::echo_str(pad + "  " + bin.slot + " "
-        + catalog::card_code(bin.card)
-        + " x" + std::fmt::int_to_str(bin.units)
-        + " = " + std::fmt::int_to_str(bin.units * catalog::card_price(bin.card)));
+            + catalog::card_code(bin.card)
+            + " x" + std::fmt::int_to_str(bin.units)
+            + " = " + std::fmt::int_to_str(bin.units * catalog::card_price(bin.card)));
         index = index + 1;
     };
     ~var kid: int = 0;
@@ -98,7 +98,7 @@ fun[exp] check_int(label: str, got: int, want: int): int = {
         }
     };
     std::io::echo_str("FAIL " + label + " = " + std::fmt::int_to_str(got)
-    + " want " + std::fmt::int_to_str(want));
+        + " want " + std::fmt::int_to_str(want));
     return 1;
 };
 
@@ -121,7 +121,7 @@ fun[exp] check_bol(label: str, got: bol, want: bol): int = {
         }
     };
     std::io::echo_str("FAIL " + label + " = " + render_bol(got)
-    + " want " + render_bol(want));
+        + " want " + render_bol(want));
     return 1;
 };
 

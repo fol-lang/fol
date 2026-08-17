@@ -78,7 +78,7 @@ pro[exp] (Bus[bor])describe(): non = {
     loop (index < .len(self.subs)) {
         var sub: Sub = self.subs[index];
         std::io::echo_str("  [" + std::fmt::int_to_str(index) + "] "
-        + sub.label + " <- " + sub.pattern);
+            + sub.label + " <- " + sub.pattern);
         index = index + 1;
     }
     return;

@@ -51,7 +51,7 @@ fun[] repeat_zero(): bol = {
 
 fun[] bol_round_trip(): bol = {
     return expect::bol_holds("clamp does not move a fit value",
-    subject::clamp(4, 0, 9) == 4, true);
+        subject::clamp(4, 0, 9) == 4, true);
 };
 
 // The harness proving its own failure path fires: `differs` passes only when
@@ -71,7 +71,7 @@ fun[] near_tolerance(): bol = {
 fun[] clamp_case(input: int, want: int): {fun (): bol} = {
     return fun()[input[cpy], want[cpy]]: bol = {
         return expect::int_holds("clamp(" + std::fmt::int_to_str(input) + ", 0, 10)",
-        subject::clamp(input, 0, 10), want);
+            subject::clamp(input, 0, 10), want);
     };
 };
 

@@ -159,13 +159,13 @@ fun[exp] settle(batch: int, legs: vec[model::Posting]): model::Receipt / str = {
             {
                 var held: slot::Slot = slot::acquire(used, leg.code);
                 std::io::echo_str("      write " + leg.side_text() + " " + leg.code
-                + " " + render::money(leg.amount) + "  " + leg.memo);
+                    + " " + render::money(leg.amount) + "  " + leg.memo);
             };
             used = used + 1;
         }
         if(.not(first_use(legs, index))) {
             std::io::echo_str("      write " + leg.side_text() + " " + leg.code
-            + " " + render::money(leg.amount) + "  " + leg.memo + "  (slot already returned)");
+                + " " + render::money(leg.amount) + "  " + leg.memo + "  (slot already returned)");
         }
         index = index + 1;
     }
@@ -201,7 +201,7 @@ fun[exp] write_correction(leg: model::Posting, device_ready: bol): int / str = {
     var held: slot::Slot = slot::acquire(3, leg.code);
     if(device_ready) {
         std::io::echo_str("      wrote correction " + leg.side_text() + " " + leg.code
-        + " " + render::money(leg.amount));
+            + " " + render::money(leg.amount));
     }
     if(.not(device_ready)) {
         std::io::echo_str("      device refused leg " + std::fmt::int_to_str(leg.seq));

@@ -23,7 +23,7 @@ fun[] expect(label: str, actual: int, wanted: int): int = {
         return 0;
     }
     std::io::echo_str("FAIL  " + label + " = " + std::fmt::int_to_str(actual)
-    + ", wanted " + std::fmt::int_to_str(wanted));
+        + ", wanted " + std::fmt::int_to_str(wanted));
     return 1;
 };
 
@@ -33,11 +33,11 @@ fun[] show_table(): non = {
     loop (index < sensors::sensor_count()) {
         var spec: sensors::Spec = sensors::spec_at(index);
         std::io::echo_str("  [" + std::fmt::int_to_str(index) + "] "
-        + sensors::label_at(index)
-        + " gain=" + std::fmt::int_to_str(spec.gain)
-        + " offset=" + std::fmt::int_to_str(spec.offset)
-        + " range=" + std::fmt::int_to_str(spec.lo)
-        + ".." + std::fmt::int_to_str(spec.hi));
+            + sensors::label_at(index)
+            + " gain=" + std::fmt::int_to_str(spec.gain)
+            + " offset=" + std::fmt::int_to_str(spec.offset)
+            + " range=" + std::fmt::int_to_str(spec.lo)
+            + ".." + std::fmt::int_to_str(spec.hi));
         index = index + 1;
     }
     return;
@@ -64,9 +64,9 @@ fun[] main(): int = {
     std::io::echo_str("run:");
     std::io::echo_str("  " + line);
     std::io::echo_str("  low=" + std::fmt::int_to_str(totals.low)
-    + " high=" + std::fmt::int_to_str(totals.high)
-    + " signalled=" + std::fmt::int_to_str(totals.signalled)
-    + " samplers=" + std::fmt::int_to_str(totals.beats));
+        + " high=" + std::fmt::int_to_str(totals.high)
+        + " signalled=" + std::fmt::int_to_str(totals.signalled)
+        + " samplers=" + std::fmt::int_to_str(totals.beats));
 
     std::io::echo_str("checks:");
     var[mut] failures: int = 0;

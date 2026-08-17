@@ -17,7 +17,7 @@ fun[] demo(title: str, program: seq[isa::Instr]): int = {
     }
 
     std::io::echo_str("  ok: " + std::fmt::int_to_str(outcome.machine.steps)
-    + " steps, stack " + stack::show(outcome.machine.stack));
+        + " steps, stack " + stack::show(outcome.machine.stack));
     return 0;
 };
 

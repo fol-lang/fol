@@ -24,10 +24,10 @@ fun[] main(): int = {
 
     // The readers consume their documents, so each stage asks for a fresh one.
     var cells: str = lcs::match_grid(
-    doc::line_reader(doc::before()),
-    doc::before_lines(),
-    doc::line_reader(doc::after()),
-    doc::after_lines(),
+        doc::line_reader(doc::before()),
+        doc::before_lines(),
+        doc::line_reader(doc::after()),
+        doc::after_lines(),
     );
     var dp: str = lcs::dp_table(cells, doc::before_lines(), doc::after_lines());
     var shared: int = lcs::common(dp, doc::before_lines(), doc::after_lines());
@@ -36,7 +36,7 @@ fun[] main(): int = {
     banner("edit script");
     std::io::echo_str("  " + edits);
     std::io::echo_str("  common lines: " + std::fmt::int_to_str(shared)
-    + " of " + std::fmt::int_to_str(doc::before_lines()));
+        + " of " + std::fmt::int_to_str(doc::before_lines()));
 
     banner("unified diff, context " + std::fmt::int_to_str(CONTEXT));
     var hunks: int = hunk::render(edits, doc::before(), doc::after(), CONTEXT);
@@ -46,10 +46,10 @@ fun[] main(): int = {
     // Second instantiation of the same generic core, at `doc::Word`.
     banner("word diff of one rewritten sentence");
     var word_cells: str = lcs::match_grid(
-    doc::word_reader(doc::old_words()),
-    doc::old_word_count(),
-    doc::word_reader(doc::new_words()),
-    doc::new_word_count(),
+        doc::word_reader(doc::old_words()),
+        doc::old_word_count(),
+        doc::word_reader(doc::new_words()),
+        doc::new_word_count(),
     );
     var word_dp: str = lcs::dp_table(word_cells, doc::old_word_count(), doc::new_word_count());
     var word_edits: str = lcs::edit_script(word_cells, word_dp, doc::old_word_count(), doc::new_word_count());

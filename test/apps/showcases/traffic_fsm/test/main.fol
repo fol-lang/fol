@@ -10,8 +10,8 @@ fun[] expect(label: str, got: int, want: int): int = {
         }
         * {
             std::io::echo_str("FAIL " + label
-            + " got=" + std::fmt::int_to_str(got)
-            + " want=" + std::fmt::int_to_str(want));
+                + " got=" + std::fmt::int_to_str(got)
+                + " want=" + std::fmt::int_to_str(want));
             return 1;
         }
     }

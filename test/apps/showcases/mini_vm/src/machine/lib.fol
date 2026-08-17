@@ -122,7 +122,7 @@ fun[exp] run(program: seq[isa::Instr], trace: bol): Step = {
         when(step.fault) {
             on(why) {
                 return broken(m, "pc " + std::fmt::int_to_str(m.pc)
-                + " (" + isa::show(ins) + "): " + why);
+                    + " (" + isa::show(ins) + "): " + why);
             }
             * { }
         }
@@ -130,7 +130,7 @@ fun[exp] run(program: seq[isa::Instr], trace: bol): Step = {
         when(trace) {
             case(true) {
                 std::io::echo_str("  " + std::fmt::int_to_str(m.pc) + "  "
-                + isa::show(ins) + "  -> " + stack::show(step.machine.stack));
+                    + isa::show(ins) + "  -> " + stack::show(step.machine.stack));
             }
             * { }
         }

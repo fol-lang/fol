@@ -41,13 +41,13 @@ fun[] main(): int = {
     // allocation, so the derived holder count is 2 and both see one price.
     std::io::echo_str("shared catalog");
     fails = fails + audit::check_int("bolt holders",
-    zones::holders_of(yard.root, "BOLT-M8", fuel()), 2);
+        zones::holders_of(yard.root, "BOLT-M8", fuel()), 2);
     fails = fails + audit::check_int("belt holders",
-    zones::holders_of(yard.root, "BELT-A", fuel()), 1);
+        zones::holders_of(yard.root, "BELT-A", fuel()), 1);
     fails = fails + audit::check_int("bolt price via card",
-    catalog::card_price(bolt), 12);
+        catalog::card_price(bolt), 12);
     fails = fails + audit::check_int("bolt price via alias",
-    catalog::card_price(catalog::alias(bolt)), 12);
+        catalog::card_price(catalog::alias(bolt)), 12);
 
     // -- custom clone override --------------------------------------------
     // `[cln]` routes through `fun (Sku[bor])clone()`, which stamps the copy.
@@ -67,14 +67,14 @@ fun[] main(): int = {
     // The published allocation never moved: cloning a snapshot cannot age the
     // card every bin is pointing at.
     fails = fails + audit::check_int("published generation",
-    catalog::card_generation(bolt), 0);
+        catalog::card_generation(bolt), 0);
 
     // -- weak back-edge ----------------------------------------------------
     std::io::echo_str("");
     std::io::echo_str("weak dock edge");
     fails = fails + audit::check_str("root dock", zones::dock_name(yard.root), "dock");
     fails = fails + audit::check_str("rack dock",
-    zones::dock_name(zones::kid_at(zones::kid_at(yard.root, 0), 1)), "dock");
+        zones::dock_name(zones::kid_at(zones::kid_at(yard.root, 0), 1)), "dock");
     // The dock predates every zone, so it observes nothing itself. That
     // asymmetry is what keeps the layout acyclic.
     fails = fails + audit::check_str("dock's own dock", zones::dock_name(yard.dock), "<none>");
@@ -82,7 +82,7 @@ fun[] main(): int = {
     var dock_cell: ptr[shared, zones::Zone] = yard.dock;
     var live_watch: ptr[weak, zones::Zone] = [weak]dock_cell;
     fails = fails + audit::check_bol("dock alive while yard held",
-    audit::alive(live_watch), true);
+        audit::alive(live_watch), true);
 
     // -- reachability ------------------------------------------------------
     std::io::echo_str("");
@@ -158,9 +158,9 @@ fun[] main(): int = {
     // The yard held here is untouched by that sweep: freeing one layout must
     // not disturb another that shares the same catalog allocations.
     fails = fails + audit::check_bol("held dock still alive",
-    audit::alive(live_watch), true);
+        audit::alive(live_watch), true);
     fails = fails + audit::check_int("catalog survived sweep",
-    catalog::card_price(bolt), 12);
+        catalog::card_price(bolt), 12);
 
     std::io::echo_str("");
     when(fails == 0) {

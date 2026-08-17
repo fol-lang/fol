@@ -54,7 +54,7 @@ fun[] expect_int(label: str, actual: int, wanted: int): int = {
         return 0;
     };
     std::io::echo_str("  FAIL  " + label + " = " + std::fmt::int_to_str(actual)
-    + ", expected " + std::fmt::int_to_str(wanted));
+        + ", expected " + std::fmt::int_to_str(wanted));
     return 1;
 };
 
@@ -107,17 +107,17 @@ fun[] self_check(): int = {
     var first: str = chars::line_nth(DATA, 1);
     broken = broken + expect_int("quoted row field count", parse::field_count(first), 6);
     broken = broken + expect_str("quoted field keeps its comma",
-    parse::field_or_empty(first, model::Column.CUSTOMER), "Acme, Inc.");
+        parse::field_or_empty(first, model::Column.CUSTOMER), "Acme, Inc.");
 
     var escaped: str = chars::line_nth(DATA, 5);
     broken = broken + expect_str("doubled quote unescapes",
-    parse::field_or_empty(escaped, model::Column.CUSTOMER), "Echo \"Fast\" Freight");
+        parse::field_or_empty(escaped, model::Column.CUSTOMER), "Echo \"Fast\" Freight");
 
     var unterminated: str = chars::line_nth(DATA, 10);
     broken = broken + expect_int("unterminated quote is unreadable",
-    parse::field_count(unterminated), 0 - 1);
+        parse::field_count(unterminated), 0 - 1);
     broken = broken + expect_int("unterminated quote blames the row, not a column",
-    parse::row_faults(unterminated), model::structure_bit());
+        parse::row_faults(unterminated), model::structure_bit());
 
     var short_row: str = chars::line_nth(DATA, 7);
     broken = broken + expect_int("short row field count", parse::field_count(short_row), 5);
@@ -132,11 +132,11 @@ fun[] self_check(): int = {
     broken = broken + expect_int("february 2023 has 28 days", parse::days_in_month(2023, 2), 28);
     broken = broken + expect_int("april has 30 days", parse::days_in_month(2024, 4), 30);
     broken = broken + expect_bool("2024-02-29 is a real date",
-    parse::failed(parse::date_fault("2024-02-29")), false);
+        parse::failed(parse::date_fault("2024-02-29")), false);
     broken = broken + expect_bool("2023-02-29 is not a real date",
-    parse::failed(parse::date_fault("2023-02-29")), true);
+        parse::failed(parse::date_fault("2023-02-29")), true);
     broken = broken + expect_bool("2024-04-31 is not a real date",
-    parse::failed(parse::date_fault("2024-04-31")), true);
+        parse::failed(parse::date_fault("2024-04-31")), true);
 
     // A Windows export must not turn every row into a reject just because the
     // line ends in CRLF: the trailing return is blank space, not data.
@@ -145,14 +145,14 @@ fun[] self_check(): int = {
     broken = broken + expect_int("crlf units shipped", report::total_units(CRLF), 2);
     broken = broken + expect_int("crlf order value in cents", report::total_revenue(CRLF), 2000);
     broken = broken + expect_int("crlf bad shipped_on",
-    report::column_bad(CRLF, model::Column.SHIPPED), 1);
+        report::column_bad(CRLF, model::Column.SHIPPED), 1);
 
     // Money is exact because it never leaves the integers.
     broken = broken + expect_int("19.99 is 1999 cents", cents_of("19.99"), 1999);
     broken = broken + expect_int("120.00 is 12000 cents", cents_of("120.00"), 12000);
     broken = broken + expect_int("1234.50 is 123450 cents", cents_of("1234.50"), 123450);
     broken = broken + expect_bool("15.5 is a truncated amount",
-    parse::failed(parse::money_fault("15.5")), true);
+        parse::failed(parse::money_fault("15.5")), true);
 
     return broken;
 };

@@ -34,13 +34,13 @@ typ[exp] Slot()(fin): rec = {
 // missing line means a missing release.
 pro[exp] (Slot)finalize(): non = {
     std::io::echo_str("      [fin] slot " + std::fmt::int_to_str(self.id)
-    + " -> " + self.device + "  (held for " + self.account + ")");
+        + " -> " + self.device + "  (held for " + self.account + ")");
     return;
 };
 
 fun[exp] acquire(id: int, account: str): Slot = {
     std::io::echo_str("      [acq] slot " + std::fmt::int_to_str(id)
-    + " <- " + device_of(id) + "  (for " + account + ")");
+        + " <- " + device_of(id) + "  (for " + account + ")");
     return { id = id, device = device_of(id), account = account };
 };
 
@@ -56,7 +56,7 @@ typ[exp] Ticket: rec = {
 // released here at this scope's exit and the caller must not release it again.
 pro[exp] archive(filed: Ticket): non = {
     std::io::echo_str("      [arc] ticket batch " + std::fmt::int_to_str(filed.batch)
-    + " leg " + std::fmt::int_to_str(filed.leg) + " filed");
+        + " leg " + std::fmt::int_to_str(filed.leg) + " filed");
     return;
 };
 

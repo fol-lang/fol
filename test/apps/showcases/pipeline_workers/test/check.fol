@@ -17,7 +17,7 @@ fun[] expect(label: str, actual: int, wanted: int): int = {
     when (actual == wanted) {
         case (false) {
             var bad: str = "FAIL  " + label + " = " + std::fmt::int_to_str(actual)
-                + ", wanted " + std::fmt::int_to_str(wanted);
+            + ", wanted " + std::fmt::int_to_str(wanted);
             var shown: str = std::io::echo_str(bad);
             failures = 1;
         }

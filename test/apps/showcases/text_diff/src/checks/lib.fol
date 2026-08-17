@@ -20,19 +20,19 @@ fun[exp] expect(name: str, ok: bol): int = {
 
 fun line_grid(): str = {
     return lcs::match_grid(
-    doc::line_reader(doc::before()),
-    doc::before_lines(),
-    doc::line_reader(doc::after()),
-    doc::after_lines(),
+        doc::line_reader(doc::before()),
+        doc::before_lines(),
+        doc::line_reader(doc::after()),
+        doc::after_lines(),
     );
 };
 
 fun word_grid(): str = {
     return lcs::match_grid(
-    doc::word_reader(doc::old_words()),
-    doc::old_word_count(),
-    doc::word_reader(doc::new_words()),
-    doc::new_word_count(),
+        doc::word_reader(doc::old_words()),
+        doc::old_word_count(),
+        doc::word_reader(doc::new_words()),
+        doc::new_word_count(),
     );
 };
 
@@ -81,16 +81,16 @@ fun[exp] run_all(): int = {
     bad = bad + expect("word common", .eq(lcs::common(word_dp, 7, 8), 5));
     bad = bad + expect("word script", .eq(word_edits, "===-+=-++="));
     bad = bad + expect("word inline", .eq(
-    hunk::inline_words(word_edits, doc::old_words(), doc::new_words()),
-    "The cache warms [-slowly-] {+quickly+} on [-cold-] {+every+} {+warm+} boot ",
+            hunk::inline_words(word_edits, doc::old_words(), doc::new_words()),
+            "The cache warms [-slowly-] {+quickly+} on [-cold-] {+every+} {+warm+} boot ",
     ));
 
     // A document diffed against itself has to be all keeps and no hunks.
     var flat: str = lcs::match_grid(
-    doc::line_reader(doc::before()),
-    doc::before_lines(),
-    doc::line_reader(doc::before()),
-    doc::before_lines(),
+        doc::line_reader(doc::before()),
+        doc::before_lines(),
+        doc::line_reader(doc::before()),
+        doc::before_lines(),
     );
     var flat_dp: str = lcs::dp_table(flat, 12, 12);
     var flat_edits: str = lcs::edit_script(flat, flat_dp, 12, 12);
@@ -100,10 +100,10 @@ fun[exp] run_all(): int = {
 
     // An empty left side is pure insertion, and vice versa.
     var fresh: str = lcs::match_grid(
-    doc::line_reader(doc::before()),
-    0,
-    doc::line_reader(doc::after()),
-    doc::after_lines(),
+        doc::line_reader(doc::before()),
+        0,
+        doc::line_reader(doc::after()),
+        doc::after_lines(),
     );
     var fresh_dp: str = lcs::dp_table(fresh, 0, 16);
     bad = bad + expect("empty left common", .eq(lcs::common(fresh_dp, 0, 16), 0));

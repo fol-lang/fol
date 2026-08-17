@@ -30,7 +30,7 @@ fun[] main(): int = {
     var line: str = pending | await;
 
     var banner: str = "pipeline: " + std::fmt::int_to_str(totals.started)
-        + " workers, " + std::fmt::int_to_str(queue::total_jobs()) + " jobs";
+    + " workers, " + std::fmt::int_to_str(queue::total_jobs()) + " jobs";
     var shown: str = std::io::echo_str(banner);
     var summary: str = std::io::echo_str(line);
     return 0;

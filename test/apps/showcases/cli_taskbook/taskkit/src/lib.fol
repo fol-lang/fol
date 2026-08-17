@@ -72,7 +72,7 @@ fun[exp] move_to(doc: str, id: int, target: int): Change = {
         case(true) { }
         * {
             return refusal(doc, Verdict.ILLEGAL_MOVE, "cannot move "
-            + entry::state_name(current.state) + " -> " + entry::state_name(target));
+                + entry::state_name(current.state) + " -> " + entry::state_name(target));
         }
     }
     var moved: entry::Task = {

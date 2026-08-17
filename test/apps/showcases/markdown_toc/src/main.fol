@@ -26,8 +26,8 @@ fun[] list_headings(text: str): non = {
     loop (index < total) {
         var item: model::Heading = scan::nth(text, index);
         std::io::echo_str("  L" + std::fmt::int_to_str(item.level)
-        + "  line " + std::fmt::int_to_str(item.line)
-        + "  " + item.text);
+            + "  line " + std::fmt::int_to_str(item.line)
+            + "  " + item.text);
         index = index + 1;
     };
     return;
@@ -66,7 +66,7 @@ fun[] main(): int = {
     loop (slot < .len(book)) {
         var chosen: toc::Recipe = book[slot];
         std::io::echo_str("  " + chosen.label + " -> "
-        + std::fmt::int_to_str([bor]chosen.rendered_count(text)) + " rows");
+            + std::fmt::int_to_str([bor]chosen.rendered_count(text)) + " rows");
         slot = slot + 1;
     };
 
@@ -91,7 +91,7 @@ fun[] main(): int = {
         probe = probe + 1;
     };
     std::io::echo_str("  budget " + std::fmt::int_to_str(budget)
-    + ", headings past it: " + std::fmt::int_to_str(over));
+        + ", headings past it: " + std::fmt::int_to_str(over));
 
     banner("shallow document");
     var shallow: toc::Recipe = toc::recipe("shallow", toc::anchoring(""), toc::any_level());

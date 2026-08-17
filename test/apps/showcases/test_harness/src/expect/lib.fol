@@ -42,7 +42,7 @@ fun[exp] judge_bol(actual: bol, expected: bol): str = {
 
 // The generic core: passes when the judge has nothing to complain about.
 fun[exp] holds(T)(label: str, actual: T, expected: T,
-judge: {fun (left: T, right: T): str}): bol = {
+    judge: {fun (left: T, right: T): str}): bol = {
     var complaint: str = judge(actual, expected);
     if (complaint == "") {
         std::io::echo_str(report::pass_line(label));
@@ -55,7 +55,7 @@ judge: {fun (left: T, right: T): str}): bol = {
 // The mirror image: passes when the judge does complain. The harness uses it to
 // prove its own failure path fires without failing the run.
 fun[exp] rejects(T)(label: str, actual: T, expected: T,
-judge: {fun (left: T, right: T): str}): bol = {
+    judge: {fun (left: T, right: T): str}): bol = {
     var complaint: str = judge(actual, expected);
     if (complaint == "") {
         std::io::echo_str(report::fail_line(label, "expected a mismatch, found none"));

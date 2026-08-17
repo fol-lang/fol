@@ -82,7 +82,7 @@ fun[] scoped_cleanups(rounds: int): int = {
             var held: slot::Slot = slot::acquire(round, "2100");
             dfr[ran[mut, bor]] { ran = ran + 1; };
             show("      round " + std::fmt::int_to_str(round) + " holds slot "
-            + std::fmt::int_to_str(held.id));
+                + std::fmt::int_to_str(held.id));
         };
         round = round + 1;
     }
@@ -92,7 +92,7 @@ fun[] scoped_cleanups(rounds: int): int = {
 fun[] main(): int = {
     show("bank_ledger_fin  ::  daily close on the settlement journal");
     show("device offers " + std::fmt::int_to_str(slot::capacity())
-    + " write slots, split across " + slot::device_of(0) + " and " + slot::device_of(3));
+        + " write slots, split across " + slot::device_of(0) + " and " + slot::device_of(3));
 
     var counter_legs: vec[model::Posting] = engine::batch_counter();
     var sweep_legs: vec[model::Posting] = engine::batch_sweep();
@@ -150,22 +150,22 @@ fun[] main(): int = {
     bad = bad + check_int("dfr bodies that ran", cleanups, 3);
 
     bad = bad + check_text("torn batch reason",
-    reason_of(engine::validate_batch(torn_legs)),
+        reason_of(engine::validate_batch(torn_legs)),
     "batch does not balance, out by 100 cents");
     bad = bad + check_text("orphan batch reason",
-    reason_of(engine::validate_batch(orphan_legs)),
+        reason_of(engine::validate_batch(orphan_legs)),
     "leg 2: account 9999 is not in the chart");
     bad = bad + check_text("counter batch accepted",
-    reason_of(engine::validate_batch(counter_legs)), "accepted");
+        reason_of(engine::validate_batch(counter_legs)), "accepted");
     bad = bad + check_text("empty batch reason",
-    reason_of(engine::validate_batch({})), "batch is empty");
+        reason_of(engine::validate_batch({})), "batch is empty");
 
     // 5 000 000 vault cash less the 250 000 paid out at the counter.
     bad = bad + check_text("vault cash after batch 7",
-    render::money(engine::balance(engine::chart()[0], counter_legs)), "47500.00");
+        render::money(engine::balance(engine::chart()[0], counter_legs)), "47500.00");
     // Deposits are credit-normal: the 250 350 debited leaves 5 549 650.
     bad = bad + check_text("customer deposits after batch 7",
-    render::money(engine::balance(engine::chart()[2], counter_legs)), "55496.50");
+        render::money(engine::balance(engine::chart()[2], counter_legs)), "55496.50");
     bad = bad + check_int("sheet still balances after batch 7", engine::sheet_drift(counter_legs), 0);
     bad = bad + check_int("sheet balanced before any batch", engine::sheet_drift({}), 0);
 
@@ -179,7 +179,7 @@ fun[] main(): int = {
     bad = bad + check_int("slots acquired this run", acquired, 13);
     show("");
     show("count the lines above: " + std::fmt::int_to_str(acquired)
-    + " [acq] and " + std::fmt::int_to_str(acquired) + " [fin], one release per acquisition,");
+        + " [acq] and " + std::fmt::int_to_str(acquired) + " [fin], one release per acquisition,");
     show("no slot released twice and none left held.");
 
     show("");

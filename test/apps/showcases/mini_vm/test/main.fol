@@ -9,8 +9,8 @@ fun[] expect(label: str, got: int, want: int): int = {
         }
         * {
             std::io::echo_str("FAIL " + label
-            + " got=" + std::fmt::int_to_str(got)
-            + " want=" + std::fmt::int_to_str(want));
+                + " got=" + std::fmt::int_to_str(got)
+                + " want=" + std::fmt::int_to_str(want));
             return 1;
         }
     }
@@ -51,9 +51,9 @@ fun[] main(): int = {
     bad = bad + expect("swap keeps operand order", result_of(vm::program::swapped()), 16);
 
     bad = bad + expect_str("underflow is reported",
-    fault_of(vm::program::underflow()), "pc 1 (add): stack underflow");
+        fault_of(vm::program::underflow()), "pc 1 (add): stack underflow");
     bad = bad + expect_str("divide by zero is reported",
-    fault_of(vm::program::divide_by_zero()), "pc 2 (div): divide by zero");
+        fault_of(vm::program::divide_by_zero()), "pc 2 (div): divide by zero");
 
     // A good program leaves exactly one value behind and stops on HALT.
     var done: vm::machine::Step = vm::machine::run(vm::program::square(), false);

@@ -16,8 +16,8 @@ fun check_int(name: str, actual: int, expected: int): int = {
         case(true) { return 0; }
         * {
             std::io::echo_str("FAIL " + name
-            + ": expected " + std::fmt::int_to_str(expected)
-            + ", got " + std::fmt::int_to_str(actual));
+                + ": expected " + std::fmt::int_to_str(expected)
+                + ", got " + std::fmt::int_to_str(actual));
             return 1;
         }
     }
@@ -64,7 +64,7 @@ fun test_text(): int = {
 
     failures = failures + check_bool("token/exact", kit::text::token_member("home,work", "work"), true);
     failures = failures + check_bool("token/prefix-is-not-member",
-    kit::text::token_member("homework", "home"), false);
+        kit::text::token_member("homework", "home"), false);
     failures = failures + check_bool("token/empty-needle", kit::text::token_member("home", ""), false);
     failures = failures + check_bool("token/spaced", kit::text::token_member("home , work", "work"), true);
 
@@ -90,27 +90,27 @@ fun test_entry(): int = {
     failures = failures + check_str("decode/pipe-in-title", piped.title, "a|b");
 
     failures = failures + check_bool("decode/too-few-fields",
-    kit::entry::is_broken(kit::entry::decode("1|0|3|home")), true);
+        kit::entry::is_broken(kit::entry::decode("1|0|3|home")), true);
     failures = failures + check_bool("decode/bad-id",
-    kit::entry::is_broken(kit::entry::decode("x|0|3||t")), true);
+        kit::entry::is_broken(kit::entry::decode("x|0|3||t")), true);
     failures = failures + check_bool("decode/bad-state",
-    kit::entry::is_broken(kit::entry::decode("1|9|3||t")), true);
+        kit::entry::is_broken(kit::entry::decode("1|9|3||t")), true);
     failures = failures + check_bool("decode/bad-priority",
-    kit::entry::is_broken(kit::entry::decode("1|0|9||t")), true);
+        kit::entry::is_broken(kit::entry::decode("1|0|9||t")), true);
     failures = failures + check_bool("decode/blank", kit::entry::is_broken(kit::entry::decode("")), true);
 
     failures = failures + check_bool("move/todo->doing",
-    kit::entry::can_move(kit::entry::State.TODO, kit::entry::State.DOING), true);
+        kit::entry::can_move(kit::entry::State.TODO, kit::entry::State.DOING), true);
     failures = failures + check_bool("move/todo->done",
-    kit::entry::can_move(kit::entry::State.TODO, kit::entry::State.DONE), true);
+        kit::entry::can_move(kit::entry::State.TODO, kit::entry::State.DONE), true);
     failures = failures + check_bool("move/doing->done",
-    kit::entry::can_move(kit::entry::State.DOING, kit::entry::State.DONE), true);
+        kit::entry::can_move(kit::entry::State.DOING, kit::entry::State.DONE), true);
     failures = failures + check_bool("move/done->todo",
-    kit::entry::can_move(kit::entry::State.DONE, kit::entry::State.TODO), true);
+        kit::entry::can_move(kit::entry::State.DONE, kit::entry::State.TODO), true);
     failures = failures + check_bool("move/doing->todo",
-    kit::entry::can_move(kit::entry::State.DOING, kit::entry::State.TODO), false);
+        kit::entry::can_move(kit::entry::State.DOING, kit::entry::State.TODO), false);
     failures = failures + check_bool("move/same-state",
-    kit::entry::can_move(kit::entry::State.DONE, kit::entry::State.DONE), false);
+        kit::entry::can_move(kit::entry::State.DONE, kit::entry::State.DONE), false);
 
     failures = failures + check_bool("tag/hit", kit::entry::has_tag(one, "home"), true);
     failures = failures + check_bool("tag/miss", kit::entry::has_tag(one, "work"), false);
@@ -139,7 +139,7 @@ fun test_book(): int = {
     var noted: str = "# groceries\n" + doc;
     failures = failures + check_int("note/not-a-task", kit::book::count(noted), 3);
     failures = failures + check_bool("note/survives-drop",
-    kit::text::starts_with(kit::book::drop(noted, 1), "# groceries\n"), true);
+        kit::text::starts_with(kit::book::drop(noted, 1), "# groceries\n"), true);
 
     failures = failures + check_str("find/hit", kit::book::find(doc, 2).title, "ship release");
     failures = failures + check_bool("find/miss", kit::book::holds(doc, 9), false);
@@ -171,9 +171,9 @@ fun test_book(): int = {
     var damaged: str = doc + "this line is not a task\n";
     failures = failures + check_int("damaged/counted", kit::book::survey(damaged).damaged, 1);
     failures = failures + check_int("damaged/not-in-view",
-    kit::book::count(kit::book::filter(damaged, -1, "")), 3);
+        kit::book::count(kit::book::filter(damaged, -1, "")), 3);
     failures = failures + check_int("damaged/survives-drop",
-    kit::book::count(kit::book::drop(damaged, 1)), 3);
+        kit::book::count(kit::book::drop(damaged, 1)), 3);
     return failures;
 };
 
@@ -187,7 +187,7 @@ fun test_workflow(): int = {
     failures = failures + check_str("add/trims-title", kit::book::find(added.doc, 4).title, "write notes");
     failures = failures + check_int("add/bumps-counter", kit::book::counter(added.doc), 5);
     failures = failures + check_int("add/id-not-recycled",
-    kit::book::next_id(kit::book::drop(added.doc, 4)), 5);
+        kit::book::next_id(kit::book::drop(added.doc, 4)), 5);
 
     var bad_title: kit::Change = kit::add(doc, "a\nb", "", 3);
     failures = failures + check_int("add/newline-rejected", bad_title.verdict, kit::Verdict.REJECTED);

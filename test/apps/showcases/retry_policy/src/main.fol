@@ -170,7 +170,7 @@ fun[] main(): int = {
     show(report::schedule_text(squeezed, faults::refused()));
     show(report::schedule_text(noisy, faults::refused()));
     show("  a throttled peer dictates its own floor of "
-    + std::fmt::int_to_str(faults::retry_after(faults::throttled())) + "ms:\n");
+        + std::fmt::int_to_str(faults::retry_after(faults::throttled())) + "ms:\n");
     show(report::schedule_text(normal, faults::throttled()));
     show("\n");
 

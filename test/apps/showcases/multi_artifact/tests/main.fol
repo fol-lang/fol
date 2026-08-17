@@ -10,7 +10,7 @@ fun[hid] expect_int(label: str, actual: int, expected: int): int = {
         case(true) { return 0; }
         * {
             std::io::echo_str("FAIL " + label + ": expected "
-            + std::fmt::int_to_str(expected) + " got " + std::fmt::int_to_str(actual));
+                + std::fmt::int_to_str(expected) + " got " + std::fmt::int_to_str(actual));
             return 1;
         }
     }

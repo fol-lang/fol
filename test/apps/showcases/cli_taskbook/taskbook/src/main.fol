@@ -247,7 +247,7 @@ fun demo(): int = {
     std::io::write(view::table(home));
     failures = failures + judge("tag filter keeps one task", kit::book::count(home) == 1);
     failures = failures + judge("`home` does not match `homework`",
-    kit::book::count(kit::view(doc, -1, "homework")) == 0);
+        kit::book::count(kit::view(doc, -1, "homework")) == 0);
 
     std::io::write("\nstate of the book:\n");
     var totals: kit::book::Summary = kit::book::survey(doc);

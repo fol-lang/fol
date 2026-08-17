@@ -12,8 +12,8 @@ fun check_int(name: str, actual: int, expected: int): int = {
         case(true) { return 0; }
         * {
             std::io::echo_str("FAIL " + name
-            + ": expected " + std::fmt::int_to_str(expected)
-            + ", got " + std::fmt::int_to_str(actual));
+                + ": expected " + std::fmt::int_to_str(expected)
+                + ", got " + std::fmt::int_to_str(actual));
             return 1;
         }
     }
@@ -87,7 +87,7 @@ fun test_document_rules(): int = {
     failures = failures + check_bool("defines/absent", kit::defines(partial, "port"), false);
     failures = failures + check_int("setting_count", kit::setting_count(complete), 2);
     failures = failures + check_int("setting_count/comments",
-    kit::setting_count("# note\n\nhost = h\n"), 1);
+        kit::setting_count("# note\n\nhost = h\n"), 1);
 
     // `port` sits at slot 1 of the schema and is required.
     failures = failures + check_str("required/missing", kit::check_required(partial, 1).code, "C006");

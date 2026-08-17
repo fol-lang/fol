@@ -133,7 +133,7 @@ fun[exp] check_line(document: str, index: int): verdict::Finding = {
         case(true) { return verdict::note(number, "ok", key); }
         * {
             return verdict::error(number, "C005",
-            "`" + key + "` expects " + schema::kind_name(kind) + ", found `" + value + "`");
+                "`" + key + "` expects " + schema::kind_name(kind) + ", found `" + value + "`");
         }
     }
 };

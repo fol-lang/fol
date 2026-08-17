@@ -16,8 +16,8 @@ fun[] expect(name: str, actual: int, wanted: int): int = {
         }
     }
     std::io::write_err("FAIL  " + name + ": got "
-    + std::fmt::int_to_str(actual) + ", wanted "
-    + std::fmt::int_to_str(wanted) + "\n");
+        + std::fmt::int_to_str(actual) + ", wanted "
+        + std::fmt::int_to_str(wanted) + "\n");
     return 1;
 };
 

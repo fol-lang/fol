@@ -31,75 +31,75 @@ fun[exp] run_all(): int = {
 
     var to_feet: bridge::Reading = bridge::convert(1.0, metre, foot);
     bad = bad + note("1 m is 3.2808399 ft",
-    bridge::close_enough(to_feet.value, 3.280839895013123, 0.000000001));
+        bridge::close_enough(to_feet.value, 3.280839895013123, 0.000000001));
 
     // Twelve inches is one foot by definition; the two defining constants are
     // exact multiples, so this must land on 1.0 with no tolerance to spare.
     var to_foot: bridge::Reading = bridge::convert(12.0, inch, foot);
     bad = bad + note("12 in is exactly 1 ft",
-    bridge::close_enough(to_foot.value, 1.0, 0.000000000001));
+        bridge::close_enough(to_foot.value, 1.0, 0.000000000001));
 
     var to_pounds: bridge::Reading = bridge::convert(1.0, kilo, pound);
     bad = bad + note("1 kg is 2.2046226 lb",
-    bridge::close_enough(to_pounds.value, 2.2046226218487757, 0.000000001));
+        bridge::close_enough(to_pounds.value, 2.2046226218487757, 0.000000001));
 
     var boiling: bridge::Reading = bridge::convert(100.0, celsius, fahrenheit);
     bad = bad + note("100 degC is 212 degF",
-    bridge::close_enough(boiling.value, 212.0, 0.000000001));
+        bridge::close_enough(boiling.value, 212.0, 0.000000001));
 
     var shared: bridge::Reading = bridge::convert(0.0 - 40.0, celsius, fahrenheit);
     bad = bad + note("-40 degC is -40 degF",
-    bridge::close_enough(shared.value, 0.0 - 40.0, 0.000000001));
+        bridge::close_enough(shared.value, 0.0 - 40.0, 0.000000001));
 
     // The crossing is derived from factor_of/offset_of alone, so agreeing with
     // the known -40 proves both are recovered correctly from the contract.
     var meet: bridge::Reading = bridge::crossing(celsius, fahrenheit);
     bad = bad + note("celsius/fahrenheit meet at -40",
-    bridge::close_enough(meet.value, 0.0 - 40.0, 0.000000001));
+        bridge::close_enough(meet.value, 0.0 - 40.0, 0.000000001));
 
     bad = bad + note("fahrenheit factor is 5/9",
-    bridge::close_enough(bridge::factor_of(fahrenheit), 5.0 / 9.0, 0.000000001));
+        bridge::close_enough(bridge::factor_of(fahrenheit), 5.0 / 9.0, 0.000000001));
 
     bad = bad + note("celsius offset is 273.15",
-    bridge::close_enough(bridge::offset_of(celsius), 273.15, 0.000000001));
+        bridge::close_enough(bridge::offset_of(celsius), 273.15, 0.000000001));
 
     bad = bad + note("metre is not affine", bridge::is_affine(metre) == false);
     bad = bad + note("celsius is affine", bridge::is_affine(celsius));
 
     // Length units share a dimension with each other and with nothing else.
     bad = bad + note("metre and inch share a dimension",
-    bridge::same_dimension(metre, inch));
+        bridge::same_dimension(metre, inch));
     bad = bad + note("metre and minute do not",
-    bridge::same_dimension(metre, minute) == false);
+        bridge::same_dimension(metre, minute) == false);
 
     var refused: bridge::Reading = bridge::convert(1.0, metre, kilo);
     bad = bad + note("m -> kg is refused",
-    refused.fault == dim::Fault.MISMATCH);
+        refused.fault == dim::Fault.MISMATCH);
 
     // 100 K below absolute zero: the guard fires on the base value, so it
     // catches the impossible input whichever scale it was written in.
     var impossible: bridge::Reading = bridge::convert(0.0 - 300.0, celsius, kelvin);
     bad = bad + note("-300 degC is below absolute zero",
-    impossible.fault == dim::Fault.BELOW_ZERO);
+        impossible.fault == dim::Fault.BELOW_ZERO);
 
     // Going the long way must not move the answer.
     bad = bad + note("m -> in -> ft matches m -> ft",
-    bridge::chain_drift(2.5, metre, inch, foot) < 0.000000001);
+        bridge::chain_drift(2.5, metre, inch, foot) < 0.000000001);
 
     bad = bad + note("foot round trip is lossless",
-    bridge::round_trip_error(foot, 1234.5) < 0.000000001);
+        bridge::round_trip_error(foot, 1234.5) < 0.000000001);
 
     // Ordering across units, decided in base units.
     bad = bad + note("1 m is longer than 3 ft",
-    bridge::compare(1.0, metre, 3.0, foot) == 1);
+        bridge::compare(1.0, metre, 3.0, foot) == 1);
     bad = bad + note("100 degC equals 212 degF",
-    bridge::compare(100.0, celsius, 212.0, fahrenheit) == 0);
+        bridge::compare(100.0, celsius, 212.0, fahrenheit) == 0);
     bad = bad + note("1 min is shorter than 1 kg is meaningless",
-    bridge::compare(1.0, minute, 1.0, kilo) == 0 - 2);
+        bridge::compare(1.0, minute, 1.0, kilo) == 0 - 2);
 
     var hour_in_minutes: bridge::Reading = bridge::convert(3600.0, kelvin, kelvin);
     bad = bad + note("kelvin round trip is identity",
-    bridge::close_enough(hour_in_minutes.value, 3600.0, 0.0000000001));
+        bridge::close_enough(hour_in_minutes.value, 3600.0, 0.0000000001));
 
     return bad;
 };

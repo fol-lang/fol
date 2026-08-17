@@ -159,7 +159,7 @@ fun place(current: Command, slot: int, word: str): Command = {
 
 fun names_a_task(verb: str): bol = {
     return (verb == "start") or ((verb == "finish") or ((verb == "reopen")
-    or ((verb == "remove") or (verb == "prio"))));
+            or ((verb == "remove") or (verb == "prio"))));
 };
 
 fun[exp] wanted_positionals(verb: str): int = {
