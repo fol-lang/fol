@@ -5,9 +5,13 @@ Current boundary:
 - namespace access, receiver-qualified routine access, single-element container
   indexing (`c[i]`), map key access, and record field access are the current
   compiler surface
-- bounded forward slicing (`c[1:3]`, `c[:3]`, and `c[1:]`) is implemented for
-  `vec[...]` and `seq[...]`; fixed-size array slices still need an explicit
-  runtime-sized result type
+- bounded forward slicing (`c[1:3]`, `c[:3]`, `c[1:]`, and the whole-container
+  `c[:]`) is implemented for `vec[...]` and `seq[...]`; fixed-size array slices
+  still need an explicit runtime-sized result type
+- `c[:]` is a slice and stays distinct from `c[]`: the empty form is the
+  inner-place access, which a container rejects with "inner-place access '[]'
+  requires a pointer, 'opt[T]', or 'err[T]' receiver" (see
+  [pointers](../../800_memory/200_pointers.md))
 - single-element assignment (`c[i] = v`) is implemented for `arr[...]` and
   `vec[...]`; see the container chapter for which containers and bindings
   qualify

@@ -56,6 +56,23 @@ Bundle generation is the one public Tree-sitter command that invokes the
 external `tree-sitter` CLI. The checked-in parser used by ordinary inspection
 commands remains available without that executable.
 
+### Editing the grammar
+
+Two things about this loop surprise people, and both cost real time:
+
+1. **Rebuild before generating.** `grammar.js` is `include_str!`-embedded into the
+   binary, so `fol tool tree generate` regenerates from the grammar the *binary*
+   was built with — and writes that copy over `grammar.js` on disk. Editing the
+   file and generating without rebuilding first silently reverts the edit. The
+   order is: edit `grammar.js`, `cargo build`, then generate.
+2. **Use the wrapper, not the bare CLI.** `tree-sitter generate` run by hand
+   invokes `node`; where that resolves to Bun it fails to load `grammar.js` at
+   all. `fol tool tree generate` passes `--js-runtime native` and works.
+
+A generation failure prints the conflict tree-sitter could not resolve. Adding
+the named rule to the `conflicts` array is usually the fix — a conflict listing a
+single rule is written as `[$.that_rule]`, not as a pair.
+
 The intended consumer path is:
 
 - generate bundle
@@ -152,7 +169,7 @@ Corpus fixtures live in `tree-sitter/test/corpus/` and cover syntax families:
 | Corpus File | Covers |
 |-------------|--------|
 | `declarations.txt` | `use`, `ali`, `typ`, `fun`, `log`, `var` declarations |
-| `expressions.txt` | Intrinsic calls, `when`/`loop` control flow, `break`/`return` |
+| `expressions.txt` | Intrinsic calls, `when`/`loop` control flow, `break`/`return`, index and slice access |
 | `recoverable.txt` | Error propagation (`/`), `report`, pipe-or (`\|\|`) |
 | `v3_ownership.txt` | owned allocation, borrow options, `~var`, and give-back |
 | `v3_pointers.txt` | nested `ptr[...]` / `chn[...]` types, `@` types, address-of, and dereference |
