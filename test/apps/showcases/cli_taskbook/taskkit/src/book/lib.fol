@@ -1,8 +1,10 @@
 // The whole document: a task store held as one newline separated string.
 //
-// Every mutation returns a *new* document instead of editing one in place.
-// That is not a style choice — there is no growable container to hold the rows
-// in, so the text itself is the data structure.
+// Every mutation returns a *new* document instead of editing one in place, and
+// the text itself is the data structure. A `vec[Row]` would hold the rows, but the
+// store is a file that round-trips verbatim: keeping the text authoritative is
+// what preserves the user's own `#` notes, blank lines and their order through a
+// mutation that never looked at them.
 //
 // A store holds three kinds of line: task rows, `#` lines, and blanks. Only
 // task rows are addressable. `#` lines are copied through every mutation

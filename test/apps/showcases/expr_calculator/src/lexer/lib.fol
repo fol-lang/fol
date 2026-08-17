@@ -1,8 +1,9 @@
 // The scanner.
 //
-// There is no growable container in the current surface, so tokens are not
-// collected into a list: `at(text, from)` produces exactly one token and the
-// offset to resume from. The parser pulls tokens on demand.
+// Tokens are pulled on demand rather than collected: `at(text, from)` produces
+// exactly one token and the offset to resume from. A `vec[Token]` would hold the
+// whole run (`push` grows one), but a recursive-descent parser never needs to look
+// back, so nothing is stored that is not being used.
 
 use std: pkg = {"std"};
 use token: loc = {"../token"};
