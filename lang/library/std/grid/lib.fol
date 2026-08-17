@@ -4,17 +4,9 @@
 // coordinate pair, so the addressing is explicit: every routine takes the width
 // alongside the data. That is the honest shape rather than pretending there is
 // a grid type.
-
-fun[exp] make(width: int, height: int, fill: int): vec[int] = {
-    var[mut] out: vec[int] = {};
-    var[mut] i: int = 0;
-    var total: int = width * height;
-    loop (i < total) {
-        out.push(fill);
-        i = i + 1;
-    };
-    return out;
-};
+//
+// Generic over the cell type. `offset` and `in_bounds` are pure index
+// arithmetic and carry no element type at all.
 
 fun[exp] offset(width: int, row: int, col: int): int = {
     return row * width + col;
@@ -24,24 +16,35 @@ fun[exp] in_bounds(width: int, height: int, row: int, col: int): bol = {
     return row >= 0 and col >= 0 and row < height and col < width;
 };
 
+fun[exp] make(T: clone)(width: int, height: int, fill: T): vec[T] = {
+    var[mut] out: vec[T] = {};
+    var[mut] i: int = 0;
+    var total: int = width * height;
+    loop (i < total) {
+        out.push([cln]fill);
+        i = i + 1;
+    };
+    return out;
+};
+
 // Out of bounds reads the fallback rather than faulting: grid neighbourhood
 // scans routinely step off the edge, and a fault would make every caller
 // bounds-check first.
-fun[exp] cell(cells: vec[int], width: int, row: int, col: int, fallback: int): int = {
+fun[exp] cell(T: clone)(cells: vec[T], width: int, row: int, col: int, fallback: T): T = {
     if (row < 0 or col < 0 or col >= width) {
-        return fallback;
+        return [cln]fallback;
     } else {
     };
     var spot: int = offset(width, row, col);
     if (spot >= .len(cells)) {
-        return fallback;
+        return [cln]fallback;
     } else {
     };
-    return cells[spot];
+    return [cln]cells[spot];
 };
 
-fun[exp] put(cells: vec[int], width: int, row: int, col: int, value: int): vec[int] = {
-    var[mut] out: vec[int] = [mov]cells;
+fun[exp] put(T: clone)(cells: vec[T], width: int, row: int, col: int, value: T): vec[T] = {
+    var[mut] out: vec[T] = [mov]cells;
     if (row < 0 or col < 0 or col >= width) {
         return out;
     } else {
@@ -51,25 +54,26 @@ fun[exp] put(cells: vec[int], width: int, row: int, col: int, value: int): vec[i
         return out;
     } else {
     };
-    out[spot] = value;
+    out[spot] = [cln]value;
     return out;
 };
 
-fun[exp] row_of(cells: vec[int], width: int, row: int): vec[int] = {
-    var[mut] out: vec[int] = {};
+// Takes a fallback because a generic cell type has no zero to default to.
+fun[exp] row_of(T: clone)(cells: vec[T], width: int, row: int, fallback: T): vec[T] = {
+    var[mut] out: vec[T] = {};
     var[mut] col: int = 0;
     loop (col < width) {
-        out.push(cell(cells, width, row, col, 0));
+        out.push(cell(cells, width, row, col, [cln]fallback));
         col = col + 1;
     };
     return out;
 };
 
-fun[exp] column_of(cells: vec[int], width: int, height: int, col: int): vec[int] = {
-    var[mut] out: vec[int] = {};
+fun[exp] column_of(T: clone)(cells: vec[T], width: int, height: int, col: int, fallback: T): vec[T] = {
+    var[mut] out: vec[T] = {};
     var[mut] row: int = 0;
     loop (row < height) {
-        out.push(cell(cells, width, row, col, 0));
+        out.push(cell(cells, width, row, col, [cln]fallback));
         row = row + 1;
     };
     return out;
@@ -77,15 +81,15 @@ fun[exp] column_of(cells: vec[int], width: int, height: int, col: int): vec[int]
 
 // The eight surrounding cells, in row-major order, missing ones read as
 // `fallback`. This is the shape every cellular-automaton and flood-fill wants.
-fun[exp] neighbours(cells: vec[int], width: int, row: int, col: int, fallback: int): vec[int] = {
-    var[mut] out: vec[int] = {};
+fun[exp] neighbours(T: clone)(cells: vec[T], width: int, row: int, col: int, fallback: T): vec[T] = {
+    var[mut] out: vec[T] = {};
     var[mut] dr: int = 0 - 1;
     loop (dr <= 1) {
         var[mut] dc: int = 0 - 1;
         loop (dc <= 1) {
             if (dr == 0 and dc == 0) {
             } else {
-                out.push(cell(cells, width, row + dr, col + dc, fallback));
+                out.push(cell(cells, width, row + dr, col + dc, [cln]fallback));
             };
             dc = dc + 1;
         };

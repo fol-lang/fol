@@ -94,15 +94,15 @@ fun[exp] decoder(): Decoder = {
 };
 
 fun[exp] feed(state: Decoder, chunk: vec[int]): Decoder = {
-    var pending: vec[int] = vecs::concat_int(state.carry, chunk);
+    var pending: vec[int] = vecs::concat(state.carry, chunk);
     var ready: int = .utf8_prefix_len(pending);
     var total: int = .len(pending);
     // A zero-length prefix on a non-empty buffer is either a genuinely
     // malformed byte or a sequence still arriving; holding it is correct for
     // the second and harmless for the first, which `.str_from_bytes` then
     // reports as empty at the end.
-    var decoded: str = .str_from_bytes(vecs::slice_int(pending, 0, ready));
-    var rest: vec[int] = vecs::slice_int(pending, ready, total - ready);
+    var decoded: str = .str_from_bytes(vecs::slice(pending, 0, ready));
+    var rest: vec[int] = vecs::slice(pending, ready, total - ready);
     return { carry = rest, text = decoded };
 };
 

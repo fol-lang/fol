@@ -1,55 +1,28 @@
-// Eager adapters over vectors, written in FOL with routine-typed parameters.
+// Eager adapters over vectors, written in FOL with routine-value parameters.
 //
-// Eager, not lazy, and deliberately: a lazy adapter needs a protocol — a type
-// that carries "how to get the next element" — and FOL has no trait or
-// interface surface to declare one. Every routine here therefore builds and
-// returns a whole new vector.
+// Eager means each one returns a complete vector, so a chain allocates at every
+// step. There is no lazy iterator protocol; for a hot loop, write the loop.
 //
-// Spelled per element type for the same reason `std::vecs` is: a generic `T` is
-// conservatively move-only, so indexing one inside a generic routine is refused
-// (O1001). Note that a routine type must name its parameters —
-// `{fun (value: int): int}`, not `{fun (int): int}`.
+// Generic over the element type, and over the result type where the adapter
+// changes it. `clone` is the only bound most of them need — the predicate or
+// step decides everything else.
 
-fun[exp] map_int(values: vec[int], step: {fun (value: int): int}): vec[int] = {
-    var[mut] out: vec[int] = {};
+fun[exp] map_to(T: clone, U: clone)(values: vec[T], step: {fun (value: T): U}): vec[U] = {
+    var[mut] out: vec[U] = {};
     var[mut] i: int = 0;
-    var total: int = .len(values);
-    loop (i < total) {
-        out.push(step(values[i]));
+    loop (i < .len(values)) {
+        out.push(step([cln]values[i]));
         i = i + 1;
     };
     return out;
 };
 
-fun[exp] map_int_to_str(values: vec[int], step: {fun (value: int): str}): vec[str] = {
-    var[mut] out: vec[str] = {};
+fun[exp] filter(T: clone)(values: vec[T], keep: {fun (value: T): bol}): vec[T] = {
+    var[mut] out: vec[T] = {};
     var[mut] i: int = 0;
-    var total: int = .len(values);
-    loop (i < total) {
-        out.push(step(values[i]));
-        i = i + 1;
-    };
-    return out;
-};
-
-fun[exp] map_str(values: vec[str], step: {fun (value: str): str}): vec[str] = {
-    var[mut] out: vec[str] = {};
-    var[mut] i: int = 0;
-    var total: int = .len(values);
-    loop (i < total) {
-        out.push(step(values[i]));
-        i = i + 1;
-    };
-    return out;
-};
-
-fun[exp] filter_int(values: vec[int], keep: {fun (value: int): bol}): vec[int] = {
-    var[mut] out: vec[int] = {};
-    var[mut] i: int = 0;
-    var total: int = .len(values);
-    loop (i < total) {
-        if (keep(values[i])) {
-            out.push(values[i]);
+    loop (i < .len(values)) {
+        if (keep([cln]values[i])) {
+            out.push([cln]values[i]);
         } else {
         };
         i = i + 1;
@@ -57,40 +30,26 @@ fun[exp] filter_int(values: vec[int], keep: {fun (value: int): bol}): vec[int] =
     return out;
 };
 
-fun[exp] filter_str(values: vec[str], keep: {fun (value: str): bol}): vec[str] = {
-    var[mut] out: vec[str] = {};
+// The accumulator is its own parameter, so a fold may change the type: summing
+// to an `int`, or joining to a `str`.
+fun[exp] fold(T: clone, A: clone)(
+    values: vec[T],
+    start: A,
+    step: {fun (carried: A, value: T): A},
+): A = {
+    var[mut] carried: A = [cln]start;
     var[mut] i: int = 0;
-    var total: int = .len(values);
-    loop (i < total) {
-        if (keep(values[i])) {
-            out.push(values[i]);
-        } else {
-        };
-        i = i + 1;
-    };
-    return out;
-};
-
-fun[exp] fold_int(
-    values: vec[int],
-    start: int,
-    step: {fun (carried: int, value: int): int},
-): int = {
-    var[mut] carried: int = start;
-    var[mut] i: int = 0;
-    var total: int = .len(values);
-    loop (i < total) {
-        carried = step(carried, values[i]);
+    loop (i < .len(values)) {
+        carried = step([cln]carried, [cln]values[i]);
         i = i + 1;
     };
     return carried;
 };
 
-fun[exp] any_int(values: vec[int], test: {fun (value: int): bol}): bol = {
+fun[exp] any(T: clone)(values: vec[T], test: {fun (value: T): bol}): bol = {
     var[mut] i: int = 0;
-    var total: int = .len(values);
-    loop (i < total) {
-        if (test(values[i])) {
+    loop (i < .len(values)) {
+        if (test([cln]values[i])) {
             return true;
         } else {
         };
@@ -99,11 +58,10 @@ fun[exp] any_int(values: vec[int], test: {fun (value: int): bol}): bol = {
     return false;
 };
 
-fun[exp] all_int(values: vec[int], test: {fun (value: int): bol}): bol = {
+fun[exp] all(T: clone)(values: vec[T], test: {fun (value: T): bol}): bol = {
     var[mut] i: int = 0;
-    var total: int = .len(values);
-    loop (i < total) {
-        if (test(values[i])) {
+    loop (i < .len(values)) {
+        if (test([cln]values[i])) {
         } else {
             return false;
         };
@@ -112,13 +70,11 @@ fun[exp] all_int(values: vec[int], test: {fun (value: int): bol}): bol = {
     return true;
 };
 
-// The POSITION of the first match, or -1. Returning the value itself would be
-// ambiguous for a vector that legitimately holds the sentinel.
-fun[exp] position_int(values: vec[int], test: {fun (value: int): bol}): int = {
+// -1 when nothing matches, matching `vecs::index_of`.
+fun[exp] position(T: clone)(values: vec[T], test: {fun (value: T): bol}): int = {
     var[mut] i: int = 0;
-    var total: int = .len(values);
-    loop (i < total) {
-        if (test(values[i])) {
+    loop (i < .len(values)) {
+        if (test([cln]values[i])) {
             return i;
         } else {
         };
@@ -127,38 +83,35 @@ fun[exp] position_int(values: vec[int], test: {fun (value: int): bol}): int = {
     return 0 - 1;
 };
 
-fun[exp] count_if_int(values: vec[int], test: {fun (value: int): bol}): int = {
-    var[mut] found: int = 0;
+fun[exp] count_if(T: clone)(values: vec[T], test: {fun (value: T): bol}): int = {
+    var[mut] total: int = 0;
     var[mut] i: int = 0;
-    var total: int = .len(values);
-    loop (i < total) {
-        if (test(values[i])) {
-            found = found + 1;
+    loop (i < .len(values)) {
+        if (test([cln]values[i])) {
+            total = total + 1;
         } else {
         };
         i = i + 1;
     };
-    return found;
+    return total;
 };
 
-fun[exp] take_int(values: vec[int], count: int): vec[int] = {
-    var[mut] out: vec[int] = {};
+fun[exp] take(T: clone)(values: vec[T], count: int): vec[T] = {
+    var[mut] out: vec[T] = {};
     var[mut] i: int = 0;
-    var total: int = .len(values);
-    loop (i < count and i < total) {
-        out.push(values[i]);
+    loop (i < count and i < .len(values)) {
+        out.push([cln]values[i]);
         i = i + 1;
     };
     return out;
 };
 
-fun[exp] skip_int(values: vec[int], count: int): vec[int] = {
-    var[mut] out: vec[int] = {};
+fun[exp] skip(T: clone)(values: vec[T], count: int): vec[T] = {
+    var[mut] out: vec[T] = {};
     var[mut] i: int = count;
-    var total: int = .len(values);
-    loop (i < total) {
+    loop (i < .len(values)) {
         if (i >= 0) {
-            out.push(values[i]);
+            out.push([cln]values[i]);
         } else {
         };
         i = i + 1;
@@ -166,43 +119,47 @@ fun[exp] skip_int(values: vec[int], count: int): vec[int] = {
     return out;
 };
 
-fun[exp] take_while_int(values: vec[int], test: {fun (value: int): bol}): vec[int] = {
-    var[mut] out: vec[int] = {};
+// Stops at the first element that fails, unlike `filter`, which tests them all.
+fun[exp] take_while(T: clone)(values: vec[T], test: {fun (value: T): bol}): vec[T] = {
+    var[mut] out: vec[T] = {};
     var[mut] i: int = 0;
-    var total: int = .len(values);
-    loop (i < total) {
-        if (test(values[i])) {
-            out.push(values[i]);
+    loop (i < .len(values)) {
+        if (test([cln]values[i])) {
+            out.push([cln]values[i]);
+            i = i + 1;
         } else {
             return out;
         };
-        i = i + 1;
     };
     return out;
 };
 
-fun[exp] skip_while_int(values: vec[int], test: {fun (value: int): bol}): vec[int] = {
-    var[mut] out: vec[int] = {};
+fun[exp] skip_while(T: clone)(values: vec[T], test: {fun (value: T): bol}): vec[T] = {
+    var[mut] out: vec[T] = {};
     var[mut] i: int = 0;
-    var total: int = .len(values);
-    loop (i < total and test(values[i])) {
-        i = i + 1;
-    };
-    loop (i < total) {
-        out.push(values[i]);
+    var[mut] dropping: bol = true;
+    loop (i < .len(values)) {
+        if (dropping) {
+            if (test([cln]values[i])) {
+            } else {
+                dropping = false;
+                out.push([cln]values[i]);
+            };
+        } else {
+            out.push([cln]values[i]);
+        };
         i = i + 1;
     };
     return out;
 };
 
-// Element-wise sum of two vectors, stopping at the shorter one. This is `zip`
-// with the pairing already consumed: FOL has no tuple value to hand back.
+// Integers specifically: adding needs a numeric bound, which FOL does not have.
+// For any other element type, pair the vectors with `fold` and supply the
+// combining step yourself.
 fun[exp] zip_add_int(left: vec[int], right: vec[int]): vec[int] = {
     var[mut] out: vec[int] = {};
     var[mut] i: int = 0;
-    var stop: int = .len(left);
-    var other: int = .len(right);
-    loop (i < stop and i < other) {
+    loop (i < .len(left) and i < .len(right)) {
         out.push(left[i] + right[i]);
         i = i + 1;
     };

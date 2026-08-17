@@ -1,12 +1,17 @@
 // Ordering and search over vectors, written in FOL over indexed reads, indexed
-// writes and `.len`. Nothing here reaches an intrinsic.
+// writes and `.len`.
 //
-// Capability bounds make these generic: `ord` promises a total order, `clone`
-// promises the element duplicates safely, and each call site re-checks the
-// actual type. The `_int`/`_str` names are kept as thin forwarders so existing
-// callers do not move.
+// These are generic over the element type. Two bounds carry the module: `clone`,
+// because a pure routine has to copy elements out of its argument rather than
+// move them, and `ord`, which promises a total order and therefore also decides
+// equality.
+//
+// A name that still ends in `_int` or `_flt` is one that genuinely cannot be
+// generic. FOL has no numeric capability bound, so `+` is unavailable on a `T`;
+// and `ord` means a TOTAL order, which `flt` does not have. The suffix marks a
+// real restriction rather than work not yet done.
 
-// Delegates to the native sort. The FOL insertion sort this replaces was
+// Delegates to the native sort. The FOL insertion sort this replaced was
 // O(n-squared), and every routine built on it inherited that.
 fun[exp] sort(T: ord + clone)(values: vec[T]): vec[T] = {
     var[mut] out: vec[T] = [mov]values;
@@ -14,39 +19,30 @@ fun[exp] sort(T: ord + clone)(values: vec[T]): vec[T] = {
     return out;
 };
 
-fun[exp] sort_int(values: vec[int]): vec[int] = {
-    return sort([mov]values);
-};
-
-fun[exp] sort_str(values: vec[str]): vec[str] = {
-    return sort([mov]values);
-};
-
-// Floats cannot go through `sort`: the `ord` bound promises a TOTAL order and
+// Floats cannot go through `sort`: the `ord` bound promises a total order and
 // `flt` has none, because NaN compares equal to nothing. The container method
-// needs only a partial order, which `flt` does have, so this sorts directly
-// instead of delegating. NaN is treated as equal to its neighbours, which keeps
-// the sort total and terminating rather than correct about NaN.
+// needs only a partial order, which `flt` does have, so this sorts directly.
+// NaN is treated as equal to its neighbours, which keeps the sort total and
+// terminating rather than correct about NaN.
 fun[exp] sort_flt(values: vec[flt]): vec[flt] = {
     var[mut] out: vec[flt] = [mov]values;
     out.sort();
     return out;
 };
 
-fun[exp] reverse_int(values: vec[int]): vec[int] = {
-    var[mut] out: vec[int] = {};
+fun[exp] reverse(T: clone)(values: vec[T]): vec[T] = {
+    var[mut] out: vec[T] = {};
     var[mut] i: int = .len(values) - 1;
     loop (i >= 0) {
-        out.push(values[i]);
+        out.push([cln]values[i]);
         i = i - 1;
     };
     return out;
 };
 
-fun[exp] is_sorted_int(values: vec[int]): bol = {
+fun[exp] is_sorted(T: ord + clone)(values: vec[T]): bol = {
     var[mut] i: int = 1;
-    var total: int = .len(values);
-    loop (i < total) {
+    loop (i < .len(values)) {
         if (values[i - 1] > values[i]) {
             return false;
         } else {
@@ -56,10 +52,10 @@ fun[exp] is_sorted_int(values: vec[int]): bol = {
     return true;
 };
 
-fun[exp] index_of_int(values: vec[int], needle: int): int = {
+// Linear scan, so it works on any vector; -1 when absent.
+fun[exp] index_of(T: ord + clone)(values: vec[T], needle: T): int = {
     var[mut] i: int = 0;
-    var total: int = .len(values);
-    loop (i < total) {
+    loop (i < .len(values)) {
         if (values[i] == needle) {
             return i;
         } else {
@@ -69,21 +65,20 @@ fun[exp] index_of_int(values: vec[int], needle: int): int = {
     return 0 - 1;
 };
 
-fun[exp] contains_int(values: vec[int], needle: int): bol = {
-    return index_of_int(values, needle) >= 0;
+fun[exp] contains(T: ord + clone)(values: vec[T], needle: T): bol = {
+    return index_of(values, [cln]needle) >= 0;
 };
 
-// Halving search over an already-sorted vector; -1 when the value is absent.
-fun[exp] binary_search_int(values: vec[int], needle: int): int = {
+// Halving search, so it requires a sorted input; `is_sorted` can confirm one.
+fun[exp] binary_search(T: ord + clone)(values: vec[T], needle: T): int = {
     var[mut] low: int = 0;
     var[mut] high: int = .len(values) - 1;
     loop (low <= high) {
         var mid: int = low + (high - low) / 2;
-        var seen: int = values[mid];
-        if (seen == needle) {
+        if (values[mid] == needle) {
             return mid;
         } else {
-            if (seen < needle) {
+            if (values[mid] < needle) {
                 low = mid + 1;
             } else {
                 high = mid - 1;
@@ -93,17 +88,17 @@ fun[exp] binary_search_int(values: vec[int], needle: int): int = {
     return 0 - 1;
 };
 
-fun[exp] min_int(values: vec[int], fallback: int): int = {
-    var total: int = .len(values);
-    if (total == 0) {
-        return fallback;
+// The fallback is an argument because an empty vector has no smallest element.
+fun[exp] min_of(T: ord + clone)(values: vec[T], fallback: T): T = {
+    if (.len(values) == 0) {
+        return [cln]fallback;
     } else {
     };
-    var[mut] best: int = values[0];
+    var[mut] best: T = [cln]values[0];
     var[mut] i: int = 1;
-    loop (i < total) {
+    loop (i < .len(values)) {
         if (values[i] < best) {
-            best = values[i];
+            best = [cln]values[i];
         } else {
         };
         i = i + 1;
@@ -111,17 +106,16 @@ fun[exp] min_int(values: vec[int], fallback: int): int = {
     return best;
 };
 
-fun[exp] max_int(values: vec[int], fallback: int): int = {
-    var total: int = .len(values);
-    if (total == 0) {
-        return fallback;
+fun[exp] max_of(T: ord + clone)(values: vec[T], fallback: T): T = {
+    if (.len(values) == 0) {
+        return [cln]fallback;
     } else {
     };
-    var[mut] best: int = values[0];
+    var[mut] best: T = [cln]values[0];
     var[mut] i: int = 1;
-    loop (i < total) {
+    loop (i < .len(values)) {
         if (values[i] > best) {
-            best = values[i];
+            best = [cln]values[i];
         } else {
         };
         i = i + 1;
@@ -129,79 +123,83 @@ fun[exp] max_int(values: vec[int], fallback: int): int = {
     return best;
 };
 
+fun[exp] fill(T: clone)(count: int, value: T): vec[T] = {
+    var[mut] out: vec[T] = {};
+    var[mut] i: int = 0;
+    loop (i < count) {
+        out.push([cln]value);
+        i = i + 1;
+    };
+    return out;
+};
+
+// Clamps rather than faulting: a start past the end yields an empty vector.
+fun[exp] slice(T: clone)(values: vec[T], start: int, count: int): vec[T] = {
+    var[mut] out: vec[T] = {};
+    var total: int = .len(values);
+    var[mut] i: int = start;
+    var stop: int = start + count;
+    loop (i < stop and i < total) {
+        if (i >= 0) {
+            out.push([cln]values[i]);
+        } else {
+        };
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[exp] concat(T: clone)(left: vec[T], right: vec[T]): vec[T] = {
+    var[mut] out: vec[T] = {};
+    var[mut] i: int = 0;
+    loop (i < .len(left)) {
+        out.push([cln]left[i]);
+        i = i + 1;
+    };
+    var[mut] j: int = 0;
+    loop (j < .len(right)) {
+        out.push([cln]right[j]);
+        j = j + 1;
+    };
+    return out;
+};
+
+// Requires a sorted input, which is what makes one pass enough.
+fun[exp] dedup_sorted(T: ord + clone)(values: vec[T]): vec[T] = {
+    var[mut] out: vec[T] = {};
+    var[mut] i: int = 0;
+    loop (i < .len(values)) {
+        if (i == 0) {
+            out.push([cln]values[i]);
+        } else {
+            if (values[i] == values[i - 1]) {
+            } else {
+                out.push([cln]values[i]);
+            };
+        };
+        i = i + 1;
+    };
+    return out;
+};
+
+// Integers specifically: `+` needs a numeric bound, which FOL does not have.
 fun[exp] sum_int(values: vec[int]): int = {
     var[mut] total: int = 0;
     var[mut] i: int = 0;
-    var count: int = .len(values);
-    loop (i < count) {
+    loop (i < .len(values)) {
         total = total + values[i];
         i = i + 1;
     };
     return total;
 };
 
-fun[exp] fill_int(count: int, value: int): vec[int] = {
-    var[mut] out: vec[int] = {};
-    var[mut] i: int = 0;
-    loop (i < count) {
-        out.push(value);
-        i = i + 1;
-    };
-    return out;
-};
-
-// Half-open, like the slice bounds elsewhere: `range_int(0, 3)` is 0, 1, 2.
+// Half-open, and integers by nature: it generates the values rather than
+// copying them out of an argument.
 fun[exp] range_int(start: int, stop: int): vec[int] = {
     var[mut] out: vec[int] = {};
     var[mut] i: int = start;
     loop (i < stop) {
         out.push(i);
-        i = i + 1;
-    };
-    return out;
-};
-
-fun[exp] slice_int(values: vec[int], start: int, count: int): vec[int] = {
-    var[mut] out: vec[int] = {};
-    var total: int = .len(values);
-    var[mut] i: int = start;
-    var stop: int = start + count;
-    loop (i < stop and i < total) {
-        if (i >= 0) {
-            out.push(values[i]);
-        } else {
-        };
-        i = i + 1;
-    };
-    return out;
-};
-
-fun[exp] concat_int(left: vec[int], right: vec[int]): vec[int] = {
-    var[mut] out: vec[int] = {};
-    var[mut] i: int = 0;
-    var first: int = .len(left);
-    loop (i < first) {
-        out.push(left[i]);
-        i = i + 1;
-    };
-    var[mut] j: int = 0;
-    var second: int = .len(right);
-    loop (j < second) {
-        out.push(right[j]);
-        j = j + 1;
-    };
-    return out;
-};
-
-fun[exp] dedup_sorted_int(values: vec[int]): vec[int] = {
-    var[mut] out: vec[int] = {};
-    var[mut] i: int = 0;
-    var total: int = .len(values);
-    loop (i < total) {
-        if (i == 0 or values[i] != values[i - 1]) {
-            out.push(values[i]);
-        } else {
-        };
         i = i + 1;
     };
     return out;

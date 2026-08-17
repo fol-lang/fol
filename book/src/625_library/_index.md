@@ -56,42 +56,59 @@ var larger: vec[int] = std::sets::insert_int(members, 9);
 state across calls — the random generator is the clearest case — it returns a
 record pairing the new state with the value.
 
-### `_int` and `_str` suffixes
+### Container routines are generic, and two bounds carry them
 
-Most container routines are spelled per element type: `sort_int`, `sort_str`,
-`contains_int`. This is not a style choice, and it is not laziness either — it
-is forced.
-
-**A generic routine cannot be called across a package boundary.** Imported
-signatures are translated without their generic parameter list, so the call
-would type as a bare `T`; the compiler stops it with a clear message rather
-than a baffling mismatch:
-
-```text
-imported routine 'sort' is generic; cross-package generic instantiation is
-not supported yet — export a non-generic wrapper and call that instead
-```
-
-`std` is a package, and every program that uses it is a different one. So the
-exported surface has to be concrete, whatever the implementation does
-underneath. `std::vecs` is written the way that advice suggests:
+`std::vecs`, `std::sets`, `std::iter`, `std::heap`, and `std::grid` are generic
+over their element type:
 
 ```fol
-fun[exp] sort(T: ord + clone)(values: vec[T]): vec[T] = { … };
-fun[exp] sort_int(values: vec[int]): vec[int] = { return sort([mov]values); };
-fun[exp] sort_str(values: vec[str]): vec[str] = { return sort([mov]values); };
+var numbers: vec[int] = std::vecs::sort(measurements);
+var names: vec[str] = std::vecs::sort(labels);
+var places: vec[Point] = std::vecs::sort(waypoints);
 ```
 
-One generic body, thin concrete forwarders. **Call the suffixed names** — the
-generic `sort` is reachable only from inside `std` itself.
+Two capability bounds do most of the work:
 
-Within a single package the restriction does not apply, so your own generic
-routines over `vec[T]` work normally, including comparing elements when the
-parameter is bound by `ord`.
+- **`clone`**, because a pure routine has to copy elements out of its argument
+  rather than move them — so the argument is still usable afterwards
+- **`ord`**, wherever elements are compared. It promises a *total* order, and a
+  total order also decides equality, so `contains` and `dedup_sorted` need
+  nothing more
 
-A few routines are int-specific for a different and permanent reason: FOL has
-no numeric capability bound, so `+` is unavailable on a `T`. `sum_int` and
-`zip_add_int` could not be generic even if the boundary were lifted.
+A bound is checked against the actual type at every call, including across a
+package boundary. Passing a type that cannot satisfy one is an ordinary type
+error, not a failure further down the pipeline.
+
+### A remaining `_int` or `_flt` suffix means a real restriction
+
+A few names keep a type in them, and each has a reason that will not go away
+soon:
+
+- `vecs::sum_int` and `iter::zip_add_int` add elements together, and FOL has no
+  **numeric** capability bound, so `+` is unavailable on a `T`. For any other
+  element type, use `iter::fold` and supply the combining step yourself
+- `vecs::range_int` generates integers rather than copying them out of an
+  argument, so there is nothing to be generic over
+- `vecs::sort_flt` exists because `ord` promises a *total* order and `flt` has
+  none — NaN compares equal to nothing. The container method behind it needs
+  only a partial order, which `flt` does have
+
+So the suffix now marks a genuine restriction. It is not a placeholder for work
+still to be done.
+
+### Passing a literal to a generic routine
+
+A bare container literal has no type of its own to infer from, and against a
+generic parameter it comes out as an array rather than a vector:
+
+```fol
+// rejected: the literal types as `[int]`, not `vec[int]`
+var sorted: vec[int] = std::vecs::sort({3, 1, 2});
+
+// bind it first
+var values: vec[int] = {3, 1, 2};
+var sorted: vec[int] = std::vecs::sort(values);
+```
 
 ### A "set" here is a sorted vector
 

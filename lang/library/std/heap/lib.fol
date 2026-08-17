@@ -4,23 +4,26 @@
 // The heap is the only one of the three that needs real code: a stack is
 // `push`/`pop`, and a queue is `push`/`remove_at(0)`. They are named here anyway
 // so a caller reaches for a queue by name instead of rediscovering the idiom.
+//
+// Generic over the element type. The heap needs `ord` because it compares;
+// the stack and queue only need `clone`.
 
-fun[exp] stack_push(values: vec[int], value: int): vec[int] = {
-    var[mut] out: vec[int] = [mov]values;
-    out.push(value);
+fun[exp] stack_push(T: clone)(values: vec[T], value: T): vec[T] = {
+    var[mut] out: vec[T] = [mov]values;
+    out.push([cln]value);
     return out;
 };
 
-fun[exp] queue_push(values: vec[int], value: int): vec[int] = {
-    var[mut] out: vec[int] = [mov]values;
-    out.push(value);
+fun[exp] queue_push(T: clone)(values: vec[T], value: T): vec[T] = {
+    var[mut] out: vec[T] = [mov]values;
+    out.push([cln]value);
     return out;
 };
 
 // Removing the front is O(n) because the tail shifts down. For a hot queue,
 // hold a read index into a growing vector instead.
-fun[exp] queue_pop(values: vec[int]): vec[int] = {
-    var[mut] out: vec[int] = [mov]values;
+fun[exp] queue_pop(T: clone)(values: vec[T]): vec[T] = {
+    var[mut] out: vec[T] = [mov]values;
     if (.len(out) == 0) {
         return out;
     } else {
@@ -29,17 +32,19 @@ fun[exp] queue_pop(values: vec[int]): vec[int] = {
     return out;
 };
 
-fun[exp] queue_front(values: vec[int], fallback: int): int = {
+fun[exp] queue_front(T: clone)(values: vec[T], fallback: T): T = {
     if (.len(values) == 0) {
-        return fallback;
+        return [cln]fallback;
     } else {
     };
-    return values[0];
+    return [cln]values[0];
 };
 
-fun[exp] heap_push(values: vec[int], value: int): vec[int] = {
-    var[mut] out: vec[int] = [mov]values;
-    out.push(value);
+// Sifts the new element up by swapping, which keeps the element moves inside
+// the container rather than routing values back through FOL.
+fun[exp] heap_push(T: ord + clone)(values: vec[T], value: T): vec[T] = {
+    var[mut] out: vec[T] = [mov]values;
+    out.push([cln]value);
     var[mut] child: int = .len(out) - 1;
     loop (child > 0) {
         var parent: int = (child - 1) / 2;
@@ -47,25 +52,24 @@ fun[exp] heap_push(values: vec[int], value: int): vec[int] = {
             return out;
         } else {
         };
-        var hold: int = out[parent];
-        out[parent] = out[child];
-        out[child] = hold;
+        out.swap(parent, child);
         child = parent;
     };
     return out;
 };
 
-fun[exp] heap_peek(values: vec[int], fallback: int): int = {
+// The smallest element, since this is a MIN-heap.
+fun[exp] heap_peek(T: ord + clone)(values: vec[T], fallback: T): T = {
     if (.len(values) == 0) {
-        return fallback;
+        return [cln]fallback;
     } else {
     };
-    return values[0];
+    return [cln]values[0];
 };
 
 // Drop the smallest element: move the last element to the root and sift it down.
-fun[exp] heap_pop(values: vec[int]): vec[int] = {
-    var[mut] out: vec[int] = [mov]values;
+fun[exp] heap_pop(T: ord + clone)(values: vec[T]): vec[T] = {
+    var[mut] out: vec[T] = [mov]values;
     var total: int = .len(out);
     if (total == 0) {
         return out;
@@ -76,7 +80,7 @@ fun[exp] heap_pop(values: vec[int]): vec[int] = {
         return out;
     } else {
     };
-    out[0] = out[total - 1];
+    out.swap(0, total - 1);
     out.remove_at(total - 1);
     var size: int = .len(out);
     var[mut] parent: int = 0;
@@ -96,21 +100,18 @@ fun[exp] heap_pop(values: vec[int]): vec[int] = {
             return out;
         } else {
         };
-        var hold: int = out[parent];
-        out[parent] = out[smallest];
-        out[smallest] = hold;
+        out.swap(parent, smallest);
         parent = smallest;
     };
     return out;
 };
 
-// Repeatedly taking the minimum is heapsort; useful on its own and a direct
-// check that the heap invariant holds.
-fun[exp] heap_drain(values: vec[int]): vec[int] = {
-    var[mut] source: vec[int] = [mov]values;
-    var[mut] out: vec[int] = {};
+// Everything in ascending order, which is what makes the heap a sort.
+fun[exp] heap_drain(T: ord + clone)(values: vec[T]): vec[T] = {
+    var[mut] source: vec[T] = [mov]values;
+    var[mut] out: vec[T] = {};
     loop (.len(source) > 0) {
-        out.push(heap_peek(source, 0));
+        out.push([cln]source[0]);
         source = heap_pop([mov]source);
     };
     return out;

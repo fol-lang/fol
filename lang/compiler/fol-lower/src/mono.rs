@@ -190,10 +190,25 @@ fn collect_templates(
                     .and_then(|local| local.type_id)
                     .is_some_and(|type_id| type_contains_generic_parameter(type_table, type_id))
             });
+            // Writing an element of a generic container has the same problem as
+            // reading one: the backend classifies a still-generic element type
+            // as move-only and refuses the store. `std::grid::put` is the case
+            // that found this.
+            let writes_generic_element = routine.instructions.iter().any(|instr| {
+                let LoweredInstrKind::StoreIndex { base, .. } = instr.kind else {
+                    return false;
+                };
+                routine
+                    .locals
+                    .get(base)
+                    .and_then(|local| local.type_id)
+                    .is_some_and(|type_id| type_contains_generic_parameter(type_table, type_id))
+            });
             if generic_receiver
                 || has_constraint_calls
                 || uses_generic_structural
                 || indexes_generic_element
+                || writes_generic_element
                 || mutates_generic_container
                 || names_generic_operand
             {
