@@ -17,43 +17,37 @@
 //
 // DEVIATIONS
 //
-// 1. mtimes -> content stamps.  `std::fs` offers read/write/dir_list and no
-//    stat, so there is no mtime to compare. `n_time` becomes a stamp derived
-//    from a file's bytes (reader::stamp), and the "is my dependency newer than
-//    me" test becomes "are my dependencies' bytes the bytes that were in force
-//    when I was last built". Those recorded stamps live in a stamp database
+// 1. mtimes -> content stamps.  `.file_mtime` exists and this port uses it for
+//    N_EXISTS, but not for staleness: it reports milliseconds, and two files
+//    written one after the other come back with the same value, so "is my
+//    dependency newer than me" would answer no on a fast machine. `n_time` is
+//    therefore a stamp derived from a file's bytes (reader::stamp), and the test
+//    becomes "are my dependencies' bytes the bytes that were in force when I was
+//    last built". Those recorded stamps live in a stamp database
 //    (<dir>/.minimake.db, one line per target) because content, unlike an
 //    mtime, is not stored on the target itself. The visible consequence is
 //    that rewriting a source with identical bytes does NOT trigger a rebuild
 //    where real make would; scenario 5 asserts exactly that difference.
-//    Zero is reserved for "no such file", which is this port's N_EXISTS.
-//    A file that exists but is empty is indistinguishable from a missing one,
-//    because `read_file` answers "" for both.
 //
-// 2. Linked lists -> a fixed arena of parallel arrays.  `struct name` points
-//    at `struct line` points at `struct depend` points back at `struct name`.
-//    A FOL record cannot contain itself without nominal lowering the language
-//    does not have, and no FOL container can grow -- there is no vec append
-//    and no map insert. So the four lists collapse into 16-slot arrays indexed
-//    by an interned name id, and the two inner lists become delimited strings
-//    (`deps` is space separated, `cmds` is newline separated) that the reader
-//    re-tokenises on demand. The capacity is a hard ceiling; overflowing it is
-//    reported as "name table full" rather than growing.
+// 2. Linked lists -> an arena of parallel arrays.  `struct name` points at
+//    `struct line` points at `struct depend` points back at `struct name`. A FOL
+//    record cannot contain itself without nominal lowering the language does not
+//    have, so the four lists collapse into parallel columns indexed by an
+//    interned name id, and the two inner lists become delimited strings (`deps`
+//    is space separated, `cmds` is newline separated) that the reader
+//    re-tokenises on demand. The columns are `vec`s that `intern` pushes onto,
+//    so there is no ceiling on the number of names.
 //
-// 3. `uint8_t n_flag` -> six boolean arrays.  FOL has no bitwise operators at
-//    all: no &, no |, no ~, no shifts, and `^` is exponentiation. N_TARG,
+// 3. `uint8_t n_flag` -> six boolean columns.  `.bit_and`, `.bit_or`, `.bit_not`
+//    and the shifts all exist, so the byte could be packed and unpacked exactly
+//    as the C does; six named columns are simply easier to read. N_TARG,
 //    N_EXISTS, N_DONE, N_MARK, N_EXEC and N_ERROR therefore each get their own
 //    column. Costs six arrays instead of one byte; gains legibility.
 //
-// 4. Mutating recursion -> the machine is passed by value.  A
-//    `pro (T[mut, bor])` method may not call another `[mut, bor]` method on
-//    `self` (O2003), so a mutating method can neither recurse nor call a
-//    mutating helper. check() and make() are both recursive AND mutate the
-//    name table. Every routine in `engine` and `parser` therefore takes the
-//    `Make` machine by value, moves it into a local `var[mut]` owner -- which
-//    IS allowed to call mutators -- and returns it. Recursion and composition
-//    come back; the price is a whole-record move per call, so the arena is
-//    memcpy'd once per graph edge instead of being pointed at.
+// 4. Mutating recursion works directly.  check() and make() are both recursive
+//    AND mutate the name table, and a `pro (Make[mut, bor])` method may recurse
+//    and call mutating helpers on `self`, so `engine` and `parser` are receiver
+//    methods on `Make` with no per-call move of the arena.
 //
 // 5. fatal()/error() exit(1) -> a latched complaint.  A showcase that calls
 //    exit cannot self-check, so the first complaint is stored in `problem` and
@@ -61,10 +55,10 @@
 //    fatal -- which is what makes scenario 6 assertable.
 //
 // 6. setDFmacro -> positional arguments.  The original writes `$@ $< $? $*`
-//    into the macro table just before running a recipe. That needs a mutating
-//    call from inside command execution, which deviation 4 rules out, so the
-//    four automatic macros are substituted positionally in expand_cmd and the
-//    general macro pass runs after them.
+//    into the macro table just before running a recipe. Here the four automatic
+//    macros are substituted positionally in expand_cmd and the general macro
+//    pass runs after them, which keeps the recipe expansion a pure read of the
+//    table rather than a write followed by a read.
 //
 // 7. A one-character double-quoted literal is a `chr`, and a comparison
 //    operand does not widen it to `str`, so `expand("$$") == "$"` is rejected
@@ -72,11 +66,12 @@
 //    `var ...: str` first. Cheap, but it catches every port that compares
 //    against a single punctuation mark.
 //
-// 8. Reads of the receiver may not appear inside the arguments of a mutating
-//    call on that same receiver: `work.complain("..." + work.name_of(node))`
+// 8. A method call on the receiver may not appear inside the arguments of
+//    another call on that same receiver: `self.expand_cmd(self.cmd_at(n, i), ..)`
 //    passes `code check` and then fails to compile as Rust (E0502, surfaced as
-//    F1004). Every such argument here is hoisted into a local first. The
-//    original writes exactly that shape all over make.c.
+//    F1004), even when both methods only borrow. A plain field read as an
+//    argument is fine. The one such argument here is hoisted into a local. The
+//    original writes the nested shape all over make.c.
 //
 // 9. Dropped, and deliberately so: suffix/implicit rules (rules.c, dyndep),
 //    archive members (archive.c), double-colon targets (reported as an error),
@@ -88,8 +83,8 @@
 //
 // 10. Easier than expected: shelling out is a one-liner (`std::os::shell` is
 //    `sh -c` with the real exit status), so recipes run for real against real
-//    files, and macro expansion recursed happily -- a read-only receiver
-//    method may call itself, it is only the mutating ones that may not.
+//    files, and both the cycle walk and the maker recurse as mutating
+//    receiver methods.
 //    Indexed element assignment through a mutable receiver made the arena
 //    practical at all.
 
@@ -121,7 +116,7 @@ fun[] drive(text: str, goal: str, domake: bol): table::Make = {
     [mut, bor]mk.set_macro("DIR", work_dir());
     [mut, bor]mk.set_domake(domake);
 
-    mk = parser::input([mov]mk, text);
+    [mut, bor]mk.input(text);
     when(.len(mk.problem) > 0) {
         case(true) { return [mov]mk; }
         * { }
@@ -140,13 +135,13 @@ fun[] drive(text: str, goal: str, domake: bol): table::Make = {
         * { }
     };
 
-    mk = engine::circles([mov]mk);
+    [mut, bor]mk.circles();
     when(.len(mk.problem) > 0) {
         case(true) { return [mov]mk; }
         * { }
     };
 
-    mk = engine::load_db([mov]mk, std::fs::read_file(db_path()));
+    [mut, bor]mk.load_db(std::fs::read_file(db_path()));
 
     var[mut] node: int = mk.first;
     when(.len(goal) > 0) {
@@ -161,7 +156,7 @@ fun[] drive(text: str, goal: str, domake: bol): table::Make = {
         * { }
     };
 
-    mk = engine::build([mov]mk, node, 0);
+    [mut, bor]mk.build(node, 0);
 
     // A dry run must leave no trace, so the stamp database is only rewritten
     // when commands actually ran.

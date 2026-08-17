@@ -5,35 +5,33 @@ use reader: loc = {"../reader"};
 //
 // The original keeps four intrusive linked lists -- `struct name`, `struct
 // line`, `struct depend`, `struct cmd` -- threaded through malloc'd nodes, and
-// packs eight booleans into one `uint8_t n_flag`. Neither shape survives:
-// a record that points at itself needs nominal lowering FOL does not have, and
-// FOL has no bitwise operators at all. So `struct name` becomes a fixed-size
-// arena of parallel arrays indexed by an interned id, the dependency and
-// command lists become delimited strings the reader re-tokenises on demand,
-// and `n_flag` becomes one boolean array per bit.
-
-fun[exp] capacity(): int = {
-    return 16;
-};
+// packs eight booleans into one `uint8_t n_flag`. The lists do not survive: a
+// record that points at itself needs nominal lowering FOL does not have. So
+// `struct name` becomes a fixed-size arena of parallel arrays indexed by an
+// interned id, and the dependency and command lists become delimited strings the
+// reader re-tokenises on demand. `n_flag` becomes one boolean array per bit --
+// `.bit_and` and friends could pack it back into one int, but a named column
+// per flag is what makes the engine below readable.
 
 fun[exp] macro_capacity(): int = {
     return 8;
 };
 
 typ[exp] Make: rec = {
-    // struct name, one column per field
-    names: arr[str, 16],
-    deps: arr[str, 16],
-    cmds: arr[str, 16],
-    stamps: arr[int, 16],
-    recorded: arr[str, 16],
+    // struct name, one column per field. They grow together: `intern` pushes one
+    // slot onto each, so there is no ceiling on how many names a makefile names.
+    names: vec[str],
+    deps: vec[str],
+    cmds: vec[str],
+    stamps: vec[int],
+    recorded: vec[str],
     // n_flag, one column per bit
-    is_targ: arr[bol, 16],
-    exists: arr[bol, 16],
-    done: arr[bol, 16],
-    mark: arr[bol, 16],
-    executed: arr[bol, 16],
-    failed: arr[bol, 16],
+    is_targ: vec[bol],
+    exists: vec[bol],
+    done: vec[bol],
+    mark: vec[bol],
+    executed: vec[bol],
+    failed: vec[bol],
     count: int,
     first: int,
     // struct macro
@@ -54,23 +52,17 @@ typ[exp] Make: rec = {
 
 fun[exp] empty(): Make = {
     return {
-        names = {"","","","","","","","","","","","","","","",""},
-        deps = {"","","","","","","","","","","","","","","",""},
-        cmds = {"","","","","","","","","","","","","","","",""},
-        stamps = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-        recorded = {"","","","","","","","","","","","","","","",""},
-        is_targ = {false,false,false,false,false,false,false,false,
-            false,false,false,false,false,false,false,false},
-        exists = {false,false,false,false,false,false,false,false,
-            false,false,false,false,false,false,false,false},
-        done = {false,false,false,false,false,false,false,false,
-            false,false,false,false,false,false,false,false},
-        mark = {false,false,false,false,false,false,false,false,
-            false,false,false,false,false,false,false,false},
-        executed = {false,false,false,false,false,false,false,false,
-            false,false,false,false,false,false,false,false},
-        failed = {false,false,false,false,false,false,false,false,
-            false,false,false,false,false,false,false,false},
+        names = {},
+        deps = {},
+        cmds = {},
+        stamps = {},
+        recorded = {},
+        is_targ = {},
+        exists = {},
+        done = {},
+        mark = {},
+        executed = {},
+        failed = {},
         count = 0,
         first = 0 - 1,
         mac_names = {"","","","","","","",""},
@@ -344,17 +336,17 @@ pro[exp] (Make[mut, bor]) intern(name: str): non = {
         case(true) { return; }
         * { }
     };
-    when(self.count >= 16) {
-        case(true) {
-            when(.len(self.problem) == 0) {
-                case(true) { self.problem = "name table full pos " + name; }
-                * { }
-            };
-            return;
-        }
-        * { }
-    };
-    self.names[self.count] = name;
+    self.names.push(name);
+    self.deps.push("");
+    self.cmds.push("");
+    self.stamps.push(0);
+    self.recorded.push("");
+    self.is_targ.push(false);
+    self.exists.push(false);
+    self.done.push(false);
+    self.mark.push(false);
+    self.executed.push(false);
+    self.failed.push(false);
     self.count = self.count + 1;
     return;
 };
@@ -436,9 +428,9 @@ pro[exp] (Make[mut, bor]) set_domake(value: bol): non = {
     return;
 };
 
-pro[exp] (Make[mut, bor]) set_stamp(node: int, value: int): non = {
+pro[exp] (Make[mut, bor]) set_stamp(node: int, value: int, present: bol): non = {
     self.stamps[node] = value;
-    self.exists[node] = value != 0;
+    self.exists[node] = present;
     return;
 };
 

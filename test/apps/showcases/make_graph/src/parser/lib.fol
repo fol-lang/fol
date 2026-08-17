@@ -6,12 +6,13 @@ use table: loc = {"../table"};
 //
 // The original reads one line at a time from a FILE* and peeks ahead for the
 // tab-indented recipe, rewinding through a two-buffer shuffle (`str1`/`str2`).
-// FOL has no incremental reader, so the whole makefile arrives as one string
-// and the recipe is attached to whichever rule line was seen last -- the same
-// grammar, driven forwards instead of with a one-line lookahead.
+// Here the whole makefile arrives as one string and the recipe is attached to
+// whichever rule line was seen last -- the same grammar, driven forwards instead
+// of with a one-line lookahead. `std::fs` does stream (`open_read`/`read_chunk`,
+// and `read_streamed` for the lossless whole), but a makefile is small and the
+// forward-driven grammar needs no lookahead buffer at all.
 
-fun[exp] input(mk: table::Make, text: str): table::Make = {
-    var[mut] work: table::Make = [mov]mk;
+pro[exp] (table::Make[mut, bor]) input(text: str): non = {
     var body: str = reader::splice(text);
     var total: int = reader::line_count(body);
     var[mut] index: int = 0;
@@ -23,59 +24,57 @@ fun[exp] input(mk: table::Make, text: str): table::Make = {
             case(true) { }
             * {
                 when(is_cmd) {
-                    case(true) { work = take_command([mov]work, body_line); }
-                    * { work = take_rule([mov]work, raw); }
+                    case(true) { self.take_command(body_line); }
+                    * { self.take_rule(raw); }
                 }
             }
         };
-        when(.len(work.problem) > 0) {
+        when(.len(self.problem) > 0) {
             case(true) { break; }
             * { }
         };
         index = index + 1;
     };
-    return [mov]work;
+    return;
 };
 
 // newcmd, fanned out over every target sharing the rule line.
-fun[exp] take_command(mk: table::Make, line: str): table::Make = {
-    var[mut] work: table::Make = [mov]mk;
-    var open_rule: str = work.open_rule;
+pro[exp] (table::Make[mut, bor]) take_command(line: str): non = {
+    var open_rule: str = self.open_rule;
     when(.len(open_rule) == 0) {
         case(true) {
-            [mut, bor]work.complain("Rules not allowed here");
-            return [mov]work;
+            self.complain("Rules not allowed here");
+            return;
         }
         * { }
     };
     var[mut] index: int = 0;
     loop(index < reader::word_count(open_rule)) {
-        var node: int = [bor]work.lookup(reader::word_at(open_rule, index));
+        var node: int = self.lookup(reader::word_at(open_rule, index));
         when(node >= 0) {
-            case(true) { [mut, bor]work.add_cmd(node, line); }
+            case(true) { self.add_cmd(node, line); }
             * { }
         };
         index = index + 1;
     };
-    return [mov]work;
+    return;
 };
 
 // A non-indented line is either a macro definition or a rule. The original
 // looks for '=' before it looks for ':', so `OBJ = a:b` is a macro and not a
 // rule; that ordering is kept.
-fun[exp] take_rule(mk: table::Make, raw: str): table::Make = {
-    var[mut] work: table::Make = [mov]mk;
+pro[exp] (table::Make[mut, bor]) take_rule(raw: str): non = {
     var assign: int = std::strn::find(raw, "=");
     when(assign >= 0) {
         case(true) {
             var name: str = reader::word_at(std::strn::sub(raw, 0, assign), 0);
             var value: str = reader::trim(std::strn::sub(raw, assign + 1, .len(raw) - assign - 1));
             when(.len(name) == 0) {
-                case(true) { [mut, bor]work.complain("No macro name"); }
-                * { [mut, bor]work.set_macro(name, value); }
+                case(true) { self.complain("No macro name"); }
+                * { self.set_macro(name, value); }
             };
-            [mut, bor]work.set_open("");
-            return [mov]work;
+            self.set_open("");
+            return;
         }
         * { }
     };
@@ -93,19 +92,19 @@ fun[exp] take_rule(mk: table::Make, raw: str): table::Make = {
         * { }
     };
 
-    var line: str = [bor]work.expand(head);
+    var line: str = self.expand(head);
     var colon: int = std::strn::find(line, ":");
     when(colon < 0) {
         case(true) {
-            [mut, bor]work.complain("No targets provided");
-            return [mov]work;
+            self.complain("No targets provided");
+            return;
         }
         * { }
     };
     when(std::strn::byte_at(line, colon + 1) == 58) {
         case(true) {
-            [mut, bor]work.complain("Double-colon rules are not supported");
-            return [mov]work;
+            self.complain("Double-colon rules are not supported");
+            return;
         }
         * { }
     };
@@ -116,33 +115,33 @@ fun[exp] take_rule(mk: table::Make, raw: str): table::Make = {
     var[mut] slot: int = 0;
     loop(slot < reader::word_count(targets)) {
         var target: str = reader::word_at(targets, slot);
-        [mut, bor]work.intern(target);
-        var node: int = [bor]work.lookup(target);
+        self.intern(target);
+        var node: int = self.lookup(target);
         when(node < 0) {
             case(true) { break; }
             * { }
         };
         // "Commands defined twice for target": a second recipe for a
         // single-colon target is an error, not an append.
-        when(([bor]work.cmd_count(node) > 0) and (.len(inline_cmd) > 0)) {
-            case(true) { [mut, bor]work.complain("Commands defined twice for target " + target); }
+        when((self.cmd_count(node) > 0) and (.len(inline_cmd) > 0)) {
+            case(true) { self.complain("Commands defined twice for target " + target); }
             * { }
         };
-        [mut, bor]work.mark_target(node);
+        self.mark_target(node);
         var[mut] want: int = 0;
         loop(want < reader::word_count(wants)) {
             var dep: str = reader::word_at(wants, want);
-            [mut, bor]work.intern(dep);
-            [mut, bor]work.add_dep(node, dep);
+            self.intern(dep);
+            self.add_dep(node, dep);
             want = want + 1;
         };
         when(.len(inline_cmd) > 0) {
-            case(true) { [mut, bor]work.add_cmd(node, inline_cmd); }
+            case(true) { self.add_cmd(node, inline_cmd); }
             * { }
         };
         slot = slot + 1;
     };
 
-    [mut, bor]work.set_open(targets);
-    return [mov]work;
+    self.set_open(targets);
+    return;
 };

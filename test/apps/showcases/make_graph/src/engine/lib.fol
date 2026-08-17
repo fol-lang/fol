@@ -14,77 +14,74 @@ use table: loc = {"../table"};
 
 // check(): descend with the N_MARK bit set, and complain if the descent
 // re-enters a name that is already on the path.
-fun[exp] walk(mk: table::Make, node: int): table::Make = {
-    var[mut] work: table::Make = [mov]mk;
-    when(.len(work.problem) > 0) {
-        case(true) { return [mov]work; }
+pro[exp] (table::Make[mut, bor]) walk(node: int): non = {
+    when(.len(self.problem) > 0) {
+        case(true) { return; }
         * { }
     };
-    when(work.mark[node]) {
+    when(self.mark[node]) {
         case(true) {
-            // The message is built into a local first: a read of `work` inside
-            // the arguments of a mutating call on `work` compiles here but not
-            // in the emitted Rust.
-            var complaint: str = "Circular dependency from " + [bor]work.name_of(node);
-            [mut, bor]work.complain(complaint);
-            return [mov]work;
+            // Hoisted for the same reason as in `docmds`: a call on `self`
+            // nested inside another call's arguments does not borrow-check.
+            var complaint: str = "Circular dependency from " + self.name_of(node);
+            self.complain(complaint);
+            return;
         }
         * { }
     };
-    [mut, bor]work.set_mark(node, true);
+    self.set_mark(node, true);
     var[mut] pos: int = 0;
-    loop(pos < [bor]work.dep_count(node)) {
-        var child: int = [bor]work.dep_node(node, pos);
+    loop(pos < self.dep_count(node)) {
+        var child: int = self.dep_node(node, pos);
         when(child >= 0) {
-            case(true) { work = walk([mov]work, child); }
+            case(true) { self.walk(child); }
             * { }
         };
         pos = pos + 1;
     };
-    [mut, bor]work.set_mark(node, false);
-    return [mov]work;
+    self.set_mark(node, false);
+    return;
 };
 
 // circh(): every name is a candidate root, because a cycle need not touch the
 // default goal.
-fun[exp] circles(mk: table::Make): table::Make = {
-    var[mut] work: table::Make = [mov]mk;
+pro[exp] (table::Make[mut, bor]) circles(): non = {
     var[mut] pos: int = 0;
-    loop(pos < work.count) {
-        work = walk([mov]work, pos);
+    loop(pos < self.count) {
+        self.walk(pos);
         pos = pos + 1;
     };
-    return [mov]work;
+    return;
 };
 
-// modtime(): stat replaced by a read. An unreadable or empty file stamps zero,
-// which is this port's N_EXISTS being clear.
-fun[exp] modtime(mk: table::Make, node: int): table::Make = {
-    var[mut] work: table::Make = [mov]mk;
-    var text: str = std::fs::read_file([bor]work.name_of(node));
-    [mut, bor]work.set_stamp(node, reader::stamp(text));
-    return [mov]work;
+// modtime(): the bytes give the stamp, and `.file_mtime` answers N_EXISTS --
+// it reports -1 for a file that is not there, which is the one thing a content
+// stamp cannot distinguish from a file that is there and empty.
+pro[exp] (table::Make[mut, bor]) modtime(node: int): non = {
+    var path: str = self.name_of(node);
+    var text: str = std::fs::read_file(path);
+    self.set_stamp(node, reader::stamp(text), .file_mtime(path) >= 0);
+    return;
 };
 
 // The stamp database stands in for the filesystem's mtimes: one line per
 // target, holding the dependency stamps that were in force when it was built.
-fun[exp] load_db(mk: table::Make, text: str): table::Make = {
-    var[mut] work: table::Make = [mov]mk;
+pro[exp] (table::Make[mut, bor]) load_db(text: str): non = {
     var[mut] pos: int = 0;
     loop(pos < reader::line_count(text)) {
         var line: str = reader::line_at(text, pos);
         var target: str = reader::word_at(line, 0);
-        var node: int = [bor]work.lookup(target);
+        var node: int = self.lookup(target);
         when(node >= 0) {
             case(true) {
                 var rest: str = reader::trim(std::strn::sub(line, .len(target), .len(line) - .len(target)));
-                [mut, bor]work.set_recorded(node, rest);
+                self.set_recorded(node, rest);
             }
             * { }
         };
         pos = pos + 1;
     };
-    return [mov]work;
+    return;
 };
 
 // suffix(): everything before the last dot of the file name.
@@ -101,17 +98,19 @@ fun[exp] stem_of(name: str): str = {
 };
 
 // docmds1(): run one recipe, honouring the per-command '@' and '-' prefixes.
-fun[exp] docmds(mk: table::Make, node: int): table::Make = {
-    var[mut] work: table::Make = [mov]mk;
-    var whole: str = [bor]work.name_of(node);
-    var first_dep: str = [bor]work.dep_name(node, 0);
-    var changed: str = [bor]work.changed_deps(node);
+pro[exp] (table::Make[mut, bor]) docmds(node: int): non = {
+    var whole: str = self.name_of(node);
+    var first_dep: str = self.dep_name(node, 0);
+    var changed: str = self.changed_deps(node);
     var stem: str = stem_of(whole);
     var[mut] pos: int = 0;
-    loop(pos < [bor]work.cmd_count(node)) {
-        var text: str = [bor]work.expand_cmd([bor]work.cmd_at(node, pos), whole, first_dep, changed, stem);
+    loop(pos < self.cmd_count(node)) {
+        // Hoisted: a read of `self` nested inside the arguments of another call
+        // on `self` reborrows it mutably and fails to compile as Rust.
+        var raw_cmd: str = self.cmd_at(node, pos);
+        var text: str = self.expand_cmd(raw_cmd, whole, first_dep, changed, stem);
         var[mut] line: str = text;
-        var[mut] hushed: bol = work.silent;
+        var[mut] hushed: bol = self.silent;
         var[mut] forgiving: bol = false;
         loop(.len(line) > 0) {
             var head: int = std::strn::byte_at(line, 0);
@@ -132,20 +131,20 @@ fun[exp] docmds(mk: table::Make, node: int): table::Make = {
             }
         };
         // A dry run echoes even the silenced commands, as the original does.
-        when(hushed and work.domake) {
+        when(hushed and self.domake) {
             case(true) { }
-            * { [mut, bor]work.say(line); }
+            * { self.say(line); }
         };
-        when(work.domake) {
+        when(self.domake) {
             case(true) {
                 var status: int = std::os::shell(line);
                 when(status != 0) {
                     case(true) {
                         when(forgiving) {
-                            case(true) { [mut, bor]work.say("make: " + line + " (Ignored)"); }
+                            case(true) { self.say("make: " + line + " (Ignored)"); }
                             * {
-                                [mut, bor]work.set_failed(node);
-                                [mut, bor]work.complain("Command failed for " + whole);
+                                self.set_failed(node);
+                                self.complain("Command failed for " + whole);
                             }
                         }
                     }
@@ -154,75 +153,73 @@ fun[exp] docmds(mk: table::Make, node: int): table::Make = {
             }
             * { }
         };
-        when(work.failed[node]) {
+        when(self.failed[node]) {
             case(true) { break; }
             * { }
         };
         pos = pos + 1;
     };
-    return [mov]work;
+    return;
 };
 
 // make1(): run the recipe, then re-stamp. Where the original stamps the target
 // with `now` so that dependents see it as newer, this re-reads the file: a
 // dependent rebuilds only if the bytes it consumes actually moved.
-fun[exp] make1(mk: table::Make, node: int): table::Make = {
-    var[mut] work: table::Make = [mov]mk;
-    var ran: bol = [bor]work.cmd_count(node) > 0;
-    work = docmds([mov]work, node);
-    when(work.failed[node]) {
-        case(true) { return [mov]work; }
+pro[exp] (table::Make[mut, bor]) make1(node: int): non = {
+    var ran: bol = self.cmd_count(node) > 0;
+    self.docmds(node);
+    when(self.failed[node]) {
+        case(true) { return; }
         * { }
     };
-    when(work.domake) {
+    when(self.domake) {
         case(true) {
-            var signature: str = [bor]work.dep_signature(node);
-            [mut, bor]work.set_recorded(node, signature);
-            work = modtime([mov]work, node);
+            var signature: str = self.dep_signature(node);
+            self.set_recorded(node, signature);
+            self.modtime(node);
         }
         * { }
     };
     when(ran) {
-        case(true) { [mut, bor]work.set_executed(node); }
+        case(true) { self.set_executed(node); }
         * { }
     };
-    return [mov]work;
+    return;
 };
 
 // make(): the recursion itself. Depth-first over the dependency list, work on
 // the way back up, N_DONE so a diamond's shared corner is made once.
-fun[exp] build(mk: table::Make, node: int, level: int): table::Make = {
-    var[mut] work: table::Make = [mov]mk;
-    when(.len(work.problem) > 0) {
-        case(true) { return [mov]work; }
+pro[exp] (table::Make[mut, bor]) build(node: int, level: int): non = {
+    when(.len(self.problem) > 0) {
+        case(true) { return; }
         * { }
     };
-    when(work.done[node]) {
-        case(true) { return [mov]work; }
+    when(self.done[node]) {
+        case(true) { return; }
         * { }
     };
 
-    work = modtime([mov]work, node);
+    self.modtime(node);
 
-    when(work.is_targ[node] or work.exists[node]) {
+    when(self.is_targ[node] or self.exists[node]) {
         case(true) { }
         * {
-            var complaint: str = "Don't know how to make " + [bor]work.name_of(node);
-            [mut, bor]work.complain(complaint);
-            [mut, bor]work.set_failed(node);
-            [mut, bor]work.set_done(node);
-            return [mov]work;
+            var complaint: str = "Don't know how to make " + self.name_of(node);
+            self.complain(complaint);
+            self.set_failed(node);
+            self.set_done(node);
+            return;
         }
     };
 
     var[mut] pos: int = 0;
-    loop(pos < [bor]work.dep_count(node)) {
-        var child: int = [bor]work.dep_node(node, pos);
+    loop(pos < self.dep_count(node)) {
+        var child: int = self.dep_node(node, pos);
         when(child >= 0) {
             case(true) {
-                work = build([mov]work, child, level + 1);
-                when(work.failed[child]) {
-                    case(true) { [mut, bor]work.set_failed(node); }
+                self.build(child, level + 1);
+                when(self.failed[child]) {
+                    case(true) { self.set_failed(node); }
                     * { }
                 }
             }
@@ -233,33 +230,33 @@ fun[exp] build(mk: table::Make, node: int, level: int): table::Make = {
 
     // Post-order: a name is recorded once every name it depends on is settled,
     // so the visit order read end to end is a topological order of the DAG.
-    [mut, bor]work.visit(node);
+    self.visit(node);
 
-    when(work.failed[node]) {
+    when(self.failed[node]) {
         case(true) {
-            [mut, bor]work.set_done(node);
-            return [mov]work;
+            self.set_done(node);
+            return;
         }
         * { }
     };
 
-    when(work.is_targ[node] and [bor]work.out_of_date(node)) {
-        case(true) { work = make1([mov]work, node); }
+    when(self.is_targ[node] and self.out_of_date(node)) {
+        case(true) { self.make1(node); }
         * { }
     };
-    [mut, bor]work.set_done(node);
+    self.set_done(node);
 
     when(level == 0) {
         case(true) {
-            when(work.executed[node] or work.failed[node]) {
+            when(self.executed[node] or self.failed[node]) {
                 case(true) { }
                 * {
-                    var verdict: str = "make: '" + [bor]work.name_of(node) + "' is up to date";
-                    [mut, bor]work.say(verdict);
+                    var verdict: str = "make: '" + self.name_of(node) + "' is up to date";
+                    self.say(verdict);
                 }
             }
         }
         * { }
     };
-    return [mov]work;
+    return;
 };
