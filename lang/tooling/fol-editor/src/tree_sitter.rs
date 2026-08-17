@@ -89,7 +89,9 @@ unsafe extern "C" {
     fn tree_sitter_fol() -> *const tree_sitter::ffi::TSLanguage;
 }
 
-const GRAMMAR_SOURCE: &str = include_str!("../tree-sitter/grammar.js");
+/// The grammar itself. Tree-sitter's input is JSON; the `grammar.js` authoring
+/// form is gone, so nothing here needs a JavaScript runtime.
+const GRAMMAR_SOURCE: &str = include_str!("../tree-sitter/src/grammar.json");
 const TREE_SITTER_CONFIG: &str = include_str!("../tree-sitter/tree-sitter.json");
 const HIGHLIGHTS_QUERY_BASE: &str = include_str!("../queries/fol/highlights.base.scm");
 #[cfg(test)]
@@ -520,11 +522,60 @@ mod tests {
         }
     }
 
+    /// The grammar is JSON, so these assertions read its structure instead of
+    /// matching source text: a rule is present because the rule table has that
+    /// key, not because a substring appears somewhere in the file.
+    fn grammar_json() -> serde_json::Value {
+        serde_json::from_str(fol_tree_sitter_grammar())
+            .expect("the tree-sitter grammar should be valid JSON")
+    }
+
+    fn grammar_rules(grammar: &serde_json::Value) -> &serde_json::Map<String, serde_json::Value> {
+        grammar["rules"]
+            .as_object()
+            .expect("a tree-sitter grammar has a rule table")
+    }
+
+    /// Every payload of the given node `kind` reachable from a rule definition,
+    /// read out of `key` — `("SYMBOL", "name")` for referenced rules,
+    /// `("STRING", "value")` for literal tokens, `("FIELD", "name")` for fields.
+    fn payloads(node: &serde_json::Value, kind: &str, key: &str) -> BTreeSet<String> {
+        let mut found = BTreeSet::new();
+        collect_payloads(node, kind, key, &mut found);
+        found
+    }
+
+    fn collect_payloads(
+        node: &serde_json::Value,
+        kind: &str,
+        key: &str,
+        found: &mut BTreeSet<String>,
+    ) {
+        match node {
+            serde_json::Value::Object(map) => {
+                if map.get("type").and_then(serde_json::Value::as_str) == Some(kind) {
+                    if let Some(value) = map.get(key).and_then(serde_json::Value::as_str) {
+                        found.insert(value.to_string());
+                    }
+                }
+                for value in map.values() {
+                    collect_payloads(value, kind, key, found);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for value in items {
+                    collect_payloads(value, kind, key, found);
+                }
+            }
+            _ => {}
+        }
+    }
+
     #[test]
     fn grammar_scaffold_has_the_fol_language_name() {
-        let grammar = fol_tree_sitter_grammar();
-        assert!(grammar.contains("name: 'fol'"));
-        assert!(grammar.contains("source_file:"));
+        let grammar = grammar_json();
+        assert_eq!(grammar["name"].as_str(), Some("fol"));
+        assert!(grammar_rules(&grammar).contains_key("source_file"));
     }
 
     #[test]
@@ -590,12 +641,22 @@ mod tests {
 
     #[test]
     fn grammar_covers_v1_surface_families_explicitly() {
-        let grammar = fol_tree_sitter_grammar();
+        let grammar = grammar_json();
+        let rules = grammar_rules(&grammar);
+        // The import kinds are literal tokens of `source_kind`, not rules.
+        let source_kinds = payloads(&rules["source_kind"], "STRING", "value");
+        for keyword in ["loc", "pkg"] {
+            assert!(
+                source_kinds.contains(keyword),
+                "source_kind should accept '{keyword}': {source_kinds:?}"
+            );
+        }
+        assert!(
+            payloads(&rules["std_decl"], "STRING", "value").contains("std"),
+            "a standard declaration starts with the `std` keyword"
+        );
         for needle in [
             "source_kind",
-            "'loc'",
-            "'std'",
-            "'pkg'",
             "decl_modifiers",
             "modifier_list",
             "typed_binding",
@@ -625,20 +686,29 @@ mod tests {
             "do_expr",
         ] {
             assert!(
-                grammar.contains(needle),
-                "missing v1 grammar marker: {needle}"
+                rules.contains_key(needle),
+                "missing v1 grammar rule: {needle}"
             );
         }
     }
 
     #[test]
     fn grammar_mentions_editor_friendly_recovery_shapes() {
-        let grammar = fol_tree_sitter_grammar();
-        assert!(grammar.contains("conflicts: $ => ["));
-        assert!(grammar.contains("extras: $ => ["));
-        assert!(grammar.contains("optional($.error_type)"));
-        assert!(grammar.contains("$.field_access"));
-        assert!(grammar.contains("$.boolean_literal"));
+        let grammar = grammar_json();
+        let rules = grammar_rules(&grammar);
+        assert!(
+            !grammar["conflicts"].as_array().unwrap().is_empty(),
+            "declared conflicts are what let ambiguous prefixes stay open"
+        );
+        assert!(
+            !grammar["extras"].as_array().unwrap().is_empty(),
+            "extras carry whitespace and comments"
+        );
+        // A routine header admits an optional `/ ErrorType`.
+        assert!(payloads(&rules["plain_fun_decl"], "SYMBOL", "name").contains("error_type"));
+        for rule in ["field_access", "boolean_literal"] {
+            assert!(rules.contains_key(rule), "missing rule: {rule}");
+        }
     }
 
     #[test]
@@ -810,11 +880,18 @@ mod tests {
 
     #[test]
     fn grammar_and_query_cover_bracketed_declaration_modifiers() {
-        let grammar = fol_tree_sitter_grammar();
+        let grammar = grammar_json();
         let query = fol_tree_sitter_highlights_query();
 
-        assert!(grammar.contains("optional(field('modifiers', $.decl_modifiers))"));
-        assert!(grammar.contains("seq('[', optional($.modifier_list), ']')"));
+        let rules = grammar_rules(&grammar);
+        assert!(
+            payloads(&rules["fun_decl"], "FIELD", "name").contains("modifiers"),
+            "a declaration carries its `[...]` options in a `modifiers` field"
+        );
+        let modifiers = &rules["decl_modifiers"];
+        let brackets = payloads(modifiers, "STRING", "value");
+        assert!(brackets.contains("[") && brackets.contains("]"));
+        assert!(payloads(modifiers, "SYMBOL", "name").contains("modifier_list"));
         assert!(query
             .contains("(decl_modifiers \"[\" @punctuation.bracket \"]\" @punctuation.bracket)"));
         assert!(query.contains("(decl_modifiers (modifier_list (identifier) @attribute))"));
@@ -929,14 +1006,24 @@ mod tests {
 
     #[test]
     fn highlight_query_uses_current_declaration_field_shapes() {
-        let grammar = fol_tree_sitter_grammar();
+        let grammar = grammar_json();
         let query = fol_tree_sitter_highlights_query();
 
-        assert!(grammar.contains("field('declaration', choice($.plain_fun_decl, $.method_decl))"));
-        assert!(grammar.contains("field('declaration', choice($.plain_log_decl, $.method_decl))"));
-        assert!(grammar.contains(
-            "seq('var', optional(field('modifiers', $.decl_modifiers)), $.typed_binding"
-        ));
+        let rules = grammar_rules(&grammar);
+        // The highlight query matches on these field and rule names, so the
+        // grammar has to keep offering them.
+        for (decl, plain) in [
+            ("fun_decl", "plain_fun_decl"),
+            ("log_decl", "plain_log_decl"),
+        ] {
+            let rule = &rules[decl];
+            assert!(payloads(rule, "FIELD", "name").contains("declaration"));
+            let referenced = payloads(rule, "SYMBOL", "name");
+            assert!(referenced.contains(plain) && referenced.contains("method_decl"));
+        }
+        let var_decl = &rules["var_decl"];
+        assert!(payloads(var_decl, "STRING", "value").contains("var"));
+        assert!(payloads(var_decl, "SYMBOL", "name").contains("typed_binding"));
 
         for needle in [
             "(use_decl \"use\" @keyword.import)",

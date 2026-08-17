@@ -679,10 +679,11 @@ fn run_tree_sitter_generate(path: &Path) -> EditorResult<()> {
             .with_note("the destination bundle was not changed"));
         }
     }
+    // The grammar is JSON, so generation reads it directly. There is no
+    // JavaScript step and therefore no `--js-runtime` and no Node.
     match std::process::Command::new("tree-sitter")
         .arg("generate")
-        .arg("--js-runtime")
-        .arg("native")
+        .arg(TREE_SITTER_GRAMMAR_FILE)
         .current_dir(path)
         .status()
     {
@@ -692,12 +693,12 @@ fn run_tree_sitter_generate(path: &Path) -> EditorResult<()> {
             format!("tree-sitter parser generation failed with status {status}"),
         )
         .with_note("`fol tool tree generate` requires a working `tree-sitter` CLI")
-        .with_note("this command uses `tree-sitter generate --js-runtime native`")
+        .with_note("this command uses `tree-sitter generate src/grammar.json`")
         .with_note("the destination bundle was not changed")
         .with_note("fix the grammar or your local tree-sitter install, then try again")),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Err(EditorError::new(
             EditorErrorKind::Internal,
-            "failed to run `tree-sitter generate --js-runtime native`",
+            "failed to run `tree-sitter generate src/grammar.json`",
         )
         .with_note("install the `tree-sitter` CLI and retry")
         .with_note("no Node.js runtime is required for this command")
@@ -713,8 +714,10 @@ fn run_tree_sitter_generate(path: &Path) -> EditorResult<()> {
 }
 
 const TREE_SITTER_BUNDLE_MANIFEST: &str = ".fol-tree-generated";
+/// The grammar, and the only hand-owned file under `src/`. It is staged rather
+/// than generated: the CLI reads it and rewrites it byte-identically.
+const TREE_SITTER_GRAMMAR_FILE: &str = "src/grammar.json";
 const TREE_SITTER_CLI_GENERATED_FILES: &[&str] = &[
-    "src/grammar.json",
     "src/node-types.json",
     "src/parser.c",
     "src/tree_sitter/alloc.h",
@@ -722,27 +725,13 @@ const TREE_SITTER_CLI_GENERATED_FILES: &[&str] = &[
     "src/tree_sitter/parser.h",
 ];
 
-const TREE_SITTER_PACKAGE_JSON: &str = r#"{
-  "name": "tree-sitter-fol",
-  "version": "0.1.0",
-  "private": true,
-  "grammars": [
-    {
-      "name": "fol",
-      "scope": "source.fol",
-      "file-types": ["fol"]
-    }
-  ]
-}
-"#;
-
 fn generated_tree_bundle_files() -> BTreeSet<String> {
     let mut files = TREE_SITTER_CLI_GENERATED_FILES
         .iter()
         .map(|path| (*path).to_string())
         .collect::<BTreeSet<_>>();
     files.extend(
-        ["grammar.js", "package.json", "tree-sitter.json"]
+        [TREE_SITTER_GRAMMAR_FILE, "tree-sitter.json"]
             .into_iter()
             .map(str::to_string),
     );
@@ -1013,14 +1002,16 @@ fn populate_staged_tree_bundle(path: &Path) -> EditorResult<()> {
     let corpus_root = path.join("test/corpus");
     let fixtures_root = path.join("test/fixtures");
 
-    write_staged_bundle_file(&path.join("grammar.js"), fol_tree_sitter_grammar())?;
+    write_staged_bundle_file(
+        &path.join(TREE_SITTER_GRAMMAR_FILE),
+        fol_tree_sitter_grammar(),
+    )?;
     for snapshot in fol_tree_sitter_query_snapshots() {
         write_staged_bundle_file(
             &queries_root.join(format!("{}.scm", snapshot.name)),
             snapshot.query,
         )?;
     }
-    write_staged_bundle_file(&path.join("package.json"), TREE_SITTER_PACKAGE_JSON)?;
     write_staged_bundle_file(&path.join("tree-sitter.json"), fol_tree_sitter_config())?;
     for case in fol_tree_sitter_corpus() {
         write_staged_bundle_file(&corpus_root.join(format!("{}.txt", case.name)), case.source)?;
@@ -1502,7 +1493,7 @@ mod tests {
         editor_rename_file, editor_semantic_tokens_file, editor_symbols_file,
         editor_tree_generate_bundle, editor_tree_generate_bundle_with, fol_tree_sitter_corpus,
         fol_tree_sitter_showcase_fixture, generated_tree_bundle_files, semantic_token_legend_csv,
-        TREE_SITTER_BUNDLE_MANIFEST, TREE_SITTER_CLI_GENERATED_FILES,
+        TREE_SITTER_BUNDLE_MANIFEST, TREE_SITTER_CLI_GENERATED_FILES, TREE_SITTER_GRAMMAR_FILE,
     };
     use crate::{
         fol_tree_sitter_grammar, fol_tree_sitter_query_snapshots, EditorError, EditorErrorKind,
@@ -2080,7 +2071,7 @@ mod tests {
         let summary = editor_tree_generate_bundle(&root).unwrap();
 
         assert_eq!(summary.command, "tree generate");
-        assert!(root.join("grammar.js").is_file());
+        assert!(root.join("src/grammar.json").is_file());
         assert!(root.join("queries/fol/highlights.scm").is_file());
         assert!(root.join("queries/fol/locals.scm").is_file());
         assert!(root.join("queries/fol/symbols.scm").is_file());
@@ -2131,7 +2122,7 @@ mod tests {
         editor_tree_generate_bundle(&root).unwrap();
 
         assert_eq!(
-            std::fs::read_to_string(root.join("grammar.js")).unwrap(),
+            std::fs::read_to_string(root.join("src/grammar.json")).unwrap(),
             fol_tree_sitter_grammar()
         );
         assert_eq!(
@@ -2171,7 +2162,10 @@ mod tests {
         let summary = editor_tree_generate_bundle(&root).unwrap();
 
         assert!(root.join("src/parser.c").is_file());
-        assert!(root.join("package.json").is_file());
+        assert!(
+            !root.join("package.json").exists(),
+            "no npm manifest is emitted"
+        );
         assert!(root.join("tree-sitter.json").is_file());
         assert!(root.join("queries/fol/highlights.scm").is_file());
         assert!(root.join("queries/fol/locals.scm").is_file());
@@ -2185,11 +2179,6 @@ mod tests {
             .iter()
             .any(|detail| detail == "tree_sitter_runtime=native"));
 
-        let package_json = std::fs::read_to_string(root.join("package.json")).unwrap();
-        assert!(
-            package_json.contains("\"scope\": \"source.fol\"")
-                || package_json.contains("\"file-types\": [\"fol\"]")
-        );
         let config = std::fs::read_to_string(root.join("tree-sitter.json")).unwrap();
         assert!(config.contains("\"highlights\": \"queries/fol/highlights.scm\""));
 
@@ -2211,7 +2200,8 @@ mod tests {
             "queries/fol/retired.scm\n",
         )
         .unwrap();
-        std::fs::write(root.join("grammar.js"), "stale grammar").unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join(TREE_SITTER_GRAMMAR_FILE), "stale grammar").unwrap();
 
         let summary = editor_tree_generate_bundle(&root).unwrap();
 
@@ -2225,7 +2215,7 @@ mod tests {
         );
         assert!(!retired_query.exists());
         assert_eq!(
-            std::fs::read_to_string(root.join("grammar.js")).unwrap(),
+            std::fs::read_to_string(root.join(TREE_SITTER_GRAMMAR_FILE)).unwrap(),
             fol_tree_sitter_grammar()
         );
         let manifest = std::fs::read_to_string(root.join(TREE_SITTER_BUNDLE_MANIFEST)).unwrap();
@@ -2261,7 +2251,7 @@ mod tests {
         assert_eq!(error.kind, EditorErrorKind::InvalidInput);
         assert!(error.message.contains("unsafe path"));
         assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep this");
-        assert!(!root.join("grammar.js").exists());
+        assert!(!root.join("src/grammar.json").exists());
 
         std::fs::remove_dir_all(root).ok();
         std::fs::remove_file(outside).ok();
@@ -2272,7 +2262,7 @@ mod tests {
         let root = tree_bundle_test_root("failed_generator");
         let retired = root.join("legacy/retired.scm");
         std::fs::create_dir_all(retired.parent().unwrap()).unwrap();
-        std::fs::write(root.join("grammar.js"), "old grammar").unwrap();
+        std::fs::write(root.join("tree-sitter.json"), "old config").unwrap();
         std::fs::write(&retired, "old retired query").unwrap();
         std::fs::write(root.join("editor-notes.txt"), "user owned").unwrap();
         std::fs::write(
@@ -2295,8 +2285,8 @@ mod tests {
 
         assert_eq!(error.message, "forced parser generation failure");
         assert_eq!(
-            std::fs::read_to_string(root.join("grammar.js")).unwrap(),
-            "old grammar"
+            std::fs::read_to_string(root.join("tree-sitter.json")).unwrap(),
+            "old config"
         );
         assert_eq!(
             std::fs::read_to_string(&retired).unwrap(),
@@ -2322,8 +2312,8 @@ mod tests {
     fn tree_generate_bundle_missing_staged_parser_leaves_destination_unchanged() {
         let root = tree_bundle_test_root("missing_staged_parser");
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("grammar.js"), "old grammar").unwrap();
-        std::fs::write(root.join(TREE_SITTER_BUNDLE_MANIFEST), "grammar.js\n").unwrap();
+        std::fs::write(root.join("tree-sitter.json"), "old config").unwrap();
+        std::fs::write(root.join(TREE_SITTER_BUNDLE_MANIFEST), "tree-sitter.json\n").unwrap();
 
         let error = editor_tree_generate_bundle_with(&root, |_| Ok(()), |_| Ok(())).unwrap_err();
 
@@ -2333,12 +2323,12 @@ mod tests {
             .iter()
             .any(|note| note == "the destination bundle was not changed"));
         assert_eq!(
-            std::fs::read_to_string(root.join("grammar.js")).unwrap(),
-            "old grammar"
+            std::fs::read_to_string(root.join("tree-sitter.json")).unwrap(),
+            "old config"
         );
         assert_eq!(
             std::fs::read_to_string(root.join(TREE_SITTER_BUNDLE_MANIFEST)).unwrap(),
-            "grammar.js\n"
+            "tree-sitter.json\n"
         );
         assert!(!root.join("package.json").exists());
         assert!(!root.join("queries").exists());
@@ -2352,7 +2342,7 @@ mod tests {
         let root = tree_bundle_test_root("failed_commit");
         let retired = root.join("legacy/retired.scm");
         std::fs::create_dir_all(retired.parent().unwrap()).unwrap();
-        std::fs::write(root.join("grammar.js"), "old grammar").unwrap();
+        std::fs::write(root.join("tree-sitter.json"), "old config").unwrap();
         std::fs::write(&retired, "old retired query").unwrap();
         std::fs::write(root.join("editor-notes.txt"), "user owned").unwrap();
         std::fs::write(
@@ -2379,8 +2369,8 @@ mod tests {
             .iter()
             .any(|note| note.contains("destination bundle was restored")));
         assert_eq!(
-            std::fs::read_to_string(root.join("grammar.js")).unwrap(),
-            "old grammar"
+            std::fs::read_to_string(root.join("tree-sitter.json")).unwrap(),
+            "old config"
         );
         assert_eq!(
             std::fs::read_to_string(&retired).unwrap(),
@@ -2441,7 +2431,7 @@ mod tests {
         assert_eq!(root_error.kind, EditorErrorKind::InvalidInput);
         assert!(root_error.message.contains("symlink component"));
 
-        symlink(&outside, actual_root.join("grammar.js")).unwrap();
+        symlink(&outside, actual_root.join("tree-sitter.json")).unwrap();
         let file_error = editor_tree_generate_bundle(&actual_root).unwrap_err();
         assert_eq!(file_error.kind, EditorErrorKind::InvalidInput);
         assert!(file_error.message.contains("symlink component"));

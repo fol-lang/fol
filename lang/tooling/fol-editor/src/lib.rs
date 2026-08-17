@@ -142,7 +142,11 @@ mod tests {
 
     #[test]
     fn tree_sitter_assets_are_publicly_reachable() {
-        assert!(fol_tree_sitter_grammar().contains("module.exports = grammar"));
+        // The grammar is JSON: parse it rather than matching source text.
+        let grammar: serde_json::Value = serde_json::from_str(fol_tree_sitter_grammar())
+            .expect("the exposed grammar should be valid JSON");
+        assert_eq!(grammar["name"].as_str(), Some("fol"));
+        assert!(grammar["rules"].is_object());
         assert!(fol_tree_sitter_highlights_query().contains("@keyword"));
         assert!(fol_tree_sitter_locals_query().contains("@local.definition"));
         assert!(fol_tree_sitter_symbols_query().contains("@symbol"));

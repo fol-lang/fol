@@ -56,47 +56,68 @@ Bundle generation is the one public Tree-sitter command that invokes the
 external `tree-sitter` CLI. The checked-in parser used by ordinary inspection
 commands remains available without that executable.
 
-### What Tree-sitter actually consumes
+### The grammar is JSON
 
-Tree-sitter's input is **`src/grammar.json`**, not `grammar.js`. The `.js` file is
-an authoring convenience: it exists so a rule can be written as
+The grammar lives at **`tree-sitter/src/grammar.json`** and that file is the
+source of truth. There is no `grammar.js` and no JavaScript anywhere in this
+pipeline: Tree-sitter's own input format is JSON, and the `.js` form other
+grammars use is only an authoring convenience that a JavaScript runtime converts
+into exactly this file.
 
-```js
-prec.left(4, seq(field('container', choice($.identifier, ...)), '[', ...))
-```
-
-instead of the equivalent `{"type":"PREC_LEFT","value":4,"content":{"type":"SEQ",
-"members":[...]}}`. Running it is the only thing `node` is used for in this
-repository, and it is a pure `.js` → `.json` step: generating straight from the
-JSON produces a byte-identical `parser.c`.
+Nothing in FOL needs Node. Not building, not testing, not the editor, not
+consuming a generated bundle — `src/parser.c` is checked in and `fol-editor`'s
+`build.rs` compiles it with `cc`. Even regenerating the parser is JS-free:
 
 ```text
-tree-sitter generate src/grammar.json    # no grammar.js, no JS runtime
+tree-sitter generate src/grammar.json
 ```
 
-So `node` is **not** needed to build FOL, run its tests, use the editor, or
-consume a generated bundle: `parser.c` is checked in and `fol-editor`'s
-`build.rs` compiles it with `cc`. It is needed only when the grammar rules
-themselves change, and only to re-derive `grammar.json` from `grammar.js`.
+`fol tool tree generate <dir>` runs exactly that inside a staging directory.
 
 ### Editing the grammar
 
-Two things about this loop surprise people, and both cost real time:
+Rules are JSON objects. A rule such as `container[start:end]` is written as a
+`SEQ` of parts, where a referenced rule is a `SYMBOL`, a literal token is a
+`STRING`, a named child is a `FIELD`, and an optional part is a `CHOICE` with a
+`BLANK` alternative:
 
-1. **Rebuild before generating.** `grammar.js` is `include_str!`-embedded into the
-   binary, so `fol tool tree generate` regenerates from the grammar the *binary*
-   was built with — and writes that copy over `grammar.js` on disk. Editing the
-   file and generating without rebuilding first silently reverts the edit. The
-   order is: edit `grammar.js`, `cargo build`, then generate.
-2. **Use the wrapper, not the bare CLI.** `tree-sitter generate` run by hand
-   invokes `node`; where that resolves to Bun it fails to load `grammar.js` at
-   all. `fol tool tree generate` passes `--js-runtime native` and works. Passing
-   `src/grammar.json` explicitly avoids the JS runtime entirely, but regenerates
-   from the last derived JSON rather than from your edit.
+```json
+"slice_access": {
+  "type": "PREC_LEFT",
+  "value": 4,
+  "content": {
+    "type": "SEQ",
+    "members": [
+      { "type": "FIELD", "name": "container",
+        "content": { "type": "SYMBOL", "name": "identifier" } },
+      { "type": "STRING", "value": "[" },
+      { "type": "CHOICE", "members": [
+        { "type": "FIELD", "name": "start",
+          "content": { "type": "SYMBOL", "name": "expr" } },
+        { "type": "BLANK" } ] },
+      { "type": "STRING", "value": ":" },
+      { "type": "STRING", "value": "]" }
+    ]
+  }
+}
+```
 
-A generation failure prints the conflict tree-sitter could not resolve. Adding
-the named rule to the `conflicts` array is usually the fix — a conflict listing a
-single rule is written as `[$.that_rule]`, not as a pair.
+A new rule needs two edits: the rule itself under `"rules"`, and a reference to
+it from wherever it should be reachable (`expr_atom` for an expression form).
+
+Two things about the loop are worth knowing:
+
+1. **Rebuild before generating.** `grammar.json` is `include_str!`-embedded into
+   the binary, so `fol tool tree generate` regenerates from the grammar the
+   *binary* was built with, and writes that copy back over the file. Editing and
+   generating without rebuilding first silently reverts the edit. The order is:
+   edit `src/grammar.json`, `cargo build`, then generate.
+2. **Generation is idempotent.** Running it against an unchanged grammar rewrites
+   `grammar.json` byte-for-byte, so a no-op regeneration leaves a clean tree.
+
+A generation failure prints the conflict Tree-sitter could not resolve. Adding
+the named rule to the top-level `"conflicts"` array is usually the fix — a
+conflict listing a single rule is an array containing just that one name.
 
 The intended consumer path is:
 
@@ -112,7 +133,7 @@ These files are human-authored and should remain so:
 
 | File | Purpose | Owner |
 |------|---------|-------|
-| `tree-sitter/grammar.js` | Grammar rules, precedence, conflicts | Editor/syntax maintainer |
+| `tree-sitter/src/grammar.json` | Grammar rules, precedence, conflicts | Editor/syntax maintainer |
 | `queries/fol/highlights.scm` | Highlight capture groups and query patterns | Editor/syntax maintainer |
 | `queries/fol/locals.scm` | Scope and definition tracking | Editor/syntax maintainer |
 | `queries/fol/symbols.scm` | Symbol navigation captures | Editor/syntax maintainer |
@@ -130,9 +151,9 @@ to stay in sync with compiler-owned constants:
 |------|---------------------|-----------------|
 | Builtin type names | `highlights.scm` regex `^(int\|bol\|...)$` | `BuiltinType::ALL_NAMES` in `fol-typecheck` |
 | Dot-call intrinsic names | `highlights.scm` regex `^(len\|echo\|...)$` | Implemented `DotRootCall` entries in `fol-intrinsics` |
-| Container type names | `highlights.scm` node labels + `grammar.js` choice | `CONTAINER_TYPE_NAMES` in `fol-parser` |
-| Shell type names | `highlights.scm` node labels + `grammar.js` choice | `SHELL_TYPE_NAMES` in `fol-parser` |
-| Source kind names | `highlights.scm` node labels + `grammar.js` choice | `SOURCE_KIND_NAMES` in `fol-parser` |
+| Container type names | `highlights.scm` node labels + `grammar.json` choice | `CONTAINER_TYPE_NAMES` in `fol-parser` |
+| Shell type names | `highlights.scm` node labels + `grammar.json` choice | `SHELL_TYPE_NAMES` in `fol-parser` |
+| Source kind names | `highlights.scm` node labels + `grammar.json` choice | `SOURCE_KIND_NAMES` in `fol-parser` |
 
 The sync tests live in `test/run_tests.rs` under `treesitter_sync`. If you add
 a new builtin type, intrinsic, container, shell, or source kind to the compiler,
@@ -140,7 +161,7 @@ these tests fail until the tree-sitter files are updated to match.
 
 ## When To Update Tree-sitter Files
 
-### grammar.js
+### src/grammar.json
 
 Update when:
 

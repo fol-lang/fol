@@ -938,7 +938,11 @@ fn tree_generate_command_writes_bundle_layout() {
     .expect("tree generate should dispatch");
 
     assert_eq!(result.command, "tree generate");
-    assert!(output.join("grammar.js").is_file());
+    assert!(output.join("src/grammar.json").is_file());
+    assert!(
+        !output.join("grammar.js").exists(),
+        "the JS authoring form is gone"
+    );
     assert!(output.join("queries/fol/highlights.scm").is_file());
     assert!(output.join("queries/fol/locals.scm").is_file());
     assert!(output.join("queries/fol/symbols.scm").is_file());

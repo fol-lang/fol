@@ -189,7 +189,7 @@ Check:
 
 Update:
 
-- `tree-sitter/grammar.js`
+- `tree-sitter/src/grammar.json`
 - `queries/fol/highlights.scm`
 - `queries/fol/locals.scm`
 - `queries/fol/symbols.scm`
