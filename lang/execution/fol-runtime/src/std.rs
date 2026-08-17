@@ -827,6 +827,480 @@ pub fn backtrace() -> FolStr {
     FolStr::new(std::backtrace::Backtrace::force_capture().to_string())
 }
 
+// The reason the last hosted call failed.
+//
+// Every fallible intrinsic here reports failure as a sentinel — `-1`, or an
+// empty string — which says that something went wrong and nothing about what.
+// A program could not tell a missing file from an unreadable one, so it could
+// not print the message a user needs. This is errno's shape: the call reports
+// success or failure, and the reason is fetched afterwards.
+//
+// Thread-local, because two threads failing at once must not overwrite each
+// other's reason. Cleared on success, so a stale reason is never read as a
+// fresh one.
+thread_local! {
+    static LAST_OS_ERROR: std::cell::RefCell<Option<(crate::value::FolInt, String)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Stable codes, so a program can branch on the reason instead of matching the
+/// message text. The numbers are part of the surface and must not be renumbered;
+/// `std::os` exports them by name.
+fn os_error_code(kind: std::io::ErrorKind) -> crate::value::FolInt {
+    use std::io::ErrorKind;
+    match kind {
+        ErrorKind::NotFound => 1,
+        ErrorKind::PermissionDenied => 2,
+        ErrorKind::AlreadyExists => 3,
+        ErrorKind::ConnectionRefused => 4,
+        ErrorKind::ConnectionReset => 5,
+        ErrorKind::ConnectionAborted => 6,
+        ErrorKind::NotConnected => 7,
+        ErrorKind::AddrInUse => 8,
+        ErrorKind::AddrNotAvailable => 9,
+        ErrorKind::BrokenPipe => 10,
+        ErrorKind::WouldBlock => 11,
+        ErrorKind::TimedOut => 12,
+        ErrorKind::InvalidInput => 13,
+        ErrorKind::InvalidData => 14,
+        ErrorKind::UnexpectedEof => 15,
+        ErrorKind::Interrupted => 16,
+        ErrorKind::WriteZero => 17,
+        // Everything else, including the kinds still unstable in Rust, so that
+        // a toolchain upgrade cannot silently change an existing code.
+        _ => 99,
+    }
+}
+
+pub(crate) fn note_os_error(error: &std::io::Error) {
+    let recorded = (os_error_code(error.kind()), error.to_string());
+    LAST_OS_ERROR.with(|slot| *slot.borrow_mut() = Some(recorded));
+}
+
+pub(crate) fn clear_os_error() {
+    LAST_OS_ERROR.with(|slot| *slot.borrow_mut() = None);
+}
+
+/// The `()`-returning form: 0 on success, -1 on failure.
+fn report_unit(result: std::io::Result<()>) -> crate::value::FolInt {
+    match result {
+        Ok(()) => {
+            clear_os_error();
+            0
+        }
+        Err(error) => {
+            note_os_error(&error);
+            -1
+        }
+    }
+}
+
+/// The last failure's message, or `""` when the last hosted call succeeded.
+pub fn os_error() -> FolStr {
+    LAST_OS_ERROR.with(|slot| match slot.borrow().as_ref() {
+        Some((_, message)) => FolStr::new(message.as_str()),
+        None => FolStr::new(""),
+    })
+}
+
+/// The last failure's stable code, or 0 when the last hosted call succeeded.
+pub fn os_error_kind() -> crate::value::FolInt {
+    LAST_OS_ERROR.with(|slot| slot.borrow().as_ref().map_or(0, |(code, _)| *code))
+}
+
+// Seconds to add to UTC to get local time, e.g. 7200 for CEST.
+//
+// `time_parts` works in UTC, so without this every timestamp a program prints
+// is wrong for its reader. The offset is read by asking the C library rather
+// than parsing TZif ourselves: `localtime_r` applies the whole zone database
+// including the DST rule that applies at that instant, which is the part a
+// hand-rolled reader gets wrong.
+//
+// Takes the instant because the offset is not a constant — the same zone is
+// +3600 in January and +7200 in July.
+extern "C" {
+    fn localtime_r(time: *const i64, result: *mut CTm) -> *mut CTm;
+    // `localtime_r` deliberately does NOT load the zone, unlike `localtime` —
+    // glibc leaves that to the caller. Without this the zone is never read and
+    // every offset comes back 0, which looks exactly like a correct answer on a
+    // UTC machine. Called every time because TZ can change under the process.
+    fn tzset();
+}
+
+#[repr(C)]
+#[derive(Default)]
+struct CTm {
+    sec: i32,
+    min: i32,
+    hour: i32,
+    mday: i32,
+    mon: i32,
+    year: i32,
+    wday: i32,
+    yday: i32,
+    isdst: i32,
+    gmtoff: i64,
+    zone: *const i8,
+}
+
+pub fn tz_offset_sec(epoch_secs: crate::value::FolInt) -> crate::value::FolInt {
+    let when: i64 = epoch_secs;
+    // SAFETY: loads the zone from TZ or /etc/localtime; safe to call repeatedly.
+    unsafe { tzset() };
+    let mut parts = CTm {
+        zone: std::ptr::null(),
+        ..Default::default()
+    };
+    // SAFETY: `localtime_r` writes into the caller's struct and takes no
+    // ownership; the `_r` form is the reentrant one, so no shared static is
+    // touched and concurrent calls are safe.
+    let filled = unsafe { localtime_r(&when as *const i64, &mut parts as *mut CTm) };
+    if filled.is_null() {
+        return 0;
+    }
+    parts.gmtoff
+}
+
+/// The absolute path with symlinks and `..` resolved on disk.
+///
+/// `std::path::normalize` resolves `..` textually, which is a different answer
+/// whenever a symlink is involved and therefore cannot decide whether a path
+/// stays inside an allowed directory. This asks the filesystem, so the path
+/// must exist. Empty string on failure, with the reason in `os_error`.
+pub fn realpath(path: FolStr) -> FolStr {
+    match std::fs::canonicalize(path.as_str()) {
+        Ok(resolved) => {
+            clear_os_error();
+            FolStr::new(resolved.to_string_lossy().into_owned())
+        }
+        Err(error) => {
+            note_os_error(&error);
+            FolStr::new("")
+        }
+    }
+}
+
+/// Creates a new empty file with a unique name in the temp directory and
+/// returns its path.
+///
+/// The point is the create: writing a config safely means writing a temp file
+/// and renaming it over the target, and `rename_file` already exists. Choosing
+/// a name in FOL and then opening it would race — another process could take
+/// the name in between — so the create has to be exclusive, which is what this
+/// does.
+pub fn temp_file(prefix: FolStr) -> FolStr {
+    let mut attempt = 0u32;
+    loop {
+        let candidate = std::env::temp_dir().join(format!(
+            "{}{}-{}-{}",
+            prefix.as_str(),
+            std::process::id(),
+            attempt,
+            mono_ns()
+        ));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            // The exclusive create is what makes the name ours: it fails rather
+            // than opening a file somebody else just made.
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(_) => {
+                clear_os_error();
+                return FolStr::new(candidate.to_string_lossy().into_owned());
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists && attempt < 64 => {
+                attempt += 1;
+            }
+            Err(error) => {
+                note_os_error(&error);
+                return FolStr::new("");
+            }
+        }
+    }
+}
+
+// Advisory whole-file lock on an open handle, via `flock`.
+//
+// This is how a program stays single-instance: take an exclusive lock on a
+// known path and exit if another process already holds it. `exclusive` false
+// takes a shared (read) lock. `wait` false returns -1 immediately rather than
+// blocking, so a caller can report "already running" instead of hanging.
+//
+// Advisory means it only binds processes that also ask; it does not stop an
+// unrelated writer.
+extern "C" {
+    fn flock(fd: i32, operation: i32) -> i32;
+}
+
+/// Read under the lock rather than through `open_file_slot`, which hands back a
+/// CLONE — the clone's descriptor is closed the moment it drops, so locking it
+/// applied to an already-closed fd and failed. `flock` only needs the number,
+/// and the registry keeps the file open behind it.
+fn flock_fd(handle: crate::value::FolInt) -> Option<i32> {
+    use std::os::fd::AsRawFd;
+    open_files()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .get(&handle)
+        .map(|file| file.as_raw_fd())
+}
+
+pub fn file_lock(
+    handle: crate::value::FolInt,
+    exclusive: crate::value::FolBool,
+    wait: crate::value::FolBool,
+) -> crate::value::FolInt {
+    const LOCK_SH: i32 = 1;
+    const LOCK_EX: i32 = 2;
+    const LOCK_NB: i32 = 4;
+    let Some(fd) = flock_fd(handle) else {
+        return -1;
+    };
+    let mut operation = if exclusive { LOCK_EX } else { LOCK_SH };
+    if !wait {
+        operation |= LOCK_NB;
+    }
+    // SAFETY: `fd` comes from a live `File` in the registry, so it is open for
+    // the duration of the call.
+    if unsafe { flock(fd, operation) } == 0 {
+        clear_os_error();
+        0
+    } else {
+        note_os_error(&std::io::Error::last_os_error());
+        -1
+    }
+}
+
+pub fn file_unlock(handle: crate::value::FolInt) -> crate::value::FolInt {
+    const LOCK_UN: i32 = 8;
+    let Some(fd) = flock_fd(handle) else {
+        return -1;
+    };
+    // SAFETY: as `file_lock`.
+    if unsafe { flock(fd, LOCK_UN) } == 0 {
+        clear_os_error();
+        0
+    } else {
+        note_os_error(&std::io::Error::last_os_error());
+        -1
+    }
+}
+
+/// Creates a symbolic link at `link` pointing to `target`.
+///
+/// `read_link` could already follow one; nothing could make one, which made the
+/// surface asymmetric and left any program that manages a `current -> release`
+/// symlink unwritable.
+pub fn make_symlink(target: FolStr, link: FolStr) -> crate::value::FolInt {
+    report_unit(std::os::unix::fs::symlink(target.as_str(), link.as_str()))
+}
+
+/// Removes an environment variable, which setting it to `""` does not do: an
+/// empty value is still a present variable, and a child process can tell the
+/// difference.
+pub fn unset_env_var(name: FolStr) -> crate::value::FolInt {
+    std::env::remove_var(name.as_str());
+    clear_os_error();
+    0
+}
+
+/// Long-running child processes, addressed by handle like sockets and files.
+///
+/// `run_capture`, `run_status` and `run_input` all block until the child exits,
+/// which is right for a filter and useless for anything supervised: you cannot
+/// start a server, watch it, and stop it. These separate starting from waiting.
+///
+/// Standard streams are inherited, so the child shares this program's terminal.
+/// Capturing output *and* supervising at once would need a reader thread per
+/// stream; `run_capture` remains the answer when the output is what you want.
+fn children() -> &'static Mutex<std::collections::HashMap<crate::value::FolInt, std::process::Child>>
+{
+    static CHILDREN: OnceLock<
+        Mutex<std::collections::HashMap<crate::value::FolInt, std::process::Child>>,
+    > = OnceLock::new();
+    CHILDREN.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+pub fn child_spawn(program: FolStr, args: FolVec<FolStr>) -> crate::value::FolInt {
+    static NEXT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
+    let mut command = std::process::Command::new(program.as_str());
+    for arg in args.as_slice() {
+        command.arg(arg.as_str());
+    }
+    match command.spawn() {
+        Ok(child) => {
+            clear_os_error();
+            let handle = NEXT.fetch_add(1, Ordering::Relaxed);
+            children()
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .insert(handle, child);
+            handle
+        }
+        Err(error) => {
+            note_os_error(&error);
+            -1
+        }
+    }
+}
+
+/// The child's process id, so a caller can log it or reach it by other means.
+pub fn child_pid(handle: crate::value::FolInt) -> crate::value::FolInt {
+    children()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .get(&handle)
+        .map_or(-1, |child| child.id() as crate::value::FolInt)
+}
+
+/// Exit status if the child has finished, or -2 while it is still running.
+///
+/// -2 rather than -1 so "not done yet" is distinguishable from "no such
+/// handle", which is the mistake a poll loop would otherwise make.
+pub fn child_try_wait(handle: crate::value::FolInt) -> crate::value::FolInt {
+    let mut registry = children().lock().unwrap_or_else(|error| error.into_inner());
+    let Some(child) = registry.get_mut(&handle) else {
+        return -1;
+    };
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            clear_os_error();
+            let code = status.code().unwrap_or(-1) as crate::value::FolInt;
+            registry.remove(&handle);
+            code
+        }
+        Ok(None) => -2,
+        Err(error) => {
+            note_os_error(&error);
+            -1
+        }
+    }
+}
+
+/// Blocks until the child exits and yields its status. The handle is released,
+/// so the child is never left as a zombie.
+pub fn child_wait(handle: crate::value::FolInt) -> crate::value::FolInt {
+    // Taken out of the registry before waiting, so a blocking wait does not
+    // hold the lock against every other child operation — the rule the socket
+    // deadlock taught.
+    let taken = children()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .remove(&handle);
+    let Some(mut child) = taken else {
+        return -1;
+    };
+    match child.wait() {
+        Ok(status) => {
+            clear_os_error();
+            status.code().unwrap_or(-1) as crate::value::FolInt
+        }
+        Err(error) => {
+            note_os_error(&error);
+            -1
+        }
+    }
+}
+
+/// Sends a signal to the child. `signum` 0 uses `SIGKILL`, which cannot be
+/// caught; any other number is sent as given, so `15` asks politely and lets
+/// the child run its own cleanup.
+pub fn child_kill(
+    handle: crate::value::FolInt,
+    signum: crate::value::FolInt,
+) -> crate::value::FolInt {
+    let pid = child_pid(handle);
+    if pid < 0 {
+        return -1;
+    }
+    extern "C" {
+        fn kill(pid: i32, sig: i32) -> i32;
+    }
+    let sig = if signum == 0 { 9 } else { signum as i32 };
+    // SAFETY: the pid comes from a live `Child` still held in the registry, so
+    // it has not been reaped and cannot have been reused.
+    if unsafe { kill(pid as i32, sig) } == 0 {
+        clear_os_error();
+        0
+    } else {
+        note_os_error(&std::io::Error::last_os_error());
+        -1
+    }
+}
+
+/// Which of the given socket handles have data ready, waiting up to
+/// `timeout_ms`. An empty result means the timeout expired.
+///
+/// Without this, serving several connections means a thread per connection —
+/// which FOL can do, and which stops scaling once the connections outnumber
+/// what the scheduler should carry. This is the other shape: one thread, many
+/// sockets.
+///
+/// A negative timeout waits indefinitely.
+pub fn poll_read(
+    handles: FolVec<crate::value::FolInt>,
+    timeout_ms: crate::value::FolInt,
+) -> FolVec<crate::value::FolInt> {
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct PollFd {
+        fd: i32,
+        events: i16,
+        revents: i16,
+    }
+    extern "C" {
+        fn poll(fds: *mut PollFd, nfds: u64, timeout: i32) -> i32;
+    }
+    const POLLIN: i16 = 0x001;
+
+    let requested = handles.as_slice();
+    let mut slots: Vec<PollFd> = Vec::with_capacity(requested.len());
+    let mut owners: Vec<crate::value::FolInt> = Vec::with_capacity(requested.len());
+    for handle in requested {
+        if let Some(fd) = socket_fd(*handle) {
+            slots.push(PollFd {
+                fd,
+                events: POLLIN,
+                revents: 0,
+            });
+            owners.push(*handle);
+        }
+    }
+    if slots.is_empty() {
+        return FolVec::from_items(Vec::new());
+    }
+    // SAFETY: `slots` is a live, correctly sized array of the C struct, and the
+    // descriptors come from sockets still held in the registry.
+    let ready = unsafe { poll(slots.as_mut_ptr(), slots.len() as u64, timeout_ms as i32) };
+    if ready < 0 {
+        note_os_error(&std::io::Error::last_os_error());
+        return FolVec::from_items(Vec::new());
+    }
+    clear_os_error();
+    FolVec::from_items(
+        slots
+            .iter()
+            .zip(owners.iter())
+            .filter(|(slot, _)| slot.revents & POLLIN != 0)
+            .map(|(_, handle)| *handle)
+            .collect(),
+    )
+}
+
+/// The path this program was invoked as — argv[0].
+///
+/// `arg_at(0)` is the FIRST argument, not the program, so a usage message could
+/// not name the command and a program could not re-exec itself.
+pub fn arg_program() -> FolStr {
+    FolStr::new(
+        std::env::args_os()
+            .next()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    )
+}
+
 /// Binary file access. `read_file`/`write_file` assume UTF-8, which silently
 /// mangles anything that is not text; these carry bytes verbatim.
 /// Byte values, clamped into `0..=255`. A FOL `vec[int]` can hold anything, so
@@ -975,7 +1449,10 @@ pub fn file_read(
                 .map(|byte| *byte as crate::value::FolInt)
                 .collect(),
         ),
-        Err(_) => FolVec::from_items(Vec::new()),
+        Err(error) => {
+            note_os_error(&error);
+            FolVec::from_items(Vec::new())
+        }
     }
 }
 
@@ -993,7 +1470,10 @@ pub fn file_write(
     };
     match file.write(&payload) {
         Ok(written) => written as crate::value::FolInt,
-        Err(_) => -1,
+        Err(error) => {
+            note_os_error(&error);
+            -1
+        }
     }
 }
 
@@ -1016,7 +1496,10 @@ pub fn file_seek(
     };
     match file.seek(target) {
         Ok(position) => position as crate::value::FolInt,
-        Err(_) => -1,
+        Err(error) => {
+            note_os_error(&error);
+            -1
+        }
     }
 }
 
@@ -1027,7 +1510,10 @@ pub fn file_flush(handle: crate::value::FolInt) -> crate::value::FolInt {
     };
     match file.flush() {
         Ok(()) => 0,
-        Err(_) => -1,
+        Err(error) => {
+            note_os_error(&error);
+            -1
+        }
     }
 }
 
@@ -1267,6 +1753,9 @@ pub fn str_from_bytes(bytes: FolVec<crate::value::FolInt>) -> FolStr {
     };
     match std::str::from_utf8(&payload) {
         Ok(text) => FolStr::new(text),
+        // Not an OS failure, so it does not touch the last-OS-error slot;
+        // `bytes_valid_utf8` is the companion that distinguishes empty from
+        // invalid here.
         Err(_) => FolStr::new(""),
     }
 }
@@ -1300,7 +1789,7 @@ pub fn write_bytes(path: FolStr, bytes: FolVec<crate::value::FolInt>) -> crate::
         .iter()
         .map(|value| (*value).clamp(0, 255) as u8)
         .collect();
-    std::fs::write(path.as_str(), payload).map_or(1, |()| 0)
+    report_unit(std::fs::write(path.as_str(), payload))
 }
 
 /// One entry name per element. This replaces `dir_list`, which packs everything
@@ -1320,7 +1809,7 @@ pub fn dir_entries(path: FolStr) -> FolVec<FolStr> {
 }
 
 pub fn remove_dir_all(path: FolStr) -> crate::value::FolInt {
-    std::fs::remove_dir_all(path.as_str()).map_or(1, |()| 0)
+    report_unit(std::fs::remove_dir_all(path.as_str()))
 }
 
 /// Uses `symlink_metadata`, which does NOT follow the link — `is_file`/`is_dir`
@@ -1351,7 +1840,10 @@ pub fn set_permissions(path: FolStr, mode: crate::value::FolInt) -> crate::value
     let Ok(mode) = u32::try_from(mode) else {
         return 1;
     };
-    std::fs::set_permissions(path.as_str(), std::fs::Permissions::from_mode(mode)).map_or(1, |()| 0)
+    report_unit(std::fs::set_permissions(
+        path.as_str(),
+        std::fs::Permissions::from_mode(mode),
+    ))
 }
 
 pub fn temp_dir() -> FolStr {
@@ -1363,7 +1855,7 @@ pub fn home_dir() -> FolStr {
 }
 
 pub fn set_current_dir(path: FolStr) -> crate::value::FolInt {
-    std::env::set_current_dir(path.as_str()).map_or(1, |()| 0)
+    report_unit(std::env::set_current_dir(path.as_str()))
 }
 
 /// Every variable as `"KEY=VALUE"`. Splitting on the first `=` is the caller's
@@ -1834,14 +2326,26 @@ pub fn dir_list(path: FolStr) -> FolStr {
 
 /// The text contents of a file, or the empty string when unreadable.
 pub fn read_file(path: FolStr) -> FolStr {
-    FolStr::new(std::fs::read_to_string(path.as_str()).unwrap_or_default())
+    match std::fs::read_to_string(path.as_str()) {
+        Ok(text) => {
+            clear_os_error();
+            FolStr::new(text)
+        }
+        Err(error) => {
+            note_os_error(&error);
+            FolStr::new("")
+        }
+    }
 }
 
 /// Writes text to a path: 0 on success, -1 when the write fails.
 pub fn write_file(path: FolStr, contents: FolStr) -> crate::value::FolInt {
     match std::fs::write(path.as_str(), contents.as_str()) {
         Ok(()) => 0,
-        Err(_) => -1,
+        Err(error) => {
+            note_os_error(&error);
+            -1
+        }
     }
 }
 
@@ -1927,7 +2431,10 @@ fn register_socket(slot: SocketSlot) -> crate::value::FolInt {
 pub fn tcp_listen(address: FolStr) -> crate::value::FolInt {
     match std::net::TcpListener::bind(address.as_str()) {
         Ok(listener) => register_socket(SocketSlot::Listener(listener)),
-        Err(_) => -1,
+        Err(error) => {
+            note_os_error(&error);
+            -1
+        }
     }
 }
 
@@ -1935,6 +2442,21 @@ pub fn tcp_listen(address: FolStr) -> crate::value::FolInt {
 /// lock BEFORE blocking. Holding it across `accept`/`read` deadlocks instantly:
 /// the blocked thread owns the map that the peer needs in order to register its
 /// own handle.
+/// The raw descriptor for any socket kind, for `poll_read`.
+///
+/// Read under the lock and returned as a plain int rather than cloning the
+/// socket: `poll` only inspects readiness, so there is nothing to own, and the
+/// descriptor stays valid because the registry still holds the socket.
+fn socket_fd(handle: crate::value::FolInt) -> Option<i32> {
+    use std::os::fd::AsRawFd;
+    let guard = sockets().lock().unwrap_or_else(|error| error.into_inner());
+    guard.get(&handle).map(|slot| match slot {
+        SocketSlot::Listener(listener) => listener.as_raw_fd(),
+        SocketSlot::Stream(stream) => stream.as_raw_fd(),
+        SocketSlot::Datagram(socket) => socket.as_raw_fd(),
+    })
+}
+
 fn clone_listener(handle: crate::value::FolInt) -> Option<std::net::TcpListener> {
     let guard = sockets().lock().unwrap_or_else(|error| error.into_inner());
     match guard.get(&handle) {
@@ -1959,14 +2481,20 @@ pub fn tcp_accept(handle: crate::value::FolInt) -> crate::value::FolInt {
     };
     match listener.accept() {
         Ok((stream, _)) => register_socket(SocketSlot::Stream(stream)),
-        Err(_) => -1,
+        Err(error) => {
+            note_os_error(&error);
+            -1
+        }
     }
 }
 
 pub fn tcp_connect(address: FolStr) -> crate::value::FolInt {
     match std::net::TcpStream::connect(address.as_str()) {
         Ok(stream) => register_socket(SocketSlot::Stream(stream)),
-        Err(_) => -1,
+        Err(error) => {
+            note_os_error(&error);
+            -1
+        }
     }
 }
 
@@ -2094,7 +2622,10 @@ pub fn tcp_shutdown(
 pub fn udp_bind(address: FolStr) -> crate::value::FolInt {
     match std::net::UdpSocket::bind(address.as_str()) {
         Ok(socket) => register_socket(SocketSlot::Datagram(socket)),
-        Err(_) => -1,
+        Err(error) => {
+            note_os_error(&error);
+            -1
+        }
     }
 }
 
@@ -2139,7 +2670,10 @@ pub fn dns_resolve(host: FolStr) -> FolVec<FolStr> {
                 .map(|addr| FolStr::new(addr.ip().to_string()))
                 .collect(),
         ),
-        Err(_) => FolVec::from_items(Vec::new()),
+        Err(error) => {
+            note_os_error(&error);
+            FolVec::from_items(Vec::new())
+        }
     }
 }
 
@@ -2175,7 +2709,10 @@ pub fn read_all() -> FolStr {
     let mut buffer = String::new();
     match std::io::Read::read_to_string(&mut std::io::stdin().lock(), &mut buffer) {
         Ok(_) => FolStr::new(buffer),
-        Err(_) => FolStr::new(String::new()),
+        Err(error) => {
+            note_os_error(&error);
+            FolStr::new(String::new())
+        }
     }
 }
 
@@ -2209,29 +2746,30 @@ pub fn file_size(path: FolStr) -> crate::value::FolInt {
 /// The mutating filesystem hooks all report 0 for success and 1 for failure,
 /// matching `write_file`, which already reports that way.
 pub fn make_dir(path: FolStr) -> crate::value::FolInt {
-    std::fs::create_dir_all(path.as_str()).map_or(1, |()| 0)
+    report_unit(std::fs::create_dir_all(path.as_str()))
 }
 
 pub fn remove_file(path: FolStr) -> crate::value::FolInt {
-    std::fs::remove_file(path.as_str()).map_or(1, |()| 0)
+    report_unit(std::fs::remove_file(path.as_str()))
 }
 
 pub fn rename_file(from: FolStr, to: FolStr) -> crate::value::FolInt {
-    std::fs::rename(from.as_str(), to.as_str()).map_or(1, |()| 0)
+    report_unit(std::fs::rename(from.as_str(), to.as_str()))
 }
 
 pub fn copy_file(from: FolStr, to: FolStr) -> crate::value::FolInt {
-    std::fs::copy(from.as_str(), to.as_str()).map_or(1, |_| 0)
+    report_unit(std::fs::copy(from.as_str(), to.as_str()).map(|_| ()))
 }
 
 pub fn append_file(path: FolStr, contents: FolStr) -> crate::value::FolInt {
     use std::io::Write;
-    std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path.as_str())
-        .and_then(|mut file| file.write_all(contents.as_str().as_bytes()))
-        .map_or(1, |()| 0)
+    report_unit(
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path.as_str())
+            .and_then(|mut file| file.write_all(contents.as_str().as_bytes())),
+    )
 }
 
 pub fn current_dir() -> FolStr {

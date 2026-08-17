@@ -129,3 +129,65 @@ fun[exp] read_streamed(path: str, chunk: int): str = {
     var done: int = close(handle);
     return out;
 };
+
+// The absolute path with symlinks and `..` resolved ON DISK.
+//
+// `std::path::normalize` resolves `..` textually, which is a different answer
+// whenever a symlink is involved — so it cannot decide whether a path stays
+// inside an allowed directory. This asks the filesystem, so the path must
+// already exist. Empty string on failure, with the reason in `std::os::error`.
+fun[exp] resolve(path: str): str = {
+    return .realpath(path);
+};
+
+// Creates a uniquely named empty file in the temp directory and returns its
+// path. The create is the point: choosing a name and then opening it would
+// race, because another process could take the name in between.
+fun[exp] temp_path(prefix: str): str = {
+    return .temp_file(prefix);
+};
+
+// Write a file so a reader never sees a half-written one: write a temp file,
+// then rename it over the target. Rename is atomic within a filesystem, which
+// is why the temp file has to be made in the same directory as the target
+// rather than in the temp directory.
+fun[exp] write_atomic(path: str, contents: str): int = {
+    var scratch: str = .temp_file("fol-atomic-");
+    if (.len(scratch) == 0) {
+        return 0 - 1;
+    } else {
+    };
+    if (.write_file(scratch, contents) != 0) {
+        var discarded: int = .remove_file(scratch);
+        return 0 - 1;
+    } else {
+    };
+    return .rename_file(scratch, path);
+};
+
+fun[exp] make_link(target: str, link: str): int = {
+    return .make_symlink(target, link);
+};
+
+// Advisory whole-file locking, which is how a program stays single-instance:
+// take an exclusive lock on a known path and exit if another process holds it.
+//
+// Advisory means it only binds processes that also ask; it does not stop an
+// unrelated writer.
+fun[exp] lock_exclusive(handle: int): int = {
+    return .file_lock(handle, true, true);
+};
+
+// Returns -1 immediately instead of blocking, so a caller can report "already
+// running" rather than hang.
+fun[exp] try_lock_exclusive(handle: int): int = {
+    return .file_lock(handle, true, false);
+};
+
+fun[exp] lock_shared(handle: int): int = {
+    return .file_lock(handle, false, true);
+};
+
+fun[exp] unlock(handle: int): int = {
+    return .file_unlock(handle);
+};

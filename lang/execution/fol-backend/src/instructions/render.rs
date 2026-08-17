@@ -900,6 +900,14 @@ pub fn render_core_instruction_in_workspace(
                 | ("atomic_new", [value])
                 | ("atomic_load", [value])
                 | ("hash_bytes", [value])
+                | ("tz_offset_sec", [value])
+                | ("realpath", [value])
+                | ("temp_file", [value])
+                | ("file_unlock", [value])
+                | ("unset_env_var", [value])
+                | ("child_pid", [value])
+                | ("child_try_wait", [value])
+                | ("child_wait", [value])
                 | ("str_from_bytes", [value])
                 | ("str_bytes", [value])
                 | ("bytes_valid_utf8", [value])
@@ -952,6 +960,9 @@ pub fn render_core_instruction_in_workspace(
                     format!("rt::assert_message({condition}, {message})")
                 }
                 ("backtrace", []) => "rt::backtrace()".to_string(),
+                ("os_error", []) => "rt::os_error()".to_string(),
+                ("os_error_kind", []) => "rt::os_error_kind()".to_string(),
+                ("arg_program", []) => "rt::arg_program()".to_string(),
                 ("signal_pending", []) => "rt::signal_pending()".to_string(),
                 ("cpu_count", []) => "rt::cpu_count()".to_string(),
                 ("thread_yield", []) => "rt::thread_yield()".to_string(),
@@ -1002,6 +1013,10 @@ pub fn render_core_instruction_in_workspace(
                 | ("atomic_store", [path, contents])
                 | ("atomic_add", [path, contents])
                 | ("bytes_equal_ct", [path, contents])
+                | ("make_symlink", [path, contents])
+                | ("child_kill", [path, contents])
+                | ("child_spawn", [path, contents])
+                | ("poll_read", [path, contents])
                 | ("str_normalize", [path, contents])
                 | ("str_is_normalized", [path, contents])
                 | ("file_open", [path, contents])
@@ -1018,6 +1033,7 @@ pub fn render_core_instruction_in_workspace(
                 | ("udp_send_to", [text, from, to])
                 | ("atomic_cas", [text, from, to])
                 | ("file_seek", [text, from, to])
+                | ("file_lock", [text, from, to])
                 | ("run_input", [text, from, to]) => {
                     let text = render_transfer_expr(type_table, package_identity, routine, *text)?;
                     let from = render_transfer_expr(type_table, package_identity, routine, *from)?;

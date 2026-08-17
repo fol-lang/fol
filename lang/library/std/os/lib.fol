@@ -15,3 +15,108 @@ fun[exp] arg_count(): int = {
 fun[exp] arg(index: int): str = {
     return .arg_at(index);
 };
+
+// Why the last hosted call failed.
+//
+// Every fallible routine in `std` reports failure as a sentinel — `-1`, or an
+// empty string — which says that something went wrong and nothing about what.
+// These read the reason afterwards, the way errno works. A successful call
+// clears them, so a stale reason is never mistaken for a fresh one.
+
+con[exp] ERR_NONE: int = 0;
+con[exp] ERR_NOT_FOUND: int = 1;
+con[exp] ERR_DENIED: int = 2;
+con[exp] ERR_EXISTS: int = 3;
+con[exp] ERR_REFUSED: int = 4;
+con[exp] ERR_RESET: int = 5;
+con[exp] ERR_ABORTED: int = 6;
+con[exp] ERR_NOT_CONNECTED: int = 7;
+con[exp] ERR_ADDR_IN_USE: int = 8;
+con[exp] ERR_ADDR_UNAVAILABLE: int = 9;
+con[exp] ERR_BROKEN_PIPE: int = 10;
+con[exp] ERR_WOULD_BLOCK: int = 11;
+con[exp] ERR_TIMED_OUT: int = 12;
+con[exp] ERR_INVALID_INPUT: int = 13;
+con[exp] ERR_INVALID_DATA: int = 14;
+con[exp] ERR_UNEXPECTED_EOF: int = 15;
+con[exp] ERR_INTERRUPTED: int = 16;
+con[exp] ERR_WRITE_ZERO: int = 17;
+con[exp] ERR_OTHER: int = 99;
+
+fun[exp] error(): str = {
+    return .os_error();
+};
+
+fun[exp] error_kind(): int = {
+    return .os_error_kind();
+};
+
+fun[exp] failed(): bol = {
+    return .os_error_kind() != ERR_NONE;
+};
+
+// Branch on the reason instead of matching the message text, which is the OS's
+// wording and not a contract.
+fun[exp] not_found(): bol = {
+    return .os_error_kind() == ERR_NOT_FOUND;
+};
+
+fun[exp] denied(): bol = {
+    return .os_error_kind() == ERR_DENIED;
+};
+
+// The path this program was invoked as. `arg(0)` is the FIRST argument, so this
+// is what a usage message should name.
+fun[exp] program(): str = {
+    return .arg_program();
+};
+
+fun[exp] set_env(name: str, value: str): int = {
+    return .set_env_var(name, value);
+};
+
+// Removing is not the same as setting to "": an empty value is still a present
+// variable, and a child process can tell the difference.
+fun[exp] unset_env(name: str): int = {
+    return .unset_env_var(name);
+};
+
+// Long-running children, for anything supervised. `run_capture` and friends
+// block until the child exits, which is right for a filter and useless for a
+// server you intend to watch and stop.
+
+con[exp] SIGNAL_KILL: int = 0;
+con[exp] SIGNAL_TERM: int = 15;
+// A routine, not a `con`: a global binding needs a LITERAL initializer and
+// `0 - 2` is an expression.
+fun[exp] still_running(): int = {
+    return 0 - 2;
+};
+
+fun[exp] spawn(program: str, args: vec[str]): int = {
+    return .child_spawn(program, args);
+};
+
+fun[exp] child_id(handle: int): int = {
+    return .child_pid(handle);
+};
+
+// Exit status if finished, `still_running()` while still going, -1 for an unknown
+// handle — three outcomes, so a poll loop cannot confuse "not yet" with "gone".
+fun[exp] child_status(handle: int): int = {
+    return .child_try_wait(handle);
+};
+
+fun[exp] child_running(handle: int): bol = {
+    return .child_try_wait(handle) == still_running();
+};
+
+fun[exp] await_child(handle: int): int = {
+    return .child_wait(handle);
+};
+
+// `SIGNAL_TERM` asks politely and lets the child clean up; `SIGNAL_KILL` cannot
+// be caught.
+fun[exp] signal_child(handle: int, signum: int): int = {
+    return .child_kill(handle, signum);
+};

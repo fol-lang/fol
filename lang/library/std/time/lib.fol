@@ -5,3 +5,16 @@ fun[exp] sleep_ms(ms: int): int = {
 fun[exp] now_ms(): int = {
     return .now_ms();
 };
+
+// Seconds to add to UTC for local time. `.time_parts` works in UTC, so without
+// this every timestamp a program shows its reader is wrong.
+//
+// Takes the instant because the offset is not a constant: the same zone is
+// +3600 in January and +7200 in July.
+fun[exp] local_offset(epoch_secs: int): int = {
+    return .tz_offset_sec(epoch_secs);
+};
+
+fun[exp] local_parts(epoch_secs: int): vec[int] = {
+    return .time_parts(epoch_secs + .tz_offset_sec(epoch_secs));
+};

@@ -585,6 +585,8 @@ const CONTAINER_TYPED_INTRINSICS: &[&str] = &[
     "file_read",
     "file_write",
     "run_input",
+    "child_spawn",
+    "poll_read",
 ];
 
 /// Fixed (params, result) signature for a terminal/OS runtime hook, or None
@@ -686,6 +688,19 @@ fn terminal_intrinsic_signature(
         )),
         "cpu_count" | "thread_yield" | "thread_id" => Some((Vec::new(), builtins.int)),
         "str_width" => Some((vec![builtins.str_], builtins.int)),
+        "os_error" | "arg_program" => Some((Vec::new(), builtins.str_)),
+        "os_error_kind" => Some((Vec::new(), builtins.int)),
+        "tz_offset_sec" | "file_unlock" | "child_pid" | "child_try_wait" | "child_wait" => {
+            Some((vec![builtins.int], builtins.int))
+        }
+        "realpath" | "temp_file" => Some((vec![builtins.str_], builtins.str_)),
+        "unset_env_var" => Some((vec![builtins.str_], builtins.int)),
+        "make_symlink" => Some((vec![builtins.str_, builtins.str_], builtins.int)),
+        "child_kill" => Some((vec![builtins.int, builtins.int], builtins.int)),
+        "file_lock" => Some((
+            vec![builtins.int, builtins.bool_, builtins.bool_],
+            builtins.int,
+        )),
         "str_normalize" => Some((vec![builtins.str_, builtins.int], builtins.str_)),
         "str_is_normalized" => Some((vec![builtins.str_, builtins.int], builtins.bool_)),
         "chr_width" => Some((vec![builtins.char_], builtins.int)),
@@ -775,6 +790,8 @@ fn type_terminal_intrinsic(
             "file_read" => (vec![int_, int_], ints),
             "file_write" => (vec![int_, ints], int_),
             "run_input" => (vec![str_, strs, str_], strs),
+            "child_spawn" => (vec![str_, strs], int_),
+            "poll_read" => (vec![ints, int_], ints),
             other => unreachable!("container-typed intrinsic '{other}' has no signature"),
         }
     } else {
