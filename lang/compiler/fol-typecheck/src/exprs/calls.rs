@@ -812,10 +812,8 @@ fn type_terminal_intrinsic(
             .expect("terminal intrinsic dispatch already matched the name")
     };
     if typed.capability_model() != crate::TypecheckCapabilityModel::Std {
-        let message = hosted_std_requirement(
-            &format!(".{}(...)", entry.name),
-            typed.capability_model(),
-        );
+        let message =
+            hosted_std_requirement(&format!(".{}(...)", entry.name), typed.capability_model());
         return Err(match origin {
             Some(origin) => {
                 TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin)
