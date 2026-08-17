@@ -2,10 +2,11 @@ use std: pkg = {"std"};
 
 // naivechain's peer-to-peer half, minus the sockets.
 //
-// FOL has no networking, so the WebSocket transport is gone and what is left
-// is the part that was actually interesting: the three message kinds, the
+// FOL has TCP but no WebSocket framing, so the transport is gone and what is
+// left is the part that was actually interesting: the three message kinds, the
 // wire codec, and `handleBlockchainResponse`. Two chains are handed to each
-// other in-process instead of over a socket.
+// other in-process instead of over a socket, which is also what lets the
+// protocol be self-checked in one process.
 
 typ[exp] MessageType: ent = {
     var QUERY_LATEST: int = 0;

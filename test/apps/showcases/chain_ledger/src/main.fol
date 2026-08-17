@@ -12,30 +12,26 @@
 //
 // ============================ DEVIATIONS ============================
 //
-// 1. SHA-256 -> polynomial rolling hash. THIS CHAIN IS NOT CRYPTOGRAPHIC.
-//    FOL has no bitwise operators of any kind -- no &, |, ^-as-xor, <<, >> --
-//    and SHA-256 is nothing but rotates, shifts and xors over 32-bit words.
-//    There is no way to express it, not even slowly. src/hash uses
-//    `h = (h * 31 + byte) % 1000000007` instead, folded modulo the prime on
-//    every single step because FOL traps on integer overflow in debug builds
-//    rather than wrapping, then rendered as eight hex digits so a digest still
-//    prints at a fixed width. Collisions are trivial to construct and there is
-//    no preimage resistance; tamper-detection here is integrity checking, not
-//    security. Every structural property the rest of the program relies on --
+// 1. SHA-256 is the real thing. `std::hash::sha256_hex` is a genuine SHA-256 --
+//    rotates, shifts and xors over 32-bit words, built from `.bit_and`,
+//    `.bit_xor`, `.shl`, `.shr` and a 32-bit mask -- so this port hashes exactly
+//    what CryptoJS.SHA256 hashes in the original. The proof is the genesis
+//    block: naivechain hardcodes
+//    816534932c2b7154836da6afc367695e6337db8a921823784c14378abed4f7d7 and never
+//    re-derives it, and `calculate_hash` here reproduces that literal from the
+//    same preimage. Every structural property the rest of the program relies on --
 //    determinism, sensitivity to each input field -- survives intact.
 //
-// 2. The growable chain array -> fixed-capacity array plus a count.
-//    `blockchain.push(block)` has no equivalent: FOL containers cannot grow,
-//    there is no vec append and no map insert. The chain is `arr[Block, 12]`
-//    with a live `count`, mutated through `pro (Chain[mut, bor]) append`,
-//    which is the only shape that can write an element at all -- a free
-//    routine cannot take `[mut, bor]`. Cost: a hard ceiling of 12 blocks that
-//    the original does not have, `append` returning bol so overflow is visible,
-//    and every unused slot needing a filler Block (index -1).
+// 2. The chain grows, as it does in the original. `blockchain.push(block)` is
+//    `self.blocks.push(b)` inside `pro (Chain[mut, bor]) append`, so there is no
+//    ceiling and no filler blocks. `append` still returns bol because the p2p
+//    half reads it, and `count` rides alongside as the chain length.
 //
 // 3. Express HTTP server -> gone; WebSocket peers -> in-process handoff.
-//    FOL has no sockets and no HTTP. POST /mineBlock becomes a direct call to
-//    `chain::generate_next_block`; GET /blocks becomes `node::blocks_response`,
+//    FOL has TCP (`.tcp_listen`/`.tcp_accept`/`.tcp_read`/`.tcp_write`) but no
+//    HTTP and no WebSocket framing, and a showcase that binds a port cannot
+//    self-check without a second process. POST /mineBlock is therefore a direct
+//    call to `chain::generate_next_block`; GET /blocks is `node::blocks_response`,
 //    which returns the same body the endpoint would have. The p2p half kept
 //    the part that carries the algorithm -- QUERY_LATEST / QUERY_ALL /
 //    RESPONSE_BLOCKCHAIN and `handleBlockchainResponse`, branch for branch --
@@ -45,18 +41,20 @@
 //
 // 4. JSON.stringify/parse -> pipe-and-semicolon codec.
 //    The wire format is `index|prev|timestamp|data|hash`, blocks joined with
-//    ';'. Writing a JSON parser without growable containers would be a large
-//    detour for no fidelity gain. Consequence: block data may not contain '|'
+//    ';'. A block is five flat fields, so a delimited line carries it exactly and
+//    `std::json` would add a parse step without adding fidelity. Consequence:
+//    block data may not contain '|'
 //    or ';'. `isValidChain`'s `JSON.stringify(a) !== JSON.stringify(b)`
 //    genesis comparison became `block::same`, field-by-field equality, which
 //    is the same predicate without the round trip.
 //
 // 5. `new Date().getTime() / 1000` -> an injected timestamp.
 //    `generate_next_block` takes the clock reading as a parameter instead of
-//    reading it. Two reasons: FOL has no int->flt or flt->int conversion at
-//    all, so a JS-style `/ 1000` on a float millisecond count cannot come back
-//    to an integer second; and the self-checks below assert on exact digests,
-//    which a wall clock would make irreproducible. `std::time::now_ms()` is
+//    reading it, because the self-checks below assert on exact digests and a
+//    wall clock would make them irreproducible. The JS-style `/ 1000` on a float
+//    millisecond count would carry over fine -- `.int_to_flt` and `.flt_to_int`
+//    both exist -- but an integer millisecond count needs no float at all.
+//    `std::time::now_ms()` is
 //    still exercised, on one live-mined block whose validity is asserted but
 //    whose hash is not.
 //
@@ -74,23 +72,7 @@
 //    `fault_of` reduced to a bol. Strictly more useful, and it is what let
 //    this program report WHICH block a tamper broke and why.
 //
-// 8. `arr[T, N]` will only take a decimal literal for N, not a `con`. So the
-//    capacity exists twice: `con CAPACITY: int = 12` guards `append`, and the
-//    literal 12 sizes `arr[block::Block, 12]`. Nothing ties them together. Set
-//    them apart and the guard lets a write past the end of the array through,
-//    which reaches the user as a raw Rust panic and exit 101 rather than a FOL
-//    diagnostic (repro: mimicry-repros/chain_ledger/arr_con).
-//
-// 9. Two compiler defects had to be routed around, both reported separately:
-//    - `self.blocks[j + 1] = probe` does not parse. A field-hop indexed
-//      assignment accepts only a bare index, though `cells[j + 1] = probe` on
-//      a local container is fine. Every destination index in `sort_by_index`
-//      is therefore hoisted into its own `var`.
-//    - `.nq(x, node::MessageType.QUERY_ALL)` reports the operand as the ent
-//      type rather than int, so the constant is hoisted into an `int` var
-//      first. `==` and ordinary call arguments handle the same expression.
-//
-// 10. EASIER than expected. Records copy freely by value, so `replaceChain`
+// 8. EASIER than expected. Records copy freely by value, so `replaceChain`
 //    returning a whole chain needed no ownership ceremony at all. Indexed
 //    element assignment through a mutable receiver (`self.blocks[i] = b`) does
 //    exactly what push and the p2p sort need. `err[str]` carried the original's
@@ -100,7 +82,6 @@
 // ====================================================================
 
 use std: pkg = {"std"};
-use hash: loc = {"hash"};
 use block: loc = {"block"};
 use chain: loc = {"chain"};
 use node: loc = {"node"};

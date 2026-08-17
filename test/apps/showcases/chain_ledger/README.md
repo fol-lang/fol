@@ -35,8 +35,9 @@ shorter one, and sorts an out-of-order message back into index order.
 
 ## The one thing to know
 
-**This chain is not cryptographic.** FOL has no bitwise operators, so SHA-256
-cannot be written at all. `src/hash` uses `h = (h * 31 + byte) % 1000000007`
-instead. It is deterministic and sensitive to every input field, which is all
-the validation logic needs, but collisions are trivial to construct. The full
-list of departures from the original is in the header of `src/main.fol`.
+**The hash is a real SHA-256.** `std::hash::sha256_hex` is built from FOL's
+bitwise intrinsics over 32-bit words, so this port hashes what CryptoJS.SHA256
+hashes. The genesis block proves it: naivechain hardcodes
+`816534932c2b7154836da6afc367695e6337db8a921823784c14378abed4f7d7` and never
+re-derives it, and `calculate_hash` here reproduces that literal exactly. The
+full list of departures from the original is in the header of `src/main.fol`.

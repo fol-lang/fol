@@ -7,10 +7,9 @@ use std: pkg = {"std"};
 // is folded into every real square, and twenty zeros are glued to each end so
 // the table is indexed by the same 0..119 mailbox index as the board.
 //
-// FOL has no growable container to build that padded table into, and a literal
-// `arr[int, 120]` does not survive codegen (see the DEVIATIONS header), so the
-// six raw tables stay raw -- one flat `vec[int]` of 6 * 64 entries -- and the
-// padding is applied arithmetically at lookup time. The result is identical:
+// The six raw tables stay raw here -- one flat `vec[int]` of 6 * 64 entries --
+// and the padding is applied arithmetically at lookup time rather than being
+// baked into a 120-entry table. The result is identical:
 // a mailbox index outside the playing area reads as zero, and every real square
 // reads as `raw + piece_value`.
 

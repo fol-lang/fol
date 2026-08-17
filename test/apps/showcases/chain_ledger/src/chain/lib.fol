@@ -1,27 +1,15 @@
 use std: pkg = {"std"};
 
-// naivechain keeps its chain in a JavaScript array that grows on demand. FOL
-// containers cannot grow, so the chain is a fixed-capacity array plus a live
-// count; `append` writes one slot and bumps the count. CAPACITY is the ceiling
-// this translation imposes that the original does not have.
-con[exp] CAPACITY: int = 12;
-
+// naivechain keeps its chain in a JavaScript array that grows on demand, and so
+// does this: `append` pushes, exactly as `blockchain.push(block)` does. `count`
+// rides alongside because the rest of the port reads it as the chain length.
 typ[exp] Chain: rec = {
     count: int;
-    blocks: arr[block::Block, 12]
-};
-
-fun[exp] filled(): arr[block::Block, 12] = {
-    return {
-        block::empty_slot(), block::empty_slot(), block::empty_slot(),
-        block::empty_slot(), block::empty_slot(), block::empty_slot(),
-        block::empty_slot(), block::empty_slot(), block::empty_slot(),
-        block::empty_slot(), block::empty_slot(), block::empty_slot(),
-    };
+    blocks: vec[block::Block]
 };
 
 fun[exp] empty(): Chain = {
-    return { count = 0, blocks = filled() };
+    return { count = 0, blocks = {} };
 };
 
 // `var blockchain = [getGenesisBlock()];`
@@ -32,8 +20,7 @@ fun[exp] booted(): Chain = {
 };
 
 pro[exp] (Chain[mut, bor]) append(b: block::Block): bol = {
-    if(.ge(self.count, CAPACITY)) { return false; }
-    self.blocks[self.count] = b;
+    self.blocks.push(b);
     self.count = self.count + 1;
     return true;
 };
