@@ -8,6 +8,8 @@
 // are the same node in exactly the way two Python parents holding the same
 // object are.
 
+use std: pkg = {"std"};
+
 typ[exp] Op: ent = {
     var LEAF: int = 0;
     var ADD: int = 1;
@@ -28,10 +30,9 @@ typ[exp] Node: rec = {
     pw: flt,
 };
 
-// A `vec` rather than `arr[Node, 64]` for one reason only: a record field of
-// type `arr[T, N]` with N above 32 emits Rust that does not compile (see the
-// arr33 repro). The vector never grows -- `new_tape` fixes its length and
-// `count` is the watermark.
+// A `vec` rather than `arr[Node, 64]` because `std::vecs::fill` builds one in a
+// line where an `arr` would have to spell all 64 slots out. The vector never
+// grows -- `new_tape` fixes its length and `count` is the watermark.
 ali[exp] Slab: vec[Node];
 
 typ[exp] Tape: rec = {
@@ -43,20 +44,10 @@ fun[exp] capacity(): int = {
     return 64;
 };
 
-// FOL has no array fill or repeat constructor, so the arena's backing store is
-// spelled out once here. Slots past `count` are never read.
+// Slots past `count` are never read.
 fun[exp] blank_slab(): Slab = {
     var n: Node = { data = 0.0, grad = 0.0, op = 0, lhs = -1, rhs = -1, pw = 0.0 };
-    return {
-        n, n, n, n, n, n, n, n,
-        n, n, n, n, n, n, n, n,
-        n, n, n, n, n, n, n, n,
-        n, n, n, n, n, n, n, n,
-        n, n, n, n, n, n, n, n,
-        n, n, n, n, n, n, n, n,
-        n, n, n, n, n, n, n, n,
-        n, n, n, n, n, n, n, n,
-    };
+    return std::vecs::fill(capacity(), n);
 };
 
 fun[exp] new_tape(): Tape = {

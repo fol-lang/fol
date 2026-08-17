@@ -1,23 +1,16 @@
+use std: pkg = {"std"};
 use bits: loc = {"../bits"};
 use rom: loc = {"../rom"};
 
 // The machine itself: 4096 bytes of RAM, 16 V registers, I, PC, a 16-level
 // call stack, two 60 Hz timers, a 64x32 monochrome framebuffer and 16 keys.
 //
-// RAM and the framebuffer are stored as a three-level nest of 32-wide arrays
-// rather than as one `arr[int, 4096]` and one `arr[int, 2048]`. No array that
-// reaches a record field may be longer than 32 elements (see FINDINGS), and an
-// array literal caps out at 256 elements besides, so 4096 bytes are spelled as
-// 4 blocks of 32 words of 32 cells and the 2048 framebuffer cells as 2 of the
-// same blocks. `mem`/`mem_set` and `pixel`/`pixel_set` hide the nesting, so
-// every instruction below still addresses one flat 4096-byte space and one
-// flat 2048-cell framebuffer exactly as the C original does.
-ali[exp] Word: arr[int, 32];
-ali[exp] Block: arr[Word, 32];
-
+// RAM and the framebuffer are one flat run of cells each, built by
+// `std::vecs::fill` and addressed exactly as the C original addresses
+// `unsigned char memory[4096]` and `unsigned char gfx[2048]`.
 typ[exp] Chip8: rec = {
-    ram: arr[Block, 4],
-    gfx: arr[Block, 2],
+    ram: vec[int],
+    gfx: vec[int],
     v: arr[int, 16],
     stack: arr[int, 16],
     key: arr[int, 16],
@@ -31,32 +24,12 @@ typ[exp] Chip8: rec = {
     fault: str,
 };
 
-fun blank_word(): Word = {
-    return {
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    };
-};
-
-fun blank_block(): Block = {
-    return {
-        blank_word(), blank_word(), blank_word(), blank_word(),
-        blank_word(), blank_word(), blank_word(), blank_word(),
-        blank_word(), blank_word(), blank_word(), blank_word(),
-        blank_word(), blank_word(), blank_word(), blank_word(),
-        blank_word(), blank_word(), blank_word(), blank_word(),
-        blank_word(), blank_word(), blank_word(), blank_word(),
-        blank_word(), blank_word(), blank_word(), blank_word(),
-        blank_word(), blank_word(), blank_word(), blank_word(),
-    };
-};
-
 // init() in the original: PC at 0x200, everything else cleared, then the font
 // copied into the low 80 bytes.
 fun[exp] boot(): Chip8 = {
     var[mut] machine: Chip8 = {
-        ram = { blank_block(), blank_block(), blank_block(), blank_block() },
-        gfx = { blank_block(), blank_block() },
+        ram = std::vecs::fill(4096, 0),
+        gfx = std::vecs::fill(2048, 0),
         v = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
         stack = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
         key = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
@@ -73,39 +46,22 @@ fun[exp] boot(): Chip8 = {
     return machine;
 };
 
-// Flat byte addressing over the nested store.
 fun[exp] (Chip8[bor]) mem(address: int): int = {
-    return self.ram[address / 1024][(address % 1024) / 32][address % 32];
+    return self.ram[address];
 };
 
-// A byte write has to walk back out: FOL rejects `self.ram[b][w][c] = value`
-// because an indexed assignment may only reach one level deep. The block and
-// the word are copied out, one cell is replaced, and both are stored back --
-// which turns an O(1) byte write into an O(1024) copy.
 pro[exp] (Chip8[mut, bor]) mem_set(address: int, value: int): non = {
-    var block: int = address / 1024;
-    var word: int = (address % 1024) / 32;
-    var[mut] page: Block = self.ram[block];
-    var[mut] cells: Word = page[word];
-    cells[address % 32] = value;
-    page[word] = cells;
-    self.ram[block] = page;
+    self.ram[address] = value;
     return;
 };
 
-// Flat framebuffer addressing: index = x + y * 64, as in the original.
+// Framebuffer addressing: index = x + y * 64, as in the original.
 fun[exp] (Chip8[bor]) pixel(index: int): int = {
-    return self.gfx[index / 1024][(index % 1024) / 32][index % 32];
+    return self.gfx[index];
 };
 
 pro[exp] (Chip8[mut, bor]) pixel_set(index: int, value: int): non = {
-    var block: int = index / 1024;
-    var word: int = (index % 1024) / 32;
-    var[mut] page: Block = self.gfx[block];
-    var[mut] cells: Word = page[word];
-    cells[index % 32] = value;
-    page[word] = cells;
-    self.gfx[block] = page;
+    self.gfx[index] = value;
     return;
 };
 
@@ -145,7 +101,7 @@ pro[exp] (Chip8[mut, bor]) press(code: int): non = {
 // Fetch, decode, execute, then tick both timers -- the original decrements
 // them once per instruction rather than on a 60 Hz clock, and so does this.
 pro[exp] (Chip8[mut, bor]) cycle(): non = {
-    var op: int = ([bor]self).mem(self.pc) * 256 + ([bor]self).mem(self.pc + 1);
+    var op: int = self.mem(self.pc) * 256 + self.mem(self.pc + 1);
     self.execute(op);
     when(self.delay > 0) {
         case(true) { self.delay = self.delay - 1; }
@@ -234,11 +190,7 @@ pro (Chip8[mut, bor]) skip_when(taken: bol): non = {
 pro (Chip8[mut, bor]) op_system(op: int): non = {
     when(bits::nibble(op)) {
         is(0x0) {
-            var[mut] block: int = 0;
-            loop (block < 2) {
-                self.gfx[block] = blank_block();
-                block = block + 1;
-            };
+            self.gfx = std::vecs::fill(2048, 0);
             self.redraw = true;
             self.pc = self.pc + 2;
         }
@@ -259,9 +211,9 @@ pro (Chip8[mut, bor]) op_alu(op: int): non = {
     var y: int = bits::reg_y(op);
     when(bits::nibble(op)) {
         is(0x0) { self.v[x] = self.v[y]; }
-        is(0x1) { self.v[x] = bits::bit_or(self.v[x], self.v[y]); }
-        is(0x2) { self.v[x] = bits::bit_and(self.v[x], self.v[y]); }
-        is(0x3) { self.v[x] = bits::bit_xor(self.v[x], self.v[y]); }
+        is(0x1) { self.v[x] = .bit_or(self.v[x], self.v[y]); }
+        is(0x2) { self.v[x] = .bit_and(self.v[x], self.v[y]); }
+        is(0x3) { self.v[x] = .bit_xor(self.v[x], self.v[y]); }
         is(0x4) {
             var[mut] carry: int = 0;
             when(self.v[y] > 255 - self.v[x]) {
@@ -313,7 +265,7 @@ pro (Chip8[mut, bor]) op_alu(op: int): non = {
 pro (Chip8[mut, bor]) op_random(op: int): non = {
     var slot: int = bits::reg_x(op);
     self.seed = (self.seed * 1103515245 + 12345) % 2147483648;
-    self.v[slot] = bits::bit_and((self.seed / 65536) % 256, bits::byte_lo(op));
+    self.v[slot] = .bit_and((self.seed / 65536) % 256, bits::byte_lo(op));
     self.pc = self.pc + 2;
     return;
 };
@@ -327,13 +279,13 @@ pro (Chip8[mut, bor]) op_draw(op: int): non = {
     self.v[15] = 0;
     var[mut] row: int = 0;
     loop (row < height) {
-        var pattern: int = ([bor]self).mem(self.ireg + row);
+        var pattern: int = self.mem(self.ireg + row);
         var[mut] col: int = 0;
         loop (col < 8) {
             when(bits::bit_at(pattern, 7 - col) == 1) {
                 case(true) {
                     var index: int = ((origin_x + col) % 64) + (((origin_y + row) % 32) * 64);
-                    var lit: int = ([bor]self).pixel(index);
+                    var lit: int = self.pixel(index);
                     when(lit == 1) {
                         case(true) { self.v[15] = 1; }
                         * { }
@@ -411,7 +363,7 @@ pro (Chip8[mut, bor]) op_misc(op: int): non = {
         is(0x65) {
             var[mut] slot: int = 0;
             loop (slot <= x) {
-                self.v[slot] = ([bor]self).mem(self.ireg + slot);
+                self.v[slot] = self.mem(self.ireg + slot);
                 slot = slot + 1;
             };
             self.ireg = self.ireg + x + 1;
@@ -448,7 +400,7 @@ fun[exp] (Chip8[bor]) lit_count(): int = {
     var[mut] total: int = 0;
     var[mut] index: int = 0;
     loop (index < 2048) {
-        total = total + ([bor]self).pixel(index);
+        total = total + self.pixel(index);
         index = index + 1;
     };
     return total;
