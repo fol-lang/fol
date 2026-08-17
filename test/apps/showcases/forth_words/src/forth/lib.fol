@@ -13,9 +13,7 @@ use words: loc = {"../words"};
 use text: loc = {"../text"};
 
 typ[exp] Forth: rec = {
-    var page0: vec[int];
-    var page1: vec[int];
-    var page2: vec[int];
+    var mem: vec[int];
     var stack: arr[int, 32];
     var depth: int;
     var rstack: arr[int, 32];
@@ -40,9 +38,7 @@ pro[exp] fresh(): Forth = {
     var[mut] data_slots: arr[int, 32];
     var[mut] return_slots: arr[int, 32];
     var[mut] machine: Forth = {
-        page0 = words::blank_page(),
-        page1 = words::blank_page(),
-        page2 = words::blank_page(),
+        mem = words::blank_memory(),
         stack = data_slots,
         depth = 0,
         rstack = return_slots,
@@ -158,26 +154,14 @@ pro[exp] (Forth[mut, bor]) rpop(): int = {
 
 // MEMORY ---------------------------------------------------------------------
 
-// One address space out of three pages: the page boundary is invisible to
-// every word above this line, which is the point.
+// jonesforth never bounds-checks an address; these two report instead of
+// faulting, which is the only difference.
 pro[exp] (Forth[mut, bor]) fetch(addr: int): int = {
     when((addr < 0) or (addr >= words::MEM_CELLS)) {
         case(true) { self.fail("address out of range"); return 0; }
         * { }
     };
-    when(addr < words::PAGE_ONE) {
-        case(true) { return self.page0[addr]; }
-        * { }
-    };
-    when(addr < words::PAGE_TWO) {
-        case(true) {
-            var slot: int = addr - words::PAGE_ONE;
-            return self.page1[slot];
-        }
-        * { }
-    };
-    var slot: int = addr - words::PAGE_TWO;
-    return self.page2[slot];
+    return self.mem[addr];
 };
 
 pro[exp] (Forth[mut, bor]) store(addr: int, value: int): non = {
@@ -185,20 +169,7 @@ pro[exp] (Forth[mut, bor]) store(addr: int, value: int): non = {
         case(true) { self.fail("address out of range"); return; }
         * { }
     };
-    when(addr < words::PAGE_ONE) {
-        case(true) { self.page0[addr] = value; return; }
-        * { }
-    };
-    when(addr < words::PAGE_TWO) {
-        case(true) {
-            var low: int = addr - words::PAGE_ONE;
-            self.page1[low] = value;
-            return;
-        }
-        * { }
-    };
-    var high: int = addr - words::PAGE_TWO;
-    self.page2[high] = value;
+    self.mem[addr] = value;
     return;
 };
 
@@ -215,17 +186,10 @@ pro[exp] (Forth[mut, bor]) comma(value: int): non = {
 };
 
 // jonesforth's flags byte holds F_IMMED, F_HIDDEN and the name length together
-// and toggles a flag with `xorb`. Without bitwise operators the bit is read out
-// with `/` and `%` and toggled by adding or subtracting its weight.
+// and toggles a flag with `xorb`, which is what this is.
 pro[exp] (Forth[mut, bor]) toggle_flag(header: int, bit: int): non = {
     var field: int = self.fetch(header + 1);
-    var lit: int = (field / bit) % 2;
-    var[mut] next_field: int = field + bit;
-    when(lit == 1) {
-        case(true) { next_field = field - bit; }
-        * { }
-    };
-    self.store(header + 1, next_field);
+    self.store(header + 1, .bit_xor(field, bit));
     return;
 };
 
@@ -366,7 +330,7 @@ pro[exp] (Forth[mut, bor]) number(addr: int, len: int): non = {
 
 pro[exp] (Forth[mut, bor]) to_cfa(header: int): int = {
     var field: int = self.fetch(header + 1);
-    return header + 2 + (field % words::LEN_MOD);
+    return header + 2 + .bit_and(field, words::F_LENMASK);
 };
 
 // _FIND. Masking the flags field with F_HIDDEN|F_LENMASK is jonesforth's trick
@@ -375,7 +339,7 @@ pro[exp] (Forth[mut, bor]) to_cfa(header: int): int = {
 pro[exp] (Forth[mut, bor]) find_at(addr: int, len: int): int = {
     var[mut] current: int = self.fetch(words::ADDR_LATEST);
     loop (current >= 0) {
-        var masked: int = self.fetch(current + 1) % words::HIDDEN_MOD;
+        var masked: int = .bit_and(self.fetch(current + 1), .bit_or(words::F_HIDDEN, words::F_LENMASK));
         when(masked == len) {
             case(true) {
                 var[mut] i: int = 0;
@@ -539,6 +503,25 @@ pro[exp] (Forth[mut, bor]) exec(code: int): non = {
             };
             self.push(dividend % divisor);
             self.push(dividend / divisor);
+        }
+        is(words::P_AND) {
+            var right: int = self.pop();
+            var left: int = self.pop();
+            self.push(.bit_and(left, right));
+        }
+        is(words::P_OR) {
+            var right: int = self.pop();
+            var left: int = self.pop();
+            self.push(.bit_or(left, right));
+        }
+        is(words::P_XOR) {
+            var right: int = self.pop();
+            var left: int = self.pop();
+            self.push(.bit_xor(left, right));
+        }
+        is(words::P_INVERT) {
+            var value: int = self.pop();
+            self.push(.bit_not(value));
         }
         is(words::P_ADD) {
             var right: int = self.pop();

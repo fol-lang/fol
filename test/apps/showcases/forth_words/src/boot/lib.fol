@@ -50,6 +50,10 @@ pro (forth::Forth[mut, bor]) assemble_primitives(): non = {
     self.defcode("OVER", words::P_OVER);
     self.defcode("ROT", words::P_ROT);
     self.defcode("/MOD", words::P_DIVMOD);
+    self.defcode("AND", words::P_AND);
+    self.defcode("OR", words::P_OR);
+    self.defcode("XOR", words::P_XOR);
+    self.defcode("INVERT", words::P_INVERT);
     self.defcode("+", words::P_ADD);
     self.defcode("-", words::P_SUB);
     self.defcode("*", words::P_MUL);

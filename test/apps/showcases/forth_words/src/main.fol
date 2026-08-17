@@ -20,35 +20,25 @@
 //
 // 1. Byte addressing became cell addressing. jonesforth counts bytes, packs the
 //    name into consecutive bytes and then aligns the codeword up to a 4-byte
-//    boundary (`addl $3,%edi; andl $~3,%edi`). FOL has no bitwise AND, so the
-//    alignment step cannot be written at all. Memory is therefore one `int` per
-//    cell, one character per cell, and the alignment step disappears. BRANCH
-//    offsets are in cells rather than bytes, so a compiled `IF ... THEN` in
-//    this port has offset 2 where jonesforth would have 8.
+//    boundary (`addl $3,%edi; andl $~3,%edi`). Memory here is one `int` per
+//    cell and one character per cell, so there is nothing to align and the step
+//    disappears. BRANCH offsets are in cells rather than bytes, so a compiled
+//    `IF ... THEN` in this port has offset 2 where jonesforth would have 8.
 //
-// 2. The flags byte is arithmetic, not bit masking. jonesforth stores
-//    F_IMMED (0x80), F_HIDDEN (0x20) and the name length in one byte and pulls
-//    them apart with `andb $(F_HIDDEN|F_LENMASK)`. With no `&`, `|` or `^` the
-//    same field is decoded with `/` and `%`: length is `field % 32`, the hidden
-//    test is `field % 64`, immediacy is `(field / 128) % 2`, and HIDDEN toggles
-//    by adding or subtracting 32. The constants are unchanged, so the trick
-//    that makes a hidden word's length unmatchable still works for the same
-//    reason it does in the original.
-//
-// 3. The input buffer is a `str`, not memory. jonesforth's KEY reads bytes out
+// 2. The input buffer is a `str`, not memory. jonesforth's KEY reads bytes out
 //    of the same address space as everything else, which is why WORD can hand
 //    back a pointer into it. FOL cannot take the address of a character, so the
 //    script text is a `str` field with an integer cursor and KEY reads it with
 //    `std::strn::byte_at`. WORD still copies into the in-memory word buffer, so
 //    FIND and CREATE work on real addresses exactly as in the original.
 //
-// 4. Codewords are tags, not addresses. A jonesforth codeword is the address of
+// 3. Codewords are tags, not addresses. A jonesforth codeword is the address of
 //    a block of assembly; here it is a small integer naming a case in `exec`.
 //    DOCOL keeps its meaning -- codeword 0 -- so `: ... ;` still compiles
 //    `LIT 0 ,` to write it, and the inner interpreter still decides what to do
 //    by reading the codeword out of memory.
 //
-// 5. INTERPRET and QUIT are host routines, not dictionary words. jonesforth's
+// 4. INTERPRET and QUIT are host routines, not dictionary words. jonesforth's
 //    INTERPRET ends in `jmp *(%eax)`, handing control to a word and never
 //    returning; the outer loop is recovered because the word eventually EXITs
 //    into the middle of QUIT. FOL has no way to jump into a routine, so
@@ -56,47 +46,38 @@
 //    then HALT. The observable order of operations is identical, but INTERPRET
 //    and QUIT cannot be redefined from FORTH the way they can in the original.
 //
-// 6. `.` is a primitive. In jonesforth `.` is built in FORTH out of `/MOD`,
-//    `EMIT` and recursion into `U.`. That needs chr/int conversion in both
-//    directions, and FOL only has `std::strn::from_byte` going one way, so the
-//    digit loop lives in `text::render` instead. It still honours BASE, which
-//    is why `255 HEX .` prints FF.
+// 5. `.` is a primitive. In jonesforth `.` is built in FORTH out of `/MOD`,
+//    `EMIT` and recursion into `U.`. Here the digit loop lives in `text::render`
+//    instead, which is a host routine rather than a compiled definition. It
+//    still honours BASE, which is why `255 HEX .` prints FF.
 //
-// 7. Stack limits are checked and reported. jonesforth runs the data stack on
+// 6. Stack limits are checked and reported. jonesforth runs the data stack on
 //    %esp with no bounds test at all; `DROP` on an empty stack corrupts the
 //    process. Here every pop tests the depth and records a fault string that
 //    stops the machine, because a segmentation fault is not a behaviour worth
 //    reproducing. The stacks are 32 cells rather than jonesforth's 8192-byte
-//    return stack, since `arr[T, N]` stops compiling above N = 32.
+//    return stack -- enough for every script here, and nothing forces the size.
 //
-// 8. The data segment is three literal pages. jonesforth reserves 64 KiB with
-//    `.set INITIAL_DATA_SEGMENT_SIZE,65536`. FOL cannot build a container at a
-//    computed size and no container can grow, so the segment has to be written
-//    out element by element -- and a literal stops parsing at 256 elements,
-//    while `arr[T, N]` fails to build at all above N = 32. The address space is
-//    therefore three 256-cell `vec` pages that `fetch` and `store` splice back
-//    together, and every address above them is one branch slower than it would
-//    be in a single array. 768 cells is the whole machine; the boot dictionary
-//    fills 464 of them.
+// 7. The data segment is smaller than the original's. jonesforth reserves 64 KiB
+//    with `.set INITIAL_DATA_SEGMENT_SIZE,65536`; this one is a single flat
+//    `vec` of 768 cells built by `std::vecs::fill`. Nothing about the size is
+//    forced -- 768 is simply enough, and the boot dictionary fills 490 of them.
 //
-// 9. Word set. The primitives here are jonesforth's, minus everything that
-//    needs bitwise arithmetic (AND, OR, XOR, INVERT), byte memory (C@, C!,
-//    CMOVE), the return-stack words (>R, R>, RSP@), syscalls, and the string
-//    words (LITSTRING, TELL). DEPTH is a primitive rather than being derived
-//    from S0 and DSP@, because there is no stack pointer to fetch.
+// 8. Word set. AND, OR, XOR and INVERT are present and are the real bitwise
+//    operations. What is missing needs byte memory (C@, C!, CMOVE), the
+//    return-stack words (>R, R>, RSP@), syscalls, or the string words
+//    (LITSTRING, TELL). DEPTH is a primitive rather than being derived from
+//    S0 and DSP@, because there is no stack pointer to fetch.
 //
-// 10. Every dictionary write goes through a routine, not a place expression.
-//    `self.page0[addr] = value` compiles, but `self.page0[addr + 1] = value`
-//    does not: an indexed assignment through a field only accepts a primary
-//    index expression. Nothing in the port needs to write two adjacent cells in
-//    one statement, so this cost nothing beyond a named local, but it is the
-//    reason `store` exists in places where a plain subscript would have read
-//    better.
+// 9. Every dictionary write goes through `store` rather than a bare subscript.
+//    That is a bounds check, not a limitation: jonesforth never checks an
+//    address and a bad one is a segmentation fault, whereas `store` records a
+//    fault the suite can assert on.
 //
 // EASIER THAN EXPECTED --------------------------------------------------------
 //
 // Indexed assignment through a mutable receiver is the whole reason this port
-// is a translation rather than a rewrite: `self.page1[slot] = value` is what
+// is a translation rather than a rewrite: `self.mem[addr] = value` is what
 // makes a flat, self-modifying memory image possible, and with it the byte-level
 // dictionary, `,`, HERE and the back-filled branch offsets all survived intact.
 // Receiver methods can also be declared in a module other than the one that
@@ -145,6 +126,8 @@ pro arithmetic(): int = {
     bad = bad + run_case("plus/minus/times", "2 3 + . 10 3 - . 6 7 * .", "5 7 42 ", "");
     bad = bad + run_case("divide and remainder", "20 3 / . 20 3 MOD . 7 NEGATE .", "6 2 -7 ", "");
     bad = bad + run_case("base switching", "255 HEX . DECIMAL 255 .", "FF 255 ", "");
+    bad = bad + run_case("and/or/xor", "12 10 AND . 12 10 OR . 12 10 XOR .", "8 14 6 ", "");
+    bad = bad + run_case("invert", "0 INVERT . 5 INVERT .", "-1 -6 ", "");
     return bad;
 };
 

@@ -6,6 +6,8 @@
 // here: zero means DOCOL (run the cells that follow), anything else names one
 // of the assembly primitives below.
 
+use std: pkg = {"std"};
+
 con[exp] DOCOL: int = 0;
 
 con[exp] P_DROP: int = 1;
@@ -51,14 +53,17 @@ con[exp] P_SPACE: int = 40;
 con[exp] P_DEPTH: int = 41;
 con[exp] P_HALT: int = 42;
 
+con[exp] P_AND: int = 43;
+con[exp] P_OR: int = 44;
+con[exp] P_XOR: int = 45;
+con[exp] P_INVERT: int = 46;
+
 // jonesforth packs the immediate flag, the hidden flag and the name length into
-// one byte and pulls them apart with `andb`. FOL has no bitwise operators at
-// all, so the same byte is taken apart with `/` and `%`: the values below are
-// jonesforth's, unchanged, so the arithmetic lines up with the original masks.
-con[exp] F_IMMED: int = 128;
-con[exp] F_HIDDEN: int = 32;
-con[exp] LEN_MOD: int = 32;
-con[exp] HIDDEN_MOD: int = 64;
+// one byte and pulls them apart with `andb`. These are jonesforth's own masks,
+// and `.bit_and`/`.bit_or`/`.bit_xor` apply them exactly as the original does.
+con[exp] F_IMMED: int = 0x80;
+con[exp] F_HIDDEN: int = 0x20;
+con[exp] F_LENMASK: int = 0x1F;
 
 // Cell-addressed memory. jonesforth counts bytes and has to align the codeword
 // to a four byte boundary; one cell per slot removes that step entirely.
@@ -78,38 +83,13 @@ con[exp] WORDBUF_CELLS: int = 32;
 
 con[exp] DATA_START: int = 38;
 
-// jonesforth reserves its data segment in one piece. A container literal in FOL
-// stops parsing after 256 elements and no container can be built at a computed
-// size, so the segment is three fixed pages that `fetch` and `store` stitch
-// back into one address space.
-con[exp] PAGE_ONE: int = 256;
-con[exp] PAGE_TWO: int = 512;
+// jonesforth reserves its data segment in one piece, and so does this.
 con[exp] MEM_CELLS: int = 768;
 
 con[exp] STACK_CELLS: int = 32;
 con[exp] STEP_LIMIT: int = 200000;
 
-// One blank page of the data segment. FOL has no way to build a container of a
-// given size, so the page is spelled out; three of these make up the address
-// space the machine runs in.
-fun[exp] blank_page(): vec[int] = {
-    var page: vec[int] = {
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-    };
-    return page;
+// The whole address space, cleared. One flat run of cells, as in jonesforth.
+fun[exp] blank_memory(): vec[int] = {
+    return std::vecs::fill(MEM_CELLS, 0);
 };

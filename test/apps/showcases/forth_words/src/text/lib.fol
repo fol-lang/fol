@@ -1,8 +1,10 @@
 // Character work that does not touch the machine.
 //
 // jonesforth gets all of this from x86 instructions -- `cmpb $' '`, `idivl`,
-// `stosb`. FOL has no chr/int conversion in either direction, so every byte
-// here is an `int` and the only bridge to text is `std::strn::from_byte`.
+// `stosb`. Every byte here stays an `int` because that is what
+// `std::strn::byte_at` deals in; `.chr_to_int` and `.int_to_chr` cross to
+// characters, and the constants below stay literals because a `con` initialiser
+// must be one.
 
 use std: pkg = {"std"};
 
