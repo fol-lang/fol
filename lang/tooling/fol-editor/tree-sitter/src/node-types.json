@@ -2714,6 +2714,10 @@
           "named": true
         },
         {
+          "type": "inquiry_block",
+          "named": true
+        },
+        {
           "type": "params",
           "named": true
         },
@@ -2782,6 +2786,10 @@
           "named": true
         },
         {
+          "type": "inquiry_block",
+          "named": true
+        },
+        {
           "type": "params",
           "named": true
         },
@@ -2847,6 +2855,10 @@
         },
         {
           "type": "flow_body",
+          "named": true
+        },
+        {
+          "type": "inquiry_block",
           "named": true
         },
         {
