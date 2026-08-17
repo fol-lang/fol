@@ -5,6 +5,9 @@ pub mod fixture;
 #[path = "v3_example_inventory.rs"]
 mod v3_example_inventory;
 
+#[path = "book_code_audit.rs"]
+mod book_code_audit;
+
 mod stream {
     include!("stream/test_stream.rs");
 }

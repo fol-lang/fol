@@ -888,8 +888,8 @@ Do not confuse intrinsics with shell syntax such as `nil` and unwrap
 For example:
 
 ```fol
-ali MaybeText: opt[str]
-ali Failure: err[str]
+ali MaybeText: opt[str];
+ali Failure: err[str];
 
 fun[] unwrap_optional(value: MaybeText): str = {
     return [uwp]value

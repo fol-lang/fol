@@ -58,12 +58,12 @@ Accessing namespaces is done through the double-colon operator `::`:
 
 ```fol
 use std: pkg = {"std"};
-var shown: int = std::fmt::math::answer();
+var shown: int = std::nums::gcd(84, 36);
 ```
 
 This particular namespace is part of bundled `std`, so the package must use a
 `memo` artifact and declare the internal `standard` dependency in `build.fol`.
-The `pkg` target is the declared alias (`"std"`); nested namespaces are reached
+The `pkg` target is the declared alias (`"std"`); the module inside it is reached
 with `::`, not by embedding `std/...` in the import target.
 
 

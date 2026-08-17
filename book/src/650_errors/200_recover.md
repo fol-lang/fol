@@ -27,11 +27,16 @@ This means:
 - `report expr` exits through the routine error path with `str`
 - the call result is not a storable plain value
 
-`report expr` must match the declared error type:
+`report expr` must match the declared error type. A routine that declares one
+needs both exits — a `return` for the value and a `report` for the error:
 
 ```fol
 fun read_code(path: str): int / str = {
-    report "missing path"
+    when(.len(path) == 0) {
+        case(true) { report "missing path"; }
+        * { }
+    }
+    return 0;
 };
 ```
 
@@ -132,7 +137,7 @@ no-error (success) state and a present value carries a stored error payload.
 You may store it, pass it, return it, and unwrap it later:
 
 ```fol
-ali Failure: err[str]
+ali Failure: err[str];
 
 fun keep(value: Failure): Failure = {
     return value

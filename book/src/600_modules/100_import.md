@@ -134,12 +134,12 @@ fun[] main(): int = {
     return std::fmt::digit_count(1234567);
 };
 ```
-To use only one namespace of `fmt`:
+One import reaches every module of `std`; name the one you want after the alias:
 ```
 use std: pkg = {"std"};
 
 fun[] main(): int = {
-    return std::fmt::math::answer();
+    return std::nums::gcd(84, 36);
 };
 ```
 

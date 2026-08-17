@@ -21,7 +21,9 @@ Now code can use `I5` instead of repeating `arr[int, 5]`:
 var fiveIntegers: I5 = { 0, 1, 2, 3, 4 };
 ```
 
-Another example is naming a constrained color component type:
+A designed-but-unbuilt example is naming a constrained colour component type.
+The limit surface it uses is [not implemented](../../700_sugar/400_limits.md);
+the current compiler reports "limited/constrained types are not yet supported":
 
 ```fol
 typ[ali] rgb: int[8][.range(255)];
@@ -59,16 +61,20 @@ ali[exp] Meters: int;
 
 Current milestone note:
 
-- aliasing and extension over current `V1` built-in and declared types are part
-  of the present language surface
+- aliasing over current `V1` built-in and declared types is part of the present
+  language surface
+- extension is **not**: `typ[ext] ...` reports "type extension declarations are
+  planned for a future release"
 - true foreign-type interop remains later work
 - C ABI and Rust interop belong to the planned `V4` milestone, not the current
   compiler contract
 
 ## Extending
 
-Extensions expose an existing type under an explicit receiver surface so that
-new receiver-qualified routines can be declared for it.
+Extensions are designed to expose an existing type under an explicit receiver
+surface so that new receiver-qualified routines can be declared for it. **This is
+future work** — the current compiler rejects the declaration below. Write the
+receiver-qualified routines against the type directly instead.
 
 ```fol
 typ[ext] type: type;
