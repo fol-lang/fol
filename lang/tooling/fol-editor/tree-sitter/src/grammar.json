@@ -3184,6 +3184,14 @@
               {
                 "type": "SYMBOL",
                 "name": "log_decl"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "con_decl"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "lab_decl"
               }
             ]
           }
@@ -4503,6 +4511,18 @@
                 {
                   "type": "SYMBOL",
                   "name": "return_stmt"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "var_decl"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "con_decl"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "lab_decl"
                 }
               ]
             },
@@ -4558,6 +4578,18 @@
                 {
                   "type": "SYMBOL",
                   "name": "return_stmt"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "var_decl"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "con_decl"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "lab_decl"
                 }
               ]
             },
@@ -4634,6 +4666,18 @@
                     {
                       "type": "SYMBOL",
                       "name": "return_stmt"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "var_decl"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "con_decl"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "lab_decl"
                     }
                   ]
                 },
@@ -6872,8 +6916,21 @@
                   "type": "FIELD",
                   "name": "segment",
                   "content": {
-                    "type": "SYMBOL",
-                    "name": "identifier"
+                    "type": "CHOICE",
+                    "members": [
+                      {
+                        "type": "SYMBOL",
+                        "name": "identifier"
+                      },
+                      {
+                        "type": "SYMBOL",
+                        "name": "string_literal"
+                      },
+                      {
+                        "type": "SYMBOL",
+                        "name": "raw_string_literal"
+                      }
+                    ]
                   }
                 }
               ]
@@ -6990,11 +7047,32 @@
       "type": "SEQ",
       "members": [
         {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "STRING",
+                  "value": "var"
+                },
+                {
+                  "type": "STRING",
+                  "value": "lab"
+                }
+              ]
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
           "type": "FIELD",
           "name": "binding",
           "content": {
             "type": "SYMBOL",
-            "name": "identifier"
+            "name": "typed_binding"
           }
         },
         {

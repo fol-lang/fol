@@ -549,7 +549,15 @@
           "named": true
         },
         {
+          "type": "con_decl",
+          "named": true
+        },
+        {
           "type": "expr",
+          "named": true
+        },
+        {
+          "type": "lab_decl",
           "named": true
         },
         {
@@ -558,6 +566,10 @@
         },
         {
           "type": "return_stmt",
+          "named": true
+        },
+        {
+          "type": "var_decl",
           "named": true
         },
         {
@@ -810,7 +822,15 @@
           "named": true
         },
         {
+          "type": "con_decl",
+          "named": true
+        },
+        {
           "type": "expr",
+          "named": true
+        },
+        {
+          "type": "lab_decl",
           "named": true
         },
         {
@@ -819,6 +839,10 @@
         },
         {
           "type": "return_stmt",
+          "named": true
+        },
+        {
+          "type": "var_decl",
           "named": true
         },
         {
@@ -1576,7 +1600,15 @@
           "named": true
         },
         {
+          "type": "con_decl",
+          "named": true
+        },
+        {
           "type": "expr",
+          "named": true
+        },
+        {
+          "type": "lab_decl",
           "named": true
         },
         {
@@ -1585,6 +1617,10 @@
         },
         {
           "type": "return_stmt",
+          "named": true
+        },
+        {
+          "type": "var_decl",
           "named": true
         },
         {
@@ -1670,7 +1706,15 @@
           "named": true
         },
         {
+          "type": "con_decl",
+          "named": true
+        },
+        {
           "type": "expr",
+          "named": true
+        },
+        {
+          "type": "lab_decl",
           "named": true
         },
         {
@@ -1679,6 +1723,10 @@
         },
         {
           "type": "return_stmt",
+          "named": true
+        },
+        {
+          "type": "var_decl",
           "named": true
         },
         {
@@ -1785,7 +1833,15 @@
           "named": true
         },
         {
+          "type": "con_decl",
+          "named": true
+        },
+        {
           "type": "expr",
+          "named": true
+        },
+        {
+          "type": "lab_decl",
           "named": true
         },
         {
@@ -1794,6 +1850,10 @@
         },
         {
           "type": "return_stmt",
+          "named": true
+        },
+        {
+          "type": "var_decl",
           "named": true
         },
         {
@@ -2160,7 +2220,15 @@
           "named": true
         },
         {
+          "type": "con_decl",
+          "named": true
+        },
+        {
           "type": "expr",
+          "named": true
+        },
+        {
+          "type": "lab_decl",
           "named": true
         },
         {
@@ -2169,6 +2237,10 @@
         },
         {
           "type": "return_stmt",
+          "named": true
+        },
+        {
+          "type": "var_decl",
           "named": true
         },
         {
@@ -2195,7 +2267,15 @@
           "named": true
         },
         {
+          "type": "con_decl",
+          "named": true
+        },
+        {
           "type": "expr",
+          "named": true
+        },
+        {
+          "type": "lab_decl",
           "named": true
         },
         {
@@ -2204,6 +2284,10 @@
         },
         {
           "type": "return_stmt",
+          "named": true
+        },
+        {
+          "type": "var_decl",
           "named": true
         },
         {
@@ -2836,6 +2920,14 @@
           {
             "type": "identifier",
             "named": true
+          },
+          {
+            "type": "raw_string_literal",
+            "named": true
+          },
+          {
+            "type": "string_literal",
+            "named": true
           }
         ]
       }
@@ -3010,7 +3102,7 @@
         "required": true,
         "types": [
           {
-            "type": "identifier",
+            "type": "typed_binding",
             "named": true
           }
         ]
@@ -3953,6 +4045,10 @@
           "named": true
         },
         {
+          "type": "con_decl",
+          "named": true
+        },
+        {
           "type": "doc_comment",
           "named": true
         },
@@ -3962,6 +4058,10 @@
         },
         {
           "type": "fun_decl",
+          "named": true
+        },
+        {
+          "type": "lab_decl",
           "named": true
         },
         {
