@@ -3355,6 +3355,14 @@
         {
           "type": "SYMBOL",
           "name": "expr"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "con_decl"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "lab_decl"
         }
       ]
     },

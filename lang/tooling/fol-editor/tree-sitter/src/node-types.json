@@ -3665,6 +3665,10 @@
           "named": true
         },
         {
+          "type": "con_decl",
+          "named": true
+        },
+        {
           "type": "dfr_stmt",
           "named": true
         },
@@ -3690,6 +3694,10 @@
         },
         {
           "type": "inquiry_block",
+          "named": true
+        },
+        {
+          "type": "lab_decl",
           "named": true
         },
         {
