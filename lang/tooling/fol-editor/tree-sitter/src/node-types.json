@@ -499,6 +499,14 @@
           {
             "type": "qualified_path",
             "named": true
+          },
+          {
+            "type": "raw_string_literal",
+            "named": true
+          },
+          {
+            "type": "string_literal",
+            "named": true
           }
         ]
       },
@@ -917,6 +925,21 @@
       "types": [
         {
           "type": "flow_body",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "entry_type",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "decl_modifiers",
           "named": true
         }
       ]
@@ -1648,6 +1671,10 @@
         "required": false,
         "types": [
           {
+            "type": "availability_item",
+            "named": true
+          },
+          {
             "type": "expr",
             "named": true
           }
@@ -2030,6 +2057,21 @@
     }
   },
   {
+    "type": "object_type",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "decl_modifiers",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "of_clause",
     "named": true,
     "fields": {},
@@ -2292,11 +2334,23 @@
         "required": true,
         "types": [
           {
+            "type": "con_decl",
+            "named": true
+          },
+          {
             "type": "expr",
             "named": true
           },
           {
+            "type": "lab_decl",
+            "named": true
+          },
+          {
             "type": "pipe_assignment_stage",
+            "named": true
+          },
+          {
+            "type": "var_decl",
             "named": true
           }
         ]
@@ -2786,6 +2840,21 @@
       "types": [
         {
           "type": "field_init",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "record_type",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "decl_modifiers",
           "named": true
         }
       ]
@@ -3753,6 +3822,10 @@
           "named": true
         },
         {
+          "type": "object_type",
+          "named": true
+        },
+        {
           "type": "record_type",
           "named": true
         },
@@ -4392,8 +4465,8 @@
     "named": false
   },
   {
-    "type": "entry_type",
-    "named": true
+    "type": "ent",
+    "named": false
   },
   {
     "type": "err",
@@ -4512,6 +4585,10 @@
     "named": false
   },
   {
+    "type": "obj",
+    "named": false
+  },
+  {
     "type": "of",
     "named": false
   },
@@ -4552,8 +4629,8 @@
     "named": true
   },
   {
-    "type": "record_type",
-    "named": true
+    "type": "rec",
+    "named": false
   },
   {
     "type": "ref",

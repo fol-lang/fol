@@ -587,6 +587,10 @@
                     {
                       "type": "SYMBOL",
                       "name": "entry_type"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "object_type"
                     }
                   ]
                 },
@@ -1817,48 +1821,56 @@
           "type": "CHOICE",
           "members": [
             {
-              "type": "SEQ",
+              "type": "CHOICE",
               "members": [
                 {
-                  "type": "SYMBOL",
-                  "name": "type_expr"
-                },
-                {
-                  "type": "REPEAT",
-                  "content": {
-                    "type": "SEQ",
-                    "members": [
-                      {
-                        "type": "CHOICE",
-                        "members": [
-                          {
-                            "type": "STRING",
-                            "value": ","
-                          },
-                          {
-                            "type": "STRING",
-                            "value": ";"
-                          }
-                        ]
-                      },
-                      {
-                        "type": "SYMBOL",
-                        "name": "type_expr"
-                      }
-                    ]
-                  }
-                },
-                {
-                  "type": "CHOICE",
+                  "type": "SEQ",
                   "members": [
                     {
-                      "type": "STRING",
-                      "value": ","
+                      "type": "SYMBOL",
+                      "name": "type_expr"
                     },
                     {
-                      "type": "BLANK"
+                      "type": "REPEAT",
+                      "content": {
+                        "type": "SEQ",
+                        "members": [
+                          {
+                            "type": "CHOICE",
+                            "members": [
+                              {
+                                "type": "STRING",
+                                "value": ","
+                              },
+                              {
+                                "type": "STRING",
+                                "value": ";"
+                              }
+                            ]
+                          },
+                          {
+                            "type": "SYMBOL",
+                            "name": "type_expr"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "type": "CHOICE",
+                      "members": [
+                        {
+                          "type": "STRING",
+                          "value": ","
+                        },
+                        {
+                          "type": "BLANK"
+                        }
+                      ]
                     }
                   ]
+                },
+                {
+                  "type": "BLANK"
                 }
               ]
             },
@@ -2162,12 +2174,46 @@
       ]
     },
     "record_type": {
-      "type": "STRING",
-      "value": "rec"
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "rec"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "decl_modifiers"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        }
+      ]
     },
     "entry_type": {
-      "type": "STRING",
-      "value": "ent"
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "ent"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "decl_modifiers"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        }
+      ]
     },
     "type_expr": {
       "type": "CHOICE",
@@ -4537,6 +4583,18 @@
                 {
                   "type": "SYMBOL",
                   "name": "expr"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "var_decl"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "con_decl"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "lab_decl"
                 }
               ]
             }
@@ -5744,6 +5802,14 @@
                 {
                   "type": "SYMBOL",
                   "name": "keyword_name"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "string_literal"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "raw_string_literal"
                 }
               ]
             }
@@ -6221,8 +6287,17 @@
                 "type": "FIELD",
                 "name": "index",
                 "content": {
-                  "type": "SYMBOL",
-                  "name": "expr"
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "SYMBOL",
+                      "name": "availability_item"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "expr"
+                    }
+                  ]
                 }
               },
               {
@@ -7166,6 +7241,27 @@
         {
           "type": "STRING",
           "value": "do"
+        }
+      ]
+    },
+    "object_type": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "obj"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "decl_modifiers"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
         }
       ]
     }
