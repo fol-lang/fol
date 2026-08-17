@@ -1,4 +1,3 @@
-package.json
 queries/fol/highlights.scm
 queries/fol/locals.scm
 queries/fol/symbols.scm
