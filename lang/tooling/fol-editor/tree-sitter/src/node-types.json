@@ -2514,6 +2514,10 @@
         "required": true,
         "types": [
           {
+            "type": "block",
+            "named": true
+          },
+          {
             "type": "con_decl",
             "named": true
           },
@@ -3654,6 +3658,10 @@
       "required": false,
       "types": [
         {
+          "type": "ali_decl",
+          "named": true
+        },
+        {
           "type": "comment",
           "named": true
         },
@@ -3667,6 +3675,10 @@
         },
         {
           "type": "standard_requirement",
+          "named": true
+        },
+        {
+          "type": "typ_decl",
           "named": true
         }
       ]

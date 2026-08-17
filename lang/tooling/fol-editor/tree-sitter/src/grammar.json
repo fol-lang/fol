@@ -2758,6 +2758,27 @@
                   }
                 ]
               }
+            },
+            {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "STRING",
+                      "value": ","
+                    },
+                    {
+                      "type": "STRING",
+                      "value": ";"
+                    }
+                  ]
+                },
+                {
+                  "type": "BLANK"
+                }
+              ]
             }
           ]
         },
@@ -3308,6 +3329,14 @@
               {
                 "type": "SYMBOL",
                 "name": "doc_comment"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "ali_decl"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "typ_decl"
               }
             ]
           }
@@ -4893,6 +4922,10 @@
                 {
                   "type": "SYMBOL",
                   "name": "lab_decl"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "block"
                 }
               ]
             }
