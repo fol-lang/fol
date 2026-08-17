@@ -56,6 +56,29 @@ Bundle generation is the one public Tree-sitter command that invokes the
 external `tree-sitter` CLI. The checked-in parser used by ordinary inspection
 commands remains available without that executable.
 
+### What Tree-sitter actually consumes
+
+Tree-sitter's input is **`src/grammar.json`**, not `grammar.js`. The `.js` file is
+an authoring convenience: it exists so a rule can be written as
+
+```js
+prec.left(4, seq(field('container', choice($.identifier, ...)), '[', ...))
+```
+
+instead of the equivalent `{"type":"PREC_LEFT","value":4,"content":{"type":"SEQ",
+"members":[...]}}`. Running it is the only thing `node` is used for in this
+repository, and it is a pure `.js` → `.json` step: generating straight from the
+JSON produces a byte-identical `parser.c`.
+
+```text
+tree-sitter generate src/grammar.json    # no grammar.js, no JS runtime
+```
+
+So `node` is **not** needed to build FOL, run its tests, use the editor, or
+consume a generated bundle: `parser.c` is checked in and `fol-editor`'s
+`build.rs` compiles it with `cc`. It is needed only when the grammar rules
+themselves change, and only to re-derive `grammar.json` from `grammar.js`.
+
 ### Editing the grammar
 
 Two things about this loop surprise people, and both cost real time:
@@ -67,7 +90,9 @@ Two things about this loop surprise people, and both cost real time:
    order is: edit `grammar.js`, `cargo build`, then generate.
 2. **Use the wrapper, not the bare CLI.** `tree-sitter generate` run by hand
    invokes `node`; where that resolves to Bun it fails to load `grammar.js` at
-   all. `fol tool tree generate` passes `--js-runtime native` and works.
+   all. `fol tool tree generate` passes `--js-runtime native` and works. Passing
+   `src/grammar.json` explicitly avoids the JS runtime entirely, but regenerates
+   from the last derived JSON rather than from your edit.
 
 A generation failure prints the conflict tree-sitter could not resolve. Adding
 the named rule to the `conflicts` array is usually the fix — a conflict listing a
