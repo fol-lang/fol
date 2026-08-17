@@ -98,14 +98,25 @@ still to be done.
 
 ### Passing a literal to a generic routine
 
-A bare container literal has no type of its own to infer from, and against a
-generic parameter it comes out as an array rather than a vector:
+A literal is shaped by the type it is being passed *to*, so a one-character
+`"a"` becomes a `str` where a `str` is wanted and `{1, 2}` becomes a `vec` where
+a `vec` is wanted. That works for every concrete parameter, in `std` and in the
+intrinsics:
 
 ```fol
-// rejected: the literal types as `[int]`, not `vec[int]`
+var loud: str = std::strn::to_upper("a");
+var text: str = .str_from_bytes({104, 105});
+```
+
+**A generic parameter is the exception.** There is no concrete type to shape the
+literal from yet, so it falls back to its own reading — a container literal is an
+array, not a vector — and the call is rejected:
+
+```fol
+// rejected: nothing has told the literal it is a `vec[int]`
 var sorted: vec[int] = std::vecs::sort({3, 1, 2});
 
-// bind it first
+// bind it first, and the binding's type does the shaping
 var values: vec[int] = {3, 1, 2};
 var sorted: vec[int] = std::vecs::sort(values);
 ```

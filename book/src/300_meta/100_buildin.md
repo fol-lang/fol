@@ -543,9 +543,9 @@ Streaming, for a file larger than memory or one still being written — the
 whole-file forms cannot do either:
 
 - `.file_open(path, mode)` — mode `0` read, `1` truncate-or-create, `2` append,
-  `3` read-write. An integer rather than `"r"`/`"w"`, because FOL types a
-  one-character double-quoted literal as `chr`, so `.file_open(path, "r")` does
-  not typecheck. `std::fs` exports `MODE_READ`…`MODE_UPDATE` and
+  `3` read-write. An integer rather than `"r"`/`"w"`, matching the selector
+  arguments this surface already uses in `.file_seek(...)` and
+  `.tcp_shutdown(...)`. `std::fs` exports `MODE_READ`…`MODE_UPDATE` and
   `open_read`/`open_write`/`open_append`/`open_update` so nobody has to
   remember the numbers
 - `.file_read(handle, count)` — up to `count` **bytes**; an empty result means

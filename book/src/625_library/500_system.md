@@ -71,8 +71,8 @@ fun[exp] close(handle: int): int
 ```
 
 A handle is an integer. The `open_*` routines exist because the underlying
-`.file_open(path, mode)` takes an integer mode — FOL types a one-character
-double-quoted literal as `chr`, so `"r"` cannot be passed as a `str`.
+`.file_open(path, mode)` takes an integer mode, matching the selector arguments
+elsewhere on that surface; these give the modes names.
 
 Reads and writes are **bytes**, which keeps the surface binary-safe.
 

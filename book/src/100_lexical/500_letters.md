@@ -17,6 +17,22 @@ var aCharacter: chr = 'z'
 
 ## Strings
 A string is a **single** or a **sequence** of Unicode elements enclosed within quotes `U+0022` (`"`) with the exception of `U+0022` itself, which must be escaped by a preceding `U+005C` character (`\`).
+
+Because both readings use `"`, a **one-character** double-quoted literal is
+ambiguous on its face: `"a"` is a valid `chr` and a valid `str`. The type it is
+being used *as* decides, so all of these are fine:
+
+```fol
+var letter: chr = "a";
+var text: str = "a";
+var loud: str = std::strn::to_upper("a");
+var found: int = .str_find("banana", "n");
+```
+
+Read on its own, with nothing to shape it, such a literal is a `chr`. That
+matters in one place: a **generic** parameter has no concrete type to shape it
+from yet, so bind it to a typed name first. `'a'` is unambiguous when you want a
+character and nothing is telling the literal what to be.
 ```
 var hiInEnglish: str = "Hello, world!\n"
 var hInCantonese: str = "日本語"
