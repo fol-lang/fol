@@ -1259,3 +1259,51 @@ fn global_constants_accept_a_negated_number() {
     );
     assert_successful_stdout(&root, "-1\n-2\n7\ntrue\n");
 }
+
+#[test]
+fn a_literal_argument_is_shaped_by_the_parameter_it_fills() {
+    // A one-character text literal is a `chr` on its own, and a container
+    // literal is an array, so both were rejected against a `str` or `vec`
+    // parameter -- while the same literal passed to a user routine was accepted.
+    //
+    // This RUNS rather than only typechecking. An earlier attempt made
+    // typecheck agree while lowering still emitted a Rust `char`, which no
+    // typecheck-only test could have caught.
+    let root = write_hosted_app(
+        "v3_literal_argument_shape",
+        "use std: pkg = {\"std\"};\n\
+         \n\
+         fun[] main(): int = {\n\
+         \x20   std::io::echo_str(.str_upper(\"a\"));\n\
+         \x20   std::io::echo_int(.str_find(\"banana\", \"n\"));\n\
+         \x20   std::io::echo_str(.str_from_bytes({104, 105}));\n\
+         \x20   std::io::echo_int(.len(.run_capture(\"echo\", {\"hi\"})));\n\
+         \x20   return 0;\n\
+         };\n",
+    );
+    assert_successful_stdout(&root, "A\n2\nhi\n3\n");
+}
+
+#[test]
+fn a_literal_operand_is_shaped_by_the_other_side_of_the_comparison() {
+    // `text == "a"` compared a `str` against a `chr` and was rejected, though
+    // `text + "a"` had always been accepted. Runs for the same reason as above:
+    // shaping it in typecheck alone emitted a `char` against a `FolStr`.
+    let root = write_hosted_app(
+        "v3_literal_operand_shape",
+        "use std: pkg = {\"std\"};\n\
+         \n\
+         fun[] main(): int = {\n\
+         \x20   var text: str = \"a\";\n\
+         \x20   var letter: chr = 'a';\n\
+         \x20   std::io::echo_bool(text == \"a\");\n\
+         \x20   std::io::echo_bool(\"a\" == text);\n\
+         \x20   std::io::echo_bool(text != \"b\");\n\
+         \x20   std::io::echo_bool(.str_upper(\"a\") == \"A\");\n\
+         \x20   std::io::echo_bool(letter == 'a');\n\
+         \x20   std::io::echo_bool((text + \"b\") == \"ab\");\n\
+         \x20   return 0;\n\
+         };\n",
+    );
+    assert_successful_stdout(&root, "true\ntrue\ntrue\ntrue\ntrue\ntrue\n");
+}

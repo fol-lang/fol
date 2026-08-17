@@ -824,9 +824,18 @@ fn type_terminal_intrinsic(
             ),
         });
     }
+    // The signature travels to lowering on the call node. A literal argument is
+    // shaped by the parameter it fills, and lowering cannot look a literal's
+    // type up for itself: `AstNode::Literal` carries no syntax id, so it has no
+    // typed-node entry of its own.
+    typed.record_node_intrinsic_params(syntax_id, context.source_unit_id, params.clone());
     let mut effect = None;
     for (arg, expected) in args.iter().zip(params.iter()) {
-        let raw = type_node(typed, resolved, context, arg)?;
+        // The parameter type reaches the argument, exactly as it does for an
+        // ordinary call. Without it a literal is typed in isolation and then
+        // rejected against the very type that would have shaped it: `"a"` came
+        // out `chr` for a `str` parameter while `takes_str("a")` worked.
+        let raw = type_node_with_expectation(typed, resolved, context, arg, Some(*expected))?;
         let expr = plain_value_expr(
             typed,
             context,

@@ -2920,7 +2920,15 @@ pub(crate) fn is_entry_variant_access(
     .is_some()
 }
 
-#[allow(clippy::too_many_arguments)]
+/// A literal operand, looking through comment wrappers.
+fn is_literal_operand(node: &AstNode) -> bool {
+    let mut current = node;
+    while let AstNode::Commented { node, .. } = current {
+        current = node.as_ref();
+    }
+    matches!(current, AstNode::Literal(_))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn lower_binary_op(
     typed_package: &fol_typecheck::TypedPackage,
@@ -2955,7 +2963,11 @@ fn lower_binary_op(
         current_identity,
         right,
     );
-    let (left_val, right_val) = if left_variant && !right_variant {
+    // Typecheck shaped a literal operand from the other side, so lowering emits
+    // it in that shape too; otherwise the literal reached rustc as a `char`
+    // against a `FolStr`.
+    let literal_left = is_literal_operand(left);
+    let (left_val, right_val) = if (left_variant && !right_variant) || literal_left {
         let right_val = lower_expression(
             typed_package,
             type_table,
@@ -2992,7 +3004,8 @@ fn lower_binary_op(
             scope_id,
             left,
         )?;
-        let expected = (right_variant && !left_variant).then_some(left_val.type_id);
+        let expected = ((right_variant && !left_variant) || is_literal_operand(right))
+            .then_some(left_val.type_id);
         let right_val = lower_expression_expected(
             typed_package,
             type_table,

@@ -298,22 +298,41 @@ pub(crate) fn type_binary_op(
         _ => {}
     }
 
-    let left_raw = type_node(typed, resolved, context, left)?;
-    let left_expr = plain_value_expr(
-        typed,
-        context,
-        left_raw,
-        node_origin(resolved, left),
-        "plain use of an errorful expression",
-    )?;
-    let right_raw = type_node(typed, resolved, context, right)?;
-    let right_expr = plain_value_expr(
-        typed,
-        context,
-        right_raw,
-        node_origin(resolved, right),
-        "plain use of an errorful expression",
-    )?;
+    // A literal operand is shaped by the OTHER side's type. Typed alone, a
+    // one-character text literal is a `chr`, so `text == "a"` was rejected for
+    // comparing a `str` with a `chr` even though `text + "a"` was accepted. Only
+    // literal operands are reshaped; anything else types exactly as before.
+    let left_is_literal = matches!(super::helpers::strip_comments(left), AstNode::Literal(_));
+    let right_is_literal = matches!(super::helpers::strip_comments(right), AstNode::Literal(_));
+    let type_operand = |typed: &mut TypedProgram,
+                        node: &AstNode,
+                        shape: Option<crate::CheckedTypeId>|
+     -> Result<_, TypecheckError> {
+        let raw = type_node_with_expectation(typed, resolved, context, node, shape)?;
+        plain_value_expr(
+            typed,
+            context,
+            raw,
+            node_origin(resolved, node),
+            "plain use of an errorful expression",
+        )
+    };
+    let (left_expr, right_expr) = if right_is_literal && !left_is_literal {
+        let left_expr = type_operand(typed, left, None)?;
+        let shape = left_expr.value_type;
+        let right_expr = type_operand(typed, right, shape)?;
+        (left_expr, right_expr)
+    } else if left_is_literal && !right_is_literal {
+        // Mirrored, so `"a" == text` reads the same as `text == "a"`.
+        let right_expr = type_operand(typed, right, None)?;
+        let shape = right_expr.value_type;
+        let left_expr = type_operand(typed, left, shape)?;
+        (left_expr, right_expr)
+    } else {
+        let left_expr = type_operand(typed, left, None)?;
+        let right_expr = type_operand(typed, right, None)?;
+        (left_expr, right_expr)
+    };
     let left_type =
         left_expr.required_value("binary operator left operand does not have a type")?;
     let right_type =

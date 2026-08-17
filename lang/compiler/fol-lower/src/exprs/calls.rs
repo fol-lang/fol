@@ -458,7 +458,21 @@ pub(crate) fn lower_dot_intrinsic_call(
                 cursor,
                 source_unit_id,
                 scope_id,
-                comparison_expectations.get(index).copied().flatten(),
+                // The parameter type typecheck recorded on this call node. A
+                // literal argument was shaped by it during checking, so lowering
+                // has to emit it in that shape too — otherwise `"a"` for a `str`
+                // parameter reaches rustc as a `char`. The comparison narrowing
+                // still wins where it applies.
+                comparison_expectations
+                    .get(index)
+                    .copied()
+                    .flatten()
+                    .or_else(|| {
+                        typed_node
+                            .intrinsic_param_types
+                            .get(index)
+                            .and_then(|checked| checked_type_map.get(checked).copied())
+                    }),
                 arg,
             )
         })

@@ -65,6 +65,14 @@ pub struct TypedNode {
     pub inferred_type: Option<CheckedTypeId>,
     pub recoverable_effect: Option<RecoverableCallEffect>,
     pub intrinsic_id: Option<IntrinsicId>,
+    /// The intrinsic's parameter types, recorded on the CALL node.
+    ///
+    /// A literal argument has to be shaped by the parameter it fills, and
+    /// lowering cannot ask typecheck for a literal's type: `AstNode::Literal`
+    /// carries no syntax id, so it has no typed-node entry. The call node does,
+    /// so the signature travels here and lowering reads the expectation per
+    /// argument from it.
+    pub intrinsic_param_types: Vec<CheckedTypeId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1070,6 +1078,7 @@ impl TypedProgram {
                             inferred_type: None,
                             recoverable_effect: None,
                             intrinsic_id: None,
+                            intrinsic_param_types: Vec::new(),
                         },
                     )
                 })
@@ -1299,6 +1308,7 @@ impl TypedProgram {
                 inferred_type: None,
                 recoverable_effect: None,
                 intrinsic_id: None,
+                intrinsic_param_types: Vec::new(),
             })
             .inferred_type = Some(type_id);
         Ok(())
@@ -1318,9 +1328,31 @@ impl TypedProgram {
                 inferred_type: None,
                 recoverable_effect: None,
                 intrinsic_id: None,
+                intrinsic_param_types: Vec::new(),
             })
             .recoverable_effect = Some(effect);
         Ok(())
+    }
+
+    /// Records the intrinsic's parameter types on its call node, so lowering can
+    /// shape each literal argument by the parameter it fills.
+    pub(crate) fn record_node_intrinsic_params(
+        &mut self,
+        syntax_id: SyntaxNodeId,
+        source_unit_id: SourceUnitId,
+        params: Vec<CheckedTypeId>,
+    ) {
+        self.nodes
+            .entry(syntax_id)
+            .or_insert(TypedNode {
+                syntax_id,
+                source_unit_id,
+                inferred_type: None,
+                recoverable_effect: None,
+                intrinsic_id: None,
+                intrinsic_param_types: Vec::new(),
+            })
+            .intrinsic_param_types = params;
     }
 
     pub(crate) fn record_node_intrinsic(
@@ -1337,6 +1369,7 @@ impl TypedProgram {
                 inferred_type: None,
                 recoverable_effect: None,
                 intrinsic_id: None,
+                intrinsic_param_types: Vec::new(),
             })
             .intrinsic_id = Some(intrinsic_id);
         Ok(())
