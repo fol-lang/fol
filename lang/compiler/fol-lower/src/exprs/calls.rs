@@ -458,18 +458,7 @@ pub(crate) fn lower_dot_intrinsic_call(
                 cursor,
                 source_unit_id,
                 scope_id,
-                // Falling back to the operand's OWN checked type matters for a
-                // container literal: typecheck shapes it from the parameter, so
-                // `{1, 2}` for a `vec` parameter is a vector — but lowering
-                // defaults an inline literal to an array and then cannot find
-                // that array shape in the type table (L1099). Handing it the
-                // checked type keeps both halves agreeing. For every other
-                // operand this is the type it already had.
-                comparison_expectations
-                    .get(index)
-                    .copied()
-                    .flatten()
-                    .or_else(|| checked_operand_lowered_type(typed_package, checked_type_map, arg)),
+                comparison_expectations.get(index).copied().flatten(),
                 arg,
             )
         })

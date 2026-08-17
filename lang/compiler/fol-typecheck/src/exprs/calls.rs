@@ -741,19 +741,6 @@ fn terminal_intrinsic_signature(
     }
 }
 
-/// Whether a parameter's type is a container, in which case a literal argument
-/// must NOT be shaped from it — see the note in `type_terminal_intrinsic`.
-fn container_typed_parameter(typed: &TypedProgram, expected: crate::CheckedTypeId) -> bool {
-    matches!(
-        typed.type_table().get(expected),
-        Some(CheckedType::Array { .. })
-            | Some(CheckedType::Vector { .. })
-            | Some(CheckedType::Sequence { .. })
-            | Some(CheckedType::Set { .. })
-            | Some(CheckedType::Map { .. })
-    )
-}
-
 fn type_terminal_intrinsic(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
@@ -839,20 +826,7 @@ fn type_terminal_intrinsic(
     }
     let mut effect = None;
     for (arg, expected) in args.iter().zip(params.iter()) {
-        // The parameter type has to reach the argument, exactly as it does for an
-        // ordinary call. Without it a literal is typed in isolation and then
-        // rejected against the very type that would have shaped it: `"a"` came
-        // out `chr` for a `str` parameter while `takes_str("a")` on a user
-        // routine worked.
-        //
-        // Container parameters are deliberately EXCLUDED. Shaping `{1, 2}` into
-        // a `vec` here makes typecheck pass and then lowering fail with L1099,
-        // because an inline container literal lowers as an array and the vector
-        // shape it was told to be is not in the type table. Until the lowering
-        // half agrees, an inline container literal keeps reporting the honest
-        // type error at the call site; bind it first.
-        let shaped = (!container_typed_parameter(typed, *expected)).then_some(*expected);
-        let raw = type_node_with_expectation(typed, resolved, context, arg, shaped)?;
+        let raw = type_node(typed, resolved, context, arg)?;
         let expr = plain_value_expr(
             typed,
             context,
