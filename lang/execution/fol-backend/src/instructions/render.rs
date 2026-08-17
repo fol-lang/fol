@@ -844,6 +844,7 @@ pub fn render_core_instruction_in_workspace(
                 | ("is_nan", [value])
                 | ("is_inf", [value])
                 | ("pop_count", [value])
+                | ("bit_not", [value])
                 | ("clz", [value])
                 | ("ctz", [value])
                 | ("abs", [value])

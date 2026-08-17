@@ -634,7 +634,7 @@ fn terminal_intrinsic_signature(
         "bit_and" | "bit_or" | "bit_xor" | "shl" | "shr" | "rotl" | "rotr" => {
             Some((vec![builtins.int, builtins.int], builtins.int))
         }
-        "pop_count" | "clz" | "ctz" => Some((vec![builtins.int], builtins.int)),
+        "pop_count" | "clz" | "ctz" | "bit_not" => Some((vec![builtins.int], builtins.int)),
         "abs" => Some((vec![builtins.int], builtins.int)),
         "min" | "max" | "checked_add" | "checked_sub" | "wrapping_add" | "wrapping_sub"
         | "saturating_add" | "saturating_sub" => {

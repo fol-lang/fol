@@ -2758,6 +2758,18 @@ const INTRINSICS: &[IntrinsicEntry] = &[
         IntrinsicLoweringMode::RuntimeHook,
         "which sockets have data ready",
     ),
+    IntrinsicEntry::new(
+        IntrinsicId::new(234),
+        "bit_not",
+        &[],
+        IntrinsicCategory::Bitwise,
+        IntrinsicSurface::DotRootCall,
+        IntrinsicAvailability::V1,
+        IntrinsicStatus::Implemented,
+        IntrinsicArity::Exactly(1),
+        IntrinsicLoweringMode::RuntimeHook,
+        "the bitwise complement of an integer",
+    ),
 ];
 
 pub const fn intrinsic_registry() -> &'static [IntrinsicEntry] {
@@ -2842,7 +2854,7 @@ pub fn backend_role_for_intrinsic(id: IntrinsicId) -> Option<IntrinsicBackendRol
         // their Deferred placeholders rather than shadowed by second entries.
         // 23-24 min/max, 30 abs, 36 sqrt, 37-46 bitwise and 49-54 the overflow
         // family were all promoted in place from Deferred placeholders.
-        8 | 11 | 23 | 24 | 30 | 36..=46 | 49..=54 | 57..=197 | 200..=233 => {
+        8 | 11 | 23 | 24 | 30 | 36..=46 | 49..=54 | 57..=197 | 200..=234 => {
             Some(IntrinsicBackendRole::RuntimeHook)
         }
         13 => Some(IntrinsicBackendRole::ControlEffect),

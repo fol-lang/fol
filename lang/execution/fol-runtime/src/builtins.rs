@@ -299,6 +299,10 @@ pub fn bit_xor(left: FolInt, right: FolInt) -> FolInt {
     left ^ right
 }
 
+pub fn bit_not(value: FolInt) -> FolInt {
+    !value
+}
+
 /// Rust's `<<` panics in debug and wraps in release once the shift reaches the
 /// width. Faulting on both makes the boundary the same in either profile.
 pub fn shl(value: FolInt, shift: FolInt) -> FolInt {
