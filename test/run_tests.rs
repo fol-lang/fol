@@ -5,6 +5,9 @@ pub mod fixture;
 #[path = "v3_example_inventory.rs"]
 mod v3_example_inventory;
 
+#[path = "treesitter_parse_ratchet.rs"]
+mod treesitter_parse_ratchet;
+
 #[path = "book_code_audit.rs"]
 mod book_code_audit;
 
