@@ -42,6 +42,17 @@ Current milestone note:
 - an unresolved generic parameter cannot cross `[>]` or `| async` until FOL
   defines a thread-safety and lifetime contract for generics; calls whose
   arguments infer concrete thread-safe types remain valid
+- an imported generic routine **is** instantiable: a mounted signature keeps its
+  generic parameter list and its capability bounds, so a call in one package
+  binds the parameters and monomorphizes a routine declared in another. This is
+  what lets the standard library export generic container routines rather than
+  a concrete wrapper per element type. A signature that mentions a generic
+  parameter but carries no list to bind still reports the boundary, because the
+  call would otherwise type as a bare `T`
+- a generic parameter is an opaque placeholder and is never expanded to an
+  underlying type. That matters most for an imported one, which keeps its
+  DEFINING package's symbol identity: expanding it could reach an unrelated
+  symbol in the importing package and check the call against that type instead
 - receiver-qualified generic routines, matching default arguments, and
   concrete instantiated generic-type receivers and concrete recoverable error
   types are now part of the executable Milestone 1 subset

@@ -1,6 +1,6 @@
 # Capabilities
 
-Five compiler-owned standards describe what may be done with a value. A type
+Six compiler-owned standards describe what may be done with a value. A type
 lists the ones it guarantees in its conformance position, and the compiler
 verifies each claim against the type's fields.
 
@@ -11,6 +11,7 @@ verifies each claim against the type's fields.
 | `fin` | the type runs custom finalization when it is dropped |
 | `send` | owned access may cross a task or thread boundary |
 | `share` | shared access may cross a task or thread boundary |
+| `ord` | the type has a total order, so `<` and `>` compare its values |
 
 A type states its capabilities in the conformance list:
 
@@ -30,6 +31,31 @@ default — every aggregate field of a `copy` type must itself claim `copy`.
 
 `send` and `share` require every field to be thread-safe transitively, so a type
 holding a non-synchronized shared pointer or a `fin` resource cannot claim them.
+
+`ord` is the one standard that is **never claimed in a conformance header**. It
+is structural throughout: a record or entry is ordered when its fields are.
+`flt` does **not** satisfy `ord`, because NaN compares equal to nothing and a
+total order is what the standard promises.
+
+An aggregate compares **field by field in field-NAME order, not declaration
+order.** Record types are interned structurally, and that interning normalizes
+field order so `{ a: int, b: int }` and `{ b: int, a: int }` are the same type —
+which means there is no declaration order left to compare by. A record declared
+`{ row: int, col: int }` therefore compares on `col` first:
+
+```fol
+typ Cell: rec = { row: int, col: int };
+// sorting these yields (2,0) before (1,3): `col` decides, not `row`
+```
+
+So treat `ord` on an aggregate as "some stable total order" — enough to be a map
+key, a set member, or to deduplicate. Do not rely on it for presentation order.
+To sort records the way a reader expects, sort a vector of the field you care
+about, or give the type a field order whose names sort the way you need.
+
+Because a total order decides equality as well, a value bound by `ord` may be
+compared with `==` too. Only `ord` is needed to search a container, not `ord`
+plus some separate equality standard.
 
 ## Operations
 
@@ -62,4 +88,27 @@ types that satisfy the standard:
 
 ```fol
 fun keep(T: copy)(value: T): T = { return [cpy]value; };
+```
+
+Several bounds combine with `+`, which is how most of the standard library's
+container routines are written:
+
+```fol
+fun[exp] sort(T: ord + clone)(values: vec[T]): vec[T] = {
+    var[mut] out: vec[T] = [mov]values;
+    out.sort();
+    return out;
+};
+```
+
+`clone` appears there because a pure routine has to copy elements out of its
+argument rather than move them, and `ord` because the sort compares.
+
+The check applies **across a package boundary** as well. Calling an imported
+generic routine with a type that cannot satisfy its bound is an ordinary type
+error at the call site, not a failure further down the pipeline:
+
+```text
+call to 'std::vecs::sort' requires type 'flt' to satisfy the 'ord' capability
+for generic parameter 'T'; the type does not
 ```

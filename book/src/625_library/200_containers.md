@@ -39,6 +39,12 @@ fun[exp] range_int(start: int, stop: int): vec[int]
 insertion sort written in FOL. `sort_flt` exists because `flt` cannot satisfy
 `ord`.
 
+Sorting records works, but the comparison is by field **name** order, not
+declaration order — `{ row, col }` compares on `col` first. It is a stable total
+order rather than a meaningful one, so use it for grouping and deduplication and
+not for presentation. The
+[capabilities chapter](../800_memory/150_capabilities.md) explains why.
+
 `index_of` scans and `binary_search` bisects; both return `-1` when absent, and
 the bisecting one requires a sorted input, which `is_sorted` can confirm.
 

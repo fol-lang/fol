@@ -202,7 +202,16 @@ aMap+[{"RU",24}]            // NOT implemented — no effect
 In current `V1`, backend execution should treat `.len(...)` and runtime-visible
 container rendering as part of the `fol-runtime` contract rather than
 re-deriving container policy per backend.
-The comparison operators `==` and `!=` must be fully defined for operands of the key type; thus the key type must not be a function, map, or sequence.
+A key type must have a total order, since the map is kept sorted by key. That
+admits the scalars and any `rec` or `ent` whose fields are themselves orderable,
+and rules out `flt` (NaN compares equal to nothing), routines, and any type
+holding a weak pointer. The same rule decides what may be a `set[...]` member.
+
+A record key needs no conformance header for this — `ord` is structural — but
+note that an aggregate compares by field **name** order rather than declaration
+order, because structural interning normalizes the field list. That is fine for
+key identity and wrong to rely on for presentation. See the
+[capabilities chapter](../800_memory/150_capabilities.md).
 
 {{% notice tip %}}
 
