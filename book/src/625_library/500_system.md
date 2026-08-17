@@ -103,16 +103,139 @@ var whole: str = std::fs::read_streamed(path, 4096);
 
 Use it in preference to hand-rolling the loop.
 
-## `std::os` — process and environment
+### Paths, atomic writes, and locking
 
 ```fol
-fun[exp] env(name: str): str
-fun[exp] shell(command: str): int
+fun[exp] resolve(path: str): str
+fun[exp] temp_path(prefix: str): str
+fun[exp] write_atomic(path: str, contents: str): int
+fun[exp] make_link(target: str, link: str): int
+fun[exp] lock_exclusive(handle: int): int
+fun[exp] try_lock_exclusive(handle: int): int
+fun[exp] lock_shared(handle: int): int
+fun[exp] unlock(handle: int): int
+```
+
+`resolve` asks the filesystem, so symlinks and `..` come out resolved as they
+really are. `std::path::normalize` does it textually and is a different answer
+whenever a symlink is involved — use `resolve` for any decision about whether a
+path stays inside an allowed directory.
+
+`write_atomic` writes a temp file and renames it over the target, so a reader
+never sees a half-written file:
+
+```fol
+var wrote: int = std::fs::write_atomic("config.toml", rendered);
+```
+
+Rename is atomic only *within* a filesystem. `write_atomic` uses the temp
+directory, so writing across a mount boundary falls back to a copy and loses the
+guarantee; when that matters, make the temp file next to the target yourself with
+`temp_path` and call `rename_file`.
+
+`try_lock_exclusive` returns `-1` immediately instead of blocking, which is how a
+program reports "already running" rather than hanging:
+
+```fol
+var handle: int = std::fs::open_update("/tmp/mytool.lock");
+if (std::fs::try_lock_exclusive(handle) != 0) {
+    std::io::write("another instance is running\n");
+    return 1;
+} else {
+};
+```
+
+The lock is **advisory**: it binds only processes that also ask, and does not
+stop an unrelated writer.
+
+## `std::os` — errors, process, environment
+
+### Why the last call failed
+
+Every fallible routine in `std` reports failure as a sentinel — `-1`, or an
+empty string — which says that something went wrong and nothing about what.
+These read the reason afterwards:
+
+```fol
+fun[exp] error(): str
+fun[exp] error_kind(): int
+fun[exp] failed(): bol
+fun[exp] not_found(): bol
+fun[exp] denied(): bol
+```
+
+```fol
+var text: str = std::fs::read_file(path);
+if (std::os::not_found()) {
+    std::io::write("no such file: " + path + "\n");
+} else {
+};
+```
+
+A successful call clears them, so a stale reason is never mistaken for a fresh
+one. Prefer the predicates and the `ERR_*` constants over matching `error()`
+text — the message is the operating system's wording, not a contract.
+
+`ERR_NONE`, `ERR_NOT_FOUND`, `ERR_DENIED`, `ERR_EXISTS`, `ERR_REFUSED`,
+`ERR_RESET`, `ERR_ABORTED`, `ERR_NOT_CONNECTED`, `ERR_ADDR_IN_USE`,
+`ERR_ADDR_UNAVAILABLE`, `ERR_BROKEN_PIPE`, `ERR_WOULD_BLOCK`, `ERR_TIMED_OUT`,
+`ERR_INVALID_INPUT`, `ERR_INVALID_DATA`, `ERR_UNEXPECTED_EOF`,
+`ERR_INTERRUPTED`, `ERR_WRITE_ZERO`, `ERR_OTHER`.
+
+### Arguments and environment
+
+```fol
 fun[exp] arg_count(): int
 fun[exp] arg(index: int): str
+fun[exp] program(): str
+fun[exp] env(name: str): str
+fun[exp] set_env(name: str, value: str): int
+fun[exp] unset_env(name: str): int
+fun[exp] shell(command: str): int
 ```
 
 `arg` excludes the program name, and an index past the end reads as `""`.
+`program()` is argv[0] — what a usage message should name.
+
+`unset_env` is not `set_env(name, "")`: an empty value is still a present
+variable, and a child can tell the difference.
+
+### Supervised children
+
+```fol
+con[exp] SIGNAL_KILL: int = 0;
+con[exp] SIGNAL_TERM: int = 15;
+
+fun[exp] still_running(): int          // the -2 sentinel
+fun[exp] spawn(program: str, args: vec[str]): int
+fun[exp] child_id(handle: int): int
+fun[exp] child_status(handle: int): int
+fun[exp] child_running(handle: int): bol
+fun[exp] await_child(handle: int): int
+fun[exp] signal_child(handle: int, signum: int): int
+```
+
+`shell` and the `run_*` intrinsics block until the child finishes. These do not,
+so a program can start something, watch it, and stop it:
+
+```fol
+var args: vec[str] = {"9000"};
+var server: int = std::os::spawn("./serve", args);
+loop (std::os::child_running(server)) {
+    std::time::sleep_ms(100);
+};
+var status: int = std::os::await_child(server);
+```
+
+`child_status` returns three things — the exit status, `still_running()` while
+it is going, or `-1` for an unknown handle — so a poll loop cannot confuse "not
+yet" with "gone". A finished child keeps its status, which is what makes the loop
+above safe: `await_child` after the poll returns the same value rather than
+failing on a handle the poll consumed. `signal_child` with `SIGNAL_TERM` lets the child clean up;
+`SIGNAL_KILL` cannot be caught.
+
+`still_running()` is a routine rather than a constant because a global binding
+needs a *literal* initializer and `-2` is a negation.
 
 `shell` runs through `sh -c` and returns the exit status: `128 + signal` when a
 signal killed it, `127` when the shell could not start. Because it is a shell,
@@ -165,10 +288,23 @@ Column counts are **not** string lengths: pad with `.str_width(...)`, since
 ```fol
 fun[exp] now_ms(): int
 fun[exp] sleep_ms(ms: int): int
+fun[exp] local_offset(epoch_secs: int): int
+fun[exp] local_parts(epoch_secs: int): vec[int]
 ```
 
 `now_ms` is wall-clock, so it can jump backwards when the system clock is
 adjusted. To measure a duration use the `.mono_ns()` intrinsic, which cannot.
+
+`.time_parts(...)` is UTC-only, so a timestamp shown to a reader needs the local
+offset. `local_parts` applies it for you:
+
+```fol
+var fields: vec[int] = std::time::local_parts(std::time::now_ms() / 1000);
+```
+
+`local_offset` takes the instant because the offset is not a constant — the same
+zone is `3600` in January and `7200` in July, and the daylight-saving rule in
+force at that moment decides which.
 
 ## `std::sync` — shared counters
 

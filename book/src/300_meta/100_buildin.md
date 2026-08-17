@@ -226,6 +226,57 @@ fun[] main(flag: bol): bol = {
 };
 ```
 
+#### How failure is reported
+
+A hosted call reports failure with a sentinel, not a recoverable error: **`-1`
+for an integer result, and the empty string for a text one.** That is uniform —
+there is no routine here that signals failure with `1`.
+
+A sentinel says *that* something went wrong and nothing about *what*, so the
+reason is fetched afterwards, the way `errno` works:
+
+- `.os_error()` — the reason as text, or `""` when the last hosted call
+  succeeded
+- `.os_error_kind()` — a stable integer code, or `0` on success
+
+```fol
+var text: str = .read_file(path);
+if (.len(text) == 0) {
+    .write("cannot read " + path + ": " + .os_error() + "\n");
+} else {
+};
+```
+
+Both are **cleared by a successful call**, so a stale reason is never read as a
+fresh one, and both are **per-thread**, so two threads failing at once do not
+overwrite each other.
+
+Branch on the code rather than the message — the text is the operating system's
+wording and is not a contract. `std::os` exports the codes by name
+(`ERR_NOT_FOUND`, `ERR_DENIED`, …) along with `not_found()` and `denied()`:
+
+```text
+ 0  none            8  address in use
+ 1  not found       9  address unavailable
+ 2  denied         10  broken pipe
+ 3  exists         11  would block
+ 4  refused        12  timed out
+ 5  reset          13  invalid input
+ 6  aborted        14  invalid data
+ 7  not connected  15  unexpected end of file
+                   16  interrupted
+                   17  wrote zero
+                   99  anything else
+```
+
+The numbers are part of the surface and will not be renumbered. `99` absorbs
+every other cause, including kinds Rust has not stabilised, so a toolchain
+upgrade cannot silently change an existing code.
+
+This is what makes `.read_file(...)` usable: it returns `""` for a missing file,
+an empty file, **and** one that is not valid UTF-8, and the error kind is what
+tells those apart.
+
 #### Console and terminal
 
 - `.write(text)` — write a string to stdout without a trailing newline and
@@ -392,8 +443,16 @@ resolution, so it can only carry plain data. See
 - `.now_ms()` / `.now_ns()` — since the unix epoch; wall-clock, so it can jump
 - `.mono_ns()` — a monotonic reading, which is the one to measure durations with
 - `.sleep_ms(ms)` / `.sleep_ns(ns)`
-- `.time_parts(epoch_secs)` — a timestamp split into calendar fields
+- `.time_parts(epoch_secs)` — a timestamp split into calendar fields, in **UTC**
 - `.time_from_parts(fields)` — the inverse
+- `.tz_offset_sec(epoch_secs)` — seconds to add to UTC for local time. Since
+  `.time_parts(...)` is UTC-only, without this every timestamp a program shows
+  its reader is wrong
+
+  It takes the **instant** because the offset is not a constant: the same zone is
+  `3600` in January and `7200` in July. The whole zone database applies,
+  including the daylight-saving rule in force at that moment, which is the part
+  a hand-rolled reader gets wrong. `std::time::local_parts(...)` combines the two
 - `.random_int(low, high)` / `.random_flt()` — from the operating system, so
   unpredictable and unrepeatable
 - `.random_bytes(count)` — raw entropy
@@ -458,8 +517,27 @@ Whole-file access:
 - `.rename_file(from, to)`, `.copy_file(from, to)`
 - `.dir_list(path)` — the sorted entries, directories suffixed with `/`
 - `.dir_entries(path)` — the same as a vector
-- `.read_link(path)`, `.permissions(path)`, `.set_permissions(path, mode)`
+- `.read_link(path)`, `.make_symlink(target, link)` — follow and create. Creating
+  was missing, which left any program managing a `current -> release` symlink
+  unwritable
+- `.permissions(path)`, `.set_permissions(path, mode)`
 - `.current_dir()`, `.set_current_dir(path)`, `.temp_dir()`, `.home_dir()`
+- `.realpath(path)` — the absolute path with symlinks and `..` resolved **on
+  disk**. `std::path::normalize` resolves `..` textually, which is a different
+  answer whenever a symlink is involved, so only this one can decide whether a
+  path stays inside an allowed directory. The path must already exist
+- `.temp_file(prefix)` — creates a uniquely named empty file in the temp
+  directory and returns its path. The *create* is the point: choosing a name in
+  FOL and then opening it would race, because another process could take the
+  name in between. With `.rename_file(...)`, this is the safe-write pattern —
+  write a temp file, then rename it over the target so a reader never sees a
+  half-written one
+- `.file_lock(handle, exclusive, wait)` / `.file_unlock(handle)` — advisory
+  whole-file locking, which is how a program stays single-instance: take an
+  exclusive lock on a known path and exit if another process holds it. `wait`
+  false returns `-1` immediately instead of blocking, so a caller can report
+  "already running" rather than hang. Advisory means it binds only processes
+  that also ask; it does not stop an unrelated writer
 
 Streaming, for a file larger than memory or one still being written — the
 whole-file forms cannot do either:
@@ -487,7 +565,13 @@ size.
 
 - `.arg_count()` / `.arg_at(index)` — the command-line arguments, excluding the
   program name; an index past the end reads as the empty string
+- `.arg_program()` — argv[0], the path this program was invoked as. `arg_at(0)`
+  is the FIRST argument, so this is what a usage message should name and what a
+  program re-executes
 - `.env_var(name)`, `.env_vars()`, `.set_env_var(name, value)`
+- `.unset_env_var(name)` — removing is not the same as setting to `""`. An empty
+  value is still a *present* variable, and a child process can tell the
+  difference
 - `.process_id()`
 - `.shell(command)` — run through `sh -c` with inherited streams and yield the
   exit status; `128 + signal` if a signal killed it, `127` if the shell could
@@ -500,6 +584,26 @@ size.
   filter-shaped program (`sort`, `sha256sum`, `git hash-object --stdin`) needs
   this one
 - `.exit_process(status)`
+
+Supervised children. `.run_capture(...)`, `.run_status(...)` and
+`.run_input(...)` all block until the child exits — right for a filter, useless
+for anything you intend to watch and stop. These separate starting from waiting:
+
+- `.child_spawn(program, args)` — start without waiting, yielding a handle.
+  Standard streams are inherited, so the child shares this program's terminal;
+  when the output is what you want, `.run_capture(...)` is still the answer
+- `.child_pid(handle)` — the child's process id, for logging
+- `.child_try_wait(handle)` — the exit status if it has finished, **`-2` while it
+  is still running**, `-1` for an unknown handle. Three outcomes, so a poll loop
+  cannot confuse "not yet" with "gone". A finished child **keeps** its status, so
+  reading it twice gives the same answer and a later `.child_wait(...)` still
+  works
+- `.child_wait(handle)` — block until it exits, then release the handle so the
+  child is never left as a zombie. Returns the kept status when a poll already
+  saw it finish
+- `.child_kill(handle, signum)` — `0` means `SIGKILL`, which cannot be caught;
+  any other number is sent as given, so `15` asks politely and lets the child
+  run its own cleanup
 
 Signals:
 
@@ -539,6 +643,19 @@ UDP and name resolution:
   sender's address
 - `.dns_resolve(host)` — every address a name resolves to; an empty vector when
   it resolves to none, rather than a fault
+
+Serving several connections at once:
+
+- `.poll_read(handles, timeout_ms)` — which of the given socket handles have data
+  ready, waiting up to `timeout_ms`; an empty result means the timeout expired,
+  and a negative timeout waits indefinitely. Unknown handles are ignored rather
+  than faulting
+
+Without it, serving several connections means a thread per connection — which
+FOL can do with `[spn]`, and which stops scaling once the connections outnumber
+what the scheduler should carry. This is the other shape: one thread, many
+sockets. A listener becomes ready when a connection is pending, so the same call
+covers both accepting and reading.
 
 #### Concurrency
 

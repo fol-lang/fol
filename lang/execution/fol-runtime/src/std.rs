@@ -1114,11 +1114,19 @@ pub fn unset_env_var(name: FolStr) -> crate::value::FolInt {
 /// Standard streams are inherited, so the child shares this program's terminal.
 /// Capturing output *and* supervising at once would need a reader thread per
 /// stream; `run_capture` remains the answer when the output is what you want.
-fn children() -> &'static Mutex<std::collections::HashMap<crate::value::FolInt, std::process::Child>>
-{
-    static CHILDREN: OnceLock<
-        Mutex<std::collections::HashMap<crate::value::FolInt, std::process::Child>>,
-    > = OnceLock::new();
+/// A finished child keeps its status instead of vanishing. Polling with
+/// `child_try_wait` until it reports done and then calling `child_wait` is the
+/// obvious way to supervise, and removing the entry on completion made that
+/// second call fail with "unknown handle". So the slot flips to `Done` and every
+/// later read returns the same status.
+enum ChildSlot {
+    Live(std::process::Child),
+    Done(crate::value::FolInt),
+}
+
+fn children() -> &'static Mutex<std::collections::HashMap<crate::value::FolInt, ChildSlot>> {
+    static CHILDREN: OnceLock<Mutex<std::collections::HashMap<crate::value::FolInt, ChildSlot>>> =
+        OnceLock::new();
     CHILDREN.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
 }
 
@@ -1135,7 +1143,7 @@ pub fn child_spawn(program: FolStr, args: FolVec<FolStr>) -> crate::value::FolIn
             children()
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
-                .insert(handle, child);
+                .insert(handle, ChildSlot::Live(child));
             handle
         }
         Err(error) => {
@@ -1151,7 +1159,11 @@ pub fn child_pid(handle: crate::value::FolInt) -> crate::value::FolInt {
         .lock()
         .unwrap_or_else(|error| error.into_inner())
         .get(&handle)
-        .map_or(-1, |child| child.id() as crate::value::FolInt)
+        .map_or(-1, |slot| match slot {
+            ChildSlot::Live(child) => child.id() as crate::value::FolInt,
+            // Already exited, so there is no live process to name.
+            ChildSlot::Done(_) => -1,
+        })
 }
 
 /// Exit status if the child has finished, or -2 while it is still running.
@@ -1160,14 +1172,18 @@ pub fn child_pid(handle: crate::value::FolInt) -> crate::value::FolInt {
 /// handle", which is the mistake a poll loop would otherwise make.
 pub fn child_try_wait(handle: crate::value::FolInt) -> crate::value::FolInt {
     let mut registry = children().lock().unwrap_or_else(|error| error.into_inner());
-    let Some(child) = registry.get_mut(&handle) else {
+    let Some(slot) = registry.get_mut(&handle) else {
         return -1;
+    };
+    let child = match slot {
+        ChildSlot::Live(child) => child,
+        ChildSlot::Done(code) => return *code,
     };
     match child.try_wait() {
         Ok(Some(status)) => {
             clear_os_error();
             let code = status.code().unwrap_or(-1) as crate::value::FolInt;
-            registry.remove(&handle);
+            *slot = ChildSlot::Done(code);
             code
         }
         Ok(None) => -2,
@@ -1188,8 +1204,14 @@ pub fn child_wait(handle: crate::value::FolInt) -> crate::value::FolInt {
         .lock()
         .unwrap_or_else(|error| error.into_inner())
         .remove(&handle);
-    let Some(mut child) = taken else {
-        return -1;
+    let mut child = match taken {
+        Some(ChildSlot::Live(child)) => child,
+        // Already finished and reaped by a poll; the status was kept.
+        Some(ChildSlot::Done(code)) => {
+            clear_os_error();
+            return code;
+        }
+        None => return -1,
     };
     match child.wait() {
         Ok(status) => {
