@@ -4323,6 +4323,10 @@
         },
         {
           "type": "SYMBOL",
+          "name": "slice_access"
+        },
+        {
+          "type": "SYMBOL",
           "name": "index_access"
         },
         {
@@ -5597,6 +5601,96 @@
         ]
       }
     },
+    "slice_access": {
+      "type": "PREC_LEFT",
+      "value": 4,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "FIELD",
+            "name": "container",
+            "content": {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "identifier"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "qualified_path"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "field_access"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "channel_access"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "index_access"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "call_expr"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "paren_expr"
+                }
+              ]
+            }
+          },
+          {
+            "type": "STRING",
+            "value": "["
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "FIELD",
+                "name": "start",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "expr"
+                }
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
+          },
+          {
+            "type": "STRING",
+            "value": ":"
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "FIELD",
+                "name": "end",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "expr"
+                }
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
+          },
+          {
+            "type": "STRING",
+            "value": "]"
+          }
+        ]
+      }
+    },
     "record_literal": {
       "type": "SEQ",
       "members": [
@@ -5981,6 +6075,9 @@
     [
       "type_expr",
       "generic_type_expr"
+    ],
+    [
+      "typed_binding"
     ]
   ],
   "precedences": [],

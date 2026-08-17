@@ -29,6 +29,9 @@ module.exports = grammar({
     [$.expr, $.range_expr],
     [$.else_clause, $.if_expr],
     [$.type_expr, $.generic_type_expr],
+    // Inside brackets a `:` may separate slice bounds or introduce a binding's
+    // type, so `var x` has to stay open until the input says which.
+    [$.typed_binding],
   ],
 
   rules: {
@@ -374,6 +377,7 @@ module.exports = grammar({
       $.dot_intrinsic,
       $.field_access,
       $.channel_access,
+      $.slice_access,
       $.index_access,
       $.qualified_path,
       $.identifier,
@@ -468,6 +472,17 @@ module.exports = grammar({
       // Empty access `container[]` is the V3 uniform inner-place access
       // (pointer pointee, opt payload, err payload).
       optional(field('index', $.expr)),
+      ']',
+    )),
+    // `values[1:4]`, with either bound optional: `[1:]`, `[:4]` and `[:]` are all
+    // accepted. `[:]` is a whole-container slice and stays distinct from `[]`,
+    // which is the inner-place access above.
+    slice_access: $ => prec.left(4, seq(
+      field('container', choice($.identifier, $.qualified_path, $.field_access, $.channel_access, $.index_access, $.call_expr, $.paren_expr)),
+      '[',
+      optional(field('start', $.expr)),
+      ':',
+      optional(field('end', $.expr)),
       ']',
     )),
     record_literal: $ => seq('{', optional(commaSep($.field_init)), '}'),

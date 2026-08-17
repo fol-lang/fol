@@ -305,3 +305,100 @@ fun demo(flag: bol, items: seq[int]): int = {
             (block
               (stmt
                 (break_stmt)))))))))
+
+==================
+Slice Access Bounds
+==================
+
+fun demo(): non = {
+    var a: seq[int] = items[1:4];
+    var b: seq[int] = items[1:];
+    var c: seq[int] = items[:4];
+    var d: seq[int] = items[:];
+    var e: int = items[1];
+};
+
+---
+
+(source_file
+  (fun_decl
+    (plain_fun_decl
+      (identifier)
+      (params)
+      (return_type
+        (type_expr
+          (identifier)))
+      (block
+        (stmt
+          (var_decl
+            (typed_binding
+              (identifier)
+              (type_expr
+                (container_type
+                  (type_expr
+                    (identifier)))))
+            (expr
+              (expr_atom
+                (slice_access
+                  (identifier)
+                  (expr
+                    (expr_atom
+                      (integer_literal)))
+                  (expr
+                    (expr_atom
+                      (integer_literal))))))))
+        (stmt
+          (var_decl
+            (typed_binding
+              (identifier)
+              (type_expr
+                (container_type
+                  (type_expr
+                    (identifier)))))
+            (expr
+              (expr_atom
+                (slice_access
+                  (identifier)
+                  (expr
+                    (expr_atom
+                      (integer_literal))))))))
+        (stmt
+          (var_decl
+            (typed_binding
+              (identifier)
+              (type_expr
+                (container_type
+                  (type_expr
+                    (identifier)))))
+            (expr
+              (expr_atom
+                (slice_access
+                  (identifier)
+                  (expr
+                    (expr_atom
+                      (integer_literal))))))))
+        (stmt
+          (var_decl
+            (typed_binding
+              (identifier)
+              (type_expr
+                (container_type
+                  (type_expr
+                    (identifier)))))
+            (expr
+              (expr_atom
+                (slice_access
+                  (identifier))))))
+        (stmt
+          (var_decl
+            (typed_binding
+              (identifier)
+              (type_expr
+                (identifier)))
+            (expr
+              (expr_atom
+                (index_access
+                  (identifier)
+                  (expr
+                    (expr_atom
+                      (integer_literal))))))))))))
