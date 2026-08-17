@@ -755,6 +755,21 @@ pub(crate) fn apparent_type_id(
             Some(CheckedType::Owned { inner }) | Some(CheckedType::Borrowed { inner, .. }) => {
                 current = *inner;
             }
+            // A generic parameter is an opaque placeholder with no underlying
+            // type, so there is nothing to expand to — the same reason the type
+            // importer refuses to expand one. Expanding it is also unsound
+            // across a package boundary: an imported parameter keeps its
+            // DEFINING package's symbol id, which can collide with an unrelated
+            // local symbol, and the expansion then yields that symbol's type.
+            // That surfaced as `expects 'fun(): int'` on a call to an imported
+            // `wrap(T)(value: T): T`, where the id happened to match local
+            // `main`.
+            Some(CheckedType::Declared {
+                kind: crate::DeclaredTypeKind::GenericParameter,
+                ..
+            }) => {
+                return Ok(current);
+            }
             Some(CheckedType::Declared { symbol, .. }) => {
                 if !seen.insert(*symbol) {
                     return Err(TypecheckError::new(

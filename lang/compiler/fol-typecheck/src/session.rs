@@ -769,11 +769,16 @@ impl TypecheckSession {
                         )
                     })
                     .transpose()?;
-                target_program
-                    .type_table_mut()
-                    .intern(CheckedType::Routine(crate::RoutineType {
-                        generic_params: Vec::new(),
-                        generic_constraints: BTreeMap::new(),
+                let interned = target_program.type_table_mut().intern(CheckedType::Routine(
+                    crate::RoutineType {
+                        // Carried across the boundary rather than dropped, so an
+                        // imported generic routine can be instantiated at the
+                        // call site. The parameter symbols stay FOREIGN ids,
+                        // matching how the generic-parameter types themselves
+                        // are imported, so both sides of a binding refer to the
+                        // same opaque placeholder and substitution matches.
+                        generic_params: signature.generic_params.clone(),
+                        generic_constraints: signature.generic_constraints.clone(),
                         param_names: signature.param_names.clone(),
                         param_defaults: signature.param_defaults.clone(),
                         variadic_index: signature.variadic_index,
@@ -782,7 +787,24 @@ impl TypecheckSession {
                         return_type,
                         error_type,
                         env_lifetime: false,
-                    }))
+                    },
+                ));
+                // The capability bounds must cross with the parameters. The
+                // bound check looks each parameter symbol up in the IMPORTING
+                // program's constraint map and skips one it cannot find, so
+                // importing parameters without their bounds would accept
+                // `sort` on an unordered element and fail later in rustc.
+                for generic_symbol in &signature.generic_params {
+                    if let Some(capabilities) =
+                        source_program.generic_capability_constraints(*generic_symbol)
+                    {
+                        for capability in capabilities.clone() {
+                            target_program
+                                .record_generic_capability_constraint(*generic_symbol, capability);
+                        }
+                    }
+                }
+                interned
             }
         };
 

@@ -1418,14 +1418,14 @@ fn routine_signature_for_symbol(
     let type_id = super::helpers::apparent_type_id(typed, type_id)?;
     match typed.type_table().get(type_id) {
         Some(CheckedType::Routine(signature)) => {
-            // Imported signatures are translated without their generic
-            // parameter list, so a generic routine crossing the package
-            // boundary cannot be instantiated here; without this guard the
-            // call types as a bare 'T' and the caller gets a baffling
-            // mismatch instead of the boundary.
+            // An imported generic routine is instantiable when its parameter
+            // list survived the import. When it did not, the call would type as
+            // a bare 'T' and the caller would get a baffling mismatch, so that
+            // case still reports the boundary.
             if resolved
                 .symbol(symbol_id)
                 .is_some_and(|symbol| symbol.mounted_from.is_some())
+                && signature.generic_params.is_empty()
                 && signature_mentions_generic_param(typed, signature)
             {
                 let name = resolved

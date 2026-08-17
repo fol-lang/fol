@@ -1981,10 +1981,12 @@ fn declaration_signature_lowering_allows_cross_file_named_type_references_in_rou
 }
 
 #[test]
-fn imported_generic_routines_reject_with_the_wrapper_hint() {
-    // Imported signatures drop their generic parameter list, so instantiation
-    // is impossible; the call must stop with the boundary instead of leaking
-    // a bare 'T' mismatch to the caller.
+fn imported_generic_routines_instantiate_at_the_call_site() {
+    // Imported signatures keep their generic parameter list, so a generic
+    // routine is instantiable across a package boundary. The parameter symbols
+    // stay foreign, which is why `apparent_type_id` must never expand a generic
+    // parameter: the foreign id can collide with an unrelated local symbol and
+    // the call would then be checked against that symbol's type.
     let root = unique_temp_dir("workspace_imported_generic_routine");
     create_dir_all(&root).expect("Fixture root should be creatable");
     write_fixture_files(
@@ -2012,14 +2014,66 @@ fn imported_generic_routines_reject_with_the_wrapper_hint() {
             capability_model: TypecheckCapabilityModel::Std,
         },
     );
+    if let Err(errors) = result {
+        panic!("imported generic call should instantiate: {errors:?}");
+    }
+}
+
+#[test]
+fn imported_generic_bounds_are_enforced_at_the_call_site() {
+    // Carrying the parameter list across the boundary without its capability
+    // bounds would accept the call here and fail later in rustc. `flt` has no
+    // total order, so it cannot satisfy `ord`.
+    let root = unique_temp_dir("workspace_imported_generic_bound");
+    create_dir_all(&root).expect("Fixture root should be creatable");
+    write_fixture_files(
+        &root,
+        &[
+            (
+                "shared/lib.fol",
+                "fun[exp] biggest(T: ord + clone)(values: vec[T], fallback: T): T = {\n\
+                 \x20   var[mut] best: T = [cln]fallback;\n\
+                 \x20   var[mut] i: int = 0;\n\
+                 \x20   loop (i < .len(values)) {\n\
+                 \x20       if (values[i] > best) {\n\
+                 \x20           best = [cln]values[i];\n\
+                 \x20       } else {\n\
+                 \x20       };\n\
+                 \x20       i = i + 1;\n\
+                 \x20   };\n\
+                 \x20   return best;\n\
+                 };\n",
+            ),
+            (
+                "app/main.fol",
+                concat!(
+                    "use shared: loc = {\"../shared\"};\n",
+                    "fun[] main(): int = {\n",
+                    "    var values: vec[flt] = {1.5, 2.5};\n",
+                    "    var best: flt = shared::biggest(values, 0.0);\n",
+                    "    return 0;\n",
+                    "};\n",
+                ),
+            ),
+        ],
+    );
+
+    let result = typecheck_fixture_workspace_with_models(
+        &root,
+        "app",
+        ResolverConfig::default(),
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Std,
+        },
+    );
     match result {
         Err(errors) => assert!(
-            errors.iter().any(|error| error
-                .message()
-                .contains("cross-package generic instantiation is not supported yet")),
-            "imported generic call should carry the wrapper hint: {errors:?}"
+            errors
+                .iter()
+                .any(|error| error.message().contains("satisfy the 'ord' capability")),
+            "imported generic bound should be enforced: {errors:?}"
         ),
-        Ok(_) => panic!("imported generic call must not typecheck"),
+        Ok(_) => panic!("an unordered element must not satisfy an imported 'ord' bound"),
     }
 }
 

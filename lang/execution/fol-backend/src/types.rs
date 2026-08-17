@@ -398,10 +398,22 @@ fn aggregate_derives(
         derives.push("Debug");
     }
     derives.push("Clone");
+    // Ordering rides along with equality: FOL's `ord` capability admits an
+    // aggregate whose fields are orderable, and `.sort()` on a `vec[Record]`
+    // typechecks on that basis, so the emitted type has to actually support the
+    // comparison. Without the derive that call passed typecheck and then failed
+    // in rustc asking for `#[derive(PartialOrd)]`.
+    //
+    // The gate is the same as `PartialEq`'s because the field requirements are:
+    // every runtime type reachable as a FOL field that implements `PartialEq`
+    // also implements `PartialOrd`. `Rc<dyn Fn>` closures and `Weak<T>` handles
+    // implement neither.
     if !has_weak && !has_routine {
         derives.push("PartialEq");
+        derives.push("PartialOrd");
         if !has_float {
             derives.push("Eq");
+            derives.push("Ord");
         }
     }
     if include_default && !has_routine && !has_underivable_array {
@@ -912,7 +924,9 @@ mod tests {
         let rendered = render_record_definition(&workspace, &package_identity, &decl, &table)
             .expect("record definition should render");
 
-        assert!(rendered.contains("#[derive(Debug, Clone, PartialEq, Eq, Default)]"));
+        assert!(
+            rendered.contains("#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Default)]")
+        );
         assert!(rendered.contains("pub struct ty__pkg__entry__app__t"));
         assert!(rendered.contains("pub name: rt_model::FolStr,"));
         assert!(rendered.contains("pub active: rt::FolBool,"));
@@ -1064,7 +1078,7 @@ mod tests {
         let rendered = render_entry_definition(&workspace, &package_identity, &decl, &table)
             .expect("entry definition should render");
 
-        assert!(rendered.contains("#[derive(Debug, Clone, PartialEq, Eq)]"));
+        assert!(rendered.contains("#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord)]"));
         assert!(rendered.contains("pub enum ty__pkg__entry__app__t"));
         assert!(rendered.contains("Ok(rt::FolInt),"));
         assert!(rendered.contains("Err(rt_model::FolStr),"));

@@ -22,6 +22,17 @@ fun[exp] sort_str(values: vec[str]): vec[str] = {
     return sort([mov]values);
 };
 
+// Floats cannot go through `sort`: the `ord` bound promises a TOTAL order and
+// `flt` has none, because NaN compares equal to nothing. The container method
+// needs only a partial order, which `flt` does have, so this sorts directly
+// instead of delegating. NaN is treated as equal to its neighbours, which keeps
+// the sort total and terminating rather than correct about NaN.
+fun[exp] sort_flt(values: vec[flt]): vec[flt] = {
+    var[mut] out: vec[flt] = [mov]values;
+    out.sort();
+    return out;
+};
+
 fun[exp] reverse_int(values: vec[int]): vec[int] = {
     var[mut] out: vec[int] = {};
     var[mut] i: int = .len(values) - 1;
