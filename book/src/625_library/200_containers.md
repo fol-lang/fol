@@ -7,7 +7,8 @@ Nothing here mutates its argument, because a free FOL routine cannot take a
 For in-place work, the container **methods** are the other half of the story —
 `values.push(x)`, `values.pop()`, `values.sort()`, `values.swap(i, j)` — and
 `cells[i] = v` assigns an element directly. Those are language surface, not
-`std`, and they are what these routines are built from.
+`std`, and they are what these routines are built from. The full set of them is
+in [Container methods](../400_type/200_container.md#container-methods).
 
 All of it is generic over the element type. `clone` is needed because a pure
 routine copies elements out of its argument; `ord` appears wherever elements are

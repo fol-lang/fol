@@ -15,11 +15,14 @@ Current boundary:
   implemented; they are later design work, not current behavior
 - element assignment (`c[i] = v`) IS implemented, for `arr[...]` and `vec[...]`
   only, on a mutable binding or on one field of a record reached through a
-  `[mut, bor]` receiver. It replaces an element; it never makes one appear, so
-  containers still cannot grow. `map` (a write would have to add a key),
-  `set[...]` (each position has its own type) and `seq[...]` (a persistent
-  linked list) each reject it with their own message, as do `fin` and move-only
-  element types, whose displaced value could not be accounted for
+  `[mut, bor]` receiver. It replaces an element; it never makes one appear.
+  `map` (a write would have to add a key), `set[...]` (each position has its own
+  type) and `seq[...]` (a persistent linked list) each reject it with their own
+  message, as do `fin` and move-only element types, whose displaced value could
+  not be accounted for
+- `vec[...]` and `map[...]` DO grow, through the methods in
+  [Container methods](#container-methods) below. `arr[...]` carries its length in
+  its type and `seq[...]`/`set[...]` have no method surface
 - the `set[...]` tuple-member form typechecks, but only single-member sets are
   executable today; those homogeneous runtime sets support `.len(...)`,
   deterministic positional lookup, and ordinary iteration
@@ -151,6 +154,54 @@ pro[] main: int = {
     var element = aSequence[3];                               // accessing the element
 }
 ```
+### Container methods
+
+Element assignment replaces an element; these make one appear or disappear, and
+reorder what is already there. They are methods on the container — not
+`.dot(...)` intrinsics — so they are written on the binding itself, and every one
+that writes needs a binding the call can mutate: a `var[mut]` local, or one field
+of a record reached through a `[mut, bor]` receiver.
+
+`vec[T]` owns nine:
+
+```fol
+var[mut] xs: vec[int] = {};
+xs.push(3);              // append
+xs.push(1);
+xs.insert_at(0, 2);      // insert before an index -> {2, 3, 1}
+xs.sort();               // ascending, in place    -> {1, 2, 3}
+xs.swap(0, 2);           // exchange two positions -> {3, 2, 1}
+xs.reserve(16);          // room for n more; the length does not change
+var last: opt[int] = xs.pop();          // 1, leaving {3, 2}
+var head: opt[int] = xs.remove_at(0);   // 3, leaving {2}
+xs.truncate(1);          // keep the first n
+xs.clear();              // keep none
+```
+
+`pop` and `remove_at` answer `opt[T]` because an empty vector has nothing to hand
+back. `sort` needs an element type that satisfies `ord`.
+
+`map[K, V]` owns seven:
+
+```fol
+var[mut] ages: map[str, int] = {};
+var displaced: opt[int] = ages.insert("ada", 36);
+var found: opt[int] = ages.get("ada");
+var known: bol = ages.contains("ada");
+var keys: vec[str] = ages.keys();
+var values: vec[int] = ages.values();
+var dropped: opt[int] = ages.remove("ada");
+ages.clear();
+```
+
+`insert` answers the value it displaced, so inserting over an existing key tells
+you what was there; on a fresh key the answer is nil. `get`, `contains`, `keys`
+and `values` only read, so they do not require a mutable binding.
+
+`arr[T, N]` carries its length in its type, so it has none of these. `seq[T]` and
+`set[T]` have no method surface either: `set[...]` is the tuple-member form, where
+each position has its own type, and asking it to `.insert(...)` says so.
+
 ### SIMD
 Matrixes are of type SIMD (single instruction, multiple data )
 

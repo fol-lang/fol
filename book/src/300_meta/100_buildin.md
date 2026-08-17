@@ -96,6 +96,19 @@ is:
 - bundled `std` wrappers require a `memo` artifact plus explicit internal
   `standard` dependency
 
+Because that last tier is two things, the diagnostic for it names whichever half
+is missing. On a `core` artifact it asks for both; on a `memo` artifact it asks
+only for the dependency and says so, since the model is already the right one:
+
+```text
+'.chr_to_int(...)' requires hosted std support; declare
+build.add_dep({ alias = "std", source = "internal", target = "standard" })
+(current artifact model is 'memo', which is already the right one)
+```
+
+There is no third `fol_model` to reach for — the accepted values are `core` and
+`memo`, and hosted std is `memo` plus the dependency.
+
 All three API tiers may back executable artifacts. Process entry and
 recoverable outcome adaptation are backend-only support, not bundled-std
 intrinsics.
@@ -302,12 +315,17 @@ Integer helpers:
 
 Bitwise, on non-negative integers:
 
-- `.bit_and(a, b)` / `.bit_or(a, b)` / `.bit_xor(a, b)`
+- `.bit_and(a, b)` / `.bit_or(a, b)` / `.bit_xor(a, b)` / `.bit_not(value)`
 - `.shl(value, count)` / `.shr(value, count)` — `.shr(...)` is arithmetic, so a
   negative value shifts sign bits in
 - `.rotl(value, count)` / `.rotr(value, count)`
 - `.pop_count(value)` / `.clz(value)` / `.ctz(value)` — set bits, leading
   zeros, trailing zeros
+
+`.bit_not(...)` is the one that leaves the non-negative range: an `int` is 64-bit
+two's complement, so `.bit_not(0)` is `-1`. Work at a narrower width by masking
+after each step — `.bit_and(value, 0xFFFFFFFF)` keeps a 32-bit word 32 bits wide,
+which is how `std::hash`'s SHA-256 is built out of these.
 
 Overflow-mode arithmetic. Plain `+`, `-`, and `*` fault on overflow; these are
 how you choose a different answer:
