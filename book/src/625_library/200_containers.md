@@ -87,38 +87,43 @@ var shared: vec[int] = std::sets::intersect(
 
 ## `std::maps` — map iteration and updates
 
-The one group still spelled per type. A map has two type parameters and the
-pair record would have to be generic with it, which is a larger change than the
-element-type collapse.
+Generic over both parameters. `K` needs `ord` because it is a map key; `V` needs
+`ord` only where the routine compares values.
 
 ```fol
-typ[exp] StrIntPair: rec = { key: str, value: int };
-typ[exp] StrPair: rec = { key: str, value: str };
+typ[exp] Pair(K, V): rec = { key: K, value: V };
 
-fun[exp] pairs_str_int(source: map[str, int]): vec[StrIntPair]
-fun[exp] pairs_str_str(source: map[str, str]): vec[StrPair]
-fun[exp] get_or(source: map[str, int], key: str, fallback: int): int
-fun[exp] get_or_str(source: map[str, str], key: str, fallback: str): str
-fun[exp] bump(source: map[str, int], key: str, amount: int): map[str, int]
-fun[exp] count_words(words: vec[str]): map[str, int]
-fun[exp] merge_str_int(left: map[str, int], right: map[str, int]): map[str, int]
-fun[exp] invert_str_str(source: map[str, str]): map[str, str]
-fun[exp] keys_where(source: map[str, int], least: int): vec[str]
-fun[exp] sum_values(source: map[str, int]): int
+fun[exp] pairs(K: ord + clone, V: clone)(source: map[K, V]): vec[Pair[K, V]]
+fun[exp] values_of(K: ord + clone, V: clone)(source: map[K, V]): vec[V]
+fun[exp] get_or(K: ord + clone, V: clone)(source: map[K, V], key: K, fallback: V): V
+fun[exp] has_key(K: ord + clone, V: clone)(source: map[K, V], key: K): bol
+fun[exp] merge(K: ord + clone, V: clone)(left: map[K, V], right: map[K, V]): map[K, V]
+fun[exp] invert(K: ord + clone, V: ord + clone)(source: map[K, V]): map[V, K]
+fun[exp] keys_where(K: ord + clone, V: ord + clone)(source: map[K, V], least: V): vec[K]
+fun[exp] bump(K: ord + clone)(source: map[K, int], key: K, amount: int): map[K, int]
+fun[exp] tally(K: ord + clone)(items: vec[K]): map[K, int]
+fun[exp] sum_values(K: ord + clone)(source: map[K, int]): int
 ```
 
-`pairs_*` is how you iterate: a map yields a vector of key/value records, which
-`for` can then walk. The record is the pair — FOL has no tuple type, so a
-two-field record is what carries one.
+`pairs` is how you iterate: a map yields a vector of key/value records, which
+`for` can then walk. The record **is** the pair — FOL has no tuple type, so a
+two-field record is what carries one. Keys come out sorted, because the backing
+store is a `BTreeMap`.
 
-`bump` is the counter idiom, inserting the key when absent:
+`bump` and `tally` fix the value type to `int` because they add, and `+` needs a
+numeric capability bound FOL does not have. Both stay generic over the key, so a
+frequency table works over anything orderable:
 
 ```fol
-var tally: map[str, int] = std::maps::count_words(words);
-var more: map[str, int] = std::maps::bump(tally, "fol", 1);
+var counts: map[str, int] = std::maps::tally(words);
+var more: map[str, int] = std::maps::bump(counts, "fol", 1);
+
+var readings: vec[int] = {7, 7, 8};
+var spread: map[int, int] = std::maps::tally(readings);
 ```
 
-`merge_str_int` lets the right side win on a duplicate key.
+`invert` needs `V: ord` because the values become keys; two keys sharing a value
+collapse to one entry. `merge` lets the right side win on a duplicate key.
 
 ## `std::iter` — adapters over vectors
 

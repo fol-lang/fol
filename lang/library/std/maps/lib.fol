@@ -1,32 +1,34 @@
-// Map iteration and set-like operations over `map[K,V]`, written in FOL.
+// Iteration and set-like operations over `map[K, V]`, written in FOL.
 //
-// FOL has no tuple value, but it does have records, and a record IS a pair —
-// so key/value iteration needs no new language surface. `keys()` gives the key
-// order (sorted, because `FolMap` is a `BTreeMap`) and `get()` reads each value.
+// FOL has no tuple value, but it does have records, and a record IS a pair — so
+// key/value iteration needs no new language surface. `keys()` gives the key
+// order (sorted, because the backing store is a `BTreeMap`) and `get()` reads
+// each value.
 //
-// Spelled per key/value type pair for the same reason `std::vecs` is: a generic
-// `T` is conservatively move-only, so indexing one inside a generic routine is
-// refused (O1001).
+// Generic over both parameters. `K` needs `ord` because it is a map key, and
+// `clone` because a pure routine copies keys out rather than moving them out of
+// the caller's map. Where a routine also compares values, `V` needs `ord` too.
+//
+// A routine whose value type is fixed to `int` is doing arithmetic on it: FOL
+// has no numeric capability bound, so `+` is unavailable on a `V`. Those are
+// still generic over the KEY.
 
-typ[exp] StrIntPair: rec = {
-    key: str,
-    value: int,
+typ[exp] Pair(K, V): rec = {
+    key: K,
+    value: V,
 };
 
-typ[exp] StrPair: rec = {
-    key: str,
-    value: str,
-};
-
-fun[exp] pairs_str_int(source: map[str, int]): vec[StrIntPair] = {
-    var[mut] out: vec[StrIntPair] = {};
-    var names: vec[str] = source.keys();
+// Every `.get()` here is read straight into `when` rather than through a local
+// binding. A local holding an `opt[V]` is one Rust binding for the whole
+// routine, so consuming it inside a loop moves the same value twice — which a
+// concrete `opt[int]` survives by being `Copy` and a generic `opt[V]` does not.
+fun[exp] pairs(K: ord + clone, V: clone)(source: map[K, V]): vec[Pair[K, V]] = {
+    var[mut] out: vec[Pair[K, V]] = {};
+    var names: vec[K] = source.keys();
     var[mut] i: int = 0;
-    var total: int = .len(names);
-    loop (i < total) {
-        var found: opt[int] = source.get(names[i]);
-        when(found) {
-            on(value) { out.push({ key = names[i], value = value }); }
+    loop (i < .len(names)) {
+        when(source.get([cln]names[i])) {
+            on(value) { out.push({ key = [cln]names[i], value = value }); }
             * { }
         }
         i = i + 1;
@@ -34,15 +36,28 @@ fun[exp] pairs_str_int(source: map[str, int]): vec[StrIntPair] = {
     return out;
 };
 
-fun[exp] pairs_str_str(source: map[str, str]): vec[StrPair] = {
-    var[mut] out: vec[StrPair] = {};
-    var names: vec[str] = source.keys();
+fun[exp] get_or(K: ord + clone, V: clone)(source: map[K, V], key: K, fallback: V): V = {
+    when(source.get([cln]key)) {
+        on(value) { return value; }
+        * { return [cln]fallback; }
+    }
+};
+
+fun[exp] has_key(K: ord + clone, V: clone)(source: map[K, V], key: K): bol = {
+    when(source.get([cln]key)) {
+        on(value) { return true; }
+        * { return false; }
+    }
+};
+
+// Later entries win, matching how `insert` behaves on a duplicate key.
+fun[exp] merge(K: ord + clone, V: clone)(left: map[K, V], right: map[K, V]): map[K, V] = {
+    var[mut] out: map[K, V] = [mov]left;
+    var names: vec[K] = right.keys();
     var[mut] i: int = 0;
-    var total: int = .len(names);
-    loop (i < total) {
-        var found: opt[str] = source.get(names[i]);
-        when(found) {
-            on(value) { out.push({ key = names[i], value = value }); }
+    loop (i < .len(names)) {
+        when(right.get([cln]names[i])) {
+            on(value) { out.insert([cln]names[i], value); }
             * { }
         }
         i = i + 1;
@@ -50,89 +65,83 @@ fun[exp] pairs_str_str(source: map[str, str]): vec[StrPair] = {
     return out;
 };
 
-fun[exp] get_or(source: map[str, int], key: str, fallback: int): int = {
-    var found: opt[int] = source.get(key);
-    when(found) {
-        on(value) { return value; }
-        * { return fallback; }
-    }
+// Values become keys, so `V` has to be orderable as well. Two keys sharing a
+// value collapse to one entry, and which one survives follows key order.
+fun[exp] invert(K: ord + clone, V: ord + clone)(source: map[K, V]): map[V, K] = {
+    var[mut] out: map[V, K] = {};
+    var names: vec[K] = source.keys();
+    var[mut] i: int = 0;
+    loop (i < .len(names)) {
+        when(source.get([cln]names[i])) {
+            on(value) { out.insert(value, [cln]names[i]); }
+            * { }
+        }
+        i = i + 1;
+    };
+    return out;
 };
 
-fun[exp] get_or_str(source: map[str, str], key: str, fallback: str): str = {
-    var found: opt[str] = source.get(key);
-    when(found) {
-        on(value) { return value; }
-        * { return fallback; }
-    }
+fun[exp] keys_where(K: ord + clone, V: ord + clone)(source: map[K, V], least: V): vec[K] = {
+    var[mut] out: vec[K] = {};
+    var names: vec[K] = source.keys();
+    var[mut] i: int = 0;
+    loop (i < .len(names)) {
+        when(source.get([cln]names[i])) {
+            on(value) {
+                if (value >= least) {
+                    out.push([cln]names[i]);
+                } else {
+                };
+            }
+            * { }
+        }
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[exp] values_of(K: ord + clone, V: clone)(source: map[K, V]): vec[V] = {
+    var[mut] out: vec[V] = {};
+    var names: vec[K] = source.keys();
+    var[mut] i: int = 0;
+    loop (i < .len(names)) {
+        when(source.get([cln]names[i])) {
+            on(value) { out.push(value); }
+            * { }
+        }
+        i = i + 1;
+    };
+    return out;
 };
 
 // Add `amount` to the value at `key`, starting from zero when it is absent.
 // This is the counting idiom every word-frequency and histogram pass wants.
-fun[exp] bump(source: map[str, int], key: str, amount: int): map[str, int] = {
-    var[mut] out: map[str, int] = [mov]source;
-    var current: int = get_or(out, key, 0);
-    out.insert(key, current + amount);
+//
+// The value is `int` because the routine adds; the key stays generic.
+fun[exp] bump(K: ord + clone)(source: map[K, int], key: K, amount: int): map[K, int] = {
+    var[mut] out: map[K, int] = [mov]source;
+    var current: int = get_or(out, [cln]key, 0);
+    out.insert([cln]key, current + amount);
     return out;
 };
 
-fun[exp] count_words(words: vec[str]): map[str, int] = {
-    var[mut] out: map[str, int] = {};
+// A frequency table over anything orderable, not only strings.
+fun[exp] tally(K: ord + clone)(items: vec[K]): map[K, int] = {
+    var[mut] out: map[K, int] = {};
     var[mut] i: int = 0;
-    var total: int = .len(words);
-    loop (i < total) {
-        out = bump([mov]out, words[i], 1);
+    loop (i < .len(items)) {
+        out = bump([mov]out, [cln]items[i], 1);
         i = i + 1;
     };
     return out;
 };
 
-// Later entries win, matching how `insert` behaves on a duplicate key.
-fun[exp] merge_str_int(left: map[str, int], right: map[str, int]): map[str, int] = {
-    var[mut] out: map[str, int] = [mov]left;
-    var names: vec[str] = right.keys();
-    var[mut] i: int = 0;
-    var total: int = .len(names);
-    loop (i < total) {
-        out.insert(names[i], get_or(right, names[i], 0));
-        i = i + 1;
-    };
-    return out;
-};
-
-fun[exp] invert_str_str(source: map[str, str]): map[str, str] = {
-    var[mut] out: map[str, str] = {};
-    var names: vec[str] = source.keys();
-    var[mut] i: int = 0;
-    var total: int = .len(names);
-    loop (i < total) {
-        out.insert(get_or_str(source, names[i], ""), names[i]);
-        i = i + 1;
-    };
-    return out;
-};
-
-fun[exp] keys_where(source: map[str, int], least: int): vec[str] = {
-    var[mut] out: vec[str] = {};
-    var names: vec[str] = source.keys();
-    var[mut] i: int = 0;
-    var total: int = .len(names);
-    loop (i < total) {
-        if (get_or(source, names[i], 0) >= least) {
-            out.push(names[i]);
-        } else {
-        };
-        i = i + 1;
-    };
-    return out;
-};
-
-fun[exp] sum_values(source: map[str, int]): int = {
+fun[exp] sum_values(K: ord + clone)(source: map[K, int]): int = {
     var[mut] total: int = 0;
-    var names: vec[str] = source.keys();
+    var names: vec[K] = source.keys();
     var[mut] i: int = 0;
-    var count: int = .len(names);
-    loop (i < count) {
-        total = total + get_or(source, names[i], 0);
+    loop (i < .len(names)) {
+        total = total + get_or(source, [cln]names[i], 0);
         i = i + 1;
     };
     return total;

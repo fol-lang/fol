@@ -48,8 +48,8 @@ A free FOL routine cannot take a `[mut, bor]` parameter — only a receiver can.
 So a routine that "modifies" a container takes it and returns the new one:
 
 ```fol
-var members: vec[int] = std::sets::from_vec_int(std::vecs::range_int(0, 5));
-var larger: vec[int] = std::sets::insert_int(members, 9);
+var members: vec[int] = std::sets::from_vec(std::vecs::range_int(0, 5));
+var larger: vec[int] = std::sets::insert(members, 9);
 ```
 
 `members` is unchanged; `larger` is the result. Where a routine has to carry
@@ -58,8 +58,8 @@ record pairing the new state with the value.
 
 ### Container routines are generic, and two bounds carry them
 
-`std::vecs`, `std::sets`, `std::iter`, `std::heap`, and `std::grid` are generic
-over their element type:
+`std::vecs`, `std::sets`, `std::iter`, `std::heap`, `std::grid`, and `std::maps`
+are generic over the types they hold:
 
 ```fol
 var numbers: vec[int] = std::vecs::sort(measurements);
