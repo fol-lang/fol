@@ -1546,12 +1546,13 @@ fn hosted_std_on_memo_asks_for_the_dependency_not_the_model() {
 
     assert_eq!(errors.len(), 1);
     let message = errors[0].message();
-    assert!(message.contains("requires the hosted std dependency"));
-    assert!(message.contains("already 'memo'"));
+    assert!(message.contains("requires hosted std support"));
+    assert!(message.contains("already the right one"));
     assert!(message.contains("build.add_dep("));
     // The bug this locks: the memo path used to advise `fol_model = memo` while
     // reporting the model as 'memo', pointing at the one thing already correct.
     assert!(!message.contains("use 'fol_model = memo'"));
+    assert!(!message.contains("set 'fol_model = memo'"));
 }
 
 #[test]
@@ -3043,7 +3044,7 @@ fn typecheck_capability_tiers_keep_memo_between_core_and_hosted_std() {
     assert_eq!(mem_echo_errors.len(), 1);
     assert!(mem_echo_errors[0]
         .message()
-        .contains("'.echo(...)' requires the hosted std dependency"));
+        .contains("'.echo(...)' requires hosted std support"));
 
     let std_typed = typecheck_fixture_folder_with_config(
         &[(

@@ -514,12 +514,14 @@ fn type_query_intrinsic(
 /// and naming it as the fix sends the reader to change something correct — there is
 /// no `fol_model = "std"` to change it to.
 fn hosted_std_requirement(display: &str, model: crate::TypecheckCapabilityModel) -> String {
+    const DECLARE_DEP: &str =
+        "declare build.add_dep({ alias = \"std\", source = \"internal\", target = \"standard\" })";
     match model {
         crate::TypecheckCapabilityModel::Memo => format!(
-            "'{display}' requires the hosted std dependency; this artifact's model is already 'memo', so add build.add_dep({{ alias = \"std\", source = \"internal\", target = \"standard\" }})"
+            "'{display}' requires hosted std support; {DECLARE_DEP} (current artifact model is 'memo', which is already the right one)"
         ),
         other => format!(
-            "'{display}' requires hosted std support; set 'fol_model = memo' and declare build.add_dep({{ alias = \"std\", source = \"internal\", target = \"standard\" }}) (current artifact model is '{}')",
+            "'{display}' requires hosted std support; set 'fol_model = memo' and {DECLARE_DEP} (current artifact model is '{}')",
             other.as_str()
         ),
     }
