@@ -114,6 +114,45 @@ fn lsp_server_resolves_v3_wrapped_type_definitions() {
     fs::remove_dir_all(root).ok();
 }
 
+/// `typ`, `ali` and `std` used to anchor their symbol at the leading KEYWORD, so
+/// pointing at the declared name — where a reader actually points — resolved to
+/// nothing, and `implementation` answered only at a *use* of a standard. Each
+/// declaration now carries its name token.
+#[test]
+fn lsp_server_resolves_type_shaped_declarations_at_their_name() {
+    let (root, uri, mut server) = open(
+        "decl_name_anchor",
+        "std geo: pro = {\n    fun area(): int;\n};\n\ntyp Rect()(geo): rec = {\n    value: int\n};\n\nali Count: int;\n\nfun (Rect)area(): int = {\n    return 1;\n};\n",
+    );
+
+    // Column 4 is the first character of the declared name on each line.
+    for (line, label) in [(0, "std geo"), (4, "typ Rect"), (8, "ali Count")] {
+        let value = position_request(&mut server, &uri, "textDocument/hover", line, 4);
+        assert!(
+            !value.is_null(),
+            "hover should resolve at the name of `{label}`, got null"
+        );
+    }
+
+    // The keyword itself is no longer the anchor.
+    let on_keyword = position_request(&mut server, &uri, "textDocument/hover", 4, 0);
+    assert!(
+        on_keyword.is_null(),
+        "hover on the `typ` keyword should not resolve: {on_keyword:?}"
+    );
+
+    // Go-to-implementation is invoked on the standard's declaration in every
+    // editor, so it has to answer there and not only at a conformance header.
+    let value = position_request(&mut server, &uri, "textDocument/implementation", 0, 4);
+    let locations: Vec<LspLocation> = serde_json::from_value(value).unwrap();
+    assert!(
+        !locations.is_empty(),
+        "implementation at the standard's declaration should list conformers"
+    );
+
+    fs::remove_dir_all(root).ok();
+}
+
 #[test]
 fn lsp_server_resolves_implementations_of_a_protocol_standard() {
     let (root, uri, mut server) = open(

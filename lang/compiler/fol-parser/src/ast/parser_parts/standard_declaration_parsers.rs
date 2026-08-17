@@ -161,7 +161,9 @@ impl AstParser {
         };
 
         Ok(AstNode::StdDecl {
-            syntax_id: self.record_syntax_origin(&std_token),
+            // The NAME token, not the `std` keyword: the symbol origin is derived
+            // from this id, and tooling locates a declaration by its name.
+            syntax_id: self.record_syntax_origin(&name_token),
             options,
             name,
             generics,

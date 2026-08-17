@@ -81,6 +81,9 @@ pub enum AstNode {
 
     /// Type declaration: typ name: definition
     TypeDecl {
+        /// The declared NAME's token. A multi-name declaration gives each node
+        /// its own, so every type anchors to the name a reader points at.
+        syntax_id: Option<SyntaxNodeId>,
         options: Vec<TypeOption>,
         generics: Vec<Generic>,
         contracts: Vec<FolType>,
@@ -105,6 +108,8 @@ pub enum AstNode {
 
     /// Alias declaration: ali name: target_type
     AliasDecl {
+        /// The declared NAME's token, so an alias anchors where a reader points.
+        syntax_id: Option<SyntaxNodeId>,
         options: Vec<super::options::TypeOption>,
         name: String,
         target: FolType,
@@ -506,6 +511,9 @@ impl AstNode {
             | AstNode::Select { syntax_id, .. }
             | AstNode::OwnershipOp { syntax_id, .. }
             | AstNode::Return { syntax_id, .. }
+            | AstNode::StdDecl { syntax_id, .. }
+            | AstNode::TypeDecl { syntax_id, .. }
+            | AstNode::AliasDecl { syntax_id, .. }
             | AstNode::Block { syntax_id, .. } => *syntax_id,
             AstNode::Commented { node, .. } => node.syntax_id(),
             _ => None,

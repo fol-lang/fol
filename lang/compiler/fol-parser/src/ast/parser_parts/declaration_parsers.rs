@@ -204,6 +204,7 @@ impl AstParser {
         let target = self.parse_type_reference_tokens(tokens)?;
 
         Ok(AstNode::AliasDecl {
+            syntax_id: self.record_syntax_origin(&name_token),
             options,
             name,
             target,
@@ -246,7 +247,9 @@ impl AstParser {
         let name = Self::expect_named_label(&name_token, "Expected type declaration name")?;
         let _ = tokens.bump();
 
-        let mut names = vec![name];
+        // Each name carries its own token id so `typ A, B: int` anchors A and B
+        // separately rather than both landing on the `typ` keyword.
+        let mut names = vec![(name, self.record_syntax_origin(&name_token))];
         loop {
             self.skip_ignorable(tokens)?;
             let sep = match tokens.curr(false) {
@@ -258,10 +261,12 @@ impl AstParser {
             }
             let _ = tokens.bump();
             self.skip_ignorable(tokens)?;
-            let next_name = tokens.curr(false)?;
-            let next_name =
-                Self::expect_named_label(&next_name, "Expected type declaration name after ','")?;
-            names.push(next_name);
+            let next_name_token = tokens.curr(false)?;
+            let next_name = Self::expect_named_label(
+                &next_name_token,
+                "Expected type declaration name after ','",
+            )?;
+            names.push((next_name, self.record_syntax_origin(&next_name_token)));
             let _ = tokens.bump();
         }
 
@@ -313,10 +318,11 @@ impl AstParser {
         };
 
         let mut nodes = Vec::new();
-        for (name, type_def) in names.into_iter().zip(assigned_type_defs) {
+        for ((name, name_syntax_id), type_def) in names.into_iter().zip(assigned_type_defs) {
             let mut contracts = self.type_contracts_from_generics(&generics, &type_def);
             contracts.extend(explicit_contracts.clone());
             nodes.push(AstNode::TypeDecl {
+                syntax_id: name_syntax_id,
                 options: options.clone(),
                 generics: generics.clone(),
                 contracts,

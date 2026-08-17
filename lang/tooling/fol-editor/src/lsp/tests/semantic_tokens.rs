@@ -103,11 +103,11 @@ fn lsp_server_returns_semantic_tokens_for_source_files() {
     let tokens: LspSemanticTokens = serde_json::from_value(response.result.unwrap()).unwrap();
     let decoded = decode_semantic_tokens(&tokens.data);
 
-    // Routine declarations anchor at their NAME (helper at 4:6); type
-    // declarations still anchor at the `typ` keyword until TypeDecl carries
-    // a name syntax id. Explicit parameters and locals retain their precise
-    // declaration spans, and their resolved uses are tokenized too.
-    assert!(decoded.contains(&(0, 0, 3, 1, 0)));
+    // Every declaration anchors at its NAME: the type at 0:6 (`Local`, not the
+    // `typ` keyword) and the routine at 4:6. Explicit parameters and locals
+    // retain their precise declaration spans, and their resolved uses are
+    // tokenized too.
+    assert!(decoded.contains(&(0, 6, 5, 1, 0)));
     assert!(decoded.contains(&(4, 6, 6, 2, 0)));
     assert!(decoded.contains(&(4, 13, 5, 3, 0)));
     assert!(decoded.contains(&(5, 15, 5, 1, 0)));
@@ -336,7 +336,9 @@ fn lsp_server_keeps_more_specific_semantic_tokens_for_v2_examples() {
             "semantic_tokens_v2_standards_example",
             "std geo: pro = {\n    fun area(): int;\n};\n\ntyp Rect()(geo): rec = {\n    var width: int;\n};\n\nfun (Rect)area(): int = {\n    return 1;\n};\n",
             vec![
-                (4, 0, 3, 1, 0),  // typ (type decls still anchor at the keyword)
+                // `std geo` itself is not tokenized: semantic tokens cover types
+                // and routines, and Standard is not one of the emitted kinds.
+                (4, 4, 4, 1, 0),  // Rect type declaration name
                 (8, 10, 4, 2, 0), // area declaration name
                 (8, 5, 4, 1, 0),  // Rect receiver type
             ],
