@@ -870,9 +870,50 @@ pub(super) fn lower_global_decl(
             ),
         )
     };
+    // `-1` parses as a negation OVER a literal, not as a literal, so a global
+    // `con LIMIT: int = -1;` was refused while the same text inside a routine
+    // was fine. A negated number is a number; fold it here rather than making
+    // every caller write a routine to return one.
+    let mut negated = false;
+    if let Some(AstNode::UnaryOp {
+        op: fol_parser::ast::UnaryOperator::Neg,
+        operand,
+    }) = stripped
+    {
+        let mut inner: &AstNode = operand;
+        while let AstNode::Commented { node, .. } = inner {
+            inner = node;
+        }
+        if matches!(
+            inner,
+            AstNode::Literal(
+                fol_parser::ast::Literal::Integer(_) | fol_parser::ast::Literal::Float(_)
+            )
+        ) {
+            negated = true;
+            stripped = Some(inner);
+        }
+    }
+    let apply_sign = move |operand: crate::control::LoweredOperand| {
+        if !negated {
+            return operand;
+        }
+        match operand {
+            crate::control::LoweredOperand::Int(value) => {
+                crate::control::LoweredOperand::Int(-value)
+            }
+            // Rebuilt from the negated value rather than by flipping the sign
+            // bit, so `-0.0` and the subnormals come out exactly as Rust would
+            // compute them.
+            crate::control::LoweredOperand::Float(bits) => {
+                crate::control::LoweredOperand::Float((-f64::from_bits(bits)).to_bits())
+            }
+            other => other,
+        }
+    };
     let initializer = match stripped {
         Some(AstNode::Literal(literal)) => Some(crate::model::LoweredGlobalInit::Operand(
-            literal_operand(literal).ok_or_else(unsupported_initializer)?,
+            apply_sign(literal_operand(literal).ok_or_else(unsupported_initializer)?),
         )),
         Some(AstNode::RecordInit { fields, .. }) => {
             let mut lowered_fields = Vec::with_capacity(fields.len());

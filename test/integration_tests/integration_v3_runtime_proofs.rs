@@ -1233,3 +1233,29 @@ fn constrained_generic_dispatch_reaches_each_conformer_not_a_structural_twin() {
     );
     assert_successful_stdout(&root, "111\n222\n");
 }
+
+#[test]
+fn global_constants_accept_a_negated_number() {
+    // `-1` parses as a negation OVER a literal, not as a literal, so a global
+    // `con` refused it while the same text inside a routine was accepted. This
+    // runs rather than only typechecking, because the initializer is emitted
+    // straight into the generated Rust and a wrong sign there is silent.
+    let root = write_hosted_app(
+        "v3_negative_global_const",
+        "use std: pkg = {\"std\"};\n\
+         \n\
+         con MISSING: int = -1;\n\
+         con DEEPER: int = -2;\n\
+         con SCALE: flt = -1.5;\n\
+         con PRESENT: int = 7;\n\
+         \n\
+         fun[] main(): int = {\n\
+         \x20   std::io::echo_int(MISSING);\n\
+         \x20   std::io::echo_int(DEEPER);\n\
+         \x20   std::io::echo_int(PRESENT);\n\
+         \x20   std::io::echo_bool(SCALE < 0.0);\n\
+         \x20   return 0;\n\
+         };\n",
+    );
+    assert_successful_stdout(&root, "-1\n-2\n7\ntrue\n");
+}
