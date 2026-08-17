@@ -4047,7 +4047,15 @@
           "named": true
         },
         {
+          "type": "raw_string_literal",
+          "named": true
+        },
+        {
           "type": "shell_type",
+          "named": true
+        },
+        {
+          "type": "string_literal",
           "named": true
         }
       ]
@@ -4122,7 +4130,7 @@
     "named": true,
     "fields": {
       "name": {
-        "multiple": false,
+        "multiple": true,
         "required": true,
         "types": [
           {
@@ -4142,7 +4150,7 @@
         ]
       },
       "target": {
-        "multiple": false,
+        "multiple": true,
         "required": true,
         "types": [
           {
@@ -4303,6 +4311,18 @@
     "named": false
   },
   {
+    "type": "!fun",
+    "named": false
+  },
+  {
+    "type": "!log",
+    "named": false
+  },
+  {
+    "type": "!pro",
+    "named": false
+  },
+  {
     "type": "!var",
     "named": false
   },
@@ -4335,6 +4355,18 @@
     "named": false
   },
   {
+    "type": "+fun",
+    "named": false
+  },
+  {
+    "type": "+log",
+    "named": false
+  },
+  {
+    "type": "+pro",
+    "named": false
+  },
+  {
     "type": "+var",
     "named": false
   },
@@ -4352,6 +4384,18 @@
   },
   {
     "type": "-con",
+    "named": false
+  },
+  {
+    "type": "-fun",
+    "named": false
+  },
+  {
+    "type": "-log",
+    "named": false
+  },
+  {
+    "type": "-pro",
     "named": false
   },
   {
@@ -4419,11 +4463,35 @@
     "named": false
   },
   {
+    "type": "?fun",
+    "named": false
+  },
+  {
+    "type": "?log",
+    "named": false
+  },
+  {
+    "type": "?pro",
+    "named": false
+  },
+  {
     "type": "?var",
     "named": false
   },
   {
     "type": "@",
+    "named": false
+  },
+  {
+    "type": "@fun",
+    "named": false
+  },
+  {
+    "type": "@log",
+    "named": false
+  },
+  {
+    "type": "@pro",
     "named": false
   },
   {
@@ -4665,6 +4733,10 @@
     "named": false
   },
   {
+    "type": "mat",
+    "named": false
+  },
+  {
     "type": "mov",
     "named": false
   },
@@ -4882,6 +4954,18 @@
   },
   {
     "type": "}",
+    "named": false
+  },
+  {
+    "type": "~fun",
+    "named": false
+  },
+  {
+    "type": "~log",
+    "named": false
+  },
+  {
+    "type": "~pro",
     "named": false
   },
   {
