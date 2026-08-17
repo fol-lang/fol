@@ -206,6 +206,71 @@
     }
   },
   {
+    "type": "availability_access",
+    "named": true,
+    "fields": {
+      "receiver": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "call_expr",
+            "named": true
+          },
+          {
+            "type": "field_access",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "paren_expr",
+            "named": true
+          },
+          {
+            "type": "qualified_path",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "availability_item",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "availability_item",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "type_expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "binary_expr",
     "named": true,
     "fields": {
@@ -983,6 +1048,10 @@
           "named": true
         },
         {
+          "type": "availability_access",
+          "named": true
+        },
+        {
           "type": "await_expr",
           "named": true
         },
@@ -1071,7 +1140,15 @@
           "named": true
         },
         {
+          "type": "rolling_expr",
+          "named": true
+        },
+        {
           "type": "self_expr",
+          "named": true
+        },
+        {
+          "type": "shorthand_routine_expr",
           "named": true
         },
         {
@@ -1542,6 +1619,32 @@
           }
         ]
       }
+    }
+  },
+  {
+    "type": "inquiry_block",
+    "named": true,
+    "fields": {
+      "target": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "flow_body",
+          "named": true
+        }
+      ]
     }
   },
   {
@@ -2074,6 +2177,40 @@
     }
   },
   {
+    "type": "pipe_assignment_stage",
+    "named": true,
+    "fields": {
+      "target": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "field_access",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "qualified_path",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "pipe_expr",
     "named": true,
     "fields": {
@@ -2101,6 +2238,10 @@
         "types": [
           {
             "type": "expr",
+            "named": true
+          },
+          {
+            "type": "pipe_assignment_stage",
             "named": true
           }
         ]
@@ -2579,6 +2720,83 @@
     }
   },
   {
+    "type": "rolling_binding",
+    "named": true,
+    "fields": {
+      "binding": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "source": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "rolling_bindings",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "rolling_binding",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "rolling_expr",
+    "named": true,
+    "fields": {
+      "filter": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      },
+      "projection": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "rolling_bindings",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "routine_body_expr",
     "named": true,
     "fields": {},
@@ -2857,6 +3075,33 @@
         },
         {
           "type": "type_expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "shorthand_routine_expr",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "flow_body",
+          "named": true
+        },
+        {
+          "type": "params",
+          "named": true
+        },
+        {
+          "type": "return_type",
+          "named": true
+        },
+        {
+          "type": "routine_capture_list",
           "named": true
         }
       ]
@@ -3255,6 +3500,10 @@
         },
         {
           "type": "if_stmt",
+          "named": true
+        },
+        {
+          "type": "inquiry_block",
           "named": true
         },
         {
@@ -3703,6 +3952,11 @@
         }
       ]
     }
+  },
+  {
+    "type": "where_expr",
+    "named": true,
+    "fields": {}
   },
   {
     "type": "while_stmt",
@@ -4289,8 +4543,8 @@
     "named": false
   },
   {
-    "type": "where_expr",
-    "named": true
+    "type": "where",
+    "named": false
   },
   {
     "type": "while",
