@@ -2187,11 +2187,19 @@
           "named": true
         },
         {
+          "type": "flow_body",
+          "named": true
+        },
+        {
           "type": "params",
           "named": true
         },
         {
           "type": "return_type",
+          "named": true
+        },
+        {
+          "type": "routine_capture_list",
           "named": true
         }
       ]
@@ -2243,11 +2251,19 @@
           "named": true
         },
         {
+          "type": "flow_body",
+          "named": true
+        },
+        {
           "type": "params",
           "named": true
         },
         {
           "type": "return_type",
+          "named": true
+        },
+        {
+          "type": "routine_capture_list",
           "named": true
         }
       ]
@@ -2299,11 +2315,19 @@
           "named": true
         },
         {
+          "type": "flow_body",
+          "named": true
+        },
+        {
           "type": "params",
           "named": true
         },
         {
           "type": "return_type",
+          "named": true
+        },
+        {
+          "type": "routine_capture_list",
           "named": true
         }
       ]
