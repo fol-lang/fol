@@ -55,27 +55,10 @@ fun[exp] (Circle)measure(): Metrics = {
     };
 };
 
-// Newton's method. FOL has no square root: `.sqrt` is catalogued but reports
-// "not yet supported", and `std` ships no math module, so the package computes
-// its own. Sixteen iterations reach double precision for shop-sized inputs.
-fun[exp] root(value: flt): flt = {
-    when(value) {
-        case(0.0) { return 0.0; }
-        * { }
-    }
-    var guess: flt = value;
-    var step: int = 0;
-    loop (step < 16) {
-        guess = 0.5 * (guess + value / guess);
-        step = step + 1;
-    }
-    return guess;
-};
-
 // Isosceles triangle: the two legs are equal and the height follows from them.
 fun[exp] (Tri)measure(): Metrics = {
     var half: flt = self.base * 0.5;
-    var height: flt = root(self.leg * self.leg - half * half);
+    var height: flt = .sqrt(self.leg * self.leg - half * half);
     return {
         name = "tri",
         area = half * height,

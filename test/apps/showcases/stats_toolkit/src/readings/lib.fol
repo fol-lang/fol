@@ -1,8 +1,8 @@
 // Daily rainfall in millimetres for one observation month, plus the number of
 // sensor samples behind each reading.
 //
-// The sample counts stay in `int` and the rainfall stays in `flt`. FOL has no
-// int/flt conversion, so a data set that needs both has to carry both.
+// The sample counts stay in `int` and the rainfall stays in `flt`; `.int_to_flt`
+// bridges the two wherever a count has to divide a total.
 
 fun[exp] rainfall(): vec[flt] = {
     return {
@@ -19,13 +19,8 @@ fun[exp] day_count(): int = {
     return .len(rainfall());
 };
 
-// Same count as a float, built by counting rather than converting.
 fun[exp] day_count_as_float(): flt = {
-    var total: flt = 0.0;
-    loop(value in rainfall()) {
-        total = total + 1.0;
-    }
-    return total;
+    return .int_to_flt(day_count());
 };
 
 // Bucket names used by the histogram; a map keeps the label table separate

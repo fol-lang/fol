@@ -12,12 +12,7 @@ use collection: loc = {"../collection"};
 
 // Floating point comparison with a millimetre-scale tolerance.
 fun[exp] near(left: flt, right: flt): bol = {
-    var gap: flt = left - right;
-    when(gap < 0.0) {
-        case(true) { gap = 0.0 - gap; }
-        * { }
-    }
-    return gap < 0.001;
+    return .flt_abs(left - right) < 0.001;
 };
 
 fun[exp] expect(name: str, ok: bol): int = {
@@ -36,8 +31,8 @@ fun[exp] run_all(): int = {
     bad = bad + expect("rect area", near(rm.area, 60000.0));
     bad = bad + expect("rect perim", near(rm.perim, 1000.0));
 
-    // Newton's root against a known square
-    bad = bad + expect("root 6400", near(shape::root(6400.0), 80.0));
+    // The intrinsic square root against a known square
+    bad = bad + expect("root 6400", near(.sqrt(6400.0), 80.0));
 
     // 3-4-5 triangle: base 6, legs 5 -> height 4, area 12
     var tri: shape::Tri = { base = 6.0, leg = 5.0 };
