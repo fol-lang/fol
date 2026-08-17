@@ -1,11 +1,14 @@
 // The transport -- mini-redis `src/server.rs`.
 //
 // The original accepts TCP connections and spawns one `Handler` per socket,
-// every handler holding a clone of the same `Db`. FOL has no sockets, so the
-// listener is replaced by a fixed fan-out of `[spn]` tasks. Everything below
-// the socket is unchanged: each task frames a request, decodes it, dispatches
-// it against the shared `mux[Store]`, and writes the reply back -- here onto a
-// `chn[tx, Reply]` endpoint instead of into a `TcpStream`.
+// every handler holding a clone of the same `Db`, and so does this: `serve_all`
+// binds a loopback port, `.tcp_accept` hands back one socket per client, and each
+// gets a `[spn]` task that frames a request off the wire, dispatches it against
+// the shared `mux[Store]`, and writes the reply back into the socket.
+//
+// The clients run in this process too, which is what keeps the run self-checking:
+// the port is ephemeral (`127.0.0.1:0`), and the reply counts the checks assert on
+// do not depend on the order the three connections interleave.
 
 use std: pkg = {"std"};
 use resp: loc = {"../resp"};
@@ -56,38 +59,128 @@ fun deliver(out: chn[tx, Reply], message: Reply): bol = {
     return accepted;
 };
 
-// One connection. Runs on its own OS thread, contending with the others for the
-// same store handle.
-fun[exp] handler(out: chn[tx, Reply], notes: chn[tx, int], state: mux[store::Store], id: int, now: int): int = {
+// One framed read, the original's `Connection::read_frame`. A single `.tcp_read`
+// returns whatever happened to arrive, so bytes are pulled until `decode_at`
+// stops answering INCOMPLETE. Whatever followed the frame stays in `rest`.
+typ[exp] Framed: rec = {
+    ok: bol,
+    wire: str,
+    rest: str,
+};
+
+fun[exp] read_frame(sock: int, buffered: str): Framed = {
+    var[mut] buffer: str = buffered;
+    var[mut] scanning: bol = true;
+    loop (scanning) {
+        var seen: resp::Decoded = resp::decode_at(buffer, 0);
+        when (seen.ok) {
+            case(true) {
+                var span: int = .len(buffer) - seen.upto;
+                return {
+                    ok = true,
+                    wire = std::strn::sub(buffer, 0, seen.upto),
+                    rest = std::strn::sub(buffer, seen.upto, span),
+                };
+            }
+            * { }
+        };
+        when (seen.fault != resp::INCOMPLETE) {
+            case(true) { scanning = false; }
+            * {
+                var chunk: str = .tcp_read(sock);
+                when (.len(chunk) == 0) {
+                    case(true) { scanning = false; }
+                    * { buffer = buffer + chunk; }
+                };
+            }
+        };
+    };
+    return { ok = false, wire = "", rest = buffer };
+};
+
+// One accepted socket, the original's `Handler::run`: frame a request, dispatch
+// it against the shared store, write the reply, until the peer hangs up. Runs on
+// its own OS thread, contending with the others for the same store handle.
+fun[exp] connection(state: mux[store::Store], sock: int, now: int): int = {
+    var[mut] rest: str = "";
+    var[mut] served: int = 0;
+    var[mut] open: bol = true;
+    loop (open) {
+        var framed: Framed = read_frame(sock, rest);
+        when (framed.ok) {
+            case(true) {
+                rest = framed.rest;
+                var reply: str = command::serve(framed.wire, state, now);
+                var wrote: int = .tcp_write(sock, reply);
+                when (wrote < 0) {
+                    case(true) { open = false; }
+                    * { served = served + 1; }
+                };
+            }
+            * { open = false; }
+        };
+    };
+    var closed: int = .tcp_close(sock);
+    return served;
+};
+
+// One client, over a real socket. Sends the same SET/GET pairs and closing DEL
+// the in-process fan-out used to send, and reports each reply it reads back.
+fun[exp] client(out: chn[tx, Reply], notes: chn[tx, int], addr: str, id: int): int = {
+    var sock: int = .tcp_connect(addr);
+    when (sock < 0) {
+        case(true) { return 0; }
+        * { }
+    };
     var announced: err[int] = 1 | notes;
+    var[mut] rest: str = "";
     var[mut] step: int = 0;
     var[mut] sent: int = 0;
-    loop (step < OPS) {
+    var[mut] live: bol = true;
+    loop (live and (step < OPS)) {
         var key: str = key_of(id, step);
 
-        var write_wire: str = command::wire_of("SET", key, value_of(id, step), "", "", 2);
-        var write_reply: str = command::serve(write_wire, state, now);
-        var wrote: bol = deliver(out, { client = id, step = step, wire = write_reply });
+        var wrote_req: int = .tcp_write(sock, command::wire_of("SET", key, value_of(id, step), "", "", 2));
+        var write_framed: Framed = read_frame(sock, rest);
+        rest = write_framed.rest;
 
-        var read_wire: str = command::wire_of("GET", key, "", "", "", 1);
-        var read_reply: str = command::serve(read_wire, state, now);
-        var read: bol = deliver(out, { client = id, step = step, wire = read_reply });
+        var read_req: int = .tcp_write(sock, command::wire_of("GET", key, "", "", "", 1));
+        var read_framed: Framed = read_frame(sock, rest);
+        rest = read_framed.rest;
 
-        when (wrote and read) {
-            case(true) { sent = sent + 2; }
-            * { step = OPS; }
+        when (write_framed.ok and read_framed.ok) {
+            case(true) {
+                var wrote: bol = deliver(out, { client = id, step = step, wire = write_framed.wire });
+                var read: bol = deliver(out, { client = id, step = step, wire = read_framed.wire });
+                when (wrote and read) {
+                    case(true) { sent = sent + 2; }
+                    * { live = false; }
+                };
+            }
+            * { live = false; }
         };
         step = step + 1;
     };
 
     // One key per client goes away again, so DEL is exercised under contention.
-    var gone_wire: str = command::wire_of("DEL", key_of(id, 0), "", "", "", 1);
-    var gone_reply: str = command::serve(gone_wire, state, now);
-    var gone: bol = deliver(out, { client = id, step = OPS, wire = gone_reply });
-    when (gone) {
-        case(true) { sent = sent + 1; }
+    when (live) {
+        case(true) {
+            var gone_req: int = .tcp_write(sock, command::wire_of("DEL", key_of(id, 0), "", "", "", 1));
+            var gone_framed: Framed = read_frame(sock, rest);
+            when (gone_framed.ok) {
+                case(true) {
+                    var gone: bol = deliver(out, { client = id, step = OPS, wire = gone_framed.wire });
+                    when (gone) {
+                        case(true) { sent = sent + 1; }
+                        * { }
+                    };
+                }
+                * { }
+            };
+        }
         * { }
     };
+    var closed: int = .tcp_close(sock);
     return sent;
 };
 
@@ -122,15 +215,26 @@ fun[exp] drain(inbox: chn[Reply]): Tally = {
     return totals;
 };
 
-// Run the whole fan-out and report what came back.
+// Bind, fan the clients out, then accept one connection per client and give each
+// its own task -- the original's `run` loop, with the store handle shared by
+// every accepted socket.
 fun[exp] serve_all(state: mux[store::Store], now: int): Tally = {
+    var listener: int = .tcp_listen("127.0.0.1:0");
+    var addr: str = .tcp_local_addr(listener);
     var replies: chn[Reply];
     var notes: chn[int];
 
     var[mut] id: int = 0;
     loop (id < CLIENTS) {
-        [spn]handler(replies[tx], notes[tx], state, id, now);
+        [spn]client(replies[tx], notes[tx], addr, id);
         id = id + 1;
+    };
+
+    var[mut] taken: int = 0;
+    loop (taken < CLIENTS) {
+        var sock: int = .tcp_accept(listener);
+        [spn]connection(state, sock, now);
+        taken = taken + 1;
     };
 
     var[mut] totals: Tally = drain([mov]replies);
@@ -152,6 +256,7 @@ fun[exp] serve_all(state: mux[store::Store], now: int): Tally = {
         };
     };
     totals.started = started;
+    var closed: int = .tcp_close(listener);
     return totals;
 };
 

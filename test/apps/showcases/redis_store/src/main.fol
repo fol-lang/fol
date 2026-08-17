@@ -10,11 +10,11 @@
 //             https://github.com/codecrafters-io/build-your-own-redis
 //
 // What is real: the RESP codec (simple strings, errors, integers, bulk
-// strings, null, arrays), the expiring key-value store, and the command
-// dispatch for PING, ECHO, SET, GET, DEL, EXISTS and SET ... PX. What is
-// simulated: the transport. There are no sockets, so the TCP listener becomes
-// a fan-out of `[spn]` connection handlers that share one `mux[Store]` and
-// write their replies onto `chn[tx, Reply]` endpoints.
+// strings, null, arrays), the expiring key-value store, the command dispatch for
+// PING, ECHO, SET, GET, DEL, EXISTS and SET ... PX, and the transport -- a real
+// loopback TCP listener whose accepted sockets each get a `[spn]` handler sharing
+// one `mux[Store]`. The clients are in-process so the run can check itself; the
+// `chn[tx, Reply]` endpoints carry replies to that checker, not between peers.
 //
 // ============================ DEVIATIONS ============================
 //
