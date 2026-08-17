@@ -1106,6 +1106,10 @@
                   {
                     "type": "SYMBOL",
                     "name": "raw_string_literal"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "keyword_name"
                   }
                 ]
               }
@@ -1184,6 +1188,10 @@
                   {
                     "type": "SYMBOL",
                     "name": "raw_string_literal"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "keyword_name"
                   }
                 ]
               }
@@ -1263,6 +1271,10 @@
                   {
                     "type": "SYMBOL",
                     "name": "raw_string_literal"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "keyword_name"
                   }
                 ]
               }
@@ -1341,6 +1353,10 @@
                   {
                     "type": "SYMBOL",
                     "name": "raw_string_literal"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "keyword_name"
                   }
                 ]
               }
@@ -1420,6 +1436,10 @@
                   {
                     "type": "SYMBOL",
                     "name": "raw_string_literal"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "keyword_name"
                   }
                 ]
               }
@@ -1498,6 +1518,10 @@
                   {
                     "type": "SYMBOL",
                     "name": "raw_string_literal"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "keyword_name"
                   }
                 ]
               }
@@ -1578,6 +1602,10 @@
               {
                 "type": "SYMBOL",
                 "name": "raw_string_literal"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "keyword_name"
               }
             ]
           }
@@ -4919,19 +4947,11 @@
         },
         {
           "type": "SYMBOL",
-          "name": "get_expr"
-        },
-        {
-          "type": "SYMBOL",
           "name": "async_expr"
         },
         {
           "type": "SYMBOL",
           "name": "await_expr"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "do_expr"
         },
         {
           "type": "SYMBOL",
@@ -4992,6 +5012,14 @@
         {
           "type": "SYMBOL",
           "name": "nil_literal"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "get_expr"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "do_expr"
         }
       ]
     },
@@ -5712,6 +5740,10 @@
                 {
                   "type": "SYMBOL",
                   "name": "field_access"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "keyword_name"
                 }
               ]
             }
@@ -6520,10 +6552,6 @@
       "type": "STRING",
       "value": "where"
     },
-    "get_expr": {
-      "type": "STRING",
-      "value": "get"
-    },
     "async_expr": {
       "type": "STRING",
       "value": "async"
@@ -6531,10 +6559,6 @@
     "await_expr": {
       "type": "STRING",
       "value": "await"
-    },
-    "do_expr": {
-      "type": "STRING",
-      "value": "do"
     },
     "identifier": {
       "type": "PATTERN",
@@ -7015,6 +7039,19 @@
         }
       ]
     },
+    "pipe_lambda_param": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "param"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "identifier"
+        }
+      ]
+    },
     "pipe_lambda_expr": {
       "type": "PREC",
       "value": 3,
@@ -7033,7 +7070,7 @@
                 "members": [
                   {
                     "type": "SYMBOL",
-                    "name": "param"
+                    "name": "pipe_lambda_param"
                   },
                   {
                     "type": "REPEAT",
@@ -7055,7 +7092,7 @@
                         },
                         {
                           "type": "SYMBOL",
-                          "name": "param"
+                          "name": "pipe_lambda_param"
                         }
                       ]
                     }
@@ -7076,6 +7113,18 @@
             "members": [
               {
                 "type": "SYMBOL",
+                "name": "routine_capture_list"
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
                 "name": "return_type"
               },
               {
@@ -7084,11 +7133,41 @@
             ]
           },
           {
-            "type": "SYMBOL",
-            "name": "flow_body"
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "flow_body"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "expr"
+              }
+            ]
           }
         ]
       }
+    },
+    "get_expr": {
+      "type": "STRING",
+      "value": "get"
+    },
+    "do_expr": {
+      "type": "STRING",
+      "value": "do"
+    },
+    "keyword_name": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "get"
+        },
+        {
+          "type": "STRING",
+          "value": "do"
+        }
+      ]
     }
   },
   "extras": [
@@ -7180,12 +7259,20 @@
       "pipe_assignment_stage"
     ],
     [
+      "_arm_tail",
+      "paren_expr"
+    ],
+    [
       "stmt",
       "container_literal"
     ],
     [
-      "_arm_tail",
-      "paren_expr"
+      "get_expr",
+      "keyword_name"
+    ],
+    [
+      "do_expr",
+      "keyword_name"
     ]
   ],
   "precedences": [],

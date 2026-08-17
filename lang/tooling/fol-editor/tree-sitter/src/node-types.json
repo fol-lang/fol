@@ -493,6 +493,10 @@
             "named": true
           },
           {
+            "type": "keyword_name",
+            "named": true
+          },
+          {
             "type": "qualified_path",
             "named": true
           }
@@ -826,6 +830,11 @@
         }
       ]
     }
+  },
+  {
+    "type": "do_expr",
+    "named": true,
+    "fields": {}
   },
   {
     "type": "dot_intrinsic",
@@ -1487,6 +1496,11 @@
     }
   },
   {
+    "type": "get_expr",
+    "named": true,
+    "fields": {}
+  },
+  {
     "type": "has_clause",
     "named": true,
     "fields": {},
@@ -1779,6 +1793,11 @@
     }
   },
   {
+    "type": "keyword_name",
+    "named": true,
+    "fields": {}
+  },
+  {
     "type": "lab_decl",
     "named": true,
     "fields": {
@@ -1909,6 +1928,10 @@
         "types": [
           {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "keyword_name",
             "named": true
           },
           {
@@ -2289,15 +2312,42 @@
       "required": true,
       "types": [
         {
+          "type": "expr",
+          "named": true
+        },
+        {
           "type": "flow_body",
           "named": true
         },
         {
-          "type": "param",
+          "type": "pipe_lambda_param",
           "named": true
         },
         {
           "type": "return_type",
+          "named": true
+        },
+        {
+          "type": "routine_capture_list",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "pipe_lambda_param",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "param",
           "named": true
         }
       ]
@@ -2357,6 +2407,10 @@
         "types": [
           {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "keyword_name",
             "named": true
           },
           {
@@ -2424,6 +2478,10 @@
             "named": true
           },
           {
+            "type": "keyword_name",
+            "named": true
+          },
+          {
             "type": "raw_string_literal",
             "named": true
           },
@@ -2485,6 +2543,10 @@
         "types": [
           {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "keyword_name",
             "named": true
           },
           {
@@ -4301,8 +4363,8 @@
     "named": false
   },
   {
-    "type": "do_expr",
-    "named": true
+    "type": "do",
+    "named": false
   },
   {
     "type": "doc_comment",
@@ -4366,8 +4428,8 @@
     "named": false
   },
   {
-    "type": "get_expr",
-    "named": true
+    "type": "get",
+    "named": false
   },
   {
     "type": "has",

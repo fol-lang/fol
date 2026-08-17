@@ -172,10 +172,8 @@
 (this_expr) @variable.builtin
 (self_expr) @variable.builtin
 (where_expr) @keyword
-(get_expr) @keyword
 (async_expr) @keyword
 (await_expr) @keyword
-(do_expr) @keyword
 (qualified_path root: (identifier) @namespace)
 (qualified_path segment: (identifier) @namespace)
 (nil_literal) @constant.builtin
@@ -194,3 +192,5 @@
 (char_literal) @character
 (comment) @comment
 (doc_comment) @comment.documentation
+(get_expr) @keyword
+(do_expr) @keyword
