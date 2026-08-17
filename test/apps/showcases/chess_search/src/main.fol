@@ -15,26 +15,29 @@ use search: loc = {"search"};
 //
 // ============================ DEVIATIONS =============================
 //
-// 1. NO TRANSPOSITION TABLE, so no killer moves and no internal iterative
-//    deepening. The original keeps two Python dicts keyed by the whole
-//    Position, `tp_score` for bounds and `tp_move` for the best move found so
-//    far, plus a `history` set for repetition draws. FOL has no growable map
-//    and no set beyond a one-element tuple, so all three are gone. What that
-//    costs: the killer-move heuristic disappears (the original calls it "so
-//    good" that it is worth a shallow search just to find one, which is what
-//    IID does -- with no table to store it in, IID would find a move and drop
-//    it, so IID is gone too), bounds are never reused between the binary
-//    search's probes, and threefold repetition is not detected. The search
-//    still terminates and every bound it returns is still valid; it just
-//    re-derives work the original remembers, and it plays a repetition draw as
-//    if the position were new. The move that produced a cutoff rides back on
-//    the result record instead of being read out of `tp_move`, and the driver
-//    keeps the last one it saw.
+// 1. THE TRANSPOSITION TABLE IS THERE; KILLER MOVES AND IID ARE NOT. The
+//    original keeps two Python dicts keyed by the whole Position, `tp_score` for
+//    bounds and `tp_move` for the best move, plus a `history` set for repetition
+//    draws. `Engine.memo` is `map[str, Bound]` keyed by every field of the
+//    position plus the window and depth, which is what keying a dict on the
+//    Position tuple gets the original for free. Because `bound` is a pure
+//    function of that key, a hit is replayed verbatim: the depth-4 mate search
+//    returns the same move and the same score over the same eleven probes, having
+//    looked at 1002 nodes instead of 1628.
+//    What is still missing: the killer-move heuristic and the internal iterative
+//    deepening that feeds it (both reorder the move list rather than memoising a
+//    result, so neither follows from the table alone), and threefold repetition,
+//    which needs the game history rather than the search's. The move that
+//    produced a cutoff rides back on the result record as well as through the
+//    table, and the driver keeps the last one it saw.
 //
 // 2. MOVE LISTS ARE STRINGS. `gen_moves` is a Python generator, so the
-//    original computes moves lazily and abandons the rest on a cutoff. FOL has
-//    no generators and no `vec` append, so a move list is a string of
-//    fixed-width zero-padded decimal slots, appended by concatenation. A move
+//    original computes moves lazily and abandons the rest on a cutoff. FOL has no
+//    generators, so the list is built eagerly. It is a string of fixed-width
+//    zero-padded decimal slots rather than a `vec[int]` -- `push` would hold the
+//    moves now, but the ordering scheme below packs score and move into one
+//    sortable key and reads them back out of it, so the storage and the ordering
+//    would have to be rewritten together. A move
 //    itself packs into one int, `(from * 120 + to) * 5 + promotion`, with the
 //    promotion rank ordered so that comparing packed moves numerically
 //    reproduces the original's lexicographic tie-break on the promotion
@@ -373,14 +376,14 @@ fun[] check_mate(pst: eval::Pst): int = {
     // Four plies: white's move, black's forced reply, white's mating move, and
     // one more ply for the mated side to be handed a position it cannot move
     // in. Three would only find the threat.
-    var engine: search::Engine = { pst = pst };
+    var[mut] engine: search::Engine = { pst = pst, memo = {} };
 
     // Two plies cannot reach the mated position, so a mate score here would
     // mean the search was finding it by accident rather than by searching.
-    var shallow: search::Answer = [bor]engine.run(pos, 2);
+    var shallow: search::Answer = [mut, bor]engine.run(pos, 2);
     bad = bad + claim("two plies do not see the mate", shallow.score < eval::mate_lower());
 
-    var found: search::Answer = [bor]engine.run(pos, 4);
+    var found: search::Answer = [mut, bor]engine.run(pos, 4);
 
     std::io::echo_str("  best move " + board::move_name(found.move)
         + ", score " + std::fmt::int_to_str(found.score));

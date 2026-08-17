@@ -4,9 +4,10 @@ use std: pkg = {"std"};
 //
 // The original stores a move as a `(from, to, promotion)` named tuple and a
 // move list as a Python list it sorts with `sorted(..., reverse=True)` over
-// `(value, move)` pairs. FOL has no growable container, so both are strings of
-// fixed-width zero-padded decimal slots, rebuilt on every append. That is the
-// same trick the maze_solver showcase uses for its search tables.
+// `(value, move)` pairs. Both are strings of fixed-width zero-padded decimal
+// slots here, rebuilt on every append: a `vec[int]` would append in place, but the
+// ordering below works by packing score and move into one sortable key and
+// reading them back out, so the two would have to be rewritten together.
 //
 // A move packs into one int: `(from * 120 + to) * 5 + promotion`. The promotion
 // rank is chosen so that comparing two packed moves numerically reproduces

@@ -30,6 +30,10 @@ fun[exp] eval_roughness(): int = {
 
 typ[exp] Engine: rec = {
     pst: eval::Pst,
+    // The original's `tp_score`. `bound` is a pure function of the position, the
+    // window and the depth, so an entry can be replayed verbatim: the search
+    // returns the same score and the same move, having looked at fewer nodes.
+    memo: map[str, Bound],
 };
 
 // One answer from `probe`: the bound, the move that produced the cutoff (or
@@ -72,7 +76,36 @@ fun[hid] consider(state: Fold, code: int, score: int, gamma: int): Fold = {
     return { best = best, move = move, live = live, cut = cut };
 };
 
-fun[exp] (Engine[bor]) probe(pos: board::Pos, gamma: int, depth: int, root: bol): Bound = {
+// The table key. `Pos` is the whole state the search reads, so every field of it
+// goes in, alongside the window and depth the answer was computed for -- which is
+// what the original gets for free by keying a dict on the Position tuple.
+fun[hid] memo_key(pos: board::Pos, gamma: int, depth: int, root: bol): str = {
+    return pos.board
+    + "|" + std::fmt::int_to_str(pos.score)
+    + "|" + std::fmt::bol_to_str(pos.wc_west) + std::fmt::bol_to_str(pos.wc_east)
+    + std::fmt::bol_to_str(pos.bc_west) + std::fmt::bol_to_str(pos.bc_east)
+    + "|" + std::fmt::int_to_str(pos.ep)
+    + "|" + std::fmt::int_to_str(pos.kp)
+    + "|" + std::fmt::int_to_str(gamma)
+    + "|" + std::fmt::int_to_str(depth)
+    + "|" + std::fmt::bol_to_str(root);
+};
+
+// `tp_score` in front of the searcher: a hit costs no nodes, which is the whole
+// point of the table.
+pro[exp] (Engine[mut, bor]) probe(pos: board::Pos, gamma: int, depth: int, root: bol): Bound = {
+    var key: str = memo_key(pos, gamma, depth, root);
+    var seen: opt[Bound] = self.memo.get(key);
+    when(seen) {
+        on(found) { return { score = found.score, move = found.move, nodes = 0 }; }
+        * { }
+    };
+    var answer: Bound = self.bound(pos, gamma, depth, root);
+    self.memo.insert(key, answer);
+    return answer;
+};
+
+pro[hid] (Engine[mut, bor]) bound(pos: board::Pos, gamma: int, depth: int, root: bol): Bound = {
     // Below zero every depth behaves the same, so the original clamps rather
     // than branching into a separate quiescence routine.
     ~var level: int = depth;
@@ -103,7 +136,7 @@ fun[exp] (Engine[bor]) probe(pos: board::Pos, gamma: int, depth: int, root: bol)
     when(may_pass) {
         case(true) {
             var passed: board::Pos = board::rotate(pos, true);
-            var reply: Bound = [bor]self.probe(passed, 1 - gamma, level - 3, false);
+            var reply: Bound = self.probe(passed, 1 - gamma, level - 3, false);
             nodes = nodes + reply.nodes;
             var score: int = 0 - reply.score;
 
@@ -133,7 +166,7 @@ fun[exp] (Engine[bor]) probe(pos: board::Pos, gamma: int, depth: int, root: bol)
                     ~var admissible: bol = score < gamma;
                     when(.not(admissible)) {
                         case(true) {
-                            var band: Bound = [bor]self.probe(board::rotate(pos, true),
+                            var band: Bound = self.probe(board::rotate(pos, true),
                                 1 - eval::mate_lower(), level - 3, false);
                             nodes = nodes + band.nodes;
                             admissible = band.score >= 1 - eval::mate_lower();
@@ -190,7 +223,7 @@ fun[exp] (Engine[bor]) probe(pos: board::Pos, gamma: int, depth: int, root: bol)
                     * { }
                 };
 
-                var child: Bound = [bor]self.probe(board::advance(pos, code, self.pst),
+                var child: Bound = self.probe(board::advance(pos, code, self.pst),
                     1 - gamma, level - 1, false);
                 nodes = nodes + child.nodes;
                 state = consider(state, code, 0 - child.score, gamma);
@@ -263,7 +296,7 @@ typ[exp] Answer: rec = {
 //
 // `gamma` deliberately survives from one depth to the next, as in the original:
 // the previous depth's answer is the best first guess the next one has.
-fun[exp] (Engine[bor]) run(pos: board::Pos, max_depth: int): Answer = {
+pro[exp] (Engine[mut, bor]) run(pos: board::Pos, max_depth: int): Answer = {
     ~var gamma: int = 0;
     ~var best_move: int = -1;
     ~var best_score: int = 0;
@@ -275,7 +308,7 @@ fun[exp] (Engine[bor]) run(pos: board::Pos, max_depth: int): Answer = {
         ~var lower: int = 1 - eval::mate_upper();
         ~var upper: int = eval::mate_upper();
         loop(lower < upper - eval_roughness()) {
-            var found: Bound = [bor]self.probe(pos, gamma, depth, true);
+            var found: Bound = self.probe(pos, gamma, depth, true);
             nodes = nodes + found.nodes;
             probes = probes + 1;
             when(found.score >= gamma) {
