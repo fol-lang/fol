@@ -30,6 +30,7 @@ offset.
 fun[exp] sub(text: str, start: int, count: int): str
 fun[exp] byte_at(text: str, index: int): int
 fun[exp] from_byte(value: int): str
+fun[exp] is_space_byte(value: int): bol
 fun[exp] trim(text: str): str
 fun[exp] trim_start(text: str): str
 fun[exp] trim_end(text: str): str
@@ -39,6 +40,10 @@ fun[exp] strip_suffix(text: str, suffix: str): str
 
 `strip_prefix` and `strip_suffix` return the text unchanged when it does not
 start or end with the given piece, so they are safe to chain.
+
+`is_space_byte` is the byte-oriented partner to `byte_at`: it answers for space,
+tab, newline and carriage return, which is ASCII whitespace and nothing wider.
+Use `.chr_is_space(...)` when the input is a `chr` and Unicode whitespace counts.
 
 ### Building
 

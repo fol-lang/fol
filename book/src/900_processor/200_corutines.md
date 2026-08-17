@@ -67,7 +67,8 @@ The exact positive and negative spawn examples are maintained in the
 ## Channels
 
 Channels are an implemented processor surface. The contract is an unbounded
-MPSC `chn[T]` backed by `std::sync::mpsc`: `c[tx]` sends without blocking,
+MPSC `chn[T]` backed by Rust's `std::sync::mpsc` — not FOL's own `std::sync`,
+which is the atomic-counter module: `c[tx]` sends without blocking,
 `c[rx]` performs a blocking pull that yields `opt[T]` — its present branch owns
 a fresh payload and `nil` means every sender has closed — and receiver iteration
 runs until all sender handles are dropped. Unwrap the result with `c[rx][]` or

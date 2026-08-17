@@ -264,7 +264,7 @@ Current semantics:
   same deferred loading rule as `lazy`, but user-facing summaries keep the
   stronger intent visible
 
-`fol code fetch` still walks declared dependencies so it can materialize and pin
+`fol pack fetch` still walks declared dependencies so it can materialize and pin
 the workspace graph. The mode is surfaced in fetch/build summaries instead of
 being dropped.
 
