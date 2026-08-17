@@ -2995,6 +2995,18 @@
               {
                 "type": "SYMBOL",
                 "name": "doc_comment"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "fun_decl"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "pro_decl"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "log_decl"
               }
             ]
           }
@@ -4289,6 +4301,10 @@
                 {
                   "type": "SYMBOL",
                   "name": "expr"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "block"
                 }
               ]
             },
@@ -4328,6 +4344,10 @@
                 {
                   "type": "SYMBOL",
                   "name": "expr"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "block"
                 }
               ]
             },
@@ -4388,6 +4408,10 @@
                     {
                       "type": "SYMBOL",
                       "name": "expr"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "block"
                     }
                   ]
                 },
@@ -6179,8 +6203,21 @@
             "type": "FIELD",
             "name": "field",
             "content": {
-              "type": "SYMBOL",
-              "name": "identifier"
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "identifier"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "string_literal"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "raw_string_literal"
+                }
+              ]
             }
           }
         ]

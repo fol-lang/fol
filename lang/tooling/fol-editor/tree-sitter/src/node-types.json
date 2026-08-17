@@ -1225,6 +1225,14 @@
           {
             "type": "identifier",
             "named": true
+          },
+          {
+            "type": "raw_string_literal",
+            "named": true
+          },
+          {
+            "type": "string_literal",
+            "named": true
           }
         ]
       },
@@ -3862,6 +3870,18 @@
         },
         {
           "type": "field_decl",
+          "named": true
+        },
+        {
+          "type": "fun_decl",
+          "named": true
+        },
+        {
+          "type": "log_decl",
+          "named": true
+        },
+        {
+          "type": "pro_decl",
           "named": true
         },
         {
