@@ -1779,9 +1779,13 @@
         ]
       },
       "index": {
-        "multiple": false,
+        "multiple": true,
         "required": false,
         "types": [
+          {
+            "type": ",",
+            "named": false
+          },
           {
             "type": "availability_item",
             "named": true
