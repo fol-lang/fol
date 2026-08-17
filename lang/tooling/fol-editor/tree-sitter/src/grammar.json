@@ -7832,6 +7832,35 @@
           }
         },
         {
+          "type": "REPEAT",
+          "content": {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "CHOICE",
+                "members": [
+                  {
+                    "type": "STRING",
+                    "value": ","
+                  },
+                  {
+                    "type": "STRING",
+                    "value": ";"
+                  }
+                ]
+              },
+              {
+                "type": "FIELD",
+                "name": "target",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "expr"
+                }
+              }
+            ]
+          }
+        },
+        {
           "type": "STRING",
           "value": ")"
         },
@@ -8206,7 +8235,7 @@
       "members": [
         {
           "type": "SYMBOL",
-          "name": "block"
+          "name": "inquiry_scope"
         },
         {
           "type": "SEQ",
@@ -8220,10 +8249,6 @@
               "members": [
                 {
                   "type": "SYMBOL",
-                  "name": "block"
-                },
-                {
-                  "type": "SYMBOL",
                   "name": "seg_decl"
                 },
                 {
@@ -8232,11 +8257,84 @@
                 },
                 {
                   "type": "SYMBOL",
+                  "name": "use_decl"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "ali_decl"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "typ_decl"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "def_decl"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "block"
+                },
+                {
+                  "type": "SYMBOL",
                   "name": "stmt"
                 }
               ]
             }
           ]
+        }
+      ]
+    },
+    "inquiry_scope": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "{"
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "seg_decl"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "std_decl"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "use_decl"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "ali_decl"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "typ_decl"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "def_decl"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "stmt"
+              },
+              {
+                "type": "STRING",
+                "value": ";"
+              }
+            ]
+          }
+        },
+        {
+          "type": "STRING",
+          "value": "}"
         }
       ]
     }
@@ -8356,6 +8454,12 @@
     [
       "generic_params",
       "params"
+    ],
+    [
+      "use_decl"
+    ],
+    [
+      "def_decl"
     ]
   ],
   "precedences": [],

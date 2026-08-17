@@ -665,7 +665,47 @@ fn tree_sitter_cli_version() -> Option<String> {
         .map(|version| version.to_string())
 }
 
+/// Generated output is a pure function of the grammar, and generating takes tens
+/// of seconds, so a process that stages the same grammar twice pays once.
+type GeneratedParser = (String, Vec<(&'static str, Vec<u8>)>);
+static GENERATED_PARSER_CACHE: std::sync::Mutex<Option<GeneratedParser>> =
+    std::sync::Mutex::new(None);
+
+fn read_generated_files(path: &Path) -> Option<Vec<(&'static str, Vec<u8>)>> {
+    TREE_SITTER_CLI_GENERATED_FILES
+        .iter()
+        .map(|relative| {
+            std::fs::read(path.join(relative))
+                .ok()
+                .map(|body| (*relative, body))
+        })
+        .collect()
+}
+
+fn write_generated_files(files: &[(&'static str, Vec<u8>)], path: &Path) -> bool {
+    files.iter().all(|(relative, body)| {
+        let destination = path.join(relative);
+        destination
+            .parent()
+            .is_some_and(|parent| std::fs::create_dir_all(parent).is_ok())
+            && std::fs::write(destination, body).is_ok()
+    })
+}
+
 fn run_tree_sitter_generate(path: &Path) -> EditorResult<()> {
+    // Held across the whole attempt so concurrent callers queue behind the first
+    // one and then find its result cached instead of each running a generator.
+    let mut cache = GENERATED_PARSER_CACHE
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+
+    let grammar = std::fs::read_to_string(path.join(TREE_SITTER_GRAMMAR_FILE)).unwrap_or_default();
+    if let Some((cached_grammar, files)) = cache.as_ref() {
+        if !grammar.is_empty() && cached_grammar == &grammar && write_generated_files(files, path) {
+            return Ok(());
+        }
+    }
+
     if let Some(version) = tree_sitter_cli_version() {
         if !version.starts_with(REQUIRED_TREE_SITTER_VERSION) {
             return Err(EditorError::new(
@@ -687,7 +727,14 @@ fn run_tree_sitter_generate(path: &Path) -> EditorResult<()> {
         .current_dir(path)
         .status()
     {
-        Ok(status) if status.success() => Ok(()),
+        Ok(status) if status.success() => {
+            if !grammar.is_empty() {
+                if let Some(files) = read_generated_files(path) {
+                    *cache = Some((grammar, files));
+                }
+            }
+            Ok(())
+        }
         Ok(status) => Err(EditorError::new(
             EditorErrorKind::Internal,
             format!("tree-sitter parser generation failed with status {status}"),
