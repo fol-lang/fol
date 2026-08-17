@@ -8,13 +8,12 @@
 // jsmn's static helpers becomes a `pro (Parser[mut, bor])`.
 //
 // Two knobs replace two C mechanisms:
-//   * `cap` stands in for the `num_tokens` argument. An `arr` carries its
-//     length in its type, so the physical array is fixed at `slots()` and `cap`
-//     is the logical limit the NOMEM check consults -- which is exactly what
-//     `num_tokens` is used for in `jsmn_alloc_token`.
+//   * `cap` is the `num_tokens` argument, and the store is built to exactly that
+//     many slots, so the NOMEM check reads the same limit C reads.
 //   * `dry` stands in for `tokens == NULL`. jsmn's documented sizing pass calls
 //     the parser with a null array to learn how many tokens a document needs;
-//     FOL has no null array, so the same branches consult a flag instead.
+//     a FOL container is a value rather than a pointer, so there is nothing to
+//     pass as null and the same branches consult a flag instead.
 //
 // The parent-links variant is the one ported: `JSMN_PARENT_LINKS` and
 // `JSMN_STRICT` are both on.
@@ -24,7 +23,7 @@ use token: loc = {"../token"};
 use bytes: loc = {"../bytes"};
 
 typ[exp] Parser: rec = {
-    var toks: arr[token::Tok, 32];
+    var toks: vec[token::Tok];
     var pos: int;
     var toknext: int;
     var toksuper: int;
@@ -32,26 +31,11 @@ typ[exp] Parser: rec = {
     var dry: bol;
 };
 
-// How many token slots the array physically has. Documents in the suite need
-// at most eleven; the headroom is what lets the NOMEM cases pick a small `cap`
-// without changing the type.
-fun[exp] slots(): int = {
-    return 32;
-};
-
-// `jsmn_init`, plus the array declaration the caller writes in C.
+// `jsmn_init`, plus the array declaration the caller writes in C. The store is
+// exactly `cap` slots, which is what C's `num_tokens` argument means.
 fun[exp] fresh(cap: int, dry: bol): Parser = {
     var started: Parser = {
-        toks = {
-            token::blank(), token::blank(), token::blank(), token::blank(),
-            token::blank(), token::blank(), token::blank(), token::blank(),
-            token::blank(), token::blank(), token::blank(), token::blank(),
-            token::blank(), token::blank(), token::blank(), token::blank(),
-            token::blank(), token::blank(), token::blank(), token::blank(),
-            token::blank(), token::blank(), token::blank(), token::blank(),
-            token::blank(), token::blank(), token::blank(), token::blank(),
-            token::blank(), token::blank(), token::blank(), token::blank(),
-        },
+        toks = std::vecs::fill(cap, token::blank()),
         pos = 0,
         toknext = 0,
         toksuper = 0 - 1,

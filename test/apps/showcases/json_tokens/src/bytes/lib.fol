@@ -1,24 +1,23 @@
 // The character classes jsmn spells as `switch` labels.
 //
-// `std::strn::byte_at` hands back an `int` and FOL has no `chr` to `int`
-// conversion in either direction, so every character literal in the C source
-// becomes a numeric code here. Naming them once keeps the parser readable and
-// keeps the comparison against the C source mechanical: each routine below is
+// `std::strn::byte_at` hands back an `int`, so `.chr_to_int` carries each of the
+// C source's character literals over as the character it is. Escapes live in
+// double quotes because a single-quoted literal is raw. Each routine below is
 // one `case` group of one `switch` in jsmn.h.
 
-fun[exp] tab(): int = { return 9; };
-fun[exp] newline(): int = { return 10; };
-fun[exp] carriage(): int = { return 13; };
-fun[exp] space(): int = { return 32; };
-fun[exp] quote(): int = { return 34; };
-fun[exp] comma(): int = { return 44; };
-fun[exp] colon(): int = { return 58; };
-fun[exp] backslash(): int = { return 92; };
-fun[exp] open_brace(): int = { return 123; };
-fun[exp] close_brace(): int = { return 125; };
-fun[exp] open_bracket(): int = { return 91; };
-fun[exp] close_bracket(): int = { return 93; };
-fun[exp] letter_u(): int = { return 117; };
+fun[exp] tab(): int = { return .chr_to_int("\t"); };
+fun[exp] newline(): int = { return .chr_to_int("\n"); };
+fun[exp] carriage(): int = { return .chr_to_int("\r"); };
+fun[exp] space(): int = { return .chr_to_int(' '); };
+fun[exp] quote(): int = { return .chr_to_int('"'); };
+fun[exp] comma(): int = { return .chr_to_int(','); };
+fun[exp] colon(): int = { return .chr_to_int(':'); };
+fun[exp] backslash(): int = { return .chr_to_int("\\"); };
+fun[exp] open_brace(): int = { return .chr_to_int('{'); };
+fun[exp] close_brace(): int = { return .chr_to_int('}'); };
+fun[exp] open_bracket(): int = { return .chr_to_int('['); };
+fun[exp] close_bracket(): int = { return .chr_to_int(']'); };
+fun[exp] letter_u(): int = { return .chr_to_int('u'); };
 
 // `case '\t': case '\r': case '\n': case ' ': case ',': case ']': case '}':`
 // in `jsmn_parse_primitive`. In strict mode ':' is deliberately absent, which

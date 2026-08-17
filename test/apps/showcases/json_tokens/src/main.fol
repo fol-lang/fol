@@ -44,21 +44,20 @@
 //    COST: five field copies per one-field update, and a whole class of silent
 //    bugs (forget one field in the rebuild and it resets). Still O(1).
 //
-// 3. `num_tokens` IS A RUNTIME ARGUMENT IN C; `arr[T, N]` CARRIES N IN ITS TYPE.
-//    FOL has no const-generic length parameter, so the physical array is fixed
-//    at 32 slots and a `cap` field carries the logical limit that the NOMEM
-//    check consults -- which is the only thing `num_tokens` is used for.
-//    COST: the ceiling is a compile-time constant. A caller wanting 4096 tokens
-//    edits a type. The array also has to be spelled out with 32 explicit
-//    `token::blank()` initialisers, because FOL has no repeat-initialiser.
+// 3. `num_tokens` IS A RUNTIME ARGUMENT IN C, AND IT STAYS ONE HERE. The store
+//    is a `vec[Tok]` built by `std::vecs::fill(cap, token::blank())`, so a
+//    caller asking for 4096 tokens gets 4096 slots without touching a type.
+//    COST: none. `arr[T, N]` would have carried N in its type -- FOL has no
+//    const-generic length parameter -- which is why the store is a `vec`.
 //
 // 4. `tokens == NULL` -- jsmn's DOCUMENTED SIZING PASS -- BECAME A `dry` FLAG.
 //    C callers pass a null array to learn how many tokens a document needs,
-//    then allocate exactly that many and parse again. FOL has no null array, so
-//    the eight `if (tokens == NULL)` branches consult `self.dry` instead.
+//    then allocate exactly that many and parse again. A FOL container is a value
+//    rather than a pointer, so there is nothing to pass as null and the eight
+//    `if (tokens == NULL)` branches consult `self.dry` instead.
 //    COST: behaviour is exact (the suite pins the sizing pass down, including
-//    the fact that it does NOT validate structure), but the point of the pass
-//    -- not having an array yet -- is gone: the port still carries 32 slots.
+//    the fact that it does NOT validate structure). The point of the pass
+//    survives: the sizing parser is built with `cap` 0, so it holds no slots.
 //
 // 5. THE TYPE TAGS ARE BIT FLAGS IN C: `JSMN_OBJECT = 1 << 0` up to
 //    `JSMN_PRIMITIVE = 1 << 3`. FOL HAS NO BITWISE OPERATORS AT ALL -- no `<<`,
@@ -76,11 +75,11 @@
 //    arms (`open_scope`, `close_scope`) and the whitespace group became four
 //    empty arms.
 //
-// 8. EVERY CHARACTER LITERAL BECAME A BYTE CODE. FOL has no `chr` to `int`
-//    conversion in either direction and `std::strn::byte_at` hands back an
-//    `int`, so `case '\\':` is `is(92)`. Naming the codes once in `src/bytes`
-//    arguably reads better than the C; the cost is that the scanner can never
-//    be written against characters.
+// 8. THE SCANNER COMPARES BYTE CODES, NAMED FROM CHARACTERS. `byte_at` hands
+//    back an `int`, so `src/bytes` turns each of the C source's character
+//    literals into its code with `.chr_to_int`, and the `switch` arms compare
+//    those. COST: a `when ... is` arm needs a literal, so the arms themselves
+//    still read `is(92)` rather than naming the character.
 //
 // 9. `js[parser->pos] != '\0'` HAS NO ANALOGUE. A FOL `str` is not
 //    NUL-terminated, so only the `pos < len` half of jsmn's loop guard

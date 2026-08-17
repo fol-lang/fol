@@ -2,10 +2,9 @@
 //
 // jsmn spells its type tags as bit flags -- `JSMN_OBJECT = 1 << 0` up to
 // `JSMN_PRIMITIVE = 1 << 3` -- so a caller can test a token against a mask.
-// FOL has no shift operator at all, so the same four values are written as the
-// literals they evaluate to. Nothing downstream masks, so the numbers are all
-// that had to survive; they are kept identical so a token dump can be compared
-// against the C original byte for byte.
+// `.shl` exists, but a `con` initialiser has to be a literal, so the four values
+// are written as the literals the shifts evaluate to. They are kept identical so
+// a token dump can be compared against the C original byte for byte.
 
 use std: pkg = {"std"};
 
