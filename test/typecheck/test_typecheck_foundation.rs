@@ -1533,6 +1533,28 @@ fn echo_intrinsic_requires_bundled_std_effective_tier_in_core() {
 }
 
 #[test]
+fn hosted_std_on_memo_asks_for_the_dependency_not_the_model() {
+    let errors = typecheck_fixture_folder_errors_with_config(
+        &[(
+            "main.fol",
+            "fun[] main(): int = {\n    return .echo(1);\n};\n",
+        )],
+        TypecheckConfig {
+            capability_model: TypecheckCapabilityModel::Memo,
+        },
+    );
+
+    assert_eq!(errors.len(), 1);
+    let message = errors[0].message();
+    assert!(message.contains("requires the hosted std dependency"));
+    assert!(message.contains("already 'memo'"));
+    assert!(message.contains("build.add_dep("));
+    // The bug this locks: the memo path used to advise `fol_model = memo` while
+    // reporting the model as 'memo', pointing at the one thing already correct.
+    assert!(!message.contains("use 'fol_model = memo'"));
+}
+
+#[test]
 fn owned_heap_binding_requires_memo_model() {
     for declaration in [
         "@var value: int = 1;",
@@ -3021,7 +3043,7 @@ fn typecheck_capability_tiers_keep_memo_between_core_and_hosted_std() {
     assert_eq!(mem_echo_errors.len(), 1);
     assert!(mem_echo_errors[0]
         .message()
-        .contains("'.echo(...)' requires hosted std support"));
+        .contains("'.echo(...)' requires the hosted std dependency"));
 
     let std_typed = typecheck_fixture_folder_with_config(
         &[(

@@ -509,6 +509,22 @@ fn type_query_intrinsic(
         .with_optional_effect(operand_expr.recoverable_effect))
 }
 
+/// The hosted-std tier is `fol_model = memo` *plus* the bundled std dependency, so
+/// the advice depends on which half is missing. On memo the model is already right
+/// and naming it as the fix sends the reader to change something correct — there is
+/// no `fol_model = "std"` to change it to.
+fn hosted_std_requirement(display: &str, model: crate::TypecheckCapabilityModel) -> String {
+    match model {
+        crate::TypecheckCapabilityModel::Memo => format!(
+            "'{display}' requires the hosted std dependency; this artifact's model is already 'memo', so add build.add_dep({{ alias = \"std\", source = \"internal\", target = \"standard\" }})"
+        ),
+        other => format!(
+            "'{display}' requires hosted std support; set 'fol_model = memo' and declare build.add_dep({{ alias = \"std\", source = \"internal\", target = \"standard\" }}) (current artifact model is '{}')",
+            other.as_str()
+        ),
+    }
+}
+
 fn type_echo_intrinsic(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
@@ -520,10 +536,7 @@ fn type_echo_intrinsic(
 ) -> Result<TypedExpr, TypecheckError> {
     let origin = origin_for(resolved, syntax_id);
     if typed.capability_model() != crate::TypecheckCapabilityModel::Std {
-        let message = format!(
-            "'.echo(...)' requires hosted std support; declare build.add_dep({{ alias = \"std\", source = \"internal\", target = \"standard\" }}) and use 'fol_model = memo' (current artifact model is '{}')",
-            typed.capability_model().as_str()
-        );
+        let message = hosted_std_requirement(".echo(...)", typed.capability_model());
         return Err(match origin {
             Some(origin) => {
                 TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin)
@@ -799,10 +812,9 @@ fn type_terminal_intrinsic(
             .expect("terminal intrinsic dispatch already matched the name")
     };
     if typed.capability_model() != crate::TypecheckCapabilityModel::Std {
-        let message = format!(
-            "'.{}(...)' requires hosted std support; declare build.add_dep({{ alias = \"std\", source = \"internal\", target = \"standard\" }}) and use 'fol_model = memo' (current artifact model is '{}')",
-            entry.name,
-            typed.capability_model().as_str()
+        let message = hosted_std_requirement(
+            &format!(".{}(...)", entry.name),
+            typed.capability_model(),
         );
         return Err(match origin {
             Some(origin) => {
