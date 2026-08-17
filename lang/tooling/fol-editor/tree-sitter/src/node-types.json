@@ -1810,7 +1810,34 @@
       "required": true,
       "types": [
         {
-          "type": "flow_body",
+          "type": "inquiry_body",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "inquiry_body",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "block",
+          "named": true
+        },
+        {
+          "type": "seg_decl",
+          "named": true
+        },
+        {
+          "type": "std_decl",
+          "named": true
+        },
+        {
+          "type": "stmt",
           "named": true
         }
       ]
@@ -3467,6 +3494,10 @@
       "required": true,
       "types": [
         {
+          "type": "error_type",
+          "named": true
+        },
+        {
           "type": "flow_body",
           "named": true
         },
@@ -4288,7 +4319,7 @@
         ]
       },
       "value": {
-        "multiple": false,
+        "multiple": true,
         "required": false,
         "types": [
           {
@@ -4299,7 +4330,7 @@
       }
     },
     "children": {
-      "multiple": false,
+      "multiple": true,
       "required": true,
       "types": [
         {
