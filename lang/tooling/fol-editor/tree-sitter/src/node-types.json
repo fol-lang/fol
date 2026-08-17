@@ -545,11 +545,23 @@
           "named": true
         },
         {
+          "type": "break_stmt",
+          "named": true
+        },
+        {
           "type": "expr",
           "named": true
         },
         {
           "type": "pipe_assignment_stage",
+          "named": true
+        },
+        {
+          "type": "return_stmt",
+          "named": true
+        },
+        {
+          "type": "yield_stmt",
           "named": true
         }
       ]
@@ -794,11 +806,23 @@
           "named": true
         },
         {
+          "type": "break_stmt",
+          "named": true
+        },
+        {
           "type": "expr",
           "named": true
         },
         {
           "type": "pipe_assignment_stage",
+          "named": true
+        },
+        {
+          "type": "return_stmt",
+          "named": true
+        },
+        {
+          "type": "yield_stmt",
           "named": true
         }
       ]
@@ -925,6 +949,10 @@
       "types": [
         {
           "type": "flow_body",
+          "named": true
+        },
+        {
+          "type": "if_stmt",
           "named": true
         }
       ]
@@ -1544,11 +1572,23 @@
           "named": true
         },
         {
+          "type": "break_stmt",
+          "named": true
+        },
+        {
           "type": "expr",
           "named": true
         },
         {
           "type": "pipe_assignment_stage",
+          "named": true
+        },
+        {
+          "type": "return_stmt",
+          "named": true
+        },
+        {
+          "type": "yield_stmt",
           "named": true
         }
       ]
@@ -1626,11 +1666,23 @@
           "named": true
         },
         {
+          "type": "break_stmt",
+          "named": true
+        },
+        {
           "type": "expr",
           "named": true
         },
         {
           "type": "pipe_assignment_stage",
+          "named": true
+        },
+        {
+          "type": "return_stmt",
+          "named": true
+        },
+        {
+          "type": "yield_stmt",
           "named": true
         }
       ]
@@ -1729,11 +1781,23 @@
           "named": true
         },
         {
+          "type": "break_stmt",
+          "named": true
+        },
+        {
           "type": "expr",
           "named": true
         },
         {
           "type": "pipe_assignment_stage",
+          "named": true
+        },
+        {
+          "type": "return_stmt",
+          "named": true
+        },
+        {
+          "type": "yield_stmt",
           "named": true
         }
       ]
@@ -2092,11 +2156,23 @@
           "named": true
         },
         {
+          "type": "break_stmt",
+          "named": true
+        },
+        {
           "type": "expr",
           "named": true
         },
         {
           "type": "pipe_assignment_stage",
+          "named": true
+        },
+        {
+          "type": "return_stmt",
+          "named": true
+        },
+        {
+          "type": "yield_stmt",
           "named": true
         }
       ]
@@ -2115,11 +2191,23 @@
           "named": true
         },
         {
+          "type": "break_stmt",
+          "named": true
+        },
+        {
           "type": "expr",
           "named": true
         },
         {
           "type": "pipe_assignment_stage",
+          "named": true
+        },
+        {
+          "type": "return_stmt",
+          "named": true
+        },
+        {
+          "type": "yield_stmt",
           "named": true
         }
       ]
@@ -2205,7 +2293,7 @@
         ]
       },
       "name": {
-        "multiple": false,
+        "multiple": true,
         "required": true,
         "types": [
           {

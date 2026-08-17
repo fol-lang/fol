@@ -1964,6 +1964,26 @@
           }
         },
         {
+          "type": "REPEAT",
+          "content": {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "STRING",
+                "value": ","
+              },
+              {
+                "type": "FIELD",
+                "name": "name",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "identifier"
+                }
+              }
+            ]
+          }
+        },
+        {
           "type": "CHOICE",
           "members": [
             {
@@ -3694,8 +3714,17 @@
           "value": "else"
         },
         {
-          "type": "SYMBOL",
-          "name": "flow_body"
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "flow_body"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "if_stmt"
+            }
+          ]
         }
       ]
     },
@@ -4305,6 +4334,18 @@
                 {
                   "type": "SYMBOL",
                   "name": "block"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "break_stmt"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "yield_stmt"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "return_stmt"
                 }
               ]
             },
@@ -4348,6 +4389,18 @@
                 {
                   "type": "SYMBOL",
                   "name": "block"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "break_stmt"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "yield_stmt"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "return_stmt"
                 }
               ]
             },
@@ -4412,6 +4465,18 @@
                     {
                       "type": "SYMBOL",
                       "name": "block"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "break_stmt"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "yield_stmt"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "return_stmt"
                     }
                   ]
                 },
@@ -7414,6 +7479,10 @@
     [
       "do_expr",
       "keyword_name"
+    ],
+    [
+      "param",
+      "pipe_lambda_param"
     ]
   ],
   "precedences": [],
