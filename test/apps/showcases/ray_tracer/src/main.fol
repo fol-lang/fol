@@ -15,26 +15,7 @@
 //
 // DEVIATIONS -- where the original's design could not be carried into FOL
 //
-// 1. NO int -> flt CONVERSION. The original converts constantly:
-//    `double(image_width)/image_height` in the viewport, `(i + offset.x())` in
-//    get_ray, `std::rand() / (RAND_MAX + 1.0)` in random_double. FOL has no
-//    conversion in either direction. nums::to_flt rebuilds it by base-10 digit
-//    expansion against a ten-case literal table (`nums::digit`), which is exact
-//    but costs up to ten branches and a divide per conversion -- and every
-//    random number in this renderer pays it.
-//
-// 2. NO flt -> int CONVERSION either. `int(256 * intensity.clamp(r))` in
-//    write_color is a one-instruction truncation in C++. nums::to_byte is an
-//    eight-step binary search over 0..255 comparing `to_flt(mid) <= target`, so
-//    each written colour component costs eight int -> flt conversions on top of
-//    the eight comparisons.
-//
-// 3. NO sqrt. std::sqrt appears in sphere::hit, vec3::length,
-//    random_unit_vector and linear_to_gamma. nums::root is 24 Newton steps.
-//    That is four to five sqrt calls per bounce, each ~24 divides -- the cost
-//    that pushed the sample count down from the book's 100 to 32.
-//
-// 4. NO infinity LITERAL, but infinity is still reachable -- easier than
+// 1. NO infinity LITERAL, but infinity is still reachable -- easier than
 //    expected. `interval(0.001, infinity)` needs a real positive infinity and
 //    FOL has no spelling for one, yet flt division by zero follows IEEE-754
 //    instead of faulting the way integer division does, so `nums::far()` is
@@ -42,7 +23,7 @@
 //    that this asymmetry is undocumented: the same syntax faults for int and
 //    quietly produces inf for flt.
 //
-// 5. NO trait objects / no heterogeneous hittable list.
+// 2. NO trait objects / no heterogeneous hittable list.
 //    `std::vector<shared_ptr<hittable>>` and `shared_ptr<material>` on the hit
 //    record are the original's two dynamic-dispatch points. FOL has generics
 //    with standards but they monomorphise, so a container cannot hold mixed
@@ -52,7 +33,7 @@
 //    `scatter_of` instantiation per arm. Adding a third material means editing
 //    that switch -- exactly the open/closed violation the original avoids.
 //
-// 6. MATERIALS AS A STANDARD -- this part worked. `std surface: pro = { fun
+// 3. MATERIALS AS A STANDARD -- this part worked. `std surface: pro = { fun
 //    scatter(...); }` with `Lambert` and `Hemisphere` as conformers and a
 //    single constrained generic `scatter_of(T: surface)` dispatches correctly.
 //    The constraint got in the way in only one place: the conformer has to be
@@ -60,7 +41,7 @@
 //    type ascription (`scatter_of({albedo=0.5}: Lambert, ...)` is a parse
 //    error), so the tag switch is three lines per arm rather than one.
 //
-// 7. NO MUTABLE OUT-PARAMETERS. `bool hit(const ray&, interval, hit_record&)`
+// 4. NO MUTABLE OUT-PARAMETERS. `bool hit(const ray&, interval, hit_record&)`
 //    writes its answer through a reference and returns the success flag. A FOL
 //    free routine cannot take `[mut, bor]`, so `geom::Hit` carries a `struck`
 //    flag and the miss case returns a zeroed record. Same story for the random
@@ -68,37 +49,37 @@
 //    in and out of every draw, which is why `Rand`, `RandV3`, `RandRay`,
 //    `Scatter` and `Traced` all exist purely to return a value beside a state.
 //
-// 8. PER-PIXEL SEEDING. The original draws from one global stream, so a pixel's
+// 5. PER-PIXEL SEEDING. The original draws from one global stream, so a pixel's
 //    colour depends on every pixel rendered before it. `nums::seed_at` seeds
 //    from the pixel index instead (with four warm-up draws). Same distribution,
 //    but each pixel becomes independently reproducible -- without that no
 //    specific pixel could be self-checked at all.
 //
-// 9. BOUNDED REJECTION SAMPLING. random_unit_vector is `while (true)` in the
+// 6. BOUNDED REJECTION SAMPLING. random_unit_vector is `while (true)` in the
 //    original. Here it gives up after sixteen tries and returns a fixed axis:
 //    an unbounded loop over a deterministic generator is a hang with no
 //    diagnostic, and 16 tries miss with probability under 1e-5.
 //
-// 10. SCALAR ALBEDO. `0.5 * ray_color(...)` in the diffuse chapter is a scalar
+// 7. SCALAR ALBEDO. `0.5 * ray_color(...)` in the diffuse chapter is a scalar
 //    multiply, so `Scatter.albedo` is a flt. Colour-valued albedo arrives with
 //    the metal chapter, which is past this translation's stopping point.
 //
-// 11. NO OPERATOR OVERLOADING. Every vec3 `+ - * /` becomes a named call, so
+// 8. NO OPERATOR OVERLOADING. Every vec3 `+ - * /` becomes a named call, so
 //    `pixel00_loc + (i * pixel_delta_u) + (j * pixel_delta_v)` becomes nested
 //    geom::add/geom::scale. Mechanical, but it makes camera::make and get_ray
 //    considerably harder to read than the C++.
 //
-// 12. NO EXPONENT FLOAT LITERALS. The original's `1e-160` guard in
+// 9. NO EXPONENT FLOAT LITERALS. The original's `1e-160` guard in
 //    random_unit_vector cannot be written; `1e-8` is a parse error. Spelled out
 //    as 0.000001 here, which is fine at flt precision.
 //
-// 13. IMAGE SIZE -- less of a compromise than expected. The book renders
-//    400x225 at 100 samples with depth 50; this is 40x20 at 32 samples with
-//    the book's own depth 50, and the whole render takes about 40ms. The
-//    hand-rolled numerics of deviations 1-3 cost real time, but not the two
-//    orders of magnitude the workarounds suggested they would.
+// 10. IMAGE SIZE. The book renders 400x225 at 100 samples with depth 50; this is
+//    40x20 at 32 samples with the book's own depth 50, and the whole render
+//    takes about 40ms. Nothing about the numerics forces the smaller image --
+//    `.sqrt` and the conversions are the host's -- it simply keeps the
+//    self-checks quick.
 //
-// 14. THE PPM CANNOT BE REDIRECTED. The original is run as
+// 11. THE PPM CANNOT BE REDIRECTED. The original is run as
 //    `./inOneWeekend > image.ppm`; the whole point of writing P3 to stdout is
 //    that a shell redirect produces a file. `fol code run` writes its own
 //    "run / Done: / emitted-rust / binary" banner -- with ANSI escapes, even
@@ -146,12 +127,7 @@ fun[] configured(): camera::Camera = {
 };
 
 fun[] near(left: flt, right: flt, tolerance: flt): bol = {
-    var delta: flt = left - right;
-    when(delta < 0.0) {
-        case(true) { delta = -delta; }
-        * { }
-    }
-    return delta < tolerance;
+    return .flt_abs(left - right) < tolerance;
 };
 
 fun[] verdict(name: str, passed: bol): int = {

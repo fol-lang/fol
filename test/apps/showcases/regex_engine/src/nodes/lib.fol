@@ -1,11 +1,10 @@
 // The node vocabulary and the ASCII predicates the matcher decides with.
 //
 // tiny-regex-c keeps these as a bare C `enum` plus calls into `<ctype.h>`.
-// FOL has no `ctype.h` and no `chr`-to-`int` conversion, so every classifier is
-// spelled as an explicit code-point range over the `int` that
-// `std::strn::byte_at` hands back. The ranges below are the C locale
-// definitions of isdigit/isalpha/isspace, not Unicode ones -- the original is
-// byte-oriented and so is this port.
+// Every classifier here is instead an explicit code-point range over the `int`
+// that `std::strn::byte_at` hands back. `.chr_is_digit` and its siblings exist
+// but are Unicode-aware, and these ranges are the C locale definitions of
+// isdigit/isalpha/isspace -- the original is byte-oriented and so is this port.
 
 use std: pkg = {"std"};
 
