@@ -54,6 +54,28 @@ fn fol_sources(root: &Path) -> Vec<String> {
     found
 }
 
+fn rewrite_listing(root: &Path, added: &[String], removed: &[String]) {
+    let path = root.join("lang/tooling/fol-editor/tree-sitter/test/known-parse-gaps.txt");
+    let previous = std::fs::read_to_string(&path).expect("the listing should be readable");
+    let header: Vec<&str> = previous
+        .lines()
+        .take_while(|line| line.starts_with('#'))
+        .collect();
+
+    let mut entries = known_gaps(root);
+    entries.extend(added.iter().cloned());
+    for entry in removed {
+        entries.remove(entry);
+    }
+
+    let body: Vec<String> = header
+        .iter()
+        .map(|line| (*line).to_string())
+        .chain(entries)
+        .collect();
+    std::fs::write(&path, format!("{}\n", body.join("\n"))).expect("the listing should be writable");
+}
+
 #[test]
 fn treesitter_parse_ratchet() {
     let root = repo_root();
@@ -76,6 +98,12 @@ fn treesitter_parse_ratchet() {
             (false, true) => newly_fixed.push(relative),
             _ => {}
         }
+    }
+
+    // Rebuilding the baseline by hand drifts from what the test actually scans.
+    if std::env::var_os("FOL_RATCHET_UPDATE").is_some() {
+        rewrite_listing(&root, &newly_broken, &newly_fixed);
+        return;
     }
 
     assert!(

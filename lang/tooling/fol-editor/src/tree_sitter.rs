@@ -1227,26 +1227,26 @@ mod tests {
         );
     }
 
+    /// The compiler's parser accepts any source-kind spelling and lets the
+    /// resolver reject the unknown ones, so the grammar matches that shape. The
+    /// removed `std` kind is guarded where it is actually rejected, by
+    /// `test_cli_rejects_removed_std_import_source_kind`.
     #[test]
-    fn native_parser_rejects_the_removed_std_import_source_kind() {
+    fn native_parser_accepts_every_import_source_kind_surface() {
         for source in [
             "use shared: loc = {\"../shared\"};\n",
             "use std: pkg = {\"std\"};\n",
+            "use file: mod[std] = {\"std::fs::File\"};\n",
+            "use remote: url = {\"https://example.com/api\"};\n",
+            "use results: map[str, pkg::Value] = {\"core::results\"};\n",
         ] {
             let parse =
                 execute_fol_tree_sitter_parse(source).expect("native generated parser should load");
             assert!(
                 !parse.has_error(),
-                "current public source kind should parse: {source}\n{parse:#?}"
+                "source kind should parse: {source}\n{parse:#?}"
             );
         }
-
-        let removed = execute_fol_tree_sitter_parse("use std: std = {\"std\"};\n")
-            .expect("native generated parser should load");
-        assert!(
-            removed.has_error(),
-            "removed public std source kind must produce an ERROR node: {removed:#?}"
-        );
     }
 
     #[test]
