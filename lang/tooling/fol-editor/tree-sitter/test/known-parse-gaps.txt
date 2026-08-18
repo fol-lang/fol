@@ -119,7 +119,6 @@ test/parser/simple_fun_method_call_nested_empty_slot.fol
 test/parser/simple_fun_method_call_unmatched_close_paren_arg.fol
 test/parser/simple_fun_method_receiver_missing_name.fol
 test/parser/simple_fun_named_closure_capture.fol
-test/parser/simple_fun_named_function_types.fol
 test/parser/simple_fun_nested_block_missing_close.fol
 test/parser/simple_fun_nested_def_block.fol
 test/parser/simple_fun_nested_invoke.fol
@@ -154,13 +153,11 @@ test/parser/simple_fun_unary_plus_missing_operand.fol
 test/parser/simple_fun_unknown_parameter_option.fol
 test/parser/simple_fun_use_multi.fol
 test/parser/simple_fun_variadic_generic_header.fol
-test/parser/simple_fun_when_flow_loops.fol
 test/parser/simple_fun_when_flow_missing_body.fol
 test/parser/simple_fun_when_flow_routines.fol
 test/parser/simple_fun_when_has_missing_close.fol
 test/parser/simple_fun_when_on_missing_close.fol
 test/parser/simple_fun_when_star_default_missing_body.fol
-test/parser/simple_fun_while_flow_body.fol
 test/parser/simple_has_matching_expr.fol
 test/parser/simple_if_matching_expr.fol
 test/parser/simple_invoke_top_level.fol
@@ -188,7 +185,6 @@ test/parser/simple_loop_typed_binder_mismatch.fol
 test/parser/simple_loop_typed_silent_binder.fol
 test/parser/simple_mixed_root_surface.fol
 test/parser/simple_named_capture_semicolon.fol
-test/parser/simple_named_log_pro_capture.fol
 test/parser/simple_never_type_missing_close.fol
 test/parser/simple_none_type_missing_close.fol
 test/parser/simple_opt_type_bad_separator.fol
@@ -202,7 +198,6 @@ test/parser/simple_routine_generics_default_forbidden.fol
 test/parser/simple_routine_generics_missing_separator.fol
 test/parser/simple_seg_illegal_name.fol
 test/parser/simple_single_quoted_generics.fol
-test/parser/simple_single_quoted_named_function_types.fol
 test/parser/simple_std_illegal_name.fol
 test/parser/simple_std_protocol_captures.fol
 test/parser/simple_top_level_dot_echo.fol
@@ -221,7 +216,6 @@ test/parser/simple_typ_record_grouped_type_members.fol
 test/parser/simple_typ_record_illegal_field_name.fol
 test/parser/simple_typ_record_keyword_fields.fol
 test/parser/simple_typ_record_marker_missing_assign.fol
-test/parser/simple_typ_record_method_captures.fol
 test/parser/simple_typ_record_missing_close.fol
 test/parser/simple_typ_record_missing_lab_field_name.fol
 test/parser/simple_type_args_semicolon_routine_use.fol
