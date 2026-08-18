@@ -8,6 +8,9 @@ mod v3_example_inventory;
 #[path = "treesitter_parse_ratchet.rs"]
 mod treesitter_parse_ratchet;
 
+#[path = "treesitter_error_recovery.rs"]
+mod treesitter_error_recovery;
+
 #[path = "book_code_audit.rs"]
 mod book_code_audit;
 
