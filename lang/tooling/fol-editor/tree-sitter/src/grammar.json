@@ -3587,6 +3587,15 @@
         {
           "type": "SYMBOL",
           "name": "never_type_shorthand"
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "STRING",
+            "value": "std"
+          },
+          "named": true,
+          "value": "identifier"
         }
       ]
     },
@@ -10307,6 +10316,10 @@
     [
       "stmt",
       "inquiry_scope"
+    ],
+    [
+      "source_kind",
+      "type_expr"
     ]
   ],
   "precedences": [],

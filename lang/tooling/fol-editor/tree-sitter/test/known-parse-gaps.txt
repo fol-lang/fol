@@ -206,15 +206,12 @@ test/parser/simple_typ_entry_missing_variant_name.fol
 test/parser/simple_typ_generics_missing_separator.fol
 test/parser/simple_typ_illegal_name.fol
 test/parser/simple_typ_illegal_type_argument_separator.fol
-test/parser/simple_typ_module_block_types.fol
-test/parser/simple_typ_module_type_bad_arity.fol
 test/parser/simple_typ_record_grouped_fields.fol
 test/parser/simple_typ_record_illegal_field_name.fol
 test/parser/simple_typ_record_keyword_fields.fol
 test/parser/simple_typ_record_marker_missing_assign.fol
 test/parser/simple_typ_record_missing_close.fol
 test/parser/simple_typ_record_missing_lab_field_name.fol
-test/parser/simple_type_args_semicolon_specials.fol
 test/parser/simple_type_limit_refs.fol
 test/parser/simple_use_braced_illegal_path.fol
 test/parser/simple_use_direct_illegal_path.fol
