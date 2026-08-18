@@ -545,6 +545,29 @@ mod tests {
         found
     }
 
+    /// Rules whose names start with `_` are inlined by tree-sitter, so a query
+    /// still sees through them. Follow them when asking what a rule offers.
+    fn visible_symbols(
+        rules: &serde_json::Map<String, serde_json::Value>,
+        start: &serde_json::Value,
+    ) -> BTreeSet<String> {
+        let mut found = BTreeSet::new();
+        let mut pending = vec![payloads(start, "SYMBOL", "name")];
+        while let Some(batch) = pending.pop() {
+            for name in batch {
+                if !found.insert(name.clone()) {
+                    continue;
+                }
+                if name.starts_with('_') {
+                    if let Some(rule) = rules.get(&name) {
+                        pending.push(payloads(rule, "SYMBOL", "name"));
+                    }
+                }
+            }
+        }
+        found
+    }
+
     fn collect_payloads(
         node: &serde_json::Value,
         kind: &str,
@@ -1023,7 +1046,7 @@ mod tests {
         }
         let var_decl = &rules["var_decl"];
         assert!(payloads(var_decl, "STRING", "value").contains("var"));
-        assert!(payloads(var_decl, "SYMBOL", "name").contains("typed_binding"));
+        assert!(visible_symbols(rules, var_decl).contains("typed_binding"));
 
         for needle in [
             "(use_decl \"use\" @keyword.import)",

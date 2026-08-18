@@ -177,7 +177,6 @@ test/parser/simple_fun_reverse_slice_expr.fol
 test/parser/simple_fun_rolling_missing_in.fol
 test/parser/simple_fun_rolling_when_filtered.fol
 test/parser/simple_fun_seg_module.fol
-test/parser/simple_fun_segment_quoted_names.fol
 test/parser/simple_fun_select_stmt_no_binding.fol
 test/parser/simple_fun_self_this_expr.fol
 test/parser/simple_fun_shorthand_anonymous_invoke_expr.fol
@@ -193,9 +192,6 @@ test/parser/simple_fun_unary_plus_eof_operand.fol
 test/parser/simple_fun_unary_plus_missing_operand.fol
 test/parser/simple_fun_unknown_parameter_option.fol
 test/parser/simple_fun_use_multi.fol
-test/parser/simple_fun_var_grouped_entry_multi_values.fol
-test/parser/simple_fun_var_keyword_segment_multi.fol
-test/parser/simple_fun_var_mixed_multi.fol
 test/parser/simple_fun_variadic_generic_header.fol
 test/parser/simple_fun_when_flow_loops.fol
 test/parser/simple_fun_when_flow_missing_body.fol
@@ -246,7 +242,6 @@ test/parser/simple_optional_unwrap_expr.fol
 test/parser/simple_pipe_lambda_default_params.fol
 test/parser/simple_pipe_lambda_variadic_default_forbidden.fol
 test/parser/simple_plus_space_var.fol
-test/parser/simple_plus_var_grouped.fol
 test/parser/simple_pro_anonymous_flow_expr.fol
 test/parser/simple_pro_illegal_name.fol
 test/parser/simple_pro_method_receiver_missing_name.fol
@@ -298,17 +293,6 @@ test/parser/simple_use_braced_illegal_path.fol
 test/parser/simple_use_direct_illegal_path.fol
 test/parser/simple_use_illegal_name.fol
 test/parser/simple_use_missing_bracket_close.fol
-test/parser/simple_var_destructure_illegal_rest_name.fol
-test/parser/simple_var_destructure_leading_rest.fol
-test/parser/simple_var_destructure_nested.fol
-test/parser/simple_var_destructure_trailing_rest.fol
-test/parser/simple_var_grouped_destructure.fol
-test/parser/simple_var_grouped_entry_multi_values.fol
-test/parser/simple_var_grouped_illegal_binding_name.fol
-test/parser/simple_var_grouped_multi.fol
-test/parser/simple_var_keyword_segment_multi.fol
-test/parser/simple_var_mixed_multi.fol
-test/parser/simple_var_segment_quoted_names.fol
 test/parser/simple_var_unrecognized_character.fol
 test/parser/simple_when_top_level_statement.fol
 test/parser/simple_while_top_level.fol

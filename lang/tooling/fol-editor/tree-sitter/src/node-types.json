@@ -3366,6 +3366,21 @@
     }
   },
   {
+    "type": "rest_binding",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "return_stmt",
     "named": true,
     "fields": {},
@@ -4610,6 +4625,10 @@
             "named": true
           },
           {
+            "type": "keyword_name",
+            "named": true
+          },
+          {
             "type": "raw_string_literal",
             "named": true
           },
@@ -4762,8 +4781,12 @@
     },
     "children": {
       "multiple": true,
-      "required": true,
+      "required": false,
       "types": [
+        {
+          "type": "rest_binding",
+          "named": true
+        },
         {
           "type": "typed_binding",
           "named": true
