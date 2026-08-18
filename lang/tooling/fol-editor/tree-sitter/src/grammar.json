@@ -5988,6 +5988,34 @@
                 {
                   "type": "SYMBOL",
                   "name": "block"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "use_decl"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "ali_decl"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "def_decl"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "if_stmt"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "while_stmt"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "yield_stmt"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "break_stmt"
                 }
               ]
             }
@@ -6800,8 +6828,7 @@
               "value": "="
             },
             {
-              "type": "STRING",
-              "value": "=>"
+              "type": "BLANK"
             }
           ]
         },
@@ -6878,8 +6905,7 @@
               "value": "="
             },
             {
-              "type": "STRING",
-              "value": "=>"
+              "type": "BLANK"
             }
           ]
         },
@@ -6956,8 +6982,7 @@
               "value": "="
             },
             {
-              "type": "STRING",
-              "value": "=>"
+              "type": "BLANK"
             }
           ]
         },
@@ -7233,6 +7258,14 @@
                 {
                   "type": "SYMBOL",
                   "name": "char_literal"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "index_access"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "paren_expr"
                 }
               ]
             }

@@ -76,8 +76,6 @@ test/parser/simple_for_top_level.fol
 test/parser/simple_for_typed_binder.fol
 test/parser/simple_for_typed_binder_mismatch.fol
 test/parser/simple_for_typed_silent_binder.fol
-test/parser/simple_fun_anonymous_flow_expr.fol
-test/parser/simple_fun_anonymous_flow_inquiry_expr.fol
 test/parser/simple_fun_anonymous_invoke_expr.fol
 test/parser/simple_fun_availability_wildcard_capture.fol
 test/parser/simple_fun_braced_range_expr_semicolon.fol
@@ -126,11 +124,6 @@ test/parser/simple_fun_inquiry_flow_routine.fol
 test/parser/simple_fun_inquiry_illegal_target_segment.fol
 test/parser/simple_fun_inquiry_module_body.fol
 test/parser/simple_fun_inquiry_routine_body.fol
-test/parser/simple_fun_invoke_unpack_after_named.fol
-test/parser/simple_fun_invoke_unpack_args.fol
-test/parser/simple_fun_invoke_unpack_stmt.fol
-test/parser/simple_fun_keyword_invoke_args.fol
-test/parser/simple_fun_keyword_invoke_stmt.fol
 test/parser/simple_fun_method_call_assignment_target.fol
 test/parser/simple_fun_method_call_bad_separator.fol
 test/parser/simple_fun_method_call_dangling_operator.fol
@@ -154,7 +147,6 @@ test/parser/simple_fun_param_default_illegal_value.fol
 test/parser/simple_fun_param_illegal_type_ref.fol
 test/parser/simple_fun_pipe_control_stage.fol
 test/parser/simple_fun_pipe_decl_stage.fol
-test/parser/simple_fun_pipe_if_flow_stmt.fol
 test/parser/simple_fun_pipe_if_stage.fol
 test/parser/simple_fun_pipe_missing_rhs.fol
 test/parser/simple_fun_pipe_or_missing_rhs.fol
@@ -210,7 +202,6 @@ test/parser/simple_literal_raw_family.fol
 test/parser/simple_literal_strings.fol
 test/parser/simple_literal_trailing_dot_float.fol
 test/parser/simple_literal_underscored_float.fol
-test/parser/simple_log_anonymous_flow_expr.fol
 test/parser/simple_log_illegal_name.fol
 test/parser/simple_loop_illegal_binder_name.fol
 test/parser/simple_loop_keyword_typed_binder.fol
@@ -232,7 +223,6 @@ test/parser/simple_optional_unwrap_expr.fol
 test/parser/simple_pipe_lambda_default_params.fol
 test/parser/simple_pipe_lambda_variadic_default_forbidden.fol
 test/parser/simple_plus_space_var.fol
-test/parser/simple_pro_anonymous_flow_expr.fol
 test/parser/simple_pro_illegal_name.fol
 test/parser/simple_pro_method_receiver_missing_name.fol
 test/parser/simple_quoted_use_type_refs.fol

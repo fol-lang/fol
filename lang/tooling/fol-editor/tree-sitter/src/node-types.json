@@ -531,7 +531,15 @@
             "named": true
           },
           {
+            "type": "index_access",
+            "named": true
+          },
+          {
             "type": "keyword_name",
+            "named": true
+          },
+          {
+            "type": "paren_expr",
             "named": true
           },
           {
@@ -3012,7 +3020,15 @@
         "required": true,
         "types": [
           {
+            "type": "ali_decl",
+            "named": true
+          },
+          {
             "type": "block",
+            "named": true
+          },
+          {
+            "type": "break_stmt",
             "named": true
           },
           {
@@ -3020,7 +3036,15 @@
             "named": true
           },
           {
+            "type": "def_decl",
+            "named": true
+          },
+          {
             "type": "expr",
+            "named": true
+          },
+          {
+            "type": "if_stmt",
             "named": true
           },
           {
@@ -3032,7 +3056,19 @@
             "named": true
           },
           {
+            "type": "use_decl",
+            "named": true
+          },
+          {
             "type": "var_decl",
+            "named": true
+          },
+          {
+            "type": "while_stmt",
+            "named": true
+          },
+          {
+            "type": "yield_stmt",
             "named": true
           }
         ]
