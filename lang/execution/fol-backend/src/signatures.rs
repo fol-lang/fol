@@ -130,12 +130,22 @@ fn signature_contains_borrow(
             .is_some_and(|id| type_table.contains_borrowed(id))
 }
 
-/// FOL capabilities whose obligation the generated Rust has to carry too.
-/// `copy`, `clone`, `send` and `share` are settled in FOL at the call site and
-/// need nothing emitted; `ord` does, because a `set[T]`/`map[T, _]` over the
-/// parameter becomes a `BTreeSet`/`BTreeMap` that Rust will only accept with
-/// the bound present.
-const CAPABILITY_TRAIT_BOUNDS: &[(&str, &str)] = &[("ord", "Ord")];
+/// FOL capabilities restated as the Rust bound that means the same thing, so a
+/// routine emitted as generic code carries the obligation its FOL signature
+/// declares. `copy`/`clone` need no entry: every generic parameter already
+/// carries `Clone`.
+///
+/// Only `ord` is load-bearing today -- a `set[T]`/`map[T, _]` over the parameter
+/// becomes a `BTreeSet`/`BTreeMap` that will not compile without it. `send` and
+/// `share` are currently inert: the one construct that would need them, a
+/// generic value crossing a spawn or async boundary, is still refused earlier by
+/// typecheck. Lifting that needs a lifetime obligation to pair with the
+/// thread-safety one -- `spawn_task` wants `'static`, and a `send` parameter
+/// accepts a borrow today -- which FOL does not model yet. They are emitted so
+/// the signature states what FOL already checks, and so the entry is not missed
+/// when that changes.
+const CAPABILITY_TRAIT_BOUNDS: &[(&str, &str)] =
+    &[("ord", "Ord"), ("send", "Send"), ("share", "Sync")];
 
 fn render_generic_clause(
     routine: &LoweredRoutine,
