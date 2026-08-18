@@ -123,11 +123,8 @@ test/parser/simple_fun_param_default_illegal_raw_value.fol
 test/parser/simple_fun_param_default_illegal_value.fol
 test/parser/simple_fun_param_illegal_type_ref.fol
 test/parser/simple_fun_pipe_control_stage.fol
-test/parser/simple_fun_pipe_decl_stage.fol
-test/parser/simple_fun_pipe_if_stage.fol
 test/parser/simple_fun_pipe_missing_rhs.fol
 test/parser/simple_fun_pipe_or_missing_rhs.fol
-test/parser/simple_fun_pipe_routine_stage.fol
 test/parser/simple_fun_record_init_illegal_value.fol
 test/parser/simple_fun_return_illegal_raw_value.fol
 test/parser/simple_fun_return_illegal_value.fol
@@ -143,7 +140,6 @@ test/parser/simple_fun_unary_plus_missing_operand.fol
 test/parser/simple_fun_unknown_parameter_option.fol
 test/parser/simple_fun_variadic_generic_header.fol
 test/parser/simple_fun_when_flow_missing_body.fol
-test/parser/simple_fun_when_flow_routines.fol
 test/parser/simple_fun_when_has_missing_close.fol
 test/parser/simple_fun_when_on_missing_close.fol
 test/parser/simple_fun_when_star_default_missing_body.fol

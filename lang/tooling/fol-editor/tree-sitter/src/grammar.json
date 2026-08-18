@@ -6038,6 +6038,33 @@
                 {
                   "type": "SYMBOL",
                   "name": "use_decl"
+                },
+                {
+                  "type": "ALIAS",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "nested_fun_decl"
+                  },
+                  "named": true,
+                  "value": "fun_decl"
+                },
+                {
+                  "type": "ALIAS",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "nested_pro_decl"
+                  },
+                  "named": true,
+                  "value": "pro_decl"
+                },
+                {
+                  "type": "ALIAS",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "nested_log_decl"
+                  },
+                  "named": true,
+                  "value": "log_decl"
                 }
               ]
             },
@@ -6149,6 +6176,33 @@
                 {
                   "type": "SYMBOL",
                   "name": "use_decl"
+                },
+                {
+                  "type": "ALIAS",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "nested_fun_decl"
+                  },
+                  "named": true,
+                  "value": "fun_decl"
+                },
+                {
+                  "type": "ALIAS",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "nested_pro_decl"
+                  },
+                  "named": true,
+                  "value": "pro_decl"
+                },
+                {
+                  "type": "ALIAS",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "nested_log_decl"
+                  },
+                  "named": true,
+                  "value": "log_decl"
                 }
               ]
             },
@@ -6427,6 +6481,10 @@
                 {
                   "type": "SYMBOL",
                   "name": "ownership_op"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "pipe_expr"
                 }
               ]
             }
@@ -6492,6 +6550,41 @@
                 {
                   "type": "SYMBOL",
                   "name": "break_stmt"
+                },
+                {
+                  "type": "ALIAS",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "nested_fun_decl"
+                  },
+                  "named": true,
+                  "value": "fun_decl"
+                },
+                {
+                  "type": "ALIAS",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "nested_pro_decl"
+                  },
+                  "named": true,
+                  "value": "pro_decl"
+                },
+                {
+                  "type": "ALIAS",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "nested_log_decl"
+                  },
+                  "named": true,
+                  "value": "log_decl"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "if_stmt"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "pipe_test_stage"
                 }
               ]
             }
@@ -11094,6 +11187,27 @@
               }
             ]
           }
+        }
+      ]
+    },
+    "pipe_test_stage": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "if"
+        },
+        {
+          "type": "STRING",
+          "value": "("
+        },
+        {
+          "type": "SYMBOL",
+          "name": "expr"
+        },
+        {
+          "type": "STRING",
+          "value": ")"
         }
       ]
     }
