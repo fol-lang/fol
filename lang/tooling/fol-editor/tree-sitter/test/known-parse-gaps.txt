@@ -124,9 +124,7 @@ test/parser/simple_fun_method_call_unmatched_close_paren_arg.fol
 test/parser/simple_fun_method_receiver_missing_name.fol
 test/parser/simple_fun_named_closure_capture.fol
 test/parser/simple_fun_nested_block_missing_close.fol
-test/parser/simple_fun_nested_def_block.fol
 test/parser/simple_fun_nested_invoke.fol
-test/parser/simple_fun_nested_meta_defs.fol
 test/parser/simple_fun_open_start_range_missing_rhs.fol
 test/parser/simple_fun_param_default_illegal_raw_value.fol
 test/parser/simple_fun_param_default_illegal_value.fol
@@ -141,10 +139,8 @@ test/parser/simple_fun_record_init_illegal_value.fol
 test/parser/simple_fun_return_illegal_raw_value.fol
 test/parser/simple_fun_return_illegal_value.fol
 test/parser/simple_fun_rolling_missing_in.fol
-test/parser/simple_fun_seg_module.fol
 test/parser/simple_fun_select_stmt_no_binding.fol
 test/parser/simple_fun_shorthand_anonymous_invoke_expr.fol
-test/parser/simple_fun_std_protocol.fol
 test/parser/simple_fun_unary_minus_eof_operand.fol
 test/parser/simple_fun_unary_minus_missing_operand.fol
 test/parser/simple_fun_unary_not_eof_operand.fol
@@ -152,7 +148,6 @@ test/parser/simple_fun_unary_not_missing_operand.fol
 test/parser/simple_fun_unary_plus_eof_operand.fol
 test/parser/simple_fun_unary_plus_missing_operand.fol
 test/parser/simple_fun_unknown_parameter_option.fol
-test/parser/simple_fun_use_multi.fol
 test/parser/simple_fun_variadic_generic_header.fol
 test/parser/simple_fun_when_flow_missing_body.fol
 test/parser/simple_fun_when_flow_routines.fol
@@ -199,6 +194,7 @@ test/parser/simple_seg_illegal_name.fol
 test/parser/simple_single_quoted_generics.fol
 test/parser/simple_std_illegal_name.fol
 test/parser/simple_std_protocol_captures.fol
+test/parser/simple_std_type_missing_close.fol
 test/parser/simple_top_level_dot_echo.fol
 test/parser/simple_top_level_keyword_call_and_assignment.fol
 test/parser/simple_top_level_quoted_call_and_assignment.fol
@@ -210,12 +206,15 @@ test/parser/simple_typ_entry_missing_variant_name.fol
 test/parser/simple_typ_generics_missing_separator.fol
 test/parser/simple_typ_illegal_name.fol
 test/parser/simple_typ_illegal_type_argument_separator.fol
+test/parser/simple_typ_module_block_types.fol
+test/parser/simple_typ_module_type_bad_arity.fol
 test/parser/simple_typ_record_grouped_fields.fol
 test/parser/simple_typ_record_illegal_field_name.fol
 test/parser/simple_typ_record_keyword_fields.fol
 test/parser/simple_typ_record_marker_missing_assign.fol
 test/parser/simple_typ_record_missing_close.fol
 test/parser/simple_typ_record_missing_lab_field_name.fol
+test/parser/simple_type_args_semicolon_specials.fol
 test/parser/simple_type_limit_refs.fol
 test/parser/simple_use_braced_illegal_path.fol
 test/parser/simple_use_direct_illegal_path.fol

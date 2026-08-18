@@ -843,19 +843,7 @@
           "named": true
         },
         {
-          "type": "def_decl",
-          "named": true
-        },
-        {
-          "type": "seg_decl",
-          "named": true
-        },
-        {
           "type": "typ_decl",
-          "named": true
-        },
-        {
-          "type": "use_decl",
           "named": true
         }
       ]
@@ -4607,6 +4595,10 @@
           "named": true
         },
         {
+          "type": "def_decl",
+          "named": true
+        },
+        {
           "type": "dfr_stmt",
           "named": true
         },
@@ -4655,11 +4647,23 @@
           "named": true
         },
         {
+          "type": "seg_decl",
+          "named": true
+        },
+        {
           "type": "select_stmt",
           "named": true
         },
         {
+          "type": "std_decl",
+          "named": true
+        },
+        {
           "type": "unreachable_stmt",
+          "named": true
+        },
+        {
+          "type": "use_decl",
           "named": true
         },
         {

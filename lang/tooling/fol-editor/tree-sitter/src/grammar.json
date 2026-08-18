@@ -4844,6 +4844,22 @@
         {
           "type": "SYMBOL",
           "name": "lab_decl"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "seg_decl"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "def_decl"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "std_decl"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "use_decl"
         }
       ]
     },
@@ -8579,8 +8595,22 @@
             "type": "FIELD",
             "name": "root",
             "content": {
-              "type": "SYMBOL",
-              "name": "identifier"
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "identifier"
+                },
+                {
+                  "type": "ALIAS",
+                  "content": {
+                    "type": "STRING",
+                    "value": "std"
+                  },
+                  "named": true,
+                  "value": "identifier"
+                }
+              ]
             }
           },
           {
@@ -9408,6 +9438,18 @@
         {
           "type": "STRING",
           "value": "do"
+        },
+        {
+          "type": "STRING",
+          "value": "use"
+        },
+        {
+          "type": "STRING",
+          "value": "seg"
+        },
+        {
+          "type": "STRING",
+          "value": "def"
         }
       ]
     },
@@ -9678,23 +9720,11 @@
           "members": [
             {
               "type": "SYMBOL",
-              "name": "seg_decl"
-            },
-            {
-              "type": "SYMBOL",
-              "name": "use_decl"
-            },
-            {
-              "type": "SYMBOL",
               "name": "ali_decl"
             },
             {
               "type": "SYMBOL",
               "name": "typ_decl"
-            },
-            {
-              "type": "SYMBOL",
-              "name": "def_decl"
             }
           ]
         }
@@ -10265,6 +10295,18 @@
     ],
     [
       "pointer_type"
+    ],
+    [
+      "std_decl",
+      "qualified_path"
+    ],
+    [
+      "std_decl",
+      "expr_atom"
+    ],
+    [
+      "stmt",
+      "inquiry_scope"
     ]
   ],
   "precedences": [],
