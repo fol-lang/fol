@@ -4610,6 +4610,22 @@
                 {
                   "type": "SYMBOL",
                   "name": "deref_target"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "slice_access"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "string_literal"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "raw_string_literal"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "char_literal"
                 }
               ]
             }
@@ -4636,6 +4652,14 @@
               {
                 "type": "STRING",
                 "value": "/="
+              },
+              {
+                "type": "STRING",
+                "value": "%="
+              },
+              {
+                "type": "STRING",
+                "value": "^="
               }
             ]
           },
@@ -7730,6 +7754,10 @@
                 {
                   "type": "SYMBOL",
                   "name": "paren_expr"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "this_expr"
                 }
               ]
             }
@@ -8000,6 +8028,18 @@
           {
             "type": "STRING",
             "value": ":"
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "STRING",
+                "value": ":"
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
           },
           {
             "type": "CHOICE",

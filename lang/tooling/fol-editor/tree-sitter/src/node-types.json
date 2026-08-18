@@ -176,6 +176,10 @@
         "required": true,
         "types": [
           {
+            "type": "char_literal",
+            "named": true
+          },
+          {
             "type": "deref_target",
             "named": true
           },
@@ -193,6 +197,18 @@
           },
           {
             "type": "qualified_path",
+            "named": true
+          },
+          {
+            "type": "raw_string_literal",
+            "named": true
+          },
+          {
+            "type": "slice_access",
+            "named": true
+          },
+          {
+            "type": "string_literal",
             "named": true
           }
         ]
@@ -1455,6 +1471,10 @@
           },
           {
             "type": "self_expr",
+            "named": true
+          },
+          {
+            "type": "this_expr",
             "named": true
           }
         ]
@@ -5200,6 +5220,10 @@
     "named": false
   },
   {
+    "type": "%=",
+    "named": false
+  },
+  {
     "type": "&&",
     "named": false
   },
@@ -5397,6 +5421,10 @@
   },
   {
     "type": "^",
+    "named": false
+  },
+  {
+    "type": "^=",
     "named": false
   },
   {
