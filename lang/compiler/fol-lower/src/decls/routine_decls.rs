@@ -297,6 +297,7 @@ pub fn lower_routine_decl(
             .get(&receiver_type)
             .copied()
     });
+    routine.generic_bounds = collect_generic_bounds(typed_package, typed_symbol.declared_type);
     let entry_block = routine.blocks.push(LoweredBlock {
         id: crate::LoweredBlockId(0),
         instructions: Vec::new(),
@@ -418,4 +419,51 @@ fn routine_name(node: &AstNode) -> Option<&str> {
         | AstNode::LogDecl { name, .. } => Some(name.as_str()),
         _ => None,
     }
+}
+
+/// Pair each of a routine's generic parameters with the capability bounds it
+/// declares. The parameter's rendered name lives on its checked type, and its
+/// bounds are keyed by symbol, so the two are joined here rather than in the
+/// backend, which sees names only.
+fn collect_generic_bounds(
+    typed_package: &fol_typecheck::TypedPackage,
+    declared_type: Option<fol_typecheck::CheckedTypeId>,
+) -> std::collections::BTreeMap<String, std::collections::BTreeSet<String>> {
+    let mut bounds: std::collections::BTreeMap<String, std::collections::BTreeSet<String>> =
+        std::collections::BTreeMap::new();
+    let Some(CheckedType::Routine(signature)) =
+        declared_type.and_then(|id| typed_package.program.type_table().get(id))
+    else {
+        return bounds;
+    };
+    let generic_params = signature.generic_params.clone();
+    if generic_params.is_empty() {
+        return bounds;
+    }
+
+    let table = typed_package.program.type_table();
+    for index in 0..table.len() {
+        let Some(CheckedType::Declared {
+            symbol, name, kind, ..
+        }) = table.get(fol_typecheck::CheckedTypeId(index))
+        else {
+            continue;
+        };
+        if *kind != fol_typecheck::DeclaredTypeKind::GenericParameter
+            || !generic_params.contains(symbol)
+        {
+            continue;
+        }
+        let Some(capabilities) = typed_package
+            .program
+            .generic_capability_constraints(*symbol)
+        else {
+            continue;
+        };
+        bounds
+            .entry(name.clone())
+            .or_default()
+            .extend(capabilities.iter().cloned());
+    }
+    bounds
 }

@@ -1,0 +1,12 @@
+// A `set` member must be orderable (V3_MEM 4.1). A generic parameter promises
+// nothing on its own, so building `set[T]` over an unbounded `T` is rejected at
+// the definition rather than reaching the backend, where it would surface as a
+// Rust trait-bound error against code the author never wrote.
+fun[] collect(T)(seed: T): int = {
+    var values: set[T] = {seed};
+    return 1;
+};
+
+fun[] main(): int = {
+    return collect(3);
+};

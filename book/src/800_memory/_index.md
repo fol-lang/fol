@@ -38,6 +38,7 @@ Positive:
 - `examples/mem_owner_reinitialize_m1`
 - `examples/mem_set_observation_m1`
 - `examples/mem_index_assign_m1`
+- `examples/mem_generic_ord_bound_m1`
 - `examples/mem_when_bool_gate_m1`
 - `examples/mem_linked_list_m1`
 - `examples/mem_tree_m1`
@@ -67,6 +68,8 @@ Negative:
 - `examples/fail_mem_fin_nested_m1`
 - `examples/fail_mem_clone_fin_m1`
 - `examples/fail_mem_clone_fin_claim_m1`
+- `examples/fail_mem_generic_ord_operand_m1`
+- `examples/fail_mem_generic_copy_operand_m1`
 - `examples/fail_mem_generic_copy_bound_m1`
 - `examples/fail_mem_generic_send_bound_transitive_m1`
 

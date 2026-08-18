@@ -1021,6 +1021,27 @@ pub(crate) fn type_ownership_op(
     // requires `clone`. Enforcement is conservative — only types that are
     // definitively non-copy / non-clone are rejected here; the full structural
     // and capability-declared conformance model is a later Slice B step.
+    // A generic parameter carries no structure to inspect, so the obligation
+    // has to be declared. Without a bound the body would duplicate whatever the
+    // call site supplies -- including a unique `ptr` -- while the identical
+    // concrete code is rejected.
+    if let Some((operator, capability)) = copy
+        .then_some(("cpy", "copy"))
+        .or_else(|| clone.then_some(("cln", "clone")))
+    {
+        if let Some(name) = generic_parameter_missing_capability(typed, operand_type, capability) {
+            return Err(with_node_origin(
+                resolved,
+                node,
+                TypecheckErrorKind::Ownership,
+                format!(
+                    "'[{operator}]' requires the '{capability}' capability, but the generic \
+                     parameter '{name}' promises none; declare it as '({name}: {capability})' so \
+                     each call site is checked, or use '[mov]'"
+                ),
+            ));
+        }
+    }
     if copy && crate::decls::type_lacks_copy(typed, operand_type)? {
         return Err(with_node_origin(
             resolved,
@@ -1393,4 +1414,29 @@ pub(crate) fn type_unary_op(
         UnaryOperator::GiveBack => unreachable!("give-back is handled before unary typing"),
         UnaryOperator::Unwrap => unreachable!("unwrap is handled before plain unary typing"),
     }
+}
+
+/// The generic parameter's name when it does not promise `capability`. `clone`
+/// is satisfied by either bound, since anything copyable also clones.
+fn generic_parameter_missing_capability(
+    typed: &TypedProgram,
+    type_id: crate::CheckedTypeId,
+    capability: &str,
+) -> Option<String> {
+    let Some(crate::CheckedType::Declared {
+        symbol,
+        name,
+        kind: crate::DeclaredTypeKind::GenericParameter,
+        ..
+    }) = typed.type_table().get(type_id)
+    else {
+        return None;
+    };
+    let promised = typed
+        .generic_capability_constraints(*symbol)
+        .is_some_and(|bounds| match capability {
+            "clone" => bounds.contains("clone") || bounds.contains("copy"),
+            other => bounds.contains(other),
+        });
+    (!promised).then(|| name.clone())
 }

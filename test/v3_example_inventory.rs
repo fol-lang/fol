@@ -48,6 +48,7 @@ pub(crate) const V3_MEM_M1_POSITIVES: &[V3PositiveExample] = &[
     ("examples/mem_owner_reinitialize_m1", None),
     ("examples/mem_set_observation_m1", None),
     ("examples/mem_index_assign_m1", Some("99\n150\n7\n")),
+    ("examples/mem_generic_ord_bound_m1", Some("0\n")),
     ("examples/mem_when_bool_gate_m1", None),
     ("examples/mem_linked_list_m1", None),
     ("examples/mem_tree_m1", None),
@@ -251,6 +252,20 @@ pub(crate) const V3_MEM_M1_FAILURES: &[V3FailureExample] = &[
         "examples/fail_mem_clone_fin_claim_m1",
         "T1001",
         "a type that claims 'clone' cannot itself be a non-clonable value",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_generic_ord_operand_m1",
+        "T1001",
+        "the generic parameter 'T' promises no ordering",
+        false,
+        false
+    ),
+    v3_failure!(
+        "examples/fail_mem_generic_copy_operand_m1",
+        "O1001",
+        "the generic parameter 'T' promises none",
         false,
         false
     ),
@@ -895,6 +910,7 @@ pub(crate) const V3_NAVIGATION_PROBES: &[V3NavigationProbe] = &[
     ("examples/mem_owner_reinitialize_m1", "pointer", 4, Some(7)),
     ("examples/mem_set_observation_m1", "values", 2, Some(1)),
     ("examples/mem_index_assign_m1", "tape", 2, Some(23)),
+    ("examples/mem_generic_ord_bound_m1", "holds", 2, Some(11)),
     ("examples/mem_when_bool_gate_m1", "gated", 2, Some(1)),
     ("examples/mem_linked_list_m1", "head", 2, Some(7)),
     ("examples/mem_tree_m1", "root", 2, Some(9)),

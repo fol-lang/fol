@@ -3077,6 +3077,8 @@ fn lower_type_inner(
                     &mut std::collections::BTreeSet::new(),
                 ) {
                     return Err(unorderable_container_member_error(
+                        typed,
+                        *member,
                         "a set member",
                         type_origin(resolved, typ),
                     ));
@@ -3097,6 +3099,8 @@ fn lower_type_inner(
             if checked_type_blocks_ordering(typed, key_type, &mut std::collections::BTreeSet::new())
             {
                 return Err(unorderable_container_member_error(
+                    typed,
+                    key_type,
                     "a map key",
                     type_origin(resolved, typ),
                 ));
@@ -3698,12 +3702,31 @@ fn checked_type_references_symbol(
 /// member/key typechecks but fails the emitted Rust build. The walk descends
 /// through aggregates, nominal bodies, and non-weak pointers (`Rc<T>`/`Box<T>`
 /// are `Ord` only when `T` is), with a `visited` cycle guard.
-fn unorderable_container_member_error(role: &str, origin: Option<SyntaxOrigin>) -> TypecheckError {
-    let message = format!(
-        "{role} must be orderable, but this type has (or transitively contains) a \
-         'flt' or 'ptr[weak, T]', which have no ordering; sets and maps are \
-         'BTreeSet'/'BTreeMap'-backed and require orderable members/keys"
-    );
+fn unorderable_container_member_error(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+    role: &str,
+    origin: Option<SyntaxOrigin>,
+) -> TypecheckError {
+    // An unbounded generic parameter is a different fix from a `flt` member:
+    // the author declares the promise rather than changing the type.
+    let message = if let Some(CheckedType::Declared {
+        name,
+        kind: crate::DeclaredTypeKind::GenericParameter,
+        ..
+    }) = typed.type_table().get(type_id)
+    {
+        format!(
+            "{role} must be orderable, but the generic parameter '{name}' promises no ordering; \
+             declare it as '({name}: ord)' so each call site is checked"
+        )
+    } else {
+        format!(
+            "{role} must be orderable, but this type has (or transitively contains) a \
+             'flt' or 'ptr[weak, T]', which have no ordering; sets and maps are \
+             'BTreeSet'/'BTreeMap'-backed and require orderable members/keys"
+        )
+    };
     match origin {
         Some(origin) => {
             TypecheckError::with_origin(TypecheckErrorKind::InvalidInput, message, origin)
@@ -3749,6 +3772,17 @@ pub(crate) fn checked_type_blocks_ordering(
             .values()
             .filter_map(|variant| *variant)
             .any(|variant| blocks(variant, visited)),
+        // A generic parameter is orderable only if it promises to be. Without
+        // the bound the routine may be instantiated with a `flt` and the
+        // `BTreeSet`/`BTreeMap` requirement surfaces as a rustc error against
+        // generated code the author never wrote.
+        CheckedType::Declared {
+            symbol,
+            kind: crate::DeclaredTypeKind::GenericParameter,
+            ..
+        } => !typed
+            .generic_capability_constraints(symbol)
+            .is_some_and(|bounds| bounds.contains("ord")),
         CheckedType::Declared { symbol, args, .. } => {
             args.iter().any(|arg| blocks(*arg, visited)) || {
                 let inner = typed
@@ -3917,6 +3951,8 @@ pub(crate) fn substitute_generic_checked_type(
                     &mut std::collections::BTreeSet::new(),
                 ) {
                     return Err(unorderable_container_member_error(
+                        typed,
+                        *member,
                         "a set member",
                         origin.clone(),
                     ));
@@ -3937,7 +3973,12 @@ pub(crate) fn substitute_generic_checked_type(
             // Only the key must be orderable (BTreeMap); re-check the concrete key.
             if checked_type_blocks_ordering(typed, key_type, &mut std::collections::BTreeSet::new())
             {
-                return Err(unorderable_container_member_error("a map key", origin));
+                return Err(unorderable_container_member_error(
+                    typed,
+                    key_type,
+                    "a map key",
+                    origin,
+                ));
             }
             Ok(typed.type_table_mut().intern(CheckedType::Map {
                 key_type,

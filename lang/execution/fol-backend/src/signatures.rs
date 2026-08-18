@@ -130,7 +130,15 @@ fn signature_contains_borrow(
             .is_some_and(|id| type_table.contains_borrowed(id))
 }
 
+/// FOL capabilities whose obligation the generated Rust has to carry too.
+/// `copy`, `clone`, `send` and `share` are settled in FOL at the call site and
+/// need nothing emitted; `ord` does, because a `set[T]`/`map[T, _]` over the
+/// parameter becomes a `BTreeSet`/`BTreeMap` that Rust will only accept with
+/// the bound present.
+const CAPABILITY_TRAIT_BOUNDS: &[(&str, &str)] = &[("ord", "Ord")];
+
 fn render_generic_clause(
+    routine: &LoweredRoutine,
     signature: &LoweredRoutineType,
     type_table: &LoweredTypeTable,
     has_borrow: bool,
@@ -149,11 +157,22 @@ fn render_generic_clause(
     if has_borrow {
         entries.push(SIGNATURE_LIFETIME.to_string());
     }
-    entries.extend(
-        params
-            .iter()
-            .map(|name| format!("{}: Clone + Default", crate::sanitize_backend_ident(name))),
-    );
+    entries.extend(params.iter().map(|name| {
+        let mut traits = vec!["Clone", "Default"];
+        if let Some(capabilities) = routine.generic_bounds.get(name) {
+            traits.extend(
+                CAPABILITY_TRAIT_BOUNDS
+                    .iter()
+                    .filter(|(capability, _)| capabilities.contains(*capability))
+                    .map(|(_, bound)| *bound),
+            );
+        }
+        format!(
+            "{}: {}",
+            crate::sanitize_backend_ident(name),
+            traits.join(" + ")
+        )
+    }));
     if entries.is_empty() {
         String::new()
     } else {
@@ -277,7 +296,7 @@ pub fn render_routine_signature(
         }
         return_type = annotate_signature_lifetime(&return_type);
     }
-    let generic_clause = render_generic_clause(signature, type_table, has_borrow);
+    let generic_clause = render_generic_clause(routine, signature, type_table, has_borrow);
 
     Ok(format!(
         "pub fn {}{}({}){}",

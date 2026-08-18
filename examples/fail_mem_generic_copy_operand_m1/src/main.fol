@@ -1,0 +1,12 @@
+// `[cpy]` needs the `copy` capability, and a generic parameter has none unless
+// it declares one (V3_MEM 4.1). Without the bound the body would duplicate
+// whatever the call site supplies -- including a unique `ptr` -- while the same
+// code written against a concrete type is rejected.
+fun[] duplicate(T)(item: T): int = {
+    var copied: T = [cpy]item;
+    return 1;
+};
+
+fun[] main(): int = {
+    return duplicate(3);
+};

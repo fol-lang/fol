@@ -517,6 +517,11 @@ pub struct LoweredRoutine {
     pub instructions: IdTable<LoweredInstrId, LoweredInstr>,
     pub entry_block: LoweredBlockId,
     pub body_result: Option<LoweredLocalId>,
+    /// Capability bounds declared on this routine's generic parameters, keyed by
+    /// the parameter name the backend renders. Only capabilities with a Rust
+    /// equivalent become emitted trait bounds; the rest stay FOL-side
+    /// obligations checked at the call site.
+    pub generic_bounds: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl LoweredRoutine {
@@ -536,6 +541,7 @@ impl LoweredRoutine {
             instructions: IdTable::new(),
             entry_block,
             body_result: None,
+            generic_bounds: BTreeMap::new(),
         }
     }
 }
