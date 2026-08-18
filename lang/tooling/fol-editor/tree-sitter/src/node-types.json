@@ -733,6 +733,37 @@
     }
   },
   {
+    "type": "decl_flow_body",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "ali_decl",
+          "named": true
+        },
+        {
+          "type": "def_decl",
+          "named": true
+        },
+        {
+          "type": "seg_decl",
+          "named": true
+        },
+        {
+          "type": "typ_decl",
+          "named": true
+        },
+        {
+          "type": "use_decl",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "decl_modifiers",
     "named": true,
     "fields": {},
@@ -975,6 +1006,10 @@
       "multiple": false,
       "required": true,
       "types": [
+        {
+          "type": "decl_flow_body",
+          "named": true
+        },
         {
           "type": "flow_body",
           "named": true
@@ -1679,6 +1714,10 @@
       "required": true,
       "types": [
         {
+          "type": "decl_flow_body",
+          "named": true
+        },
+        {
           "type": "else_clause",
           "named": true
         },
@@ -2231,10 +2270,14 @@
     "fields": {},
     "children": {
       "multiple": true,
-      "required": true,
+      "required": false,
       "types": [
         {
           "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "keyword_name",
           "named": true
         }
       ]
@@ -3786,6 +3829,10 @@
           "named": true
         },
         {
+          "type": "con_decl",
+          "named": true
+        },
+        {
           "type": "doc_comment",
           "named": true
         },
@@ -3950,9 +3997,13 @@
       }
     },
     "children": {
-      "multiple": false,
+      "multiple": true,
       "required": true,
       "types": [
+        {
+          "type": "decl_modifiers",
+          "named": true
+        },
         {
           "type": "standard_block",
           "named": true
@@ -4108,6 +4159,86 @@
         "types": [
           {
             "type": "decl_modifiers",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "raw_string_literal",
+            "named": true
+          },
+          {
+            "type": "string_literal",
+            "named": true
+          }
+        ]
+      },
+      "target": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "type_expr",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "entry_type",
+          "named": true
+        },
+        {
+          "type": "object_type",
+          "named": true
+        },
+        {
+          "type": "record_type",
+          "named": true
+        },
+        {
+          "type": "typ_group_entry",
+          "named": true
+        },
+        {
+          "type": "type_block",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "typ_group_entry",
+    "named": true,
+    "fields": {
+      "contracts": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "type_contract_claims",
+            "named": true
+          }
+        ]
+      },
+      "generics": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "generic_params",
             "named": true
           }
         ]
