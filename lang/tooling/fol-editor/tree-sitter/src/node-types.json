@@ -275,6 +275,36 @@
     }
   },
   {
+    "type": "availability_suffix",
+    "named": true,
+    "fields": {
+      "receiver": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "index_access",
+            "named": true
+          },
+          {
+            "type": "slice_access",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "call_arg",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "binary_expr",
     "named": true,
     "fields": {
@@ -1192,6 +1222,10 @@
         },
         {
           "type": "availability_access",
+          "named": true
+        },
+        {
+          "type": "availability_suffix",
           "named": true
         },
         {
@@ -4608,6 +4642,10 @@
           {
             "type": "expr_atom",
             "named": true
+          },
+          {
+            "type": "unary_expr",
+            "named": true
           }
         ]
       },
@@ -4615,6 +4653,10 @@
         "multiple": false,
         "required": true,
         "types": [
+          {
+            "type": "+",
+            "named": false
+          },
           {
             "type": "-",
             "named": false
