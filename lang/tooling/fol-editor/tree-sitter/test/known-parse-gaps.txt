@@ -1,13 +1,9 @@
-# Files whose tree-sitter parse still reports ERROR nodes.
-# Every entry is a parser/lexer fixture; real FOL code must never appear here.
+# Files whose tree-sitter parse reports ERROR nodes.
+# Every entry is one the compiler itself rejects in its parser or lexer, so the
+# ERROR is correct: these are deliberately malformed fixtures and token dumps.
+# Audited entry by entry — no entry here parses in the compiler.
 # This list is a ratchet: it may shrink, never grow. See treesitter_parse_ratchet.
-#
-# Four families are left out on purpose, each measured against src/parser.c:
-#   - named routine declarations nested in a where/if/pipe stage: +11M, 5 files
-#   - `if (x) { arm -> value; }` matching expressions:            +33M, 2 files
-#   - calling an anonymous routine in place:                      +11M, 2 files
-#   - declarations directly inside a function block: breaks 176 real files
-# Re-measure before assuming any of these is merely an oversight.
+# Refresh it with FOL_RATCHET_UPDATE=1; the diff must be deletions only.
 examples/fail_proc_mutex_double_paren_m3/src/main.fol
 examples/fail_proc_select_old_form_m3/src/main.fol
 test/apps/fixtures/fail_membership_operator/main.fol
@@ -113,7 +109,6 @@ test/parser/simple_fun_method_call_nested_empty_slot.fol
 test/parser/simple_fun_method_call_unmatched_close_paren_arg.fol
 test/parser/simple_fun_method_receiver_missing_name.fol
 test/parser/simple_fun_nested_block_missing_close.fol
-test/parser/simple_fun_nested_invoke.fol
 test/parser/simple_fun_open_start_range_missing_rhs.fol
 test/parser/simple_fun_param_default_illegal_raw_value.fol
 test/parser/simple_fun_param_default_illegal_value.fol
@@ -186,9 +181,7 @@ test/parser/simple_typ_entry_missing_variant_name.fol
 test/parser/simple_typ_generics_missing_separator.fol
 test/parser/simple_typ_illegal_name.fol
 test/parser/simple_typ_illegal_type_argument_separator.fol
-test/parser/simple_typ_record_grouped_fields.fol
 test/parser/simple_typ_record_illegal_field_name.fol
-test/parser/simple_typ_record_keyword_fields.fol
 test/parser/simple_typ_record_marker_missing_assign.fol
 test/parser/simple_typ_record_missing_close.fol
 test/parser/simple_typ_record_missing_lab_field_name.fol

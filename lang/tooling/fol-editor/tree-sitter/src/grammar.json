@@ -701,6 +701,47 @@
           ]
         },
         {
+          "type": "REPEAT",
+          "content": {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "FIELD",
+                "name": "name",
+                "content": {
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "SYMBOL",
+                      "name": "identifier"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "string_literal"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "raw_string_literal"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "char_literal"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "keyword_name"
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "STRING",
+                "value": ","
+              }
+            ]
+          }
+        },
+        {
           "type": "SYMBOL",
           "name": "typed_binding"
         },
@@ -2012,6 +2053,10 @@
               {
                 "type": "SYMBOL",
                 "name": "char_literal"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "keyword_name"
               },
               {
                 "type": "SYMBOL",
@@ -4602,6 +4647,47 @@
       "content": {
         "type": "SEQ",
         "members": [
+          {
+            "type": "REPEAT",
+            "content": {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "FIELD",
+                  "name": "name",
+                  "content": {
+                    "type": "CHOICE",
+                    "members": [
+                      {
+                        "type": "SYMBOL",
+                        "name": "identifier"
+                      },
+                      {
+                        "type": "SYMBOL",
+                        "name": "string_literal"
+                      },
+                      {
+                        "type": "SYMBOL",
+                        "name": "raw_string_literal"
+                      },
+                      {
+                        "type": "SYMBOL",
+                        "name": "char_literal"
+                      },
+                      {
+                        "type": "SYMBOL",
+                        "name": "keyword_name"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "type": "STRING",
+                  "value": ","
+                }
+              ]
+            }
+          },
           {
             "type": "SYMBOL",
             "name": "typed_binding"
@@ -7945,6 +8031,10 @@
                 {
                   "type": "SYMBOL",
                   "name": "paren_expr"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "call_expr"
                 }
               ]
             }
@@ -9685,6 +9775,10 @@
         {
           "type": "STRING",
           "value": "def"
+        },
+        {
+          "type": "STRING",
+          "value": "log"
         }
       ]
     },
@@ -11719,6 +11813,28 @@
     [
       "if_stmt",
       "pipe_test_stage"
+    ],
+    [
+      "typed_binding",
+      "record_field"
+    ],
+    [
+      "anonymous_log_expr",
+      "keyword_name"
+    ],
+    [
+      "anonymous_log_expr",
+      "keyword_name",
+      "nested_log_decl"
+    ],
+    [
+      "log_decl",
+      "keyword_name"
+    ],
+    [
+      "log_decl",
+      "anonymous_log_expr",
+      "keyword_name"
     ]
   ],
   "precedences": [],
