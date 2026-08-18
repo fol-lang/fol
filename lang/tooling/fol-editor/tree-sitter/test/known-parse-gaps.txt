@@ -1,6 +1,13 @@
 # Files whose tree-sitter parse still reports ERROR nodes.
 # Every entry is a parser/lexer fixture; real FOL code must never appear here.
 # This list is a ratchet: it may shrink, never grow. See treesitter_parse_ratchet.
+#
+# Four families are left out on purpose, each measured against src/parser.c:
+#   - named routine declarations nested in a where/if/pipe stage: +11M, 5 files
+#   - `if (x) { arm -> value; }` matching expressions:            +33M, 2 files
+#   - calling an anonymous routine in place:                      +11M, 2 files
+#   - declarations directly inside a function block: breaks 176 real files
+# Re-measure before assuming any of these is merely an oversight.
 examples/fail_proc_mutex_double_paren_m3/src/main.fol
 examples/fail_proc_select_old_form_m3/src/main.fol
 test/apps/fixtures/fail_membership_operator/main.fol
