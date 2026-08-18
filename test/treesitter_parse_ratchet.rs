@@ -24,32 +24,26 @@ fn known_gaps(root: &Path) -> BTreeSet<String> {
         .collect()
 }
 
-/// Every `.fol` file worth parsing, as a repo-relative path.
+/// Every `.fol` file worth parsing, as a repo-relative path. Only committed
+/// files count: other tests write `.fol` fixtures under `test/` while this one
+/// runs, and those would otherwise read as regressions.
 fn fol_sources(root: &Path) -> Vec<String> {
-    let mut found = Vec::new();
-    let mut stack: Vec<PathBuf> = ["examples", "lang/library", "test", "book"]
-        .iter()
-        .map(|dir| root.join(dir))
+    let listing = std::process::Command::new("git")
+        .args(["ls-files", "-z", "--", "*.fol"])
+        .current_dir(root)
+        .output()
+        .expect("git should list the tracked sources");
+
+    let mut found: Vec<String> = String::from_utf8_lossy(&listing.stdout)
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .filter(|path| {
+            ["examples/", "lang/library/", "test/", "book/"]
+                .iter()
+                .any(|prefix| path.starts_with(prefix))
+        })
+        .map(str::to_string)
         .collect();
-    while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                // `.fol` build directories hold generated copies of the sources.
-                if path.file_name().is_some_and(|name| name == ".fol") {
-                    continue;
-                }
-                stack.push(path);
-            } else if path.extension().is_some_and(|ext| ext == "fol") {
-                if let Ok(relative) = path.strip_prefix(root) {
-                    found.push(relative.to_string_lossy().into_owned());
-                }
-            }
-        }
-    }
     found.sort();
     found
 }
