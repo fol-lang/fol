@@ -56,7 +56,6 @@ test/parser/simple_call_top_level_unary_plus_missing_operand.fol
 test/parser/simple_call_top_level_unmatched_close_paren_arg.fol
 test/parser/simple_call_top_level_unmatched_open_paren_arg.fol
 test/parser/simple_def_illegal_name.fol
-test/parser/simple_def_macro.fol
 test/parser/simple_def_macro_overloads.fol
 test/parser/simple_def_module.fol
 test/parser/simple_def_module_meta_defs.fol
@@ -118,8 +117,6 @@ test/parser/simple_fun_error_type_report_two_args.fol
 test/parser/simple_fun_field_access_illegal_name.fol
 test/parser/simple_fun_field_assignment_missing_name.fol
 test/parser/simple_fun_field_compound_assignment.fol
-test/parser/simple_fun_function_type_quoted_params.fol
-test/parser/simple_fun_grouped_quoted_params.fol
 test/parser/simple_fun_if_flow_missing_body.fol
 test/parser/simple_fun_if_flow_routines.fol
 test/parser/simple_fun_if_flow_type_module_decls.fol
@@ -172,10 +169,7 @@ test/parser/simple_fun_pipe_missing_rhs.fol
 test/parser/simple_fun_pipe_or_missing_rhs.fol
 test/parser/simple_fun_pipe_routine_stage.fol
 test/parser/simple_fun_pow_compound_assignment.fol
-test/parser/simple_fun_quoted_assignment_target.fol
 test/parser/simple_fun_quoted_call_and_assignment.fol
-test/parser/simple_fun_quoted_members.fol
-test/parser/simple_fun_quoted_params.fol
 test/parser/simple_fun_record_init_illegal_value.fol
 test/parser/simple_fun_return_illegal_raw_value.fol
 test/parser/simple_fun_return_illegal_value.fol
@@ -264,7 +258,6 @@ test/parser/simple_plus_var_grouped.fol
 test/parser/simple_pro_anonymous_flow_expr.fol
 test/parser/simple_pro_illegal_name.fol
 test/parser/simple_pro_method_receiver_missing_name.fol
-test/parser/simple_quoted_routine_names.fol
 test/parser/simple_quoted_use_type_refs.fol
 test/parser/simple_routine_default_param_missing_value.fol
 test/parser/simple_routine_generics_default_forbidden.fol
@@ -273,12 +266,8 @@ test/parser/simple_routine_named_generics.fol
 test/parser/simple_seg_empty_options_marker.fol
 test/parser/simple_seg_illegal_name.fol
 test/parser/simple_seg_marker.fol
-test/parser/simple_seg_module.fol
-test/parser/simple_seg_quoted_name.fol
 test/parser/simple_single_quoted_generics.fol
 test/parser/simple_single_quoted_named_function_types.fol
-test/parser/simple_single_quoted_names.fol
-test/parser/simple_single_quoted_params.fol
 test/parser/simple_single_quoted_use_type_refs.fol
 test/parser/simple_std_illegal_name.fol
 test/parser/simple_std_protocol_captures.fol

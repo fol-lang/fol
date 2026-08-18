@@ -18,6 +18,10 @@
         "required": true,
         "types": [
           {
+            "type": "char_literal",
+            "named": true
+          },
+          {
             "type": "identifier",
             "named": true
           },
@@ -485,6 +489,10 @@
         "required": true,
         "types": [
           {
+            "type": "char_literal",
+            "named": true
+          },
+          {
             "type": "field_access",
             "named": true
           },
@@ -806,6 +814,10 @@
         "multiple": false,
         "required": true,
         "types": [
+          {
+            "type": "char_literal",
+            "named": true
+          },
           {
             "type": "identifier",
             "named": true
@@ -1313,6 +1325,10 @@
         "multiple": false,
         "required": true,
         "types": [
+          {
+            "type": "char_literal",
+            "named": true
+          },
           {
             "type": "identifier",
             "named": true
@@ -2219,6 +2235,10 @@
         "required": true,
         "types": [
           {
+            "type": "char_literal",
+            "named": true
+          },
+          {
             "type": "identifier",
             "named": true
           },
@@ -2278,6 +2298,73 @@
         },
         {
           "type": "keyword_name",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "module_scope",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "ali_decl",
+          "named": true
+        },
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "con_decl",
+          "named": true
+        },
+        {
+          "type": "def_decl",
+          "named": true
+        },
+        {
+          "type": "doc_comment",
+          "named": true
+        },
+        {
+          "type": "fun_decl",
+          "named": true
+        },
+        {
+          "type": "lab_decl",
+          "named": true
+        },
+        {
+          "type": "log_decl",
+          "named": true
+        },
+        {
+          "type": "pro_decl",
+          "named": true
+        },
+        {
+          "type": "seg_decl",
+          "named": true
+        },
+        {
+          "type": "std_decl",
+          "named": true
+        },
+        {
+          "type": "typ_decl",
+          "named": true
+        },
+        {
+          "type": "use_decl",
+          "named": true
+        },
+        {
+          "type": "var_decl",
           "named": true
         }
       ]
@@ -2518,7 +2605,19 @@
         "required": true,
         "types": [
           {
+            "type": "char_literal",
+            "named": true
+          },
+          {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "raw_string_literal",
+            "named": true
+          },
+          {
+            "type": "string_literal",
             "named": true
           }
         ]
@@ -2781,6 +2880,10 @@
         "required": true,
         "types": [
           {
+            "type": "char_literal",
+            "named": true
+          },
+          {
             "type": "identifier",
             "named": true
           },
@@ -2853,6 +2956,10 @@
         "required": true,
         "types": [
           {
+            "type": "char_literal",
+            "named": true
+          },
+          {
             "type": "identifier",
             "named": true
           },
@@ -2924,6 +3031,10 @@
         "multiple": false,
         "required": true,
         "types": [
+          {
+            "type": "char_literal",
+            "named": true
+          },
           {
             "type": "identifier",
             "named": true
@@ -3070,6 +3181,10 @@
         "multiple": true,
         "required": true,
         "types": [
+          {
+            "type": "char_literal",
+            "named": true
+          },
           {
             "type": "identifier",
             "named": true
@@ -3448,6 +3563,10 @@
         "required": true,
         "types": [
           {
+            "type": "char_literal",
+            "named": true
+          },
+          {
             "type": "identifier",
             "named": true
           },
@@ -3477,7 +3596,7 @@
       "required": true,
       "types": [
         {
-          "type": "block",
+          "type": "module_scope",
           "named": true
         }
       ]
@@ -3982,6 +4101,10 @@
         "required": true,
         "types": [
           {
+            "type": "char_literal",
+            "named": true
+          },
+          {
             "type": "identifier",
             "named": true
           },
@@ -4168,6 +4291,10 @@
         "required": false,
         "types": [
           {
+            "type": "char_literal",
+            "named": true
+          },
+          {
             "type": "identifier",
             "named": true
           },
@@ -4247,6 +4374,10 @@
         "multiple": false,
         "required": true,
         "types": [
+          {
+            "type": "char_literal",
+            "named": true
+          },
           {
             "type": "identifier",
             "named": true
@@ -4374,6 +4505,10 @@
           "named": true
         },
         {
+          "type": "char_literal",
+          "named": true
+        },
+        {
           "type": "container_type",
           "named": true
         },
@@ -4432,6 +4567,10 @@
         "multiple": false,
         "required": true,
         "types": [
+          {
+            "type": "char_literal",
+            "named": true
+          },
           {
             "type": "identifier",
             "named": true
