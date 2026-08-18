@@ -4429,6 +4429,14 @@
               {
                 "type": "SYMBOL",
                 "name": "lab_decl"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "typ_decl"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "ali_decl"
               }
             ]
           }
@@ -8841,8 +8849,17 @@
                 "type": "SEQ",
                 "members": [
                   {
-                    "type": "STRING",
-                    "value": "if"
+                    "type": "CHOICE",
+                    "members": [
+                      {
+                        "type": "STRING",
+                        "value": "if"
+                      },
+                      {
+                        "type": "STRING",
+                        "value": "when"
+                      }
+                    ]
                   },
                   {
                     "type": "FIELD",
@@ -9004,6 +9021,23 @@
         {
           "type": "STRING",
           "value": "*"
+        },
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "*"
+            },
+            {
+              "type": "STRING",
+              "value": "=>"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "type_expr"
+            }
+          ]
         }
       ]
     },
@@ -9924,8 +9958,37 @@
         "type": "SEQ",
         "members": [
           {
-            "type": "SYMBOL",
-            "name": "expr_atom"
+            "type": "FIELD",
+            "name": "receiver",
+            "content": {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "identifier"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "qualified_path"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "field_access"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "index_access"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "call_expr"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "paren_expr"
+                }
+              ]
+            }
           },
           {
             "type": "STRING",
