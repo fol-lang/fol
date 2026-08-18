@@ -1567,8 +1567,10 @@ mod tests {
         fol_testkit::TempFixture::new(&format!("fol_editor_tree_bundle_{label}"))
     }
 
+    /// The generated parser is not checked in, so seed from what the build
+    /// script produced.
     fn seed_staged_parser_assets(staging: &Path) -> EditorResult<()> {
-        let checked_in = repo_root().join("lang/tooling/fol-editor/tree-sitter");
+        let checked_in = PathBuf::from(env!("OUT_DIR"));
         for relative in TREE_SITTER_CLI_GENERATED_FILES {
             let destination = staging.join(relative);
             std::fs::create_dir_all(destination.parent().unwrap()).unwrap();

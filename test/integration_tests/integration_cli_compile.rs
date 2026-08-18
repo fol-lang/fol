@@ -159,16 +159,18 @@ fn test_tree_sitter_pin_is_the_same_in_ci_the_dev_shell_and_the_editor_guard() {
     }
 
     let flake = std::fs::read_to_string(repo_root().join("flake.nix")).expect("flake.nix");
-    let workflow = std::fs::read_to_string(repo_root().join(".github/workflows/tests.yml"))
-        .expect("tests workflow should exist");
+    let installer =
+        std::fs::read_to_string(repo_root().join(".github/actions/tree-sitter/action.yml"))
+            .expect("the shared tree-sitter installer should exist");
     let guard =
         std::fs::read_to_string(repo_root().join("lang/tooling/fol-editor/src/commands.rs"))
             .expect("editor commands should exist");
+    let builder = std::fs::read_to_string(repo_root().join("lang/tooling/fol-editor/build.rs"))
+        .expect("editor build script should exist");
 
-    // The editor regenerates the grammar with this CLI and then asserts on the
-    // bytes it emits, so a shell that hands over a different series fails ~33
-    // tests for reasons that look nothing like a version mismatch. Keep the
-    // three places that install or demand it from drifting apart.
+    // fol-editor generates its parser from grammar.json during the build, so a
+    // shell that hands over a different series does not just fail tests, it
+    // fails to build. Keep every place that installs or demands it in step.
     let required_series = quoted_value_after(&guard, "REQUIRED_TREE_SITTER_VERSION: &str =");
     let pinned = quoted_value_after(&flake, "treeSitterVersion =");
     assert!(
@@ -176,16 +178,33 @@ fn test_tree_sitter_pin_is_the_same_in_ci_the_dev_shell_and_the_editor_guard() {
         "the dev shell pins tree-sitter {pinned}, but the editor requires {required_series}.x"
     );
     assert!(
-        workflow.contains(&format!("version={pinned}")),
+        builder.contains(&format!(
+            "REQUIRED_TREE_SITTER_VERSION: &str = \"{required_series}\""
+        )),
+        "the build script should demand the same tree-sitter {required_series}.x the editor does"
+    );
+    assert!(
+        installer.contains(&format!("version={pinned}")),
         "CI should install the same tree-sitter {pinned} the dev shell pins"
     );
 
     // A pinned version that is fetched without verification is a pin in name
     // only; the release chain runs this workflow.
     assert!(
-        workflow.contains("sha256sum --check --strict"),
+        installer.contains("sha256sum --check --strict"),
         "the CI tree-sitter download should be checksum-verified"
     );
+
+    // Every workflow that builds the workspace needs the CLI, not just the one
+    // that runs the tests.
+    for workflow in ["tests.yml", "network.yml", "release.yml"] {
+        let text = std::fs::read_to_string(repo_root().join(".github/workflows").join(workflow))
+            .unwrap_or_else(|_| panic!("{workflow} should exist"));
+        assert!(
+            text.contains("./fol/.github/actions/tree-sitter"),
+            "{workflow} builds the workspace, so it must install the pinned tree-sitter CLI"
+        );
+    }
 }
 
 #[test]

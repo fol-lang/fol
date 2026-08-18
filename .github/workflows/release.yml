@@ -87,6 +87,9 @@ jobs:
         with:
           workspaces: fol
 
+      - name: Install the pinned tree-sitter CLI
+        uses: ./fol/.github/actions/tree-sitter
+
       - name: Build folc and fol
         working-directory: fol
         run: |

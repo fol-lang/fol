@@ -33,6 +33,9 @@ jobs:
         with:
           workspaces: fol
 
+      - name: Install the pinned tree-sitter CLI
+        uses: ./fol/.github/actions/tree-sitter
+
       - name: Install native prerequisites
         run: sudo apt-get update && sudo apt-get install --yes binutils build-essential
 

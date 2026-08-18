@@ -141,6 +141,7 @@ These encode editor UX or structural syntax intent, not language-name facts:
 | Area | Location | Why it stays manual |
 |------|----------|---------------------|
 | tree-sitter grammar structure | `lang/tooling/fol-editor/tree-sitter/src/grammar.json` | grammar shape is structural and cannot be usefully derived from compiler registries |
+| generated parser | not tracked — `build.rs` runs `tree-sitter generate` into `OUT_DIR` | `parser.c` is tens of megabytes and a fresh blob per grammar edit, so only the grammar is committed. Building the workspace therefore needs the pinned `tree-sitter` CLI (`.github/actions/tree-sitter`, `flake.nix`); `nix develop` supplies it |
 | structural highlight captures | `lang/tooling/fol-editor/queries/fol/highlights.base.scm` | capture layout is editor-facing presentation logic |
 | locals/symbols query structure | `lang/tooling/fol-editor/queries/fol/locals.scm`, `lang/tooling/fol-editor/queries/fol/symbols.scm` | scope/symbol capture shapes are structural tree-sitter authoring |
 | completion ranking and tie-breaking | `lang/tooling/fol-editor/src/lsp/completion_helpers.rs` | ordering and UX priority are editor policy |

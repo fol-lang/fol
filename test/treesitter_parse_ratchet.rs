@@ -67,7 +67,8 @@ fn rewrite_listing(root: &Path, added: &[String], removed: &[String]) {
         .map(|line| (*line).to_string())
         .chain(entries)
         .collect();
-    std::fs::write(&path, format!("{}\n", body.join("\n"))).expect("the listing should be writable");
+    std::fs::write(&path, format!("{}\n", body.join("\n")))
+        .expect("the listing should be writable");
 }
 
 #[test]
