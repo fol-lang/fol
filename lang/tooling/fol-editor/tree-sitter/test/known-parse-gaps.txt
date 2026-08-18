@@ -74,7 +74,6 @@ test/parser/simple_for_typed_binder_mismatch.fol
 test/parser/simple_for_typed_silent_binder.fol
 test/parser/simple_fun_anonymous_invoke_expr.fol
 test/parser/simple_fun_availability_wildcard_capture.fol
-test/parser/simple_fun_braced_range_expr_semicolon.fol
 test/parser/simple_fun_call_assignment_target.fol
 test/parser/simple_fun_call_bad_separator.fol
 test/parser/simple_fun_call_dangling_operator.fol
@@ -86,8 +85,6 @@ test/parser/simple_fun_call_mixed_unmatched_close_first_arg.fol
 test/parser/simple_fun_call_nested_bad_separator.fol
 test/parser/simple_fun_call_nested_dangling_operator.fol
 test/parser/simple_fun_call_nested_empty_slot.fol
-test/parser/simple_fun_call_nested_semicolon.fol
-test/parser/simple_fun_call_semicolon.fol
 test/parser/simple_fun_call_unary_plus_missing_operand.fol
 test/parser/simple_fun_call_unmatched_close_paren_arg.fol
 test/parser/simple_fun_call_unpack_missing_operand.fol
@@ -109,7 +106,6 @@ test/parser/simple_fun_if_flow_routines.fol
 test/parser/simple_fun_illegal_capture_name.fol
 test/parser/simple_fun_illegal_name.fol
 test/parser/simple_fun_index_compound_assignment.fol
-test/parser/simple_fun_indexed_invoke_semicolon.fol
 test/parser/simple_fun_inquiry_flow_routine.fol
 test/parser/simple_fun_inquiry_illegal_target_segment.fol
 test/parser/simple_fun_inquiry_routine_body.fol
