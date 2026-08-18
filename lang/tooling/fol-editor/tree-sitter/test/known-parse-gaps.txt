@@ -183,8 +183,6 @@ test/parser/simple_never_type_missing_close.fol
 test/parser/simple_none_type_missing_close.fol
 test/parser/simple_opt_type_bad_separator.fol
 test/parser/simple_optional_unwrap_expr.fol
-test/parser/simple_pipe_lambda_default_params.fol
-test/parser/simple_pipe_lambda_variadic_default_forbidden.fol
 test/parser/simple_pro_illegal_name.fol
 test/parser/simple_pro_method_receiver_missing_name.fol
 test/parser/simple_routine_default_param_missing_value.fol
@@ -211,7 +209,6 @@ test/parser/simple_typ_record_keyword_fields.fol
 test/parser/simple_typ_record_marker_missing_assign.fol
 test/parser/simple_typ_record_missing_close.fol
 test/parser/simple_typ_record_missing_lab_field_name.fol
-test/parser/simple_type_args_semicolon_routine_use.fol
 test/parser/simple_type_limit_refs.fol
 test/parser/simple_use_braced_illegal_path.fol
 test/parser/simple_use_direct_illegal_path.fol
