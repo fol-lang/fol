@@ -4619,6 +4619,10 @@
           "named": true
         },
         {
+          "type": "fun_decl",
+          "named": true
+        },
+        {
           "type": "if_stmt",
           "named": true
         },
@@ -4631,11 +4635,19 @@
           "named": true
         },
         {
+          "type": "log_decl",
+          "named": true
+        },
+        {
           "type": "loop_expr",
           "named": true
         },
         {
           "type": "panic_stmt",
+          "named": true
+        },
+        {
+          "type": "pro_decl",
           "named": true
         },
         {

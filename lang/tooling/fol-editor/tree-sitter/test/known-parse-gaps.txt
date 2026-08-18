@@ -98,20 +98,14 @@ test/parser/simple_fun_call_unterminated_doc_comment.fol
 test/parser/simple_fun_container_illegal_element.fol
 test/parser/simple_fun_container_literal_bad_separator.fol
 test/parser/simple_fun_dot_builtin_illegal_name.fol
-test/parser/simple_fun_duplicate_closure_capture.fol
-test/parser/simple_fun_duplicate_closure_capture_canonical.fol
 test/parser/simple_fun_duplicate_trailing_inquiry_clause_canonical.fol
 test/parser/simple_fun_error_type_legacy_separator.fol
 test/parser/simple_fun_error_type_missing_type.fol
 test/parser/simple_fun_field_access_illegal_name.fol
 test/parser/simple_fun_field_assignment_missing_name.fol
 test/parser/simple_fun_if_flow_missing_body.fol
-test/parser/simple_fun_if_flow_routines.fol
-test/parser/simple_fun_illegal_capture_name.fol
 test/parser/simple_fun_illegal_name.fol
-test/parser/simple_fun_inquiry_flow_routine.fol
 test/parser/simple_fun_inquiry_illegal_target_segment.fol
-test/parser/simple_fun_inquiry_routine_body.fol
 test/parser/simple_fun_method_call_assignment_target.fol
 test/parser/simple_fun_method_call_bad_separator.fol
 test/parser/simple_fun_method_call_dangling_operator.fol
@@ -122,7 +116,6 @@ test/parser/simple_fun_method_call_nested_dangling_operator.fol
 test/parser/simple_fun_method_call_nested_empty_slot.fol
 test/parser/simple_fun_method_call_unmatched_close_paren_arg.fol
 test/parser/simple_fun_method_receiver_missing_name.fol
-test/parser/simple_fun_named_closure_capture.fol
 test/parser/simple_fun_nested_block_missing_close.fol
 test/parser/simple_fun_nested_invoke.fol
 test/parser/simple_fun_open_start_range_missing_rhs.fol
@@ -180,7 +173,6 @@ test/parser/simple_loop_typed_binder.fol
 test/parser/simple_loop_typed_binder_mismatch.fol
 test/parser/simple_loop_typed_silent_binder.fol
 test/parser/simple_mixed_root_surface.fol
-test/parser/simple_named_capture_semicolon.fol
 test/parser/simple_never_type_missing_close.fol
 test/parser/simple_none_type_missing_close.fol
 test/parser/simple_opt_type_bad_separator.fol
