@@ -42,8 +42,6 @@ test/lexer/unterminated_string.fol
 test/parser/simple_alias_illegal_name.fol
 test/parser/simple_any_type_missing_close.fol
 test/parser/simple_binding_symbol_options.fol
-test/parser/simple_book_coroutine_examples.fol
-test/parser/simple_book_higher_order_param_example.fol
 test/parser/simple_call_top_level.fol
 test/parser/simple_call_top_level_double_comma_arg.fol
 test/parser/simple_call_top_level_leading_comma_arg.fol
@@ -120,7 +118,6 @@ test/parser/simple_fun_open_start_range_missing_rhs.fol
 test/parser/simple_fun_param_default_illegal_raw_value.fol
 test/parser/simple_fun_param_default_illegal_value.fol
 test/parser/simple_fun_param_illegal_type_ref.fol
-test/parser/simple_fun_pipe_control_stage.fol
 test/parser/simple_fun_pipe_missing_rhs.fol
 test/parser/simple_fun_pipe_or_missing_rhs.fol
 test/parser/simple_fun_record_init_illegal_value.fol
@@ -140,8 +137,6 @@ test/parser/simple_fun_when_flow_missing_body.fol
 test/parser/simple_fun_when_has_missing_close.fol
 test/parser/simple_fun_when_on_missing_close.fol
 test/parser/simple_fun_when_star_default_missing_body.fol
-test/parser/simple_has_matching_expr.fol
-test/parser/simple_if_matching_expr.fol
 test/parser/simple_invoke_top_level.fol
 test/parser/simple_literal_cooked_escape_quotes.fol
 test/parser/simple_literal_cooked_family.fol

@@ -941,7 +941,7 @@ mod tests {
             "(turbofish_type_args \"::[\" @punctuation.bracket \"]\" @punctuation.bracket)",
             "(if_stmt \"if\" @keyword.conditional)",
             "(if_expr \"if\" @keyword.conditional)",
-            "(if_expr \"else\" @keyword.conditional)",
+            "(else_clause \"else\" @keyword.conditional)",
             "(select_stmt \"select\" @keyword.conditional)",
             "(when_expr \"when\" @keyword.conditional)",
             "(loop_expr \"loop\" @keyword.repeat)",

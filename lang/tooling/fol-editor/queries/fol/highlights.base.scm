@@ -20,7 +20,7 @@
 (turbofish_type_args "::[" @punctuation.bracket "]" @punctuation.bracket)
 (if_stmt "if" @keyword.conditional)
 (if_expr "if" @keyword.conditional)
-(if_expr "else" @keyword.conditional)
+(else_clause "else" @keyword.conditional)
 "else" @keyword.conditional
 (select_stmt "select" @keyword.conditional)
 (select_arm "when" @keyword.conditional)
