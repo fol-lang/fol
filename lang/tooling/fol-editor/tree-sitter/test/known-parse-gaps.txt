@@ -38,7 +38,6 @@ test/parser/simple_binding_symbol_options.fol
 test/parser/simple_book_coroutine_examples.fol
 test/parser/simple_book_generic_object_type.fol
 test/parser/simple_book_higher_order_param_example.fol
-test/parser/simple_book_macro_defs.fol
 test/parser/simple_call_top_level.fol
 test/parser/simple_call_top_level_double_comma_arg.fol
 test/parser/simple_call_top_level_leading_comma_arg.fol
@@ -55,7 +54,6 @@ test/parser/simple_call_top_level_unary_plus_missing_operand.fol
 test/parser/simple_call_top_level_unmatched_close_paren_arg.fol
 test/parser/simple_call_top_level_unmatched_open_paren_arg.fol
 test/parser/simple_def_illegal_name.fol
-test/parser/simple_def_macro_overloads.fol
 test/parser/simple_dfr_file_root.fol
 test/parser/simple_each_keyword_typed_binder.fol
 test/parser/simple_each_quoted_binder.fol

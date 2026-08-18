@@ -1748,6 +1748,27 @@
                     {
                       "type": "STRING",
                       "value": "]"
+                    },
+                    {
+                      "type": "CHOICE",
+                      "members": [
+                        {
+                          "type": "CHOICE",
+                          "members": [
+                            {
+                              "type": "STRING",
+                              "value": ","
+                            },
+                            {
+                              "type": "STRING",
+                              "value": ";"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "BLANK"
+                        }
+                      ]
                     }
                   ]
                 },
@@ -4123,39 +4144,89 @@
             "value": "ptr"
           },
           {
-            "type": "STRING",
-            "value": "["
-          },
-          {
             "type": "CHOICE",
             "members": [
               {
                 "type": "SEQ",
                 "members": [
                   {
+                    "type": "STRING",
+                    "value": "["
+                  },
+                  {
+                    "type": "CHOICE",
+                    "members": [
+                      {
+                        "type": "SEQ",
+                        "members": [
+                          {
+                            "type": "FIELD",
+                            "name": "qualifier",
+                            "content": {
+                              "type": "CHOICE",
+                              "members": [
+                                {
+                                  "type": "STRING",
+                                  "value": "shared"
+                                },
+                                {
+                                  "type": "STRING",
+                                  "value": "weak"
+                                },
+                                {
+                                  "type": "STRING",
+                                  "value": "raw"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "type": "STRING",
+                            "value": ","
+                          }
+                        ]
+                      },
+                      {
+                        "type": "BLANK"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "CHOICE",
+                    "members": [
+                      {
+                        "type": "SEQ",
+                        "members": [
+                          {
+                            "type": "FIELD",
+                            "name": "sync",
+                            "content": {
+                              "type": "STRING",
+                              "value": "sync"
+                            }
+                          },
+                          {
+                            "type": "STRING",
+                            "value": ","
+                          }
+                        ]
+                      },
+                      {
+                        "type": "BLANK"
+                      }
+                    ]
+                  },
+                  {
                     "type": "FIELD",
-                    "name": "qualifier",
+                    "name": "target",
                     "content": {
-                      "type": "CHOICE",
-                      "members": [
-                        {
-                          "type": "STRING",
-                          "value": "shared"
-                        },
-                        {
-                          "type": "STRING",
-                          "value": "weak"
-                        },
-                        {
-                          "type": "STRING",
-                          "value": "raw"
-                        }
-                      ]
+                      "type": "SYMBOL",
+                      "name": "type_expr"
                     }
                   },
                   {
                     "type": "STRING",
-                    "value": ","
+                    "value": "]"
                   }
                 ]
               },
@@ -4163,43 +4234,6 @@
                 "type": "BLANK"
               }
             ]
-          },
-          {
-            "type": "CHOICE",
-            "members": [
-              {
-                "type": "SEQ",
-                "members": [
-                  {
-                    "type": "FIELD",
-                    "name": "sync",
-                    "content": {
-                      "type": "STRING",
-                      "value": "sync"
-                    }
-                  },
-                  {
-                    "type": "STRING",
-                    "value": ","
-                  }
-                ]
-              },
-              {
-                "type": "BLANK"
-              }
-            ]
-          },
-          {
-            "type": "FIELD",
-            "name": "target",
-            "content": {
-              "type": "SYMBOL",
-              "name": "type_expr"
-            }
-          },
-          {
-            "type": "STRING",
-            "value": "]"
           }
         ]
       }
@@ -10152,6 +10186,9 @@
     ],
     [
       "con_decl"
+    ],
+    [
+      "pointer_type"
     ]
   ],
   "precedences": [],
