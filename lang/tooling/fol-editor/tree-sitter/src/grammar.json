@@ -1394,7 +1394,7 @@
                   "members": [
                     {
                       "type": "SYMBOL",
-                      "name": "block"
+                      "name": "module_scope"
                     },
                     {
                       "type": "SYMBOL",
@@ -1472,12 +1472,25 @@
           }
         },
         {
-          "type": "STRING",
-          "value": "="
-        },
-        {
-          "type": "SYMBOL",
-          "name": "module_scope"
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "STRING",
+                  "value": "="
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "module_scope"
+                }
+              ]
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
         }
       ]
     },
@@ -1733,6 +1746,14 @@
             {
               "type": "SYMBOL",
               "name": "keyword_name"
+            },
+            {
+              "type": "STRING",
+              "value": "?"
+            },
+            {
+              "type": "STRING",
+              "value": "!"
             }
           ]
         },
@@ -1772,6 +1793,14 @@
                   {
                     "type": "SYMBOL",
                     "name": "keyword_name"
+                  },
+                  {
+                    "type": "STRING",
+                    "value": "?"
+                  },
+                  {
+                    "type": "STRING",
+                    "value": "!"
                   }
                 ]
               }
@@ -4734,8 +4763,37 @@
             "value": "report"
           },
           {
-            "type": "SYMBOL",
-            "name": "expr"
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SEQ",
+                "members": [
+                  {
+                    "type": "SYMBOL",
+                    "name": "expr"
+                  },
+                  {
+                    "type": "REPEAT",
+                    "content": {
+                      "type": "SEQ",
+                      "members": [
+                        {
+                          "type": "STRING",
+                          "value": ","
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "expr"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
           }
         ]
       }
@@ -4751,8 +4809,16 @@
             "value": "panic"
           },
           {
-            "type": "SYMBOL",
-            "name": "expr"
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "expr"
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
           }
         ]
       }
@@ -7473,25 +7539,29 @@
       ]
     },
     "check_expr": {
-      "type": "SEQ",
-      "members": [
-        {
-          "type": "STRING",
-          "value": "check"
-        },
-        {
-          "type": "STRING",
-          "value": "("
-        },
-        {
-          "type": "SYMBOL",
-          "name": "expr"
-        },
-        {
-          "type": "STRING",
-          "value": ")"
-        }
-      ]
+      "type": "PREC_RIGHT",
+      "value": 0,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "STRING",
+            "value": "check"
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "expr"
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
+          }
+        ]
+      }
     },
     "dot_intrinsic": {
       "type": "SEQ",
@@ -9590,6 +9660,14 @@
     [
       "_group_binding",
       "_var_entry"
+    ],
+    [
+      "record_literal",
+      "container_literal",
+      "module_scope"
+    ],
+    [
+      "seg_decl"
     ]
   ],
   "precedences": [],

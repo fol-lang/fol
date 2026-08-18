@@ -735,7 +735,7 @@
     "fields": {},
     "children": {
       "multiple": false,
-      "required": true,
+      "required": false,
       "types": [
         {
           "type": "expr",
@@ -912,11 +912,11 @@
       "required": false,
       "types": [
         {
-          "type": "block",
+          "type": "expr",
           "named": true
         },
         {
-          "type": "expr",
+          "type": "module_scope",
           "named": true
         },
         {
@@ -2847,7 +2847,7 @@
     "fields": {},
     "children": {
       "multiple": false,
-      "required": true,
+      "required": false,
       "types": [
         {
           "type": "expr",
@@ -3619,8 +3619,8 @@
     "named": true,
     "fields": {},
     "children": {
-      "multiple": false,
-      "required": true,
+      "multiple": true,
+      "required": false,
       "types": [
         {
           "type": "expr",
@@ -3906,7 +3906,7 @@
     },
     "children": {
       "multiple": false,
-      "required": true,
+      "required": false,
       "types": [
         {
           "type": "module_scope",
@@ -5168,6 +5168,10 @@
     }
   },
   {
+    "type": "!",
+    "named": false
+  },
+  {
     "type": "!=",
     "named": false
   },
@@ -5337,6 +5341,10 @@
   },
   {
     "type": ">=",
+    "named": false
+  },
+  {
+    "type": "?",
     "named": false
   },
   {
