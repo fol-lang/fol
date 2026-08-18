@@ -102,7 +102,6 @@ test/parser/simple_fun_call_unpack_missing_operand.fol
 test/parser/simple_fun_call_unterminated_backtick_comment.fol
 test/parser/simple_fun_call_unterminated_block_comment.fol
 test/parser/simple_fun_call_unterminated_doc_comment.fol
-test/parser/simple_fun_compound_assignment.fol
 test/parser/simple_fun_container_illegal_element.fol
 test/parser/simple_fun_container_literal_bad_separator.fol
 test/parser/simple_fun_dot_builtin_illegal_name.fol
@@ -115,7 +114,6 @@ test/parser/simple_fun_error_type_report_no_arg.fol
 test/parser/simple_fun_error_type_report_two_args.fol
 test/parser/simple_fun_field_access_illegal_name.fol
 test/parser/simple_fun_field_assignment_missing_name.fol
-test/parser/simple_fun_field_compound_assignment.fol
 test/parser/simple_fun_if_flow_missing_body.fol
 test/parser/simple_fun_if_flow_routines.fol
 test/parser/simple_fun_if_flow_type_module_decls.fol
@@ -133,9 +131,6 @@ test/parser/simple_fun_invoke_unpack_args.fol
 test/parser/simple_fun_invoke_unpack_stmt.fol
 test/parser/simple_fun_keyword_invoke_args.fol
 test/parser/simple_fun_keyword_invoke_stmt.fol
-test/parser/simple_fun_loop.fol
-test/parser/simple_fun_loop_in_when.fol
-test/parser/simple_fun_loop_silent_in.fol
 test/parser/simple_fun_method_call_assignment_target.fol
 test/parser/simple_fun_method_call_bad_separator.fol
 test/parser/simple_fun_method_call_dangling_operator.fol
@@ -157,9 +152,6 @@ test/parser/simple_fun_open_start_range_missing_rhs.fol
 test/parser/simple_fun_param_default_illegal_raw_value.fol
 test/parser/simple_fun_param_default_illegal_value.fol
 test/parser/simple_fun_param_illegal_type_ref.fol
-test/parser/simple_fun_pattern_access_expr_semicolon.fol
-test/parser/simple_fun_pattern_access_wildcard.fol
-test/parser/simple_fun_pattern_assignment_target_semicolon.fol
 test/parser/simple_fun_pipe_control_stage.fol
 test/parser/simple_fun_pipe_decl_stage.fol
 test/parser/simple_fun_pipe_if_flow_stmt.fol
@@ -195,9 +187,7 @@ test/parser/simple_fun_use_multi.fol
 test/parser/simple_fun_variadic_generic_header.fol
 test/parser/simple_fun_when_flow_loops.fol
 test/parser/simple_fun_when_flow_missing_body.fol
-test/parser/simple_fun_when_flow_nested_branch.fol
 test/parser/simple_fun_when_flow_routines.fol
-test/parser/simple_fun_when_flow_type_module_decls.fol
 test/parser/simple_fun_when_has_missing_close.fol
 test/parser/simple_fun_when_on_missing_close.fol
 test/parser/simple_fun_when_star_default_missing_body.fol
@@ -258,8 +248,6 @@ test/parser/simple_single_quoted_named_function_types.fol
 test/parser/simple_single_quoted_use_type_refs.fol
 test/parser/simple_std_illegal_name.fol
 test/parser/simple_std_protocol_captures.fol
-test/parser/simple_test_type_semicolon.fol
-test/parser/simple_test_type_trailing_separator.fol
 test/parser/simple_top_level_dot_echo.fol
 test/parser/simple_top_level_keyword_call_and_assignment.fol
 test/parser/simple_top_level_quoted_call_and_assignment.fol
@@ -283,11 +271,7 @@ test/parser/simple_typ_record_metadata.fol
 test/parser/simple_typ_record_method_captures.fol
 test/parser/simple_typ_record_missing_close.fol
 test/parser/simple_typ_record_missing_lab_field_name.fol
-test/parser/simple_typ_scalar_types_semicolon.fol
-test/parser/simple_typ_scalar_types_trailing_separator.fol
-test/parser/simple_typ_special_types_bad_arity.fol
 test/parser/simple_type_args_semicolon_routine_use.fol
-test/parser/simple_type_args_semicolon_specials.fol
 test/parser/simple_type_limit_refs.fol
 test/parser/simple_use_braced_illegal_path.fol
 test/parser/simple_use_direct_illegal_path.fol

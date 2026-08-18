@@ -579,6 +579,10 @@
       "required": true,
       "types": [
         {
+          "type": "ali_decl",
+          "named": true
+        },
+        {
           "type": "block",
           "named": true
         },
@@ -591,7 +595,19 @@
           "named": true
         },
         {
+          "type": "def_decl",
+          "named": true
+        },
+        {
+          "type": "each_stmt",
+          "named": true
+        },
+        {
           "type": "expr",
+          "named": true
+        },
+        {
+          "type": "if_stmt",
           "named": true
         },
         {
@@ -607,7 +623,27 @@
           "named": true
         },
         {
+          "type": "seg_decl",
+          "named": true
+        },
+        {
+          "type": "std_decl",
+          "named": true
+        },
+        {
+          "type": "typ_decl",
+          "named": true
+        },
+        {
+          "type": "use_decl",
+          "named": true
+        },
+        {
           "type": "var_decl",
+          "named": true
+        },
+        {
+          "type": "while_stmt",
           "named": true
         },
         {
@@ -1681,6 +1717,10 @@
       "required": true,
       "types": [
         {
+          "type": "ali_decl",
+          "named": true
+        },
+        {
           "type": "block",
           "named": true
         },
@@ -1693,7 +1733,19 @@
           "named": true
         },
         {
+          "type": "def_decl",
+          "named": true
+        },
+        {
+          "type": "each_stmt",
+          "named": true
+        },
+        {
           "type": "expr",
+          "named": true
+        },
+        {
+          "type": "if_stmt",
           "named": true
         },
         {
@@ -1709,7 +1761,27 @@
           "named": true
         },
         {
+          "type": "seg_decl",
+          "named": true
+        },
+        {
+          "type": "std_decl",
+          "named": true
+        },
+        {
+          "type": "typ_decl",
+          "named": true
+        },
+        {
+          "type": "use_decl",
+          "named": true
+        },
+        {
           "type": "var_decl",
+          "named": true
+        },
+        {
+          "type": "while_stmt",
           "named": true
         },
         {
@@ -1791,6 +1863,10 @@
       "required": true,
       "types": [
         {
+          "type": "ali_decl",
+          "named": true
+        },
+        {
           "type": "block",
           "named": true
         },
@@ -1803,7 +1879,19 @@
           "named": true
         },
         {
+          "type": "def_decl",
+          "named": true
+        },
+        {
+          "type": "each_stmt",
+          "named": true
+        },
+        {
           "type": "expr",
+          "named": true
+        },
+        {
+          "type": "if_stmt",
           "named": true
         },
         {
@@ -1819,7 +1907,27 @@
           "named": true
         },
         {
+          "type": "seg_decl",
+          "named": true
+        },
+        {
+          "type": "std_decl",
+          "named": true
+        },
+        {
+          "type": "typ_decl",
+          "named": true
+        },
+        {
+          "type": "use_decl",
+          "named": true
+        },
+        {
           "type": "var_decl",
+          "named": true
+        },
+        {
+          "type": "while_stmt",
           "named": true
         },
         {
@@ -1872,7 +1980,15 @@
         "required": false,
         "types": [
           {
+            "type": "*",
+            "named": false
+          },
+          {
             "type": ",",
+            "named": false
+          },
+          {
+            "type": ";",
             "named": false
           },
           {
@@ -2008,6 +2124,10 @@
       "required": true,
       "types": [
         {
+          "type": "ali_decl",
+          "named": true
+        },
+        {
           "type": "block",
           "named": true
         },
@@ -2020,7 +2140,19 @@
           "named": true
         },
         {
+          "type": "def_decl",
+          "named": true
+        },
+        {
+          "type": "each_stmt",
+          "named": true
+        },
+        {
           "type": "expr",
+          "named": true
+        },
+        {
+          "type": "if_stmt",
           "named": true
         },
         {
@@ -2036,7 +2168,27 @@
           "named": true
         },
         {
+          "type": "seg_decl",
+          "named": true
+        },
+        {
+          "type": "std_decl",
+          "named": true
+        },
+        {
+          "type": "typ_decl",
+          "named": true
+        },
+        {
+          "type": "use_decl",
+          "named": true
+        },
+        {
           "type": "var_decl",
+          "named": true
+        },
+        {
+          "type": "while_stmt",
           "named": true
         },
         {
@@ -2219,6 +2371,10 @@
         },
         {
           "type": "expr",
+          "named": true
+        },
+        {
+          "type": "iteration_header",
           "named": true
         }
       ]
@@ -2470,6 +2626,10 @@
       "required": true,
       "types": [
         {
+          "type": "ali_decl",
+          "named": true
+        },
+        {
           "type": "block",
           "named": true
         },
@@ -2482,7 +2642,19 @@
           "named": true
         },
         {
+          "type": "def_decl",
+          "named": true
+        },
+        {
+          "type": "each_stmt",
+          "named": true
+        },
+        {
           "type": "expr",
+          "named": true
+        },
+        {
+          "type": "if_stmt",
           "named": true
         },
         {
@@ -2498,7 +2670,27 @@
           "named": true
         },
         {
+          "type": "seg_decl",
+          "named": true
+        },
+        {
+          "type": "std_decl",
+          "named": true
+        },
+        {
+          "type": "typ_decl",
+          "named": true
+        },
+        {
+          "type": "use_decl",
+          "named": true
+        },
+        {
           "type": "var_decl",
+          "named": true
+        },
+        {
+          "type": "while_stmt",
           "named": true
         },
         {
@@ -2517,6 +2709,10 @@
       "required": true,
       "types": [
         {
+          "type": "ali_decl",
+          "named": true
+        },
+        {
           "type": "block",
           "named": true
         },
@@ -2529,7 +2725,19 @@
           "named": true
         },
         {
+          "type": "def_decl",
+          "named": true
+        },
+        {
+          "type": "each_stmt",
+          "named": true
+        },
+        {
           "type": "expr",
+          "named": true
+        },
+        {
+          "type": "if_stmt",
           "named": true
         },
         {
@@ -2545,7 +2753,27 @@
           "named": true
         },
         {
+          "type": "seg_decl",
+          "named": true
+        },
+        {
+          "type": "std_decl",
+          "named": true
+        },
+        {
+          "type": "typ_decl",
+          "named": true
+        },
+        {
+          "type": "use_decl",
+          "named": true
+        },
+        {
           "type": "var_decl",
+          "named": true
+        },
+        {
+          "type": "while_stmt",
           "named": true
         },
         {
@@ -3757,7 +3985,7 @@
     "named": true,
     "fields": {},
     "children": {
-      "multiple": false,
+      "multiple": true,
       "required": true,
       "types": [
         {
@@ -4948,7 +5176,15 @@
     "named": false
   },
   {
+    "type": "*=",
+    "named": false
+  },
+  {
     "type": "+",
+    "named": false
+  },
+  {
+    "type": "+=",
     "named": false
   },
   {
@@ -4973,6 +5209,10 @@
   },
   {
     "type": "-",
+    "named": false
+  },
+  {
+    "type": "-=",
     "named": false
   },
   {
@@ -5013,6 +5253,10 @@
   },
   {
     "type": "/",
+    "named": false
+  },
+  {
+    "type": "/=",
     "named": false
   },
   {
