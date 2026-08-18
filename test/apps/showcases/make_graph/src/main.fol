@@ -66,12 +66,10 @@
 //    `var ...: str` first. Cheap, but it catches every port that compares
 //    against a single punctuation mark.
 //
-// 8. A method call on the receiver may not appear inside the arguments of
-//    another call on that same receiver: `self.expand_cmd(self.cmd_at(n, i), ..)`
-//    passes `code check` and then fails to compile as Rust (E0502, surfaced as
-//    F1004), even when both methods only borrow. A plain field read as an
-//    argument is fine. The one such argument here is hoisted into a local. The
-//    original writes the nested shape all over make.c.
+// 8. Fixed, no longer a deviation: a method call on the receiver nested in the
+//    arguments of another call on that receiver used to fail rustc with E0502.
+//    The lowering no longer emits the dead mutable reborrow that caused it, and
+//    the nested shape the original writes all over make.c is written directly.
 //
 // 9. Dropped, and deliberately so: suffix/implicit rules (rules.c, dyndep),
 //    archive members (archive.c), double-colon targets (reported as an error),

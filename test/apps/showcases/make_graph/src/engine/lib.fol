@@ -105,10 +105,7 @@ pro[exp] (table::Make[mut, bor]) docmds(node: int): non = {
     var stem: str = stem_of(whole);
     var[mut] pos: int = 0;
     loop(pos < self.cmd_count(node)) {
-        // Hoisted: a read of `self` nested inside the arguments of another call
-        // on `self` reborrows it mutably and fails to compile as Rust.
-        var raw_cmd: str = self.cmd_at(node, pos);
-        var text: str = self.expand_cmd(raw_cmd, whole, first_dep, changed, stem);
+        var text: str = self.expand_cmd(self.cmd_at(node, pos), whole, first_dep, changed, stem);
         var[mut] line: str = text;
         var[mut] hushed: bol = self.silent;
         var[mut] forgiving: bol = false;

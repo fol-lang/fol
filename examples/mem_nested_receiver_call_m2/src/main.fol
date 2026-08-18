@@ -1,0 +1,19 @@
+// A call on the receiver may appear inside the arguments of another call on
+// that same receiver. Lowering the object as a value used to emit a mutable
+// reborrow that nothing read, and a dead `&mut` still invalidates the live
+// shared borrows, so this shape failed rustc with E0502 (V3_MEM 4.2).
+
+use std: pkg = {"std"};
+
+typ Tally: rec = { value: int };
+
+fun (Tally[bor])peek(): int = { return self.value; };
+fun (Tally[bor])plus(amount: int): int = { return self.value + amount; };
+pro (Tally[mut, bor])double(): non = { self.value = self.plus(self.peek()); return; };
+
+fun[] main(): int = {
+    var[mut] tally: Tally = { value = 21 };
+    [mut, bor]tally.double();
+    std::io::echo_int([bor]tally.peek());
+    return 0;
+};

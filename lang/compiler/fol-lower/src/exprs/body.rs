@@ -1301,6 +1301,10 @@ pub(crate) fn lower_body_node(
                 | super::helpers::ContainerCallOutcome::Value(_) => return Ok(None),
                 super::helpers::ContainerCallOutcome::NotContainer => {}
             }
+            // The callee is only known after the object is lowered, so the
+            // object's value is computed before anyone can say whether it is
+            // needed. Remember where it starts in case it is not.
+            let receiver_mark = cursor.instruction_mark();
             let receiver = lower_expression(
                 typed_package,
                 type_table,
@@ -1402,13 +1406,22 @@ pub(crate) fn lower_body_node(
                 Some(crate::LoweredType::Borrowed { mutable, .. }) => {
                     let borrow_type = param_types[0];
                     let mutable = *mutable;
-                    let owner = direct_local_identifier_value(
+                    let place = direct_local_identifier_value(
                         typed_package,
                         cursor,
                         method_receiver_place(object),
-                    )
-                    .map(|value| value.local_id)
-                    .unwrap_or(receiver.local_id);
+                    );
+                    // Borrowing the place makes the lowered object value dead,
+                    // and lowering `self` inside a `[mut, bor]` routine emits a
+                    // `&mut` reborrow that nothing reads. A dead mutable
+                    // reborrow still invalidates live shared ones (E0502), so
+                    // take the unused work back instead of emitting it.
+                    if place.is_some() {
+                        cursor.discard_instructions_after(receiver_mark);
+                    }
+                    let owner = place
+                        .map(|value| value.local_id)
+                        .unwrap_or(receiver.local_id);
                     let borrow_local = cursor.allocate_local(borrow_type, None);
                     // A MUTABLE receiver loan is taken AFTER the arguments are
                     // evaluated: `self.bump(self.n)` reads a field of the value

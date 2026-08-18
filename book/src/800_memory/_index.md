@@ -85,6 +85,7 @@ Positive:
 - `examples/mem_borrow_receiver_m2`
 - `examples/mem_mut_receiver_m2`
 - `examples/mem_receiver_ops_m2`
+- `examples/mem_nested_receiver_call_m2`
 - `examples/mem_reborrow_m2`
 - `examples/mem_nll_last_use_m2`
 - `examples/mem_named_lifetime_m2`

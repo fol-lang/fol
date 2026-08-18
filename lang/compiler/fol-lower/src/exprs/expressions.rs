@@ -1170,6 +1170,10 @@ fn lower_expression_observed_inner(
                 }
                 super::helpers::ContainerCallOutcome::NotContainer => {}
             }
+            // The callee is only known after the object is lowered, so the
+            // object's value is computed before anyone can say whether it is
+            // needed. Remember where it starts in case it is not.
+            let receiver_mark = cursor.instruction_mark();
             let receiver = lower_expression(
                 typed_package,
                 type_table,
@@ -1288,13 +1292,23 @@ fn lower_expression_observed_inner(
                     Some(crate::LoweredType::Borrowed { mutable, .. }) => {
                         let borrow_type = param_types[0];
                         let mutable = *mutable;
-                        let owner = direct_local_identifier_value(
+                        let place = direct_local_identifier_value(
                             typed_package,
                             cursor,
                             method_receiver_place(object),
-                        )
-                        .map(|value| value.local_id)
-                        .unwrap_or(receiver.local_id);
+                        );
+                        // Borrowing the place makes the lowered object value
+                        // dead, and lowering `self` inside a `[mut, bor]`
+                        // routine emits a `&mut` reborrow. A dead mutable
+                        // reborrow still invalidates the live shared ones, so
+                        // `self.wrap(self.read())` failed rustc with E0502 --
+                        // take the unused work back instead of emitting it.
+                        if place.is_some() {
+                            cursor.discard_instructions_after(receiver_mark);
+                        }
+                        let owner = place
+                            .map(|value| value.local_id)
+                            .unwrap_or(receiver.local_id);
                         let borrow_local = cursor.allocate_local(borrow_type, None);
                         // A MUTABLE receiver borrow has to be taken AFTER the
                         // arguments are evaluated: `self.bump(self.n)` reads a

@@ -427,6 +427,37 @@ impl<'a> RoutineCursor<'a> {
         }
     }
 
+    /// Where the current block ends right now, so instructions appended after
+    /// this point can be taken back if they turn out to be unwanted.
+    pub(crate) fn instruction_mark(&self) -> (LoweredBlockId, usize) {
+        let length = self
+            .routine
+            .blocks
+            .get(self.block_id)
+            .map(|block| block.instructions.len())
+            .unwrap_or(0);
+        (self.block_id, length)
+    }
+
+    /// Unlink instructions appended since `mark`. Only for instructions that
+    /// compute a value and do nothing else -- a retracted borrow is invisible,
+    /// a retracted call is not. Refuses if lowering has since moved to another
+    /// block, because then the appended work is not what the mark describes.
+    pub(crate) fn discard_instructions_after(&mut self, mark: (LoweredBlockId, usize)) -> bool {
+        let (block_id, length) = mark;
+        if block_id != self.block_id {
+            return false;
+        }
+        let Some(block) = self.routine.blocks.get_mut(block_id) else {
+            return false;
+        };
+        if block.instructions.len() <= length {
+            return false;
+        }
+        block.instructions.truncate(length);
+        true
+    }
+
     pub(crate) fn switch_block(&mut self, block_id: LoweredBlockId) -> Result<(), LoweringError> {
         if self.routine.blocks.get(block_id).is_none() {
             return Err(LoweringError::with_kind(
