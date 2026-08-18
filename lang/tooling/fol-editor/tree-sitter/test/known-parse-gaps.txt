@@ -76,7 +76,6 @@ test/parser/simple_for_top_level.fol
 test/parser/simple_for_typed_binder.fol
 test/parser/simple_for_typed_binder_mismatch.fol
 test/parser/simple_for_typed_silent_binder.fol
-test/parser/simple_fun_anonymous_invoke_expr.fol
 test/parser/simple_fun_call_assignment_target.fol
 test/parser/simple_fun_call_bad_separator.fol
 test/parser/simple_fun_call_dangling_operator.fol
@@ -129,7 +128,6 @@ test/parser/simple_fun_return_illegal_raw_value.fol
 test/parser/simple_fun_return_illegal_value.fol
 test/parser/simple_fun_rolling_missing_in.fol
 test/parser/simple_fun_select_stmt_no_binding.fol
-test/parser/simple_fun_shorthand_anonymous_invoke_expr.fol
 test/parser/simple_fun_unary_minus_eof_operand.fol
 test/parser/simple_fun_unary_minus_missing_operand.fol
 test/parser/simple_fun_unary_not_eof_operand.fol

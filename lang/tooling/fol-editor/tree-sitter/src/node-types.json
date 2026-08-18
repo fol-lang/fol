@@ -1364,6 +1364,10 @@
           "named": true
         },
         {
+          "type": "immediate_invoke_expr",
+          "named": true
+        },
+        {
           "type": "index_access",
           "named": true
         },
@@ -1948,6 +1952,37 @@
         },
         {
           "type": "flow_body",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "immediate_invoke_expr",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "anonymous_fun_expr",
+          "named": true
+        },
+        {
+          "type": "anonymous_log_expr",
+          "named": true
+        },
+        {
+          "type": "anonymous_pro_expr",
+          "named": true
+        },
+        {
+          "type": "call_arg",
+          "named": true
+        },
+        {
+          "type": "shorthand_routine_expr",
           "named": true
         }
       ]
