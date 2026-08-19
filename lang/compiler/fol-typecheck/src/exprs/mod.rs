@@ -590,9 +590,9 @@ fn validate_processor_boundary_type(
         Some(
             "a 'fin' value cannot cross a spawn or async task boundary because it is not 'send'; the foreign resource it finalizes is not proven thread-safe",
         )
-    } else if decls::checked_type_contains_generic_param(typed, type_id) {
+    } else if decls::checked_type_contains_unsendable_generic_param(typed, type_id) {
         Some(
-            "unconstrained generic values cannot cross a spawn or async thread boundary because FOL does not yet define a thread-safety and lifetime contract; use a concrete thread-safe value",
+            "a generic value crosses a spawn or async thread boundary only with a thread-safety promise; declare the parameter as '(T: send)' so every call site is checked, or use a concrete thread-safe value",
         )
     } else if helpers::type_contains_borrowed(typed, type_id) {
         Some(

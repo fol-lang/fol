@@ -2474,7 +2474,17 @@ fn type_satisfies_capability(
                 && !type_is_known_non_clone(typed, type_id)?
                 && first_field_transitively_non_clone(typed, type_id)?.is_none()
         }
-        "send" | "share" => {
+        // `send` is *owned/exclusive* access crossing a task boundary (§4.1),
+        // and a detached task "accepts only owned `send` inputs, cannot borrow"
+        // (§8.1). A borrowed value is tied to its owner's scope, so it can never
+        // satisfy `send` however thread-safe the pointee is. `share` is the
+        // shared-access counterpart and stays borrow-agnostic.
+        "send" => {
+            !crate::exprs::helpers::type_contains_borrowed(typed, type_id)
+                && !type_is_known_non_thread_safe(typed, type_id)?
+                && first_field_transitively_non_thread_safe(typed, type_id)?.is_none()
+        }
+        "share" => {
             !type_is_known_non_thread_safe(typed, type_id)?
                 && first_field_transitively_non_thread_safe(typed, type_id)?.is_none()
         }
@@ -2647,20 +2657,50 @@ fn lower_routine_generic_params(
     Ok((generic_params, generic_constraints))
 }
 
+/// Whether the type mentions any generic parameter at all.
 pub(crate) fn checked_type_contains_generic_param(
     typed: &TypedProgram,
+    type_id: CheckedTypeId,
+) -> bool {
+    contains_generic_param_where(typed, &|_typed, _symbol| true, type_id)
+}
+
+/// Whether the type mentions a generic parameter that has NOT promised `send`.
+/// One that has is a verified obligation: `send` is owned access (so the actual
+/// carries no borrow), every call site is checked against the actual type, and
+/// the emitted Rust carries `Send + 'static`. Such a value may cross a task
+/// boundary like any concrete owned thread-safe one.
+pub(crate) fn checked_type_contains_unsendable_generic_param(
+    typed: &TypedProgram,
+    type_id: CheckedTypeId,
+) -> bool {
+    contains_generic_param_where(
+        typed,
+        &|typed, symbol| {
+            !typed
+                .generic_capability_constraints(symbol)
+                .is_some_and(|bounds| bounds.contains("send"))
+        },
+        type_id,
+    )
+}
+
+fn contains_generic_param_where(
+    typed: &TypedProgram,
+    predicate: &dyn Fn(&TypedProgram, fol_resolver::SymbolId) -> bool,
     type_id: CheckedTypeId,
 ) -> bool {
     match typed.type_table().get(type_id) {
         Some(CheckedType::Declared {
             kind: DeclaredTypeKind::GenericParameter,
+            symbol,
             ..
-        }) => true,
+        }) => predicate(typed, *symbol),
         // A generic instantiation like `Box[T]` mentions a generic parameter
         // when any of its type arguments does.
         Some(CheckedType::Declared { args, .. }) => args
             .iter()
-            .any(|arg| checked_type_contains_generic_param(typed, *arg)),
+            .any(|arg| contains_generic_param_where(typed, predicate, *arg)),
         Some(CheckedType::Array { element_type, .. })
         | Some(CheckedType::Vector { element_type })
         | Some(CheckedType::Sequence { element_type })
@@ -2679,45 +2719,46 @@ pub(crate) fn checked_type_contains_generic_param(
         | Some(CheckedType::Pointer {
             target: element_type,
             ..
-        }) => checked_type_contains_generic_param(typed, *element_type),
+        }) => contains_generic_param_where(typed, predicate, *element_type),
         Some(CheckedType::Eventual {
             value_type,
             error_type,
         }) => {
-            checked_type_contains_generic_param(typed, *value_type)
-                || error_type.is_some_and(|error| checked_type_contains_generic_param(typed, error))
+            contains_generic_param_where(typed, predicate, *value_type)
+                || error_type
+                    .is_some_and(|error| contains_generic_param_where(typed, predicate, error))
         }
         Some(CheckedType::Error { inner }) => {
-            inner.is_some_and(|inner| checked_type_contains_generic_param(typed, inner))
+            inner.is_some_and(|inner| contains_generic_param_where(typed, predicate, inner))
         }
         Some(CheckedType::Set { member_types }) => member_types
             .iter()
-            .any(|member| checked_type_contains_generic_param(typed, *member)),
+            .any(|member| contains_generic_param_where(typed, predicate, *member)),
         Some(CheckedType::Map {
             key_type,
             value_type,
         }) => {
-            checked_type_contains_generic_param(typed, *key_type)
-                || checked_type_contains_generic_param(typed, *value_type)
+            contains_generic_param_where(typed, predicate, *key_type)
+                || contains_generic_param_where(typed, predicate, *value_type)
         }
         Some(CheckedType::Record { fields }) => fields
             .values()
-            .any(|field| checked_type_contains_generic_param(typed, *field)),
+            .any(|field| contains_generic_param_where(typed, predicate, *field)),
         Some(CheckedType::Entry { variants }) => variants
             .values()
             .flatten()
-            .any(|variant| checked_type_contains_generic_param(typed, *variant)),
+            .any(|variant| contains_generic_param_where(typed, predicate, *variant)),
         Some(CheckedType::Routine(signature)) => {
             signature
                 .params
                 .iter()
-                .any(|param| checked_type_contains_generic_param(typed, *param))
+                .any(|param| contains_generic_param_where(typed, predicate, *param))
                 || signature
                     .return_type
-                    .is_some_and(|ret| checked_type_contains_generic_param(typed, ret))
+                    .is_some_and(|ret| contains_generic_param_where(typed, predicate, ret))
                 || signature
                     .error_type
-                    .is_some_and(|err| checked_type_contains_generic_param(typed, err))
+                    .is_some_and(|err| contains_generic_param_where(typed, predicate, err))
         }
         _ => false,
     }

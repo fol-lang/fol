@@ -135,17 +135,16 @@ fn signature_contains_borrow(
 /// declares. `copy`/`clone` need no entry: every generic parameter already
 /// carries `Clone`.
 ///
-/// Only `ord` is load-bearing today -- a `set[T]`/`map[T, _]` over the parameter
-/// becomes a `BTreeSet`/`BTreeMap` that will not compile without it. `send` and
-/// `share` are currently inert: the one construct that would need them, a
-/// generic value crossing a spawn or async boundary, is still refused earlier by
-/// typecheck. Lifting that needs a lifetime obligation to pair with the
-/// thread-safety one -- `spawn_task` wants `'static`, and a `send` parameter
-/// accepts a borrow today -- which FOL does not model yet. They are emitted so
-/// the signature states what FOL already checks, and so the entry is not missed
-/// when that changes.
-const CAPABILITY_TRAIT_BOUNDS: &[(&str, &str)] =
-    &[("ord", "Ord"), ("send", "Send"), ("share", "Sync")];
+/// `send` carries `'static` because it is *owned* access crossing a task
+/// boundary (V3_MEM 4.1) -- a borrowed value cannot satisfy it, which the
+/// call-site check enforces -- and the runtime's `spawn_task` needs the value to
+/// outlive the spawning frame. `share` is the shared-access counterpart and
+/// promises no such thing, so it maps to `Sync` alone.
+const CAPABILITY_TRAIT_BOUNDS: &[(&str, &str)] = &[
+    ("ord", "Ord"),
+    ("send", "Send + 'static"),
+    ("share", "Sync"),
+];
 
 fn render_generic_clause(
     routine: &LoweredRoutine,

@@ -110,6 +110,7 @@ pub(crate) const V3_PROC_M1_POSITIVES: &[V3PositiveExample] = &[
     ("examples/proc_spawn_detached_m1", Some("41\n")),
     ("examples/proc_shared_sync_ptr_m1", Some("42\n")),
     ("examples/proc_spawn_borrow_m1", Some("42\n")),
+    ("examples/proc_generic_send_spawn_m1", Some("42\n")),
 ];
 
 pub(crate) const V3_PROC_M2_POSITIVES: &[V3PositiveExample] = &[
@@ -982,6 +983,7 @@ pub(crate) const V3_NAVIGATION_PROBES: &[V3NavigationProbe] = &[
     ("examples/proc_async_await_m4", "work", 2, None),
     ("examples/proc_await_error_m4", "probe", 2, None),
     ("examples/proc_spawn_borrow_m1", "observed", 1, None),
+    ("examples/proc_generic_send_spawn_m1", "item", 2, None),
     ("examples/proc_evt_named_m4", "work", 2, None),
     ("examples/proc_evt_lifetime_m4", "schedule", 2, None),
 ];

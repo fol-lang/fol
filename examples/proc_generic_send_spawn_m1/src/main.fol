@@ -1,0 +1,23 @@
+// A generic value may cross a spawn boundary when its parameter promises
+// `send` (V3_MEM 4.1: "owned/exclusive access may cross a task or thread
+// boundary"). The promise is checked against the actual type at every call
+// site, and the emitted Rust carries `Send + 'static` -- an unbounded `T` is
+// refused before it can reach the backend.
+
+use std: pkg = {"std"};
+
+pro[] stow(T: send)(item: T): non = {
+    var kept: vec[T] = {};
+    return;
+};
+
+pro[] ferry(T: send)(item: T): non = {
+    [>]stow(item);
+    return;
+};
+
+pro[] main(): int = {
+    ferry(7);
+    std::io::echo_int(42);
+    return 0;
+};

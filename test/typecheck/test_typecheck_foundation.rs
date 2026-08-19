@@ -4618,10 +4618,42 @@ fn unresolved_generic_values_cannot_cross_spawn_or_async_boundaries() {
             errors.iter().any(|error| {
                 error.kind() == TypecheckErrorKind::Ownership
                     && error.message().contains(
-                        "unconstrained generic values cannot cross a spawn or async thread boundary",
+                        "a generic value crosses a spawn or async thread boundary only with a thread-safety promise",
                     )
             }),
             "{surface} should reject an unresolved generic argument, got {errors:?}"
+        );
+    }
+}
+
+/// The counterpart: `send` is the thread-safety promise the boundary asks for,
+/// so a parameter that declares it may cross. Every call site is checked against
+/// the actual type, and the emitted Rust carries `Send + 'static`.
+#[test]
+fn send_bounded_generic_values_may_cross_spawn_or_async_boundaries() {
+    for (surface, statement) in [
+        ("spawn", "[>]identity(value);"),
+        ("async", "var pending = identity(value) | async;"),
+    ] {
+        let source = format!(
+            "fun identity(T: send)(value: T): T = {{ return value; }};\n\
+             fun launch(T: send)(value: T): int = {{\n\
+                 {statement}\n\
+                 return 0;\n\
+             }};\n"
+        );
+        // Typechecks cleanly: the helper panics if the fixture reports an error.
+        let typed = typecheck_fixture_folder_with_config(
+            &[("main.fol", &source)],
+            TypecheckConfig {
+                capability_model: TypecheckCapabilityModel::Std,
+            },
+        );
+        assert!(
+            typed
+                .typed_node(find_named_routine_syntax_id(&typed, "launch"))
+                .is_some(),
+            "{surface} should accept a send-bounded generic argument"
         );
     }
 }

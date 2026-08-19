@@ -46,6 +46,7 @@ Positive:
 - `examples/proc_spawn_detached_m1`
 - `examples/proc_shared_sync_ptr_m1`
 - `examples/proc_spawn_borrow_m1`
+- `examples/proc_generic_send_spawn_m1`
 
 Negative:
 
