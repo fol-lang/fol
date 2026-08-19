@@ -97,11 +97,111 @@ fun[] csv_quoting(): int = {
     return bad;
 };
 
+// Helpers for the container checks below.
+fun[] show(values: vec[int]): str = {
+    var[mut] out: str = "";
+    var[mut] i: int = 0;
+    loop (i < .len(values)) {
+        out = out + std::fmt::int_to_str(values[i]);
+        when(i + 1 < .len(values)) { case(true) { out = out + ","; } * { } }
+        i = i + 1;
+    };
+    return out;
+};
+
+fun[] is_big(value: int): bol = { return value > 3; };
+fun[] doubled(value: int): int = { return value * 2; };
+
+// A heap must drain in order, and the stack/queue shapes must agree with the
+// module header: the stack top is the END of the vector, the queue front is 0.
+fun[] ordering_invariants(): int = {
+    var[mut] bad: int = 0;
+    var[mut] h: vec[int] = {};
+    var seeds: vec[int] = { 5, 3, 9, 1, 7, 3, 8, 2 };
+    var[mut] i: int = 0;
+    loop (i < .len(seeds)) {
+        h = std::heap::heap_push(h, seeds[i]);
+        i = i + 1;
+    };
+    bad = bad + want_int("heap size", .len(h), 8);
+    bad = bad + want_int("heap peek is min", std::heap::heap_peek(h, -1), 1);
+    bad = bad + want("heap drains sorted", show(std::heap::heap_drain(h)), "1,2,3,3,5,7,8,9");
+
+    var[mut] q: vec[int] = {};
+    q = std::heap::queue_push(q, 1);
+    q = std::heap::queue_push(q, 2);
+    bad = bad + want_int("queue front", std::heap::queue_front(q, -1), 1);
+    bad = bad + want("queue after pop", show(std::heap::queue_pop(q)), "2");
+    var pair: vec[int] = { 1, 2 };
+    bad = bad + want("stack pushes on the end", show(std::heap::stack_push(pair, 9)), "1,2,9");
+    return bad;
+};
+
+// Set algebra over sorted-unique vectors.
+fun[] set_algebra(): int = {
+    var[mut] bad: int = 0;
+    var a: vec[int] = { 1, 2, 3, 4 };
+    var b: vec[int] = { 3, 4, 5 };
+    var small: vec[int] = { 3, 4 };
+    var none: vec[int] = {};
+    bad = bad + want("union", show(std::sets::union(a, b)), "1,2,3,4,5");
+    bad = bad + want("intersect", show(std::sets::intersect(a, b)), "3,4");
+    bad = bad + want("difference", show(std::sets::difference(a, b)), "1,2");
+    bad = bad + want("difference reversed", show(std::sets::difference(b, a)), "5");
+    bad = bad + want("subset yes", std::fmt::bol_to_str(std::sets::is_subset(small, a)), "true");
+    bad = bad + want("subset no", std::fmt::bol_to_str(std::sets::is_subset(b, a)), "false");
+    bad = bad + want("empty is a subset", std::fmt::bol_to_str(std::sets::is_subset(none, a)), "true");
+    return bad;
+};
+
+// Sequence helpers, including the empty and past-the-end cases.
+fun[] sequence_edges(): int = {
+    var[mut] bad: int = 0;
+    var a: vec[int] = { 1, 2, 3, 4, 5 };
+    var b: vec[int] = { 10, 20, 30, 40, 50 };
+    var empty: vec[int] = {};
+    var unsorted: vec[int] = { 3, 1 };
+    bad = bad + want("range_int", show(std::vecs::range_int(2, 5)), "2,3,4");
+    bad = bad + want("range_int empty", show(std::vecs::range_int(5, 5)), "");
+    bad = bad + want("is_sorted yes", std::fmt::bol_to_str(std::vecs::is_sorted(a)), "true");
+    bad = bad + want("is_sorted no", std::fmt::bol_to_str(std::vecs::is_sorted(unsorted)), "false");
+    bad = bad + want_int("min_of", std::vecs::min_of(a, 0), 1);
+    bad = bad + want_int("max_of", std::vecs::max_of(a, 0), 5);
+    bad = bad + want_int("min_of empty falls back", std::vecs::min_of(empty, 42), 42);
+    bad = bad + want("skip", show(std::iter::skip(a, 2)), "3,4,5");
+    bad = bad + want("skip past the end", show(std::iter::skip(a, 99)), "");
+    bad = bad + want_int("count_if", std::iter::count_if(a, is_big), 2);
+    bad = bad + want("any yes", std::fmt::bol_to_str(std::iter::any(a, is_big)), "true");
+    bad = bad + want("any over empty", std::fmt::bol_to_str(std::iter::any(empty, is_big)), "false");
+    bad = bad + want("map_to", show(std::iter::map_to(a, doubled)), "2,4,6,8,10");
+    bad = bad + want("take_while stops at once", show(std::iter::take_while(a, is_big)), "");
+    bad = bad + want("skip_while skips none", show(std::iter::skip_while(a, is_big)), "1,2,3,4,5");
+    bad = bad + want("zip_add_int", show(std::iter::zip_add_int(a, b)), "11,22,33,44,55");
+    return bad;
+};
+
+// A 3x2 board laid out row major. `neighbours` is the eight surrounding cells,
+// with the missing ones reading as the fallback.
+fun[] grid_addressing(): int = {
+    var[mut] bad: int = 0;
+    var cells: vec[int] = { 1, 2, 3, 4, 5, 6 };
+    bad = bad + want("in_bounds yes", std::fmt::bol_to_str(std::grid::in_bounds(3, 2, 1, 2)), "true");
+    bad = bad + want("in_bounds row past end", std::fmt::bol_to_str(std::grid::in_bounds(3, 2, 2, 0)), "false");
+    bad = bad + want("in_bounds negative", std::fmt::bol_to_str(std::grid::in_bounds(3, 2, 0, 0 - 1)), "false");
+    bad = bad + want("column_of", show(std::grid::column_of(cells, 3, 2, 1, 0)), "2,5");
+    bad = bad + want("neighbours fill the corners", show(std::grid::neighbours(cells, 3, 0, 1, 0)), "0,0,0,1,3,4,5,6");
+    return bad;
+};
+
 fun[] main(): int = {
     var[mut] bad: int = 0;
     bad = bad + base64_vectors();
     bad = bad + digest_vectors();
     bad = bad + path_edges();
     bad = bad + csv_quoting();
+    bad = bad + ordering_invariants();
+    bad = bad + set_algebra();
+    bad = bad + sequence_edges();
+    bad = bad + grid_addressing();
     return bad;
 };
