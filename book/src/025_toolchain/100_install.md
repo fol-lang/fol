@@ -8,7 +8,7 @@ your `PATH`, and set your home:
 
 ```console
 $ curl -fL -o ~/.local/bin/fol \
-    https://github.com/fol-lang/fol/releases/download/v0.2.1/fol-v0.2.1-x86_64-linux
+    https://github.com/fol-lang/fol/releases/download/v0.2.6/fol-v0.2.6-x86_64-linux
 $ chmod +x ~/.local/bin/fol
 $ export FOL_HOME="$HOME/.fol"        # add to your shell profile
 ```

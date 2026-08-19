@@ -7765,3 +7765,33 @@ fn test_build_git_dep_versions_example_declares_every_version_form() {
         );
     }
 }
+
+#[test]
+fn install_instructions_name_the_current_release_version() {
+    // `make release` runs `git rel` and touches no documentation, so the version
+    // a reader is told to download drifts one release at a time. These two are
+    // instructions someone copies, unlike the illustrative `0.2.1` elsewhere on
+    // the same pages.
+    let manifest = std::fs::read_to_string(repo_root().join("Cargo.toml"))
+        .expect("the workspace manifest should be readable");
+    let version = manifest
+        .lines()
+        .find_map(|line| line.strip_prefix("version = "))
+        .map(|value| value.trim().trim_matches('"').to_string())
+        .expect("the workspace manifest should declare a version");
+
+    let readme = std::fs::read_to_string(repo_root().join("README.md"))
+        .expect("the README should be readable");
+    assert!(
+        readme.contains(&format!("VERSION={version}")),
+        "README's install snippet should offer the current release {version}"
+    );
+
+    let install_page = repo_root().join("book/src/025_toolchain/100_install.md");
+    let install =
+        std::fs::read_to_string(&install_page).expect("the install chapter should be readable");
+    assert!(
+        install.contains(&format!("download/v{version}/fol-v{version}-")),
+        "the install chapter's download URL should name the current release {version}"
+    );
+}

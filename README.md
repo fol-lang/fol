@@ -28,7 +28,7 @@ always type `fol`; it forwards `code`/`work`/`pack`/`tool` commands to the
 right engine and handles `fol self …` itself.
 
 ```console
-$ VERSION=0.2.2   # newest tag at https://github.com/fol-lang/fol/releases
+$ VERSION=0.2.6   # newest tag at https://github.com/fol-lang/fol/releases
 $ curl -fL -o ~/.local/bin/fol \
     "https://github.com/fol-lang/fol/releases/download/v$VERSION/fol-v$VERSION-x86_64-linux"
 $ chmod +x ~/.local/bin/fol
