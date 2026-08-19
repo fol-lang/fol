@@ -1656,3 +1656,31 @@ fn nested_function_calls_fixture_compiles_and_runs() {
     let run_output = compile_and_run_app(&fixture);
     assert_exit_code(&run_output, 0);
 }
+
+/// Roughly half of std's exported routines are called nowhere but their own
+/// declaration, so they compile and never run. This exercises the ones whose
+/// answers are fixed by a published standard -- RFC 4648, the CRC-32 check
+/// value, the FNV-1a offsets -- plus the path and CSV edge cases a hand-written
+/// implementation usually gets wrong. The binary returns its failure count.
+#[test]
+fn std_library_known_answer_checks_pass() {
+    let root = fixture_root("std_library_checks");
+    let app_root = root.join("app");
+
+    let compile_output = compile_app_with_roots_keep_build_dir_expect_success(
+        &app_root,
+        None,
+        Some(&bundled_std_store_root()),
+    );
+
+    let binary = built_binary_path(&compile_output);
+    let run_output = Command::new(&binary)
+        .output()
+        .expect("should run the std known-answer checks");
+    let stdout = String::from_utf8_lossy(&run_output.stdout);
+    assert_exit_code(&run_output, 0);
+    assert!(
+        stdout.is_empty(),
+        "every std check should pass silently, got:\n{stdout}"
+    );
+}

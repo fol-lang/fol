@@ -1,0 +1,107 @@
+// Known-answer checks for std routines that nothing else calls.
+//
+// Roughly half of std's exported routines appear nowhere but their own
+// declaration: they are typechecked, never run. These pin the ones whose
+// answers are fixed by an external standard, so a regression is caught by the
+// published vector rather than by whatever the code happens to produce.
+//
+// Exit code is the failure count, so a green run returns 0.
+
+use std: pkg = {"std"};
+
+fun[] want(name: str, actual: str, expected: str): int = {
+    when(.eq(actual, expected)) {
+        case(true) { return 0; }
+        * {
+            std::io::echo_str("FAIL " + name + ": got '" + actual + "' want '" + expected + "'");
+            return 1;
+        }
+    }
+};
+
+fun[] want_int(name: str, actual: int, expected: int): int = {
+    return want(name, std::fmt::int_to_str(actual), std::fmt::int_to_str(expected));
+};
+
+// RFC 4648 section 10.
+fun[] base64_vectors(): int = {
+    var[mut] bad: int = 0;
+    bad = bad + want("b64 ''", std::codec::base64_encode(""), "");
+    bad = bad + want("b64 f", std::codec::base64_encode("f"), "Zg==");
+    bad = bad + want("b64 fo", std::codec::base64_encode("fo"), "Zm8=");
+    bad = bad + want("b64 foo", std::codec::base64_encode("foo"), "Zm9v");
+    bad = bad + want("b64 foob", std::codec::base64_encode("foob"), "Zm9vYg==");
+    bad = bad + want("b64 fooba", std::codec::base64_encode("fooba"), "Zm9vYmE=");
+    bad = bad + want("b64 foobar", std::codec::base64_encode("foobar"), "Zm9vYmFy");
+    bad = bad + want("b64 decode", std::codec::base64_decode("Zm9v"), "foo");
+    bad = bad + want("b64 round trip",
+        std::codec::base64_decode(std::codec::base64_encode("foobar")), "foobar");
+    return bad;
+};
+
+// The CRC-32 check value, and the FNV-1a 32-bit reference offsets.
+fun[] digest_vectors(): int = {
+    var[mut] bad: int = 0;
+    bad = bad + want("crc32 check", std::codec::crc32_hex("123456789"), "cbf43926");
+    bad = bad + want_int("fnv1a ''", std::hash::fnv1a(""), 2166136261);
+    bad = bad + want_int("fnv1a a", std::hash::fnv1a("a"), 3826002220);
+    bad = bad + want_int("fnv1a foobar", std::hash::fnv1a("foobar"), 3214735720);
+    return bad;
+};
+
+// The cases a path splitter usually gets wrong: several dots, no dot, a dot in
+// a directory rather than the file, and an absolute right-hand join.
+fun[] path_edges(): int = {
+    var[mut] bad: int = 0;
+    bad = bad + want("ext tar.gz", std::path::extension("archive.tar.gz"), "gz");
+    bad = bad + want("ext none", std::path::extension("noext"), "");
+    bad = bad + want("ext dot dir", std::path::extension("dir.d/file"), "");
+    bad = bad + want("ext trailing dot", std::path::extension("file."), "");
+    // A leading dot names a hidden file; it is not an extension separator.
+    bad = bad + want("ext hidden", std::path::extension(".hidden"), "");
+    bad = bad + want("stem hidden", std::path::file_stem(".hidden"), ".hidden");
+    bad = bad + want("stem tar.gz", std::path::file_stem("archive.tar.gz"), "archive.tar");
+    bad = bad + want("stem none", std::path::file_stem("noext"), "noext");
+    bad = bad + want("file_name", std::path::file_name("/a/b/c.txt"), "c.txt");
+    bad = bad + want("parent", std::path::parent("/a/b/c.txt"), "/a/b");
+    bad = bad + want("normalize ..", std::path::normalize("a/b/../c"), "a/c");
+    bad = bad + want("normalize .", std::path::normalize("a/./b"), "a/b");
+    bad = bad + want("join", std::path::join("a", "b"), "a/b");
+    bad = bad + want("join absolute right", std::path::join("a", "/b"), "/b");
+    return bad;
+};
+
+// A delimiter inside a quoted field, and a doubled quote meaning one literal
+// quote -- the two cases that separate a CSV reader from a `split`.
+fun[] csv_quoting(): int = {
+    var[mut] bad: int = 0;
+    var commas: vec[str] = std::csv::parse_row("a,\"b,c\",d");
+    bad = bad + want_int("quoted comma count", .len(commas), 3);
+    bad = bad + want("quoted comma field", commas[1], "b,c");
+
+    var quoted: vec[str] = std::csv::parse_row("a,\"he said \"\"hi\"\"\",z");
+    bad = bad + want_int("escaped quote count", .len(quoted), 3);
+    bad = bad + want("escaped quote field", quoted[1], "he said \"hi\"");
+
+    bad = bad + want("encode plain", std::csv::encode_field("plain"), "plain");
+    bad = bad + want("encode comma", std::csv::encode_field("a,b"), "\"a,b\"");
+    bad = bad + want("encode quote", std::csv::encode_field("a\"b"), "\"a\"\"b\"");
+    bad = bad + want_int("column_count", std::csv::column_count("a,\"b,c\",d"), 3);
+
+    var fields: vec[str] = { "plain", "a,b", "he said \"hi\"" };
+    var back: vec[str] = std::csv::parse_row(std::csv::encode_row(fields));
+    bad = bad + want_int("round trip count", .len(back), 3);
+    bad = bad + want("round trip 0", back[0], "plain");
+    bad = bad + want("round trip 1", back[1], "a,b");
+    bad = bad + want("round trip 2", back[2], "he said \"hi\"");
+    return bad;
+};
+
+fun[] main(): int = {
+    var[mut] bad: int = 0;
+    bad = bad + base64_vectors();
+    bad = bad + digest_vectors();
+    bad = bad + path_edges();
+    bad = bad + csv_quoting();
+    return bad;
+};
