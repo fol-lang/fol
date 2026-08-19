@@ -480,6 +480,44 @@ mod tests {
     }
 
     #[test]
+    fn registry_validation_rejects_a_reused_intrinsic_id() {
+        // Names were already checked, but dispatch keys on the id: a reused one
+        // shadows the second entry instead of being reported.
+        const ENTRIES: &[IntrinsicEntry] = &[
+            IntrinsicEntry::new(
+                IntrinsicId::new(7),
+                "first",
+                &[],
+                IntrinsicCategory::Comparison,
+                IntrinsicSurface::DotRootCall,
+                IntrinsicAvailability::V1,
+                IntrinsicStatus::Implemented,
+                IntrinsicArity::Exactly(1),
+                IntrinsicLoweringMode::GeneralIr,
+                "first entry",
+            ),
+            IntrinsicEntry::new(
+                IntrinsicId::new(7),
+                "second",
+                &[],
+                IntrinsicCategory::Comparison,
+                IntrinsicSurface::DotRootCall,
+                IntrinsicAvailability::V1,
+                IntrinsicStatus::Implemented,
+                IntrinsicArity::Exactly(1),
+                IntrinsicLoweringMode::GeneralIr,
+                "second entry",
+            ),
+        ];
+
+        let error =
+            validate_intrinsic_registry(ENTRIES).expect_err("a reused id should be rejected");
+        assert_eq!(error.kind, RegistryValidationErrorKind::DuplicateId);
+        assert_eq!(error.left_name, "first");
+        assert_eq!(error.right_name, "second");
+    }
+
+    #[test]
     fn implemented_intrinsics_expose_backend_roles_explicitly() {
         let eq = intrinsic_by_canonical_name("eq").expect("eq should exist");
         let len = intrinsic_by_canonical_name("len").expect("len should exist");

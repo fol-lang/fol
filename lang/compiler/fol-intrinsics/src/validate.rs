@@ -2,6 +2,9 @@ use crate::IntrinsicEntry;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum RegistryValidationErrorKind {
+    /// Two entries share an id. Lowering and the backend dispatch on the id, not
+    /// the name, so the second entry would be shadowed rather than rejected.
+    DuplicateId,
     DuplicateCanonicalName,
     DuplicateAlias,
     AliasMatchesCanonicalName,
@@ -31,6 +34,15 @@ pub fn validate_intrinsic_registry(
         }
 
         for other in &entries[index + 1..] {
+            if entry.id.index() == other.id.index() {
+                return Err(RegistryValidationError {
+                    kind: RegistryValidationErrorKind::DuplicateId,
+                    left_name: entry.name,
+                    right_name: other.name,
+                    offending_alias: "",
+                });
+            }
+
             if entry.name == other.name {
                 return Err(RegistryValidationError {
                     kind: RegistryValidationErrorKind::DuplicateCanonicalName,
