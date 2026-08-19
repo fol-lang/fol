@@ -7739,3 +7739,29 @@ fn create_app_with_git_dependency_from_url(
     )
     .expect("Should write app source");
 }
+
+#[test]
+fn test_build_git_dep_versions_example_declares_every_version_form() {
+    // The one example under `examples/` that no test referenced. It pins the
+    // `version =` spellings a git dependency accepts, and `code check` resolves
+    // the build file without fetching, so the syntax is verifiable offline.
+    let root = temp_example_root("examples/build_git_dep_versions");
+
+    let check = run_fol_in_dir(&root, &["code", "check"]);
+    let stdout = strip_ansi(&String::from_utf8_lossy(&check.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&check.stderr));
+    assert!(
+        check.status.success(),
+        "git dependency declarations should check offline: stdout=\n{stdout}\nstderr=\n{stderr}"
+    );
+
+    let build_file =
+        std::fs::read_to_string(repo_root().join("examples/build_git_dep_versions/build.fol"))
+            .expect("the git dependency example should be readable");
+    for form in ["branch:", "tag:", "commit:"] {
+        assert!(
+            build_file.contains(form),
+            "the example should keep documenting the '{form}' version form"
+        );
+    }
+}

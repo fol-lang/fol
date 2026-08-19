@@ -5,12 +5,9 @@ use table: loc = {"../table"};
 // check.c + make.c: the cycle walk and the recursive maker.
 //
 // Both are recursive over the graph and both mutate the name table as they
-// descend. FOL cannot express that directly -- a `pro (T[mut, bor])` method may
-// not call another mutating method on `self`, so a mutating method can never
-// recurse. The table is therefore threaded through by value: every routine
-// here takes the `Make` machine, moves it into a local `var[mut]` owner it is
-// allowed to mutate, and hands it back. That restores both recursion and
-// composition, at the price of a whole-record move per call.
+// descend, and a `pro (T[mut, bor])` method may recurse and call other mutating
+// methods on `self`, so every routine here is a receiver method on `Make` and
+// the table is never moved.
 
 // check(): descend with the N_MARK bit set, and complain if the descent
 // re-enters a name that is already on the path.
@@ -21,10 +18,7 @@ pro[exp] (table::Make[mut, bor]) walk(node: int): non = {
     };
     when(self.mark[node]) {
         case(true) {
-            // Hoisted for the same reason as in `docmds`: a call on `self`
-            // nested inside another call's arguments does not borrow-check.
-            var complaint: str = "Circular dependency from " + self.name_of(node);
-            self.complain(complaint);
+            self.complain("Circular dependency from " + self.name_of(node));
             return;
         }
         * { }
@@ -201,8 +195,7 @@ pro[exp] (table::Make[mut, bor]) build(node: int, level: int): non = {
     when(self.is_targ[node] or self.exists[node]) {
         case(true) { }
         * {
-            var complaint: str = "Don't know how to make " + self.name_of(node);
-            self.complain(complaint);
+            self.complain("Don't know how to make " + self.name_of(node));
             self.set_failed(node);
             self.set_done(node);
             return;
