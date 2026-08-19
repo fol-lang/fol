@@ -1,0 +1,18 @@
+// A scoped task carries a `[bor]` capture as a clone, so the owner crosses the
+// boundary by value and must promise it may (V3_MEM 8.1). `clone` alone says
+// the value can be duplicated, not that the duplicate is thread-safe, so this
+// is refused here rather than in the emitted Rust.
+
+use std: pkg = {"std"};
+
+pro[] watch(T: clone)(state: T): non = {
+    [>]fun()[state[bor]] = {
+        var seen: T = [cln]state;
+    };
+    return;
+};
+
+pro[] main(): int = {
+    watch(41);
+    return 0;
+};

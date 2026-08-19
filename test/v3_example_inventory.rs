@@ -546,6 +546,13 @@ pub(crate) const V3_MEM_M3_FAILURES: &[V3FailureExample] = &[
 
 pub(crate) const V3_PROC_M1_FAILURES: &[V3FailureExample] = &[
     v3_failure!(
+        "examples/fail_proc_generic_capture_send_m1",
+        "O1001",
+        "a generic owner needs a thread-safety promise",
+        true,
+        false
+    ),
+    v3_failure!(
         "examples/fail_proc_spawn_borrow_mutate_m1",
         "O1001",
         "while a spawned task borrows it",

@@ -1189,6 +1189,25 @@ fn type_node_with_expectation_inner(
                                 &format!("moved capture '{}[mov]'", capture.name),
                             ));
                         }
+                        // Same obligation for a generic owner: without the
+                        // promise the emitted task fails rustc with "cannot be
+                        // sent between threads safely".
+                        if !value_position
+                            && decls::checked_type_contains_unsendable_generic_param(
+                                typed,
+                                capture_type,
+                            )
+                        {
+                            return Err(with_node_origin(
+                                resolved,
+                                node,
+                                TypecheckErrorKind::Ownership,
+                                format!(
+                                    "moved capture '{}[mov]' sends its owner into the task, so a generic owner needs a thread-safety promise; declare the parameter as '(T: send)' so every call site is checked",
+                                    capture.name
+                                ),
+                            ));
+                        }
                         // A closure environment re-materializes its values on
                         // every call, so a move-only value cannot be moved into
                         // a routine value that may run more than once.
@@ -1316,6 +1335,27 @@ fn type_node_with_expectation_inner(
                                 resolved,
                                 node,
                                 &format!("borrowed capture '{}[bor]'", capture.name),
+                            ));
+                        }
+                        // The loan is carried into the task as a clone, so the
+                        // owner crosses the boundary by value and a generic one
+                        // has to promise it may. Without this the routine
+                        // typechecks and rustc rejects the emitted task with
+                        // "cannot be sent between threads safely".
+                        if !value_position
+                            && decls::checked_type_contains_unsendable_generic_param(
+                                typed,
+                                capture_type,
+                            )
+                        {
+                            return Err(with_node_origin(
+                                resolved,
+                                node,
+                                TypecheckErrorKind::Ownership,
+                                format!(
+                                    "borrowed capture '{}[bor]' clones its owner into the task, so a generic owner needs a thread-safety promise; declare the parameter as '(T: send)' so every call site is checked",
+                                    capture.name
+                                ),
                             ));
                         }
                         if let Some(origin) = node_origin(resolved, node) {
