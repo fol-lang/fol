@@ -7795,3 +7795,33 @@ fn install_instructions_name_the_current_release_version() {
         "the install chapter's download URL should name the current release {version}"
     );
 }
+
+#[test]
+fn architecture_crate_map_lists_every_workspace_crate() {
+    // A crate added to the workspace is invisible to a reader until the map
+    // mentions it: `fol-testkit` sat undocumented from the day it was split out.
+    let manifest = std::fs::read_to_string(repo_root().join("Cargo.toml"))
+        .expect("the workspace manifest should be readable");
+    let architecture = std::fs::read_to_string(repo_root().join("ARCHITECTURE.md"))
+        .expect("ARCHITECTURE.md should be readable");
+
+    let mut missing = Vec::new();
+    for line in manifest.lines() {
+        let trimmed = line.trim().trim_end_matches(',').trim_matches('"');
+        let Some(name) = trimmed
+            .strip_prefix("lang/")
+            .and_then(|path| path.rsplit('/').next())
+        else {
+            continue;
+        };
+        if name.starts_with("fol-") && !architecture.contains(name) {
+            missing.push(name.to_string());
+        }
+    }
+    missing.sort();
+    missing.dedup();
+    assert!(
+        missing.is_empty(),
+        "ARCHITECTURE.md's workspace layout should name every crate; missing: {missing:?}"
+    );
+}
