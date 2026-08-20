@@ -90,6 +90,10 @@ check the shape you expect rather than assuming a document is well formed:
   so `hello` and the empty string both arrive as `NUM`. Parse the text before
   trusting it as a number
 - a trailing comma is accepted; `[1,2,]` reads as a two-element array
+- nesting deeper than `MAX_DEPTH` (512) is refused the same way, giving the empty
+  arena. Building the tree recurses once per level, and a stack overflow **aborts
+  the process** rather than faulting, so no caller could catch it -- the cap is
+  what keeps hostile input a refusal instead of a crash
 
 That leniency is deliberate -- a parser that faults on hostile input is a denial
 of service -- but it puts the validation burden on the caller.

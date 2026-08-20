@@ -212,6 +212,7 @@ fun[] main(): int = {
     bad = bad + json_is_robust();
     bad = bad + decoders_are_robust();
     bad = bad + text_boundaries_are_safe();
+    bad = bad + deep_nesting_is_refused_not_fatal();
     return bad;
 };
 
@@ -572,5 +573,37 @@ fun[] text_boundaries_are_safe(): int = {
     bad = bad + want("sub at the end is empty", std::strn::sub("abc", 3, 1), "");
     bad = bad + want("sub of zero length is empty", std::strn::sub("abc", 1, 0), "");
     bad = bad + want("sub starting past the end is empty", std::strn::sub("abc", 99, 1), "");
+    return bad;
+};
+
+fun[] nested_json(depth: int): str = {
+    var[mut] out: str = "1";
+    var[mut] i: int = 0;
+    loop (i < depth) {
+        out = "[" + out + "]";
+        i = i + 1;
+    };
+    return out;
+};
+
+// Building the tree recurses once per level, so an unbounded document used to
+// overflow the stack and ABORT the process -- which no caller can catch, and
+// which is worse than the faulting parser the leniency exists to avoid.
+fun[] deep_nesting_is_refused_not_fatal(): int = {
+    var[mut] bad: int = 0;
+    var at_cap: std::jsondoc::Doc = std::jsondoc::parse(nested_json(512));
+    bad = bad + want_int("at the cap it still parses",
+        std::jsondoc::kind_of([bor]at_cap, 0), 4);
+    var over_cap: std::jsondoc::Doc = std::jsondoc::parse(nested_json(513));
+    bad = bad + want_int("one past the cap is refused",
+        std::jsondoc::kind_of([bor]over_cap, 0), 0 - 1);
+    // Far past the cap must still answer rather than abort.
+    var far: std::jsondoc::Doc = std::jsondoc::parse(nested_json(5000));
+    bad = bad + want_int("far past the cap is refused, not fatal",
+        std::jsondoc::kind_of([bor]far, 0), 0 - 1);
+    bad = bad + want_int("max_depth counts the deepest nesting",
+        std::json::max_depth("[[[1]]]"), 3);
+    bad = bad + want_int("max_depth ignores brackets inside strings",
+        std::json::max_depth("[\"[[[\"]"), 1);
     return bad;
 };
