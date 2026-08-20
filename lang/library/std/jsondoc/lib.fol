@@ -170,8 +170,14 @@ fun build_object(nodes: vec[Node], text: str): Built = {
     return { index = parent, nodes = [mov]out };
 };
 
+// The deepest nesting `parse` will descend. Building the tree recurses once per
+// level, so an unbounded document overflows the machine stack -- and a stack
+// overflow aborts the process instead of faulting, which no caller can catch.
+// Past this, the document is refused the same way an unbalanced one is.
+con[exp] MAX_DEPTH: int = 512;
+
 fun[exp] parse(text: str): Doc = {
-    if (json::is_balanced(text) == false) {
+    if (json::is_balanced(text) == false or json::max_depth(text) > MAX_DEPTH) {
         var[mut] empty: vec[Node] = {};
         return { nodes = [mov]empty, root = none() };
     } else {

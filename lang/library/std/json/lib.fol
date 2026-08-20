@@ -171,6 +171,54 @@ fun[exp] is_balanced(text: str): bol = {
     return depth == 0 and in_string == false;
 };
 
+// The deepest nesting the text reaches, walked iteratively. `jsondoc::parse`
+// descends recursively, so a document deeper than the machine stack aborts the
+// process rather than faulting -- this is how that is refused up front.
+fun[exp] max_depth(text: str): int = {
+    var[mut] depth: int = 0;
+    var[mut] deepest: int = 0;
+    var[mut] in_string: bol = false;
+    var[mut] escaped: bol = false;
+    var[mut] i: int = 0;
+    var total: int = .len(text);
+    loop (i < total) {
+        var piece: str = .str_sub(text, i, 1);
+        if (escaped) {
+            escaped = false;
+        } else {
+            if (in_string) {
+                if (piece == BACKSLASH) {
+                    escaped = true;
+                } else {
+                    if (piece == QUOTE) {
+                        in_string = false;
+                    } else {
+                    };
+                };
+            } else {
+                if (piece == QUOTE) {
+                    in_string = true;
+                } else {
+                    if (piece == OPEN_OBJ or piece == OPEN_ARR) {
+                        depth = depth + 1;
+                        if (depth > deepest) {
+                            deepest = depth;
+                        } else {
+                        };
+                    } else {
+                        if (piece == CLOSE_OBJ or piece == CLOSE_ARR) {
+                            depth = depth - 1;
+                        } else {
+                        };
+                    };
+                };
+            };
+        };
+        i = i + 1;
+    };
+    return deepest;
+};
+
 // Split the body of an object or array on top-level commas, ignoring commas
 // nested inside strings, braces or brackets.
 fun[exp] split_top_level(text: str): vec[str] = {
