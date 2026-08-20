@@ -18,6 +18,11 @@ fun[exp] radians_to_degrees(value: flt): flt
 `sign_int` yields `-1`, `0`, or `1`. `gcd` takes absolute values, so it is safe
 on negatives, and `lcm` is built from it.
 
+Both clamps **swap bounds given the wrong way round**, so `clamp_int(5, 10, 2)`
+is `5` rather than a value outside both. That keeps them total -- every input has
+a sensible answer -- and keeps the `int` and `flt` spellings agreeing, which they
+did not when one was `min(max(v, low), high)` and the other tested `low` first.
+
 These live in FOL because none of them needs the compiler: they are a few lines
 each over the operators. The transcendental functions — `.sqrt(...)`,
 `.sin(...)`, `.ln(...)` and the rest — are intrinsics instead, because

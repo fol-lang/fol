@@ -223,6 +223,13 @@ fun[] numeric_edges(): int = {
     bad = bad + want_int("clamp below", std::nums::clamp_int(1, 3, 7), 3);
     bad = bad + want_int("clamp above", std::nums::clamp_int(9, 3, 7), 7);
     bad = bad + want_int("clamp at the low edge", std::nums::clamp_int(3, 3, 7), 3);
+    // Bounds the wrong way round are swapped, so the answer is inside both and
+    // the int and flt spellings agree -- they used to disagree here.
+    bad = bad + want_int("clamp with inverted bounds", std::nums::clamp_int(5, 10, 2), 5);
+    bad = bad + want_int("clamp_flt with inverted bounds",
+        .flt_to_int(std::nums::clamp_flt(5.0, 10.0, 2.0)), 5);
+    bad = bad + want_int("clamp_flt matches clamp_int",
+        .flt_to_int(std::nums::clamp_flt(1.0, 3.0, 7.0)), std::nums::clamp_int(1, 3, 7));
     bad = bad + want_int("sign negative", std::nums::sign_int(0 - 9), 0 - 1);
     bad = bad + want_int("sign zero", std::nums::sign_int(0), 0);
     bad = bad + want("even zero", std::fmt::bol_to_str(std::nums::is_even(0)), "true");
