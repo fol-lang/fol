@@ -15,6 +15,8 @@ fun[exp] local_offset(epoch_secs: int): int = {
     return .tz_offset_sec(epoch_secs);
 };
 
+// `.time_parts` reads **milliseconds**; the argument here is seconds, like the
+// rest of this module, so the shifted instant is scaled on the way in.
 fun[exp] local_parts(epoch_secs: int): vec[int] = {
-    return .time_parts(epoch_secs + .tz_offset_sec(epoch_secs));
+    return .time_parts((epoch_secs + .tz_offset_sec(epoch_secs)) * 1000);
 };
