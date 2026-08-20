@@ -7,17 +7,30 @@ con[exp] PI: flt = 3.141592653589793;
 con[exp] E: flt = 2.718281828459045;
 con[exp] TAU: flt = 6.283185307179586;
 
+// Bounds handed over the wrong way round are swapped rather than answered with a
+// value outside both. `min(max(v, low), high)` yields `high` when low > high while
+// a low-first ladder yields `low`, so the int and flt spellings used to disagree
+// on the same input. Swapping makes each total and makes the two agree.
 fun[exp] clamp_int(value: int, low: int, high: int): int = {
-    return .min(.max(value, low), high);
+    var lo: int = .min(low, high);
+    var hi: int = .max(low, high);
+    return .min(.max(value, lo), hi);
 };
 
 fun[exp] clamp_flt(value: flt, low: flt, high: flt): flt = {
-    if (value < low) {
-        return low;
+    var[mut] lo: flt = low;
+    var[mut] hi: flt = high;
+    if (low > high) {
+        lo = high;
+        hi = low;
     } else {
     };
-    if (value > high) {
-        return high;
+    if (value < lo) {
+        return lo;
+    } else {
+    };
+    if (value > hi) {
+        return hi;
     } else {
     };
     return value;
