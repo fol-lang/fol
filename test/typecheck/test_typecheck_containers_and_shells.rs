@@ -1182,3 +1182,101 @@ fn type_declarations_accept_the_hidden_option() {
         .typed_node(find_named_routine_syntax_id(&typed, "main"))
         .is_some());
 }
+
+// A container method reaches a place, so its receiver carries the same
+// ownership obligations as any other read: `.push` must not be a way around
+// them.
+#[test]
+fn container_methods_reject_a_moved_receiver() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] take(v: vec[int]): int = {\n\
+             return .len(v);\n\
+         };\n\
+         fun[] bad(): int = {\n\
+             var[mut] cells: vec[int] = {1, 2};\n\
+             var seen: int = take([mov]cells);\n\
+             cells.push(3);\n\
+             return seen;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error.message() == "use of moved binding 'cells'"
+        }),
+        "Expected a moved-receiver diagnostic, got: {errors:?}"
+    );
+}
+
+#[test]
+fn container_methods_reject_a_moved_receiver_field() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Holder(): rec = { cells: vec[int] };\n\
+         fun[] take(v: vec[int]): int = {\n\
+             return .len(v);\n\
+         };\n\
+         fun[] bad(): int = {\n\
+             var[mut] holder: Holder = { cells = {1, 2} };\n\
+             var seen: int = take([mov]holder.cells);\n\
+             holder.cells.push(3);\n\
+             return seen;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error.message() == "use of moved field 'holder.cells'"
+        }),
+        "Expected a moved-field diagnostic, got: {errors:?}"
+    );
+}
+
+#[test]
+fn container_methods_reject_a_borrowed_receiver() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] bad(): int = {\n\
+             var[mut] cells: vec[int] = {1, 2};\n\
+             var[bor] view: vec[int] = cells;\n\
+             cells.push(3);\n\
+             return .len(view);\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::OwnerBorrowed
+                && error.message() == "owner 'cells' is inaccessible while borrowed"
+        }),
+        "Expected an owner-borrowed diagnostic, got: {errors:?}"
+    );
+}
+
+// The rejections above must not cost the ordinary shapes: a live container, a
+// receiver moved only after its last method call, and a borrow whose last use
+// precedes the mutation.
+#[test]
+fn container_methods_accept_receivers_that_are_still_owned() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] take(v: vec[int]): int = {\n\
+             return .len(v);\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var[mut] cells: vec[int] = {1};\n\
+             cells.push(2);\n\
+             var[bor] view: vec[int] = cells;\n\
+             var seen: int = .len(view);\n\
+             cells.push(3);\n\
+             return seen + take([mov]cells);\n\
+         };\n",
+    )]);
+
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}

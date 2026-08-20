@@ -1702,6 +1702,44 @@ pub(crate) fn resolve_container_method_receiver(
             SymbolKind::Parameter,
         )
     });
+    // A container method reaches a place, so the receiver carries the same
+    // ownership obligations the identifier path enforces: a moved binding, a
+    // moved field, and a live borrow of the owner all rule it out. Without
+    // these, `.push` was the one way to reach a container the model had
+    // already invalidated.
+    if let Some(symbol) = symbol {
+        if let Some(move_origin) = typed.moved_binding_origin(symbol).cloned() {
+            let move_only = typed
+                .typed_symbol(symbol)
+                .and_then(|symbol| symbol.declared_type)
+                .is_some_and(|type_id| {
+                    super::bindings::ownership_moves_on_transfer(typed, type_id)
+                });
+            let message = if move_only {
+                format!("use of moved heap-owned binding '{binding_name}'")
+            } else {
+                format!("use of moved binding '{binding_name}'")
+            };
+            return Err(TypecheckError::new(TypecheckErrorKind::Ownership, message)
+                .with_related_origin(move_origin, "ownership moved here"));
+        }
+        if let Some(field) = &through_field {
+            if let Some(field_origin) = typed.moved_field_origin(symbol, field).cloned() {
+                return Err(TypecheckError::new(
+                    TypecheckErrorKind::Ownership,
+                    format!("use of moved field '{binding_name}.{field}'"),
+                )
+                .with_related_origin(field_origin, "field moved here"));
+            }
+        }
+        if let Some(borrow) = typed.active_borrow_for_owner(symbol).cloned() {
+            return Err(TypecheckError::new(
+                TypecheckErrorKind::OwnerBorrowed,
+                format!("owner '{binding_name}' is inaccessible while borrowed"),
+            )
+            .with_related_origin(borrow.origin, "borrow created here"));
+        }
+    }
     // A read-only method (`get`, `contains`, `keys`, `values`) needs no mutable
     // place: requiring one would force every caller to declare `var[mut]` just
     // to look inside a container.
