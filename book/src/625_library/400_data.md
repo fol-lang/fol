@@ -76,6 +76,24 @@ fun[exp] render(doc: Doc[bor], index: int): str
 `none()` is a routine rather than a constant because `con` needs a literal
 initializer and `-1` is a negation, not a literal.
 
+### What `parse` promises
+
+`parse` is **lenient, not validating**. It never faults, whatever it is handed --
+truncated input, an unterminated string, a lone backslash, a trailing comma, or
+text that is not JSON at all. What it does *not* do is reject malformed input, so
+check the shape you expect rather than assuming a document is well formed:
+
+- a container it cannot build yields an **empty arena**, so `kind_of(...)` on
+  index 0 answers `-1`; that is the signal that nothing parsed
+- `NUM` is a **fallthrough**, not a claim. Anything that is not a quoted string,
+  `true`, `false` or `null` is classified `NUM` with the raw text kept verbatim,
+  so `hello` and the empty string both arrive as `NUM`. Parse the text before
+  trusting it as a number
+- a trailing comma is accepted; `[1,2,]` reads as a two-element array
+
+That leniency is deliberate -- a parser that faults on hostile input is a denial
+of service -- but it puts the validation burden on the caller.
+
 The document is passed as `Doc[bor]` — a read-only loan — so walking it never
 copies the arena. That means **every call takes `[bor]doc`, not `doc`**;
 ownership transfers are explicit in FOL, and passing the document bare is an

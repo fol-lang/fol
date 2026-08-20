@@ -209,6 +209,7 @@ fun[] main(): int = {
     bad = bad + random_invariants();
     bad = bad + file_surface();
     bad = bad + process_and_clock();
+    bad = bad + json_is_robust();
     return bad;
 };
 
@@ -478,5 +479,55 @@ fun[] process_and_clock(): int = {
     var offset: int = std::time::local_offset(1465154705);
     bad = bad + want("the offset is within a day",
         std::fmt::bol_to_str((offset > 0 - 86400) and (offset < 86400)), "true");
+    return bad;
+};
+
+// Parsing hostile text must answer, never fault: a parser that panics on bad
+// input is a denial of service. `parse` is lenient by contract, so this asserts
+// survival and the two documented signals, not rejection.
+fun[] survives(name: str, text: str): int = {
+    var doc: std::jsondoc::Doc = std::jsondoc::parse(text);
+    var kind: int = std::jsondoc::kind_of([bor]doc, 0);
+    // Every kind is either a real one or the -1 "nothing parsed" sentinel.
+    when((kind >= 0 - 1) and (kind <= 6)) {
+        case(true) { return 0; }
+        * {
+            std::io::echo_str("FAIL " + name + " gave an unknown kind "
+                + std::fmt::int_to_str(kind));
+            return 1;
+        }
+    }
+};
+
+fun[] json_is_robust(): int = {
+    var[mut] bad: int = 0;
+    bad = bad + survives("empty", "");
+    bad = bad + survives("open brace", "{");
+    bad = bad + survives("close brace", "}");
+    bad = bad + survives("open bracket", "[");
+    bad = bad + survives("unterminated string", "\"abc");
+    bad = bad + survives("lone backslash", "\"\\");
+    bad = bad + survives("bad escape", "\"\\q\"");
+    bad = bad + survives("truncated unicode", "\"\\u00\"");
+    bad = bad + survives("trailing comma", "[1,2,]");
+    bad = bad + survives("missing colon", "{\"a\" 1}");
+    bad = bad + survives("naked comma", ",");
+    bad = bad + survives("deep nesting", "[[[[[[[[[[1]]]]]]]]]]");
+    bad = bad + survives("not json at all", "hello world");
+    bad = bad + survives("number soup", "1.2.3e");
+
+    // The two documented signals.
+    var broken: std::jsondoc::Doc = std::jsondoc::parse("{");
+    bad = bad + want_int("a broken container leaves an empty arena",
+        std::jsondoc::kind_of([bor]broken, 0), 0 - 1);
+    var garbage: std::jsondoc::Doc = std::jsondoc::parse("hello");
+    bad = bad + want_int("NUM is a fallthrough, not a claim",
+        std::jsondoc::kind_of([bor]garbage, 0), 2);
+    bad = bad + want("the raw text is kept verbatim",
+        std::jsondoc::text_of([bor]garbage, 0), "hello");
+
+    var good: std::jsondoc::Doc = std::jsondoc::parse("{\"a\":1}");
+    bad = bad + want_int("a real object still parses",
+        std::jsondoc::kind_of([bor]good, 0), 5);
     return bad;
 };
