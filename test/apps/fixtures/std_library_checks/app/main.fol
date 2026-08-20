@@ -210,6 +210,7 @@ fun[] main(): int = {
     bad = bad + file_surface();
     bad = bad + process_and_clock();
     bad = bad + json_is_robust();
+    bad = bad + decoders_are_robust();
     return bad;
 };
 
@@ -529,5 +530,32 @@ fun[] json_is_robust(): int = {
     var good: std::jsondoc::Doc = std::jsondoc::parse("{\"a\":1}");
     bad = bad + want_int("a real object still parses",
         std::jsondoc::kind_of([bor]good, 0), 5);
+    return bad;
+};
+
+// Decoders are handed hostile bytes by definition. None of these may fault, and
+// the two that document an all-or-nothing contract must honour it.
+fun[] decoders_are_robust(): int = {
+    var[mut] bad: int = 0;
+    bad = bad + want_int("base64 rejects non-alphabet", .len(std::codec::base64_decode("!!!!")), 0);
+    bad = bad + want_int("base64 rejects padding in the middle",
+        .len(std::codec::base64_decode("Zg==Zg==")), 0);
+    bad = bad + want_int("base64 rejects bare padding", .len(std::codec::base64_decode("====")), 0);
+    bad = bad + want_int("hex rejects an odd length", .len(std::codec::hex_decode("abc")), 0);
+    bad = bad + want_int("hex rejects non-hex", .len(std::codec::hex_decode("zzzz")), 0);
+    bad = bad + want_int("hex of empty is empty", .len(std::codec::hex_decode("")), 0);
+
+    // Lenient by design, but they must still answer rather than fault.
+    var unterminated: vec[str] = std::csv::parse_row("a,\"b,c");
+    bad = bad + want("an unterminated quote still answers",
+        std::fmt::bol_to_str(.len(unterminated) > 0), "true");
+    var only_commas: vec[str] = std::csv::parse_row(",,,");
+    bad = bad + want_int("empty fields are counted", .len(only_commas), 4);
+    var blank: vec[str] = std::csv::parse_row("");
+    bad = bad + want_int("an empty line is one empty field", .len(blank), 1);
+    bad = bad + want("a trailing backslash survives unescaping",
+        std::fmt::bol_to_str(.len(std::json::unescape("abc\\")) > 0), "true");
+    bad = bad + want("a truncated unicode escape survives",
+        std::fmt::bol_to_str(.len(std::json::unescape("\\u00")) > 0), "true");
     return bad;
 };
