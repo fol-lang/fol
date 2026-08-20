@@ -74,11 +74,13 @@ mod tests {
 /// code routes every fallible runtime access through this so an ordinary
 /// runtime fault (out-of-bounds index, nil unwrap, invalid slice) surfaces as
 /// a single readable line instead of Rust `Result` debug noise pointing into
-/// the generated build directory.
+/// the generated build directory. Only the message is shown: `Display` prefixes
+/// the `RuntimeErrorKind`, which is Rust vocabulary a FOL programmer meets
+/// nowhere else, and every other fault in the runtime is plain prose.
 pub fn require<T>(result: Result<T, RuntimeError>) -> T {
     match result {
         Ok(value) => value,
-        Err(error) => panic!("fol runtime fault: {error}"),
+        Err(error) => panic!("fol runtime fault: {}", error.message()),
     }
 }
 

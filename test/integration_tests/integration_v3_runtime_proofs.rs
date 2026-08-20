@@ -1307,3 +1307,33 @@ fn a_literal_operand_is_shaped_by_the_other_side_of_the_comparison() {
     );
     assert_successful_stdout(&root, "true\ntrue\ntrue\ntrue\ntrue\ntrue\n");
 }
+
+#[test]
+fn index_faults_present_as_branded_fol_runtime_faults() {
+    // The index fault used to read "fol runtime fault: InvalidInput: index out
+    // of bounds", leaking the Rust error-kind name into the one fault a program
+    // is most likely to hit. Every other fault is plain prose.
+    let root = write_hosted_app(
+        "v3_index_fault",
+        "use std: pkg = {\"std\"};\n\
+             fun[] main(): int = {\n\
+             \x20   var xs: vec[int] = { 1, 2, 3 };\n\
+             \x20   var n: int = 5;\n\
+             \x20   return std::io::echo_int(xs[n]);\n\
+             };\n",
+    );
+    let build = assert_build_succeeds(&root);
+    let run = run_with_timeout(&built_binary_path(&build), Duration::from_secs(5));
+    assert!(!run.timed_out, "the faulting index should not hang");
+    assert!(!run.output.status.success());
+    let stderr = String::from_utf8_lossy(&run.output.stderr);
+    assert!(
+        stderr.contains("fol runtime fault: index out of bounds: the len is 3 but the index is 5"),
+        "stderr should carry the branded fault: {stderr}"
+    );
+    assert!(
+        !stderr.contains("InvalidInput"),
+        "the Rust error-kind name should not reach the reader: {stderr}"
+    );
+    std::fs::remove_dir_all(root).ok();
+}
