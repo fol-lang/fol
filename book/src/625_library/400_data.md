@@ -15,6 +15,7 @@ fun[exp] unescape(text: str): str
 fun[exp] encode_string(text: str): str
 fun[exp] is_balanced(text: str): bol
 fun[exp] split_top_level(text: str): vec[str]
+fun[exp] max_depth(text: str): int
 fun[exp] key_split_point(entry: str): int
 fun[exp] decode_flat(text: str): map[str, str]
 fun[exp] decode_array(text: str): vec[str]
@@ -24,7 +25,12 @@ fun[exp] encode_flat(values: map[str, str]): str
 `escape` handles the string body; `encode_string` adds the surrounding quotes.
 `split_top_level` splits on commas that are not inside a nested brace, bracket,
 or string, which is what makes it usable as a scanner rather than a naive
-`split`.
+`split`. It records where each part starts and slices once, rather than growing
+the part a character at a time -- accumulating would copy the whole part on every
+character, and this runs over untrusted input.
+
+`max_depth` reports the deepest nesting the text reaches, walked iteratively.
+`jsondoc::parse` uses it to refuse a document too deep to descend recursively.
 
 `decode_flat` returns every value as a `str`, including numbers and booleans —
 a flat map cannot carry mixed types, and converting is the caller's decision.

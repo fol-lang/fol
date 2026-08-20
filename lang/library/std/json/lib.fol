@@ -221,9 +221,14 @@ fun[exp] max_depth(text: str): int = {
 
 // Split the body of an object or array on top-level commas, ignoring commas
 // nested inside strings, braces or brackets.
+//
+// The scan records where each part STARTS and slices once at the comma.
+// Accumulating the part character by character instead copies the whole
+// accumulator on every character, which is quadratic in the body length -- and
+// this runs over untrusted input, where quadratic is a denial of service.
 fun[exp] split_top_level(text: str): vec[str] = {
     var[mut] parts: vec[str] = {};
-    var[mut] current: str = "";
+    var[mut] start: int = 0;
     var[mut] depth: int = 0;
     var[mut] in_string: bol = false;
     var[mut] escaped: bol = false;
@@ -232,11 +237,9 @@ fun[exp] split_top_level(text: str): vec[str] = {
     loop (i < total) {
         var piece: str = .str_sub(text, i, 1);
         if (escaped) {
-            current = current + piece;
             escaped = false;
         } else {
             if (in_string) {
-                current = current + piece;
                 if (piece == BACKSLASH) {
                     escaped = true;
                 } else {
@@ -248,21 +251,17 @@ fun[exp] split_top_level(text: str): vec[str] = {
             } else {
                 if (piece == QUOTE) {
                     in_string = true;
-                    current = current + piece;
                 } else {
                     if (piece == OPEN_OBJ or piece == OPEN_ARR) {
                         depth = depth + 1;
-                        current = current + piece;
                     } else {
                         if (piece == CLOSE_OBJ or piece == CLOSE_ARR) {
                             depth = depth - 1;
-                            current = current + piece;
                         } else {
                             if (piece == COMMA and depth == 0) {
-                                parts.push(strn::trim(current));
-                                current = "";
+                                parts.push(strn::trim(.str_sub(text, start, i - start)));
+                                start = i + 1;
                             } else {
-                                current = current + piece;
                             };
                         };
                     };
@@ -271,7 +270,7 @@ fun[exp] split_top_level(text: str): vec[str] = {
         };
         i = i + 1;
     };
-    var last: str = strn::trim(current);
+    var last: str = strn::trim(.str_sub(text, start, total - start));
     if (.len(last) > 0) {
         parts.push(last);
     } else {
