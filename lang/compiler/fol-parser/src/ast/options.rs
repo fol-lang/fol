@@ -344,3 +344,15 @@ pub fn use_decl_visibility(options: &[UseOption]) -> ParsedDeclVisibility {
         ParsedDeclVisibility::Normal
     }
 }
+
+/// The parts of a joined generic bound (`a + b + c`) that name a declared
+/// standard rather than a compiler-owned capability. The parts share one syntax
+/// id, so a bound carries at most one: the resolver keys the standard reference
+/// by that id and a second part would overwrite the first.
+pub fn declared_standard_parts_of_bound(name: &str) -> Vec<&str> {
+    name.split('+')
+        .filter(|part| {
+            !is_compiler_owned_generic_constraint(part.split('[').next().unwrap_or(part))
+        })
+        .collect()
+}

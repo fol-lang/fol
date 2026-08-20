@@ -1408,3 +1408,63 @@ fn two_level_constrained_generic_forwarding_typechecks() {
         Some(&CheckedType::Builtin(BuiltinType::Int))
     );
 }
+
+// A bound joins with `+`, and the parts need not be the same kind: the declared
+// standard is resolved by symbol while the capability parts are compiler-owned.
+#[test]
+fn joined_bounds_mix_a_declared_standard_with_a_capability() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "std Shape: pro = {\n\
+             fun area(): flt;\n\
+         };\n\
+         typ Square()(Shape, copy): rec = { side: flt };\n\
+         fun (Square)area(): flt = {\n\
+             return self.side * self.side;\n\
+         };\n\
+         fun[] wide(T: Shape + copy)(item: T): bol = {\n\
+             return [cpy]item.area() > 1.0;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var unit: Square = { side = 2.0 };\n\
+             when(wide(unit)) {\n\
+                 case(true) { }\n\
+                 * { }\n\
+             };\n\
+             return 0;\n\
+         };\n",
+    )]);
+
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn joined_bounds_still_require_the_declared_standard() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "std Shape: pro = {\n\
+             fun area(): flt;\n\
+         };\n\
+         typ Square()(copy): rec = { side: flt };\n\
+         fun[] wide(T: Shape + copy)(item: T): bol = {\n\
+             return true;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var unit: Square = { side = 2.0 };\n\
+             when(wide(unit)) {\n\
+                 case(true) { }\n\
+                 * { }\n\
+             };\n\
+             return 0;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message().contains("satisfy standard 'Shape'")),
+        "Expected the standard half of the bound to be checked, got: {errors:?}"
+    );
+}

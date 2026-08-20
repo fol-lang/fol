@@ -43,7 +43,9 @@ pub fn traverse_named_routine(
             if super::types::constraint_is_capability_standard(constraint) {
                 continue;
             }
-            resolve_type_reference(session, program, source_unit_id, routine_scope, constraint)?;
+            let constraint = fol_parser::ast::declared_standard_of_constraint(constraint)
+                .unwrap_or_else(|| constraint.clone());
+            resolve_type_reference(session, program, source_unit_id, routine_scope, &constraint)?;
         }
     }
     if let Some(receiver_type) = receiver_type {

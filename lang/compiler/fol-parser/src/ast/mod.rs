@@ -9,20 +9,22 @@ pub mod visitor;
 
 pub use node::AstNode;
 pub use options::{
-    binding_is_mutable, decl_visibility, fun_decl_visibility, is_capability_standard,
-    is_compiler_owned_generic_constraint, type_decl_visibility, use_decl_visibility,
-    var_decl_visibility, BinaryOperator, CallSurface, CharEncoding, CommentKind, ContainerType,
-    DeclOption, FloatSize, FunOption, IntSize, Literal, OwnershipOption, StandardKind, TypeOption,
-    UnaryOperator, UseOption, UsePathSegment, UsePathSeparator, VarOption, CAPABILITY_STANDARDS,
+    binding_is_mutable, decl_visibility, declared_standard_parts_of_bound, fun_decl_visibility,
+    is_capability_standard, is_compiler_owned_generic_constraint, type_decl_visibility,
+    use_decl_visibility, var_decl_visibility, BinaryOperator, CallSurface, CharEncoding,
+    CommentKind, ContainerType, DeclOption, FloatSize, FunOption, IntSize, Literal,
+    OwnershipOption, StandardKind, TypeOption, UnaryOperator, UseOption, UsePathSegment,
+    UsePathSeparator, VarOption, CAPABILITY_STANDARDS,
 };
 pub use syntax::{
     ParsedDeclScope, ParsedDeclVisibility, ParsedPackage, ParsedSourceUnit, ParsedSourceUnitKind,
     ParsedTopLevel, ParsedTopLevelMeta, SyntaxIndex, SyntaxNodeId, SyntaxOrigin,
 };
 pub use types::{
-    BindingPattern, ChannelEndpoint, EntryVariantMeta, FolType, Generic, InquiryTarget,
-    LoopCondition, Parameter, PointerQualifier, QualifiedPath, RecordFieldMeta, RecordInitField,
-    RollingBinding, RoutineCapture, SelectArm, TypeDefinition, WhenCase,
+    declared_standard_of_constraint, BindingPattern, ChannelEndpoint, EntryVariantMeta, FolType,
+    Generic, InquiryTarget, LoopCondition, Parameter, PointerQualifier, QualifiedPath,
+    RecordFieldMeta, RecordInitField, RollingBinding, RoutineCapture, SelectArm, TypeDefinition,
+    WhenCase,
 };
 pub use visitor::AstVisitor;
 

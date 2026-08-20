@@ -119,7 +119,9 @@ pub fn resolve_type_reference(
                 if constraint_is_capability_standard(constraint) {
                     continue;
                 }
-                resolve_type_reference(session, program, source_unit_id, scope_id, constraint)?;
+                let constraint = fol_parser::ast::declared_standard_of_constraint(constraint)
+                    .unwrap_or_else(|| constraint.clone());
+                resolve_type_reference(session, program, source_unit_id, scope_id, &constraint)?;
             }
         }
         FolType::QualifiedNamed { path } => {

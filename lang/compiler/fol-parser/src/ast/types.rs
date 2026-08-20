@@ -435,6 +435,24 @@ pub struct RecordInitField {
     pub value: AstNode,
 }
 
+/// The declared-standard half of a joined generic bound (`Shape + copy`), as a
+/// type reference that can be looked up on its own. The parts share one syntax
+/// id, so a bound carries at most one declared standard; the capability parts
+/// are compiler-owned and have no symbol to resolve.
+pub fn declared_standard_of_constraint(constraint: &FolType) -> Option<FolType> {
+    let FolType::Named { name, syntax_id } = constraint else {
+        return None;
+    };
+    let parts = super::options::declared_standard_parts_of_bound(name);
+    let [single] = parts.as_slice() else {
+        return None;
+    };
+    (*single != name.as_str()).then(|| FolType::Named {
+        name: (*single).to_string(),
+        syntax_id: *syntax_id,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
