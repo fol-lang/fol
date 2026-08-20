@@ -175,3 +175,45 @@ fn test_branch_body_yield_is_rejected_without_routine_or_loop_context() {
         "Branch-body yield should point at the nested yield keyword"
     );
 }
+
+#[test]
+fn test_a_keyword_used_as_a_binding_name_is_named_in_the_message() {
+    // "Expected identifier after 'var'" reads as nonsense to whoever typed what
+    // they believe IS an identifier. The message names the keyword instead.
+    let error = parse_first_error_from_source(
+        "keyword_binding",
+        "fun[] main(): int = {\n    var each: int = 1;\n    return 0;\n};\n",
+    );
+
+    assert!(
+        error.message.contains("'each' is a keyword"),
+        "the message should name the keyword: {}",
+        error.message
+    );
+    assert!(
+        error.message.contains("rename it"),
+        "the message should say what to do: {}",
+        error.message
+    );
+}
+
+#[test]
+fn test_a_malformed_binding_name_is_not_called_a_keyword() {
+    // A leading digit is a malformed name, not a keyword; reporting it as one
+    // would be a confident lie.
+    let error = parse_first_error_from_source(
+        "numeric_binding",
+        "fun[] main(): int = {\n    var 7: int = 1;\n    return 0;\n};\n",
+    );
+
+    assert!(
+        !error.message.contains("is a keyword"),
+        "a number is not a keyword: {}",
+        error.message
+    );
+    assert!(
+        error.message.contains("Expected identifier after 'var'"),
+        "the generic message should still apply: {}",
+        error.message
+    );
+}

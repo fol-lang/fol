@@ -304,8 +304,29 @@ impl AstParser {
             return Ok(BindingPattern::Name("_".to_string(), None));
         }
 
-        let name =
-            Self::expect_named_label(&token, &format!("Expected identifier after '{}'", keyword))?;
+        // A keyword here looks like a perfectly good name to whoever typed it,
+        // so the message names it rather than asking for an "identifier" they
+        // believe they already wrote.
+        let name = match Self::token_to_named_label(&token) {
+            Some(name) => name,
+            None => {
+                Self::reject_illegal_token(&token)?;
+                let text = token.con().trim().to_string();
+                // Identifier-shaped: a leading digit means a malformed name,
+                // not a keyword, and must not be reported as one.
+                let word_shaped = text
+                    .chars()
+                    .next()
+                    .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+                    && text.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+                let message = if word_shaped {
+                    format!("'{text}' is a keyword, so it cannot name a binding; rename it")
+                } else {
+                    format!("Expected identifier after '{keyword}'")
+                };
+                return Err(ParseError::from_token(&token, message));
+            }
+        };
         // Record the binding name token so tooling can locate the local
         // declaration; the resolver derives the symbol origin from this id.
         let syntax_id = self.record_syntax_origin(&token);
