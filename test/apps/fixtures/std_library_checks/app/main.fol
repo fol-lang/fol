@@ -215,6 +215,7 @@ fun[] main(): int = {
     bad = bad + deep_nesting_is_refused_not_fatal();
     bad = bad + stale_handles_fail_safely();
     bad = bad + numeric_corners();
+    bad = bad + unicode_is_never_split();
     return bad;
 };
 
@@ -692,5 +693,35 @@ fun[] numeric_corners(): int = {
     bad = bad + want_int("sign of the smallest int", std::nums::sign_int(min), 0 - 1);
     bad = bad + want_int("the smallest int clamps into range",
         std::nums::clamp_int(min, 0 - 5, 5), 0 - 5);
+    return bad;
+};
+
+// Multi-byte text, where a naive slice would hand back half a character. The
+// byte world (`len`, `sub`, `byte_at`) and the char world (`str_char_len`,
+// `str_width`) are deliberately separate; `sub` snaps to boundaries so it can
+// never produce invalid UTF-8.
+fun[] unicode_is_never_split(): int = {
+    var[mut] bad: int = 0;
+    var jp: str = "日本語";
+    bad = bad + want_int("three CJK characters are nine bytes", .len(jp), 9);
+    bad = bad + want_int("but three characters", .str_char_len(jp), 3);
+    bad = bad + want_int("and six terminal columns", .str_width(jp), 6);
+
+    // A length that stops inside a character takes the whole character.
+    var head: str = std::strn::sub(jp, 0, 1);
+    bad = bad + want_int("a one-byte slice takes the whole character", .len(head), 3);
+    bad = bad + want("and stays valid utf8", std::fmt::bol_to_str(.str_valid_utf8(head)), "true");
+    // A start inside a character skips the partial one rather than halving it.
+    var mid: str = std::strn::sub(jp, 1, 3);
+    bad = bad + want("a start inside a character stays valid",
+        std::fmt::bol_to_str(.str_valid_utf8(mid)), "true");
+    // The byte world still reports raw bytes, including continuation bytes.
+    bad = bad + want_int("byte_at reads a continuation byte", std::strn::byte_at(jp, 1), 151);
+
+    // Outside the basic plane: one character, four bytes, two columns.
+    var emoji: str = "a🎉b";
+    bad = bad + want_int("emoji text is six bytes", .len(emoji), 6);
+    bad = bad + want_int("but three characters", .str_char_len(emoji), 3);
+    bad = bad + want_int("and four columns", .str_width(emoji), 4);
     return bad;
 };

@@ -1684,3 +1684,48 @@ fn std_library_known_answer_checks_pass() {
         "every std check should pass silently, got:\n{stdout}"
     );
 }
+
+/// A section that is defined but never called from `main` is a test that does
+/// not run, which is worse than no test: the suite stays green while the
+/// assertions inside it are dead. Every section is wired by hand, so this checks
+/// the wiring rather than trusting it.
+#[test]
+fn std_library_checks_run_every_section_they_define() {
+    let source = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("test/apps/fixtures/std_library_checks/app/main.fol"),
+    )
+    .expect("the std checks fixture should be readable");
+
+    let defined: Vec<String> = source
+        .lines()
+        .filter_map(|line| line.strip_prefix("fun[] "))
+        .filter_map(|rest| rest.split("():").next())
+        .filter(|name| !name.contains('(') && *name != "main")
+        .map(str::to_string)
+        .collect();
+    assert!(
+        defined.len() > 10,
+        "sanity: the fixture should define many sections, found {defined:?}"
+    );
+
+    // Bounded at main.s closing brace: sections are appended AFTER main, so an
+    // unbounded tail would match each section.s own definition and never fail.
+    let after_main = source
+        .split("fun[] main(): int = {")
+        .nth(1)
+        .expect("the fixture should declare main");
+    let main_body = after_main
+        .split("\n};")
+        .next()
+        .expect("main should be terminated");
+
+    let orphaned: Vec<&String> = defined
+        .iter()
+        .filter(|name| !main_body.contains(&format!("{name}()")))
+        .collect();
+    assert!(
+        orphaned.is_empty(),
+        "these sections are defined but never run: {orphaned:?}"
+    );
+}
