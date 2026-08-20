@@ -1761,7 +1761,10 @@ fn every_showcase_package_still_checks_clean() {
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_default();
             let detail = strip_ansi(&String::from_utf8_lossy(&output.stderr));
-            broken.push(format!("{name}: {}", detail.lines().take(2).collect::<Vec<_>>().join(" ")));
+            broken.push(format!(
+                "{name}: {}",
+                detail.lines().take(2).collect::<Vec<_>>().join(" ")
+            ));
         }
     }
 
