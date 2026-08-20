@@ -211,6 +211,7 @@ fun[] main(): int = {
     bad = bad + process_and_clock();
     bad = bad + json_is_robust();
     bad = bad + decoders_are_robust();
+    bad = bad + text_boundaries_are_safe();
     return bad;
 };
 
@@ -557,5 +558,19 @@ fun[] decoders_are_robust(): int = {
         std::fmt::bol_to_str(.len(std::json::unescape("abc\\")) > 0), "true");
     bad = bad + want("a truncated unicode escape survives",
         std::fmt::bol_to_str(.len(std::json::unescape("\\u00")) > 0), "true");
+    return bad;
+};
+
+// Text routines are what a program points at untrusted input, so an index past
+// the end must answer rather than fault. `byte_at` reports -1; `sub` clamps.
+fun[] text_boundaries_are_safe(): int = {
+    var[mut] bad: int = 0;
+    bad = bad + want_int("byte_at past the end", std::strn::byte_at("abc", 99), 0 - 1);
+    bad = bad + want_int("byte_at negative", std::strn::byte_at("abc", 0 - 1), 0 - 1);
+    bad = bad + want_int("byte_at into empty", std::strn::byte_at("", 0), 0 - 1);
+    bad = bad + want("sub clamps a long length", std::strn::sub("abc", 1, 99), "bc");
+    bad = bad + want("sub at the end is empty", std::strn::sub("abc", 3, 1), "");
+    bad = bad + want("sub of zero length is empty", std::strn::sub("abc", 1, 0), "");
+    bad = bad + want("sub starting past the end is empty", std::strn::sub("abc", 99, 1), "");
     return bad;
 };
