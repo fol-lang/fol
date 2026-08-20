@@ -1468,3 +1468,55 @@ fn joined_bounds_still_require_the_declared_standard() {
         "Expected the standard half of the bound to be checked, got: {errors:?}"
     );
 }
+
+// `copy` has no structural default: a `T: copy` bound must not launder the
+// declaration that `[cpy]` demands directly.
+#[test]
+fn copy_bounds_require_the_declared_claim_at_call_sites() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "typ Tally(): rec = { hits: int };\n\
+         fun[] keep(T: copy)(item: T): int = {\n\
+             var spare: T = [cpy]item;\n\
+             return 0;\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var counted: Tally = { hits = 2 };\n\
+             return keep(counted);\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.message().contains("satisfy the 'copy' capability")
+                && error.message().contains("'(copy)' conformance header")
+        }),
+        "Expected a copy-claim diagnostic naming the fix, got: {errors:?}"
+    );
+}
+
+// The claim requirement must not reach past nominal aggregates: builtins carry
+// `copy` without declaring it, a declared record satisfies it, and a bound
+// generic forwards it to another bound generic.
+#[test]
+fn copy_bounds_still_admit_builtins_claims_and_forwarded_generics() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "typ Tally()(copy): rec = { hits: int };\n\
+         fun[] inner(T: copy)(item: T): int = {\n\
+             var spare: T = [cpy]item;\n\
+             return 0;\n\
+         };\n\
+         fun[] outer(T: copy)(item: T): int = {\n\
+             return inner([cpy]item);\n\
+         };\n\
+         fun[] main(): int = {\n\
+             var counted: Tally = { hits = 2 };\n\
+             return outer(7) + inner(counted);\n\
+         };\n",
+    )]);
+
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}

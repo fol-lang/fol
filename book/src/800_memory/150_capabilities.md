@@ -104,6 +104,29 @@ fun[exp] sort(T: ord + clone)(values: vec[T]): vec[T] = {
 `clone` appears there because a pure routine has to copy elements out of its
 argument rather than move them, and `ord` because the sort compares.
 
+The parts need not all be capabilities. A declared standard joins the same way,
+so one parameter can carry both a contract and a capability, and the standard may
+be qualified:
+
+```fol
+fun[exp] is_affine(U: scale::unit + copy)(item: U): bol = {
+    return magnitude(offset_of([cpy]item)) > 0.000000001;
+};
+```
+
+The standard half is resolved to its declaration; the capability half is checked
+against the concrete type at the call site.
+
+`copy` is the one capability with no structural default. A record whose fields
+are all copy-safe still does not satisfy `copy` until it says so, because `copy`
+is a claim rather than a shape — the same rule `[cpy]` enforces on a value:
+
+```text
+call to 'keep' requires type 'Tally' to satisfy the 'copy' capability for generic
+parameter 'T'; the type does not; add a '(copy)' conformance header to it, or
+bound the parameter with 'clone'
+```
+
 The check applies **across a package boundary** as well. Calling an imported
 generic routine with a type that cannot satisfy its bound is an ordinary type
 error at the call site, not a failure further down the pipeline:

@@ -2432,8 +2432,18 @@ pub(crate) fn validate_generic_bindings_against_constraints(
                 .map(|symbol| symbol.name.as_str())
                 .unwrap_or("T");
             let actual_name = typed.type_table().render_type(*actual_type);
+            // A structurally copy-safe record that never declared `copy` is the
+            // usual way to land here, and the bare wording does not say what to
+            // add.
+            let hint = if capability == "copy"
+                && type_is_nominal_aggregate_lacking_copy(typed, *actual_type)?
+            {
+                "; add a '(copy)' conformance header to it, or bound the parameter with 'clone'"
+            } else {
+                ""
+            };
             let message = format!(
-                "{surface} requires type '{actual_name}' to satisfy the '{capability}' capability for generic parameter '{generic_name}'; the type does not"
+                "{surface} requires type '{actual_name}' to satisfy the '{capability}' capability for generic parameter '{generic_name}'; the type does not{hint}"
             );
             return Err(match origin.clone() {
                 Some(origin) => TypecheckError::with_origin(
@@ -2460,8 +2470,9 @@ fn type_satisfies_capability(
     // Generic capability bounds are verified at call sites, after every type is
     // lowered, so the `clone`/`send`/`share` checks recurse transitively through
     // nested aggregate fields (V3_MEM §4.1) — mirroring the recursive claim
-    // verification. (`copy` stays structural here, matching the still-structural
-    // `[cpy]` operand check; requiring the declared claim is a later step.)
+    // verification. `copy` additionally requires the DECLARED claim, exactly as
+    // the `[cpy]` operand check does: without that, routing a value through a
+    // `T: copy` bound copied a type that `[cpy]` refuses directly.
     // A `fin` value owns a finalizable resource and is affine by construction:
     // duplicating it would run the finalizer twice or not at all, so it can
     // never satisfy `copy` or `clone` however copy-safe its fields look
@@ -2472,7 +2483,11 @@ fn type_satisfies_capability(
         typed.type_resolves_to_fin(apparent)
     };
     Ok(match capability {
-        "copy" => !claims_fin && !type_lacks_copy(typed, type_id)?,
+        "copy" => {
+            !claims_fin
+                && !type_lacks_copy(typed, type_id)?
+                && !type_is_nominal_aggregate_lacking_copy(typed, type_id)?
+        }
         "clone" => {
             !claims_fin
                 && !type_is_known_non_clone(typed, type_id)?
