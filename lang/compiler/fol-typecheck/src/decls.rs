@@ -1699,6 +1699,10 @@ fn lower_standard_constraint_for_contract(
     scope_id: ScopeId,
     constraint: &FolType,
 ) -> Result<GenericConstraint, TypecheckError> {
+    // A joined bound carries its declared standard alongside compiler-owned
+    // capabilities; only the standard half names a symbol to look up.
+    let narrowed = fol_parser::ast::declared_standard_of_constraint(constraint);
+    let constraint = narrowed.as_ref().unwrap_or(constraint);
     let standard = lower_standard_symbol_for_contract(resolved, constraint)?;
     let args = extract_contract_type_args(typed, resolved, scope_id, constraint)?;
     Ok(GenericConstraint { standard, args })

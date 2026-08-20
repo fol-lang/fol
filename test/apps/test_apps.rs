@@ -1729,3 +1729,66 @@ fn std_library_checks_run_every_section_they_define() {
         "these sections are defined but never run: {orphaned:?}"
     );
 }
+
+// The showcase corpus is compiled by nothing else in the gate, so a language
+// change can orphan a package and stay green. `unit_registry` sat broken behind
+// the generic `[cpy]` gate until this check was written.
+#[test]
+fn every_showcase_package_still_checks_clean() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test/apps/showcases");
+    let store_root = bundled_std_store_root();
+    let mut checked = 0;
+    let mut broken = Vec::new();
+
+    let mut packages: Vec<PathBuf> = fs::read_dir(&root)
+        .expect("showcase root should be readable")
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.join("build.fol").is_file())
+        .collect();
+    packages.sort();
+
+    for package in packages {
+        let output = Command::new(env!("CARGO_BIN_EXE_folc"))
+            .args(["code", "check", "--package-store-root"])
+            .arg(&store_root)
+            .current_dir(&package)
+            .output()
+            .expect("showcase check should run");
+        checked += 1;
+        if !output.status.success() {
+            let name = package
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let detail = strip_ansi(&String::from_utf8_lossy(&output.stderr));
+            broken.push(format!("{name}: {}", detail.lines().take(2).collect::<Vec<_>>().join(" ")));
+        }
+    }
+
+    assert!(
+        checked > 0,
+        "the showcase sweep found no packages to check; the layout moved"
+    );
+    assert!(
+        broken.is_empty(),
+        "these showcase packages no longer check clean: {broken:#?}"
+    );
+}
+
+// Diagnostics arrive coloured; the escapes would drown the assertion message.
+fn strip_ansi(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\u{1b}' {
+            out.push(ch);
+            continue;
+        }
+        for skip in chars.by_ref() {
+            if skip.is_ascii_alphabetic() {
+                break;
+            }
+        }
+    }
+    out
+}

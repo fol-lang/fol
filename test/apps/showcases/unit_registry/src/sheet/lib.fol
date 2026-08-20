@@ -46,7 +46,7 @@ fun[exp] row(label: str, item: bridge::Reading): str = {
 
 // Two requirements on the generic value, plus the derived affine facts that the
 // standard makes recoverable without any per-unit table.
-fun[exp] card(U: scale::unit)(item: U): str = {
+fun[exp] card(U: scale::unit + copy)(item: U): str = {
     var factor: str = std::fmt::float_to_str(bridge::factor_of([cpy]item), 8);
     var offset: str = std::fmt::float_to_str(bridge::offset_of([cpy]item), 4);
     var[mut] kind: str = "linear";
@@ -61,7 +61,7 @@ fun[exp] card(U: scale::unit)(item: U): str = {
 
 // Walks a fixed number of steps in the source unit and prints the destination
 // reading for each. Both units stay generic all the way through.
-fun[exp] ladder(A: scale::unit, B: scale::unit)(from: A, into: B, start: flt, step: flt, count: int): non = {
+fun[exp] ladder(A: scale::unit + copy, B: scale::unit + copy)(from: A, into: B, start: flt, step: flt, count: int): non = {
     var[mut] taken: int = 0;
     var[mut] value: flt = start;
     loop (taken < count) {

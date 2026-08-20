@@ -447,9 +447,23 @@ pub fn declared_standard_of_constraint(constraint: &FolType) -> Option<FolType> 
     let [single] = parts.as_slice() else {
         return None;
     };
-    (*single != name.as_str()).then(|| FolType::Named {
-        name: (*single).to_string(),
-        syntax_id: *syntax_id,
+    if *single == name.as_str() {
+        return None;
+    }
+    // A qualified standard collapsed to `a::b+cap` on the way in, so it is
+    // rebuilt as a path rather than a bare name.
+    Some(if single.contains("::") {
+        FolType::QualifiedNamed {
+            path: QualifiedPath::with_syntax_id(
+                single.split("::").map(str::to_string).collect(),
+                *syntax_id,
+            ),
+        }
+    } else {
+        FolType::Named {
+            name: (*single).to_string(),
+            syntax_id: *syntax_id,
+        }
     })
 }
 

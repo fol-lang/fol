@@ -110,17 +110,23 @@ impl AstParser {
         ))
     }
 
-    /// Collect `a + b + c` after a declared bound. Only plain named types join —
-    /// a bound is a capability or a standard, never a container or shell.
+    /// Collect `a + b + c` after a declared bound. A bound is a capability or a
+    /// standard (qualified or not), never a container or shell.
     fn parse_joined_bounds(
         &self,
         tokens: &mut fol_lexer::lexer::stage3::Elements,
         first: FolType,
     ) -> Result<FolType, ParseError> {
-        let FolType::Named { syntax_id, name } = first else {
-            return Ok(first);
+        // A qualified standard (`scale::unit`) joins too; a joined run collapses
+        // to one `name+cap` string keyed by the path root, which is where the
+        // resolver records the reference. An unjoined bound is returned as it
+        // arrived, so a lone qualified standard keeps its path form.
+        let (syntax_id, mut joined) = match &first {
+            FolType::Named { syntax_id, name } => (*syntax_id, name.clone()),
+            FolType::QualifiedNamed { path } => (path.syntax_id(), path.joined()),
+            _ => return Ok(first),
         };
-        let mut joined = name;
+        let mut any_joined = false;
         for _ in 0..8 {
             self.skip_ignorable(tokens)?;
             let Ok(next) = tokens.curr(false) else {
@@ -141,6 +147,10 @@ impl AstParser {
             };
             joined.push('+');
             joined.push_str(&extra);
+            any_joined = true;
+        }
+        if !any_joined {
+            return Ok(first);
         }
         Ok(FolType::Named {
             syntax_id,
