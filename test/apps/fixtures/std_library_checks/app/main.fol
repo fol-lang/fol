@@ -213,6 +213,7 @@ fun[] main(): int = {
     bad = bad + decoders_are_robust();
     bad = bad + text_boundaries_are_safe();
     bad = bad + deep_nesting_is_refused_not_fatal();
+    bad = bad + stale_handles_fail_safely();
     return bad;
 };
 
@@ -609,5 +610,42 @@ fun[] deep_nesting_is_refused_not_fatal(): int = {
     // the deepest document parse accepts can also be rendered back.
     bad = bad + want_int("the deepest accepted document still renders",
         .len(std::jsondoc::render([bor]at_cap, 0)), 1025);
+    return bad;
+};
+
+// A handle that has been closed, or never existed, must fail safely rather than
+// reach whatever now occupies its slot. Use-after-close is a vulnerability class,
+// not a style question, so every one of these is pinned.
+fun[] stale_handles_fail_safely(): int = {
+    var[mut] bad: int = 0;
+    var path: str = std::fs::temp_path("fol_stale_handle");
+    var made: int = std::fs::write_atomic(path, "hello");
+
+    var h: int = std::fs::open_read(path);
+    bad = bad + want_int("the first close succeeds", std::fs::close(h), 0);
+    bad = bad + want_int("a double close is refused", std::fs::close(h), 0 - 1);
+    bad = bad + want_int("reading a closed handle yields nothing",
+        .len(std::fs::read_chunk(h, 4)), 0);
+    bad = bad + want_int("writing a closed handle is refused", std::fs::write_text(h, "x"), 0 - 1);
+    bad = bad + want_int("seeking a closed handle is refused", std::fs::rewind(h), 0 - 1);
+    bad = bad + want_int("locking a closed handle is refused",
+        std::fs::try_lock_exclusive(h), 0 - 1);
+    bad = bad + want_int("closing a handle that never existed", std::fs::close(99999), 0 - 1);
+    bad = bad + want_int("closing a negative handle", std::fs::close(0 - 5), 0 - 1);
+    bad = bad + want_int("reading a handle that never existed",
+        .len(std::fs::read_chunk(99999, 4)), 0);
+    var gone: int = .remove_file(path);
+
+    // Sockets keep the same contract.
+    var listener: int = .tcp_listen("127.0.0.1:0");
+    bad = bad + want_int("closing a listener succeeds", .tcp_close(listener), 0);
+    bad = bad + want_int("a double socket close is refused", .tcp_close(listener), 0 - 1);
+    bad = bad + want("a closed socket has no address", .tcp_local_addr(listener), "");
+    bad = bad + want_int("reading a closed socket yields nothing", .len(.tcp_read(listener)), 0);
+    bad = bad + want_int("writing a closed socket is refused", .tcp_write(listener, "x"), 0 - 1);
+    bad = bad + want_int("connecting to a dead port is refused",
+        .tcp_connect("127.0.0.1:1"), 0 - 1);
+    bad = bad + want_int("listening on a malformed address is refused",
+        .tcp_listen("not-an-address"), 0 - 1);
     return bad;
 };
