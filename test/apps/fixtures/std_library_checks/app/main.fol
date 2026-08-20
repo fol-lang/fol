@@ -605,5 +605,9 @@ fun[] deep_nesting_is_refused_not_fatal(): int = {
         std::json::max_depth("[[[1]]]"), 3);
     bad = bad + want_int("max_depth ignores brackets inside strings",
         std::json::max_depth("[\"[[[\"]"), 1);
+    // `render` walks the tree recursively too, so the cap is only sufficient if
+    // the deepest document parse accepts can also be rendered back.
+    bad = bad + want_int("the deepest accepted document still renders",
+        .len(std::jsondoc::render([bor]at_cap, 0)), 1025);
     return bad;
 };
