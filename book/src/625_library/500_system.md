@@ -76,6 +76,11 @@ elsewhere on that surface; these give the modes names.
 
 Reads and writes are **bytes**, which keeps the surface binary-safe.
 
+`write_chunk` and `write_text` answer the **number of bytes written**, not a
+status code -- `-1` is the failure value, so test for that rather than for zero.
+A short write is possible on a pipe or a full disk, which is why the count is
+returned at all. `flush`, `seek`, `rewind` and `close` do answer `0` on success.
+
 ### Decoding a chunked read
 
 This is the trap, and it is worth stating plainly. A fixed-size read splits
@@ -229,9 +234,12 @@ var status: int = std::os::await_child(server);
 
 `child_status` returns three things — the exit status, `still_running()` while
 it is going, or `-1` for an unknown handle — so a poll loop cannot confuse "not
-yet" with "gone". A finished child keeps its status, which is what makes the loop
-above safe: `await_child` after the poll returns the same value rather than
-failing on a handle the poll consumed. `signal_child` with `SIGNAL_TERM` lets the child clean up;
+yet" with "gone". A **polled** child keeps its status, which is what makes the
+loop above safe: `await_child` after the poll returns the same value rather than
+failing on a handle the poll consumed. `await_child` is the collecting call, so it
+releases the handle -- `child_status` afterwards answers `-1`, the unknown-handle
+value. Poll as often as you like; await once. `signal_child` with `SIGNAL_TERM`
+lets the child clean up;
 `SIGNAL_KILL` cannot be caught.
 
 `still_running()` is a routine rather than a constant because a global binding
