@@ -214,6 +214,7 @@ fun[] main(): int = {
     bad = bad + text_boundaries_are_safe();
     bad = bad + deep_nesting_is_refused_not_fatal();
     bad = bad + stale_handles_fail_safely();
+    bad = bad + numeric_corners();
     return bad;
 };
 
@@ -654,5 +655,42 @@ fun[] stale_handles_fail_safely(): int = {
         .tcp_connect("127.0.0.1:1"), 0 - 1);
     bad = bad + want_int("listening on a malformed address is refused",
         .tcp_listen("not-an-address"), 0 - 1);
+    return bad;
+};
+
+// IEEE-754 corners, and the arithmetic identities that hide a division by zero.
+fun[] numeric_corners(): int = {
+    var[mut] bad: int = 0;
+    var zero: flt = 0.0;
+    var nan: flt = zero / zero;
+    var inf: flt = 1.0 / zero;
+    bad = bad + want("0.0/0.0 is nan", std::fmt::bol_to_str(.is_nan(nan)), "true");
+    bad = bad + want("1.0/0.0 is infinite", std::fmt::bol_to_str(.is_inf(inf)), "true");
+    // NaN compares false against everything, itself included.
+    bad = bad + want("nan is not equal to itself", std::fmt::bol_to_str(.eq(nan, nan)), "false");
+    bad = bad + want("nan is not less", std::fmt::bol_to_str(nan < 1.0), "false");
+    bad = bad + want("nan is not greater", std::fmt::bol_to_str(nan > 1.0), "false");
+    bad = bad + want("clamping nan keeps nan",
+        std::fmt::bol_to_str(.is_nan(std::nums::clamp_flt(nan, 0.0, 1.0))), "true");
+
+    // A comparison sort over a non-total order must still terminate and keep
+    // every element, however it chooses to order the NaN.
+    var with_nan: vec[flt] = { 3.0, nan, 1.0, 2.0 };
+    bad = bad + want_int("sorting with a nan keeps every element",
+        .len(std::vecs::sort_flt(with_nan)), 4);
+
+    // gcd(0,0) is 0, so an unguarded lcm would divide by zero here.
+    bad = bad + want_int("gcd of nothing", std::nums::gcd(0, 0), 0);
+    bad = bad + want_int("gcd with a zero", std::nums::gcd(0, 5), 5);
+    bad = bad + want_int("gcd takes absolute values", std::nums::gcd(0 - 12, 8), 4);
+    bad = bad + want_int("lcm of nothing does not divide by zero", std::nums::lcm(0, 0), 0);
+    bad = bad + want_int("anything to the zeroth", std::nums::pow_int(0, 0), 1);
+    bad = bad + want_int("a negative exponent floors to zero", std::nums::pow_int(2, 0 - 1), 0);
+
+    // The integer boundaries themselves.
+    var min: int = 0 - 9223372036854775807 - 1;
+    bad = bad + want_int("sign of the smallest int", std::nums::sign_int(min), 0 - 1);
+    bad = bad + want_int("the smallest int clamps into range",
+        std::nums::clamp_int(min, 0 - 5, 5), 0 - 5);
     return bad;
 };
