@@ -1184,6 +1184,11 @@ fn auxiliary_rustc_command_uses_exact_target_profile_and_dependency_order() {
     assert!(args
         .windows(2)
         .any(|pair| { pair == [OsString::from("-C"), OsString::from("opt-level=3")] }));
+    // Overflow must fault in release exactly as it does in debug: rustc turns
+    // its own checks off above opt-level=0, so the flag is carried explicitly.
+    assert!(args
+        .windows(2)
+        .any(|pair| { pair == [OsString::from("-C"), OsString::from("overflow-checks=yes"),] }));
     let _ = fs::remove_dir_all(root);
 }
 

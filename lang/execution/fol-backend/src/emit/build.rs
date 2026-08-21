@@ -110,6 +110,11 @@ fn apply_rustc_profile_args(command: &mut Command, profile: BackendBuildProfile)
         BackendBuildProfile::Debug => {}
         BackendBuildProfile::Release => {
             command.arg("-C").arg("opt-level=3");
+            // rustc ties overflow checks to `debug-assertions`, which is off
+            // above opt-level=0, so a release build wrapped silently where a
+            // debug build faulted. FOL arithmetic does not change meaning with
+            // the profile.
+            command.arg("-C").arg("overflow-checks=yes");
         }
     }
 }
