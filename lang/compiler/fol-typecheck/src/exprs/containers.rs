@@ -265,3 +265,9 @@ pub(crate) fn type_container_method_call(
     }
     Ok(Some(TypedExpr::value(result_type)))
 }
+
+/// Whether a container method mutates its receiver, so a read-only loan rules
+/// it out. `get`/`contains`/`keys`/`values` only observe.
+pub(crate) fn mutating_container_method(method: &str) -> bool {
+    is_container_method(method) && !reads_only(method)
+}

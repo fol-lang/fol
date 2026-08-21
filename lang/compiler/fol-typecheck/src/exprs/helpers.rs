@@ -1686,13 +1686,25 @@ pub(crate) fn resolve_container_method_receiver(
             ))
         }
     };
+    // A capture is looked for first: inside a routine value the body's `c` names
+    // the capture, not the outer binding it was taken from, and only the capture
+    // carries that body's ownership state.
     let symbol = find_symbol_in_scope_chain(
         resolved,
         source_unit_id,
         scope_id,
         &binding_name,
-        SymbolKind::ValueBinding,
+        SymbolKind::Capture,
     )
+    .or_else(|| {
+        find_symbol_in_scope_chain(
+            resolved,
+            source_unit_id,
+            scope_id,
+            &binding_name,
+            SymbolKind::ValueBinding,
+        )
+    })
     .or_else(|| {
         find_symbol_in_scope_chain(
             resolved,

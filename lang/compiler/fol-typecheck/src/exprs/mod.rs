@@ -1051,6 +1051,9 @@ fn type_node_with_expectation_inner(
                 .and_then(|id| resolved.scope_for_syntax(id))
                 .unwrap_or(context.scope_id);
             let mut lowered_params = Vec::with_capacity(captures.len() + params.len());
+            // A `[bor]` capture is a shared, read-only loan here too: a routine
+            // value may observe through it but never write.
+            let mut borrowed_captures = std::collections::BTreeMap::new();
             // A directly spawned anonymous routine runs exactly once, so its
             // captures thread as one-shot task arguments. In value position the
             // routine becomes a callable-many-times closure whose environment
@@ -1387,6 +1390,9 @@ fn type_node_with_expectation_inner(
                     }
                 };
                 decls::record_symbol_type(typed, capture_symbol, lowered_capture_type)?;
+                if capture.operation == Some(OwnershipOption::Borrow) {
+                    borrowed_captures.insert(capture_symbol, false);
+                }
                 lowered_params.push(lowered_capture_type);
             }
             for param in params {
@@ -1476,6 +1482,7 @@ fn type_node_with_expectation_inner(
                     });
                 }
             }
+            reject_immutable_capture_mutations(resolved, &borrowed_captures, body, false)?;
             // The expression's type is the VISIBLE signature: captures belong
             // to the routine's environment, not its call contract. The lowered
             // internal routine still threads captures as leading parameters.
@@ -1902,7 +1909,7 @@ fn type_node_with_expectation_inner(
             )?;
             // §2.3: a `[bor]` capture is a shared, read-only loan; assigning
             // through it (whole or field) needs the composite `[mut, bor]`.
-            reject_immutable_capture_mutations(resolved, &captured_modes, body)?;
+            reject_immutable_capture_mutations(resolved, &captured_modes, body, true)?;
             Ok(TypedExpr::none())
         }
         AstNode::Yield { .. } => Err(TypecheckError::new(
@@ -2139,11 +2146,13 @@ fn reject_immutable_capture_mutations(
     resolved: &ResolvedProgram,
     captured_modes: &std::collections::BTreeMap<SymbolId, bool>,
     body: &[AstNode],
+    allows_mutable_loan: bool,
 ) -> Result<(), TypecheckError> {
     fn scan(
         resolved: &ResolvedProgram,
         captured_modes: &std::collections::BTreeMap<SymbolId, bool>,
         node: &AstNode,
+        allows_mutable_loan: bool,
     ) -> Result<(), TypecheckError> {
         match helpers::strip_comments(node) {
             AstNode::FunDecl { .. }
@@ -2155,43 +2164,59 @@ fn reject_immutable_capture_mutations(
             | AstNode::Dfr { .. }
             | AstNode::Edf { .. } => Ok(()),
             stripped => {
-                if let AstNode::Assignment { target, .. } = stripped {
-                    if let Some(symbol) = assignment_root_symbol(resolved, target) {
-                        if captured_modes.get(&symbol) == Some(&false) {
-                            let name = resolved
-                                .symbol(symbol)
-                                .map(|symbol| symbol.name.clone())
-                                .unwrap_or_else(|| "<binding>".to_string());
-                            let message = format!(
-                                "captured '{name}[bor]' is a read-only loan; capture it '{name}[mut, bor]' to assign through it"
-                            );
-                            return Err(node_origin(resolved, stripped).map_or_else(
-                                || {
-                                    TypecheckError::new(
-                                        TypecheckErrorKind::Ownership,
-                                        message.clone(),
-                                    )
-                                },
-                                |origin| {
-                                    TypecheckError::with_origin(
-                                        TypecheckErrorKind::Ownership,
-                                        message.clone(),
-                                        origin,
-                                    )
-                                },
-                            ));
-                        }
+                // A read-only loan rules out both ways of writing through it:
+                // assigning to the place, and calling a container method that
+                // mutates the receiver.
+                let offence = match stripped {
+                    AstNode::Assignment { target, .. } => {
+                        assignment_root_symbol(resolved, target).map(|symbol| (symbol, "assign"))
+                    }
+                    AstNode::MethodCall { object, method, .. }
+                        if containers::mutating_container_method(method) =>
+                    {
+                        assignment_root_symbol(resolved, object).map(|symbol| (symbol, "mutate"))
+                    }
+                    _ => None,
+                };
+                if let Some((symbol, verb)) = offence {
+                    if captured_modes.get(&symbol) == Some(&false) {
+                        let name = resolved
+                            .symbol(symbol)
+                            .map(|symbol| symbol.name.clone())
+                            .unwrap_or_else(|| "<binding>".to_string());
+                        // Only a dfr/edf block can take the composite mutable loan, so
+                        // a routine value is told what it cannot do rather than
+                        // pointed at a capture form it may not use.
+                        let message = if allows_mutable_loan {
+                            format!(
+                                "captured '{name}[bor]' is a read-only loan; capture it '{name}[mut, bor]' to {verb} through it"
+                            )
+                        } else {
+                            format!(
+                                "captured '{name}[bor]' is a read-only loan; a routine value cannot {verb} through a borrowed capture"
+                            )
+                        };
+                        return Err(node_origin(resolved, stripped).map_or_else(
+                            || TypecheckError::new(TypecheckErrorKind::Ownership, message.clone()),
+                            |origin| {
+                                TypecheckError::with_origin(
+                                    TypecheckErrorKind::Ownership,
+                                    message.clone(),
+                                    origin,
+                                )
+                            },
+                        ));
                     }
                 }
                 for child in stripped.children() {
-                    scan(resolved, captured_modes, child)?;
+                    scan(resolved, captured_modes, child, allows_mutable_loan)?;
                 }
                 Ok(())
             }
         }
     }
     for node in body {
-        scan(resolved, captured_modes, node)?;
+        scan(resolved, captured_modes, node, allows_mutable_loan)?;
     }
     Ok(())
 }

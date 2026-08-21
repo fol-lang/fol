@@ -1280,3 +1280,78 @@ fn container_methods_accept_receivers_that_are_still_owned() {
         .typed_node(find_named_routine_syntax_id(&typed, "main"))
         .is_some());
 }
+
+// A `[bor]` capture is a read-only loan, and a container method is the other
+// way to write through one: `.push` must be refused where assignment is.
+#[test]
+fn deferred_borrow_captures_reject_container_mutation() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] bad(): int = {\n\
+             var[mut] cells: vec[int] = {1};\n\
+             dfr[cells[bor]] { cells.push(2); };\n\
+             return 0;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error.message().contains("read-only loan")
+                && error.message().contains("cells[mut, bor]")
+        }),
+        "Expected a read-only capture diagnostic, got: {errors:?}"
+    );
+}
+
+// A routine value may not take the composite mutable loan at all, so it is told
+// what it cannot do rather than pointed at a capture form it may not use.
+#[test]
+fn routine_value_borrow_captures_reject_writes_without_offering_a_mutable_loan() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] bad(): int = {\n\
+             var[mut] total: int = 0;\n\
+             var bump: {fun (): int} = fun()[total[bor]]: int = {\n\
+                 total = total + 1;\n\
+                 return total;\n\
+             };\n\
+             return bump();\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Ownership
+                && error.message().contains("a routine value cannot assign")
+                && !error.message().contains("[mut, bor]")
+        }),
+        "Expected a routine-value capture diagnostic, got: {errors:?}"
+    );
+}
+
+// Observing through the loan stays legal, and a value capture owns its copy, so
+// neither may be caught by the rejection above.
+#[test]
+fn borrow_captures_still_admit_reads_and_value_captures() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var[mut] cells: vec[int] = {1};\n\
+             var owned: vec[int] = {1};\n\
+             var seen: {fun (): int} = fun()[cells[bor]]: int = {\n\
+                 return .len(cells);\n\
+             };\n\
+             var grown: {fun (): int} = fun()[owned[mov]]: int = {\n\
+                 owned.push(2);\n\
+                 return .len(owned);\n\
+             };\n\
+             dfr[cells[mut, bor]] { cells.push(3); };\n\
+             return seen() + grown();\n\
+         };\n",
+    )]);
+
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
