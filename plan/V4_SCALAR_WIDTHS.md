@@ -1,18 +1,18 @@
 # V4 Decision Record: Preserving Scalar Width and Signedness
 
-> **Status: open. A decision is required before any foreign declaration model.**
+> **Status: decided 2026-08-22.** Width and signedness are preserved from the
+> parser through to codegen. `int` stays an alias for `i64`. An integer literal
+> adopts its target type and is range-checked at compile time when constant.
+> Widths never mix implicitly: widening and narrowing are both explicit,
+> narrowing is fallible, and both are spelled as dot-root intrinsics.
 >
-> FOL parses `i8`, `u32`, `f32`, `int[64]` and friends with full fidelity and
-> then discards the width and the sign in three lines of typecheck. Every sized
-> spelling in the language is therefore decoration: they are one type, `i64`.
+> This fixes a live defect as well as unblocking V4: today `var x: u8 = 999` is
+> accepted and stores 999, because every sized spelling collapses to one type.
+> No FOL source in the repository uses a sized scalar, so the fix breaks
+> nothing — which will not remain true.
 >
-> This is both a V4 blocker — a C signature cannot be represented at all — and a
-> live defect in today's language, because `var x: u8 = 999` is accepted and
-> stores 999.
->
-> The plumbing is bounded and mechanical. The three questions in section 4 are
-> not, and they must be answered first, or each of the ~57 sites will invent its
-> own answer.
+> Sections 1 to 4 are the analysis, section 5 is the decision, section 6 the
+> scale of the work, section 7 what it changes.
 
 ## 1. The constraint
 
@@ -68,7 +68,7 @@ That the corpus uses no sized types is what has kept this invisible. It also
 means **fixing it breaks no existing FOL code** — the migration cost is zero,
 which will not be true later.
 
-## 4. The three questions
+## 4. The questions
 
 The plumbing cannot proceed until these are settled, because each of the ~57
 sites below needs the same answers.
@@ -113,23 +113,52 @@ exists only for hand-built IR.
 - **C. No conversion at all between widths.** Simplest to specify and unusable
   in practice: a C binding constantly moves between `i32` and `int`.
 
-Option A needs a conversion surface, which does not exist. Sub-decision, not
-settled here: revive `cast` (already parsed, currently rejected) as the checked
-conversion, or add a bracket operation in the family of `[mov]`/`[cpy]`.
+Option A needs a conversion surface, which does not exist. The candidates were
+dot-root intrinsics, a bracket operation in the family of `[mov]`/`[cpy]`, and
+reviving `cast` (already parsed, currently rejected). Section 5 records the
+choice.
 
-## 5. Recommendation
+## 5. Decision
 
-**4.1 = A**, **4.2 = A**, **4.3 = A**.
+**4.1 = A**, **4.2 = A**, **4.3 = A**, spelled as dot-root intrinsics.
 
-Together these keep every existing program compiling unchanged, turn the live
-defect into a compile error, and give C bindings the exact widths they need.
-`int` stays the ordinary integer and stays 64-bit; sized spellings start meaning
-what they say; a literal narrows where the target is narrower and is rejected
-when it does not fit; and moving between widths is written down rather than
-inferred.
+`int` remains an alias for `i64`, and `arch`/`uarch` remain the pointer-width
+spellings. Every existing program keeps compiling and keeps its meaning.
 
-The conversion surface in 4.3 is the one genuinely new piece of language. It
-should be specified before implementation begins, not discovered during it.
+An integer literal is `int`, except in a typed context, where it adopts the
+target type. A constant literal is range-checked against that type at compile
+time, which is what turns the live defect into an error:
+
+```fol
+var x: u8 = 200;   // fine
+var x: u8 = 999;   // rejected: 999 does not fit u8
+```
+
+Widths never mix implicitly. Both directions are written down, and narrowing is
+fallible because it can lose information — which is what the recoverable-error
+channel is for, and which matches the arithmetic-overflow rule already shipped,
+where a release build faults rather than wraps:
+
+```fol
+var small: i32 = 1;
+var big: i64 = 2;
+
+var mixed: i64 = small + big;    // rejected: mixed widths
+var wide: i64 = .widen(small);   // explicit, cannot fail
+var thin: i32 = .narrow(big) || 0;
+```
+
+The conversion surface is the intrinsic catalog, the family that already spells
+`.len(x)` and `.vec_of(...)`. Two properties decided it: type conversion stays
+out of the ownership-operation bracket namespace, where `[mov]`/`[cpy]`/`[bor]`
+already live and `int[32]` already means something else again; and an intrinsic
+that returns `/ E` gives narrowing its error channel with no new machinery.
+
+Whether the intrinsics infer the target width (`.narrow`) or name it
+(`.to_i32`) is an implementation detail to settle against real call sites. Name
+them explicitly if inference from the target proves too loose to give good
+diagnostics.
+
 
 ## 6. Scale of the plumbing
 

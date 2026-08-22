@@ -1132,6 +1132,13 @@ direct `rustc` as a second production truth.
 
 # 5. M0 — Contract Freeze, Characterization, and Truth Repair
 
+> **Scalar widths are specified by `plan/V4_SCALAR_WIDTHS.md` (decided
+> 2026-08-22).** Width and signedness are preserved; `int` stays an alias for
+> `i64`; a literal adopts its target type and is range-checked; widths never mix
+> implicitly, with explicit widening and fallible narrowing spelled as dot-root
+> intrinsics. That record also carries the measured scale of the change and the
+> live defect it fixes.
+
 M0 lands before semantic or backend V4 code.
 
 Primary files:
