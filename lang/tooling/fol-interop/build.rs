@@ -23,18 +23,21 @@ fn main() {
     let cargo_lock = read(&cargo_lock_path);
 
     for (component, package) in COMPONENTS {
-        let resolved = cargo_lock_source(&cargo_lock, package).unwrap_or_else(|| {
-            panic!(
-                "Cargo.lock has no git source for {package}; run `cargo fetch` and commit the lock"
-            )
-        });
-        let revision = resolved
-            .split("rev=")
-            .nth(1)
-            .and_then(|tail| tail.split('#').next())
-            .unwrap_or_else(|| {
-                panic!("Cargo.lock source for {package} pins no revision: {resolved}")
-            });
+        // A component patched to a local path has no git source. That is a
+        // supported development shape, so it is recorded as such rather than
+        // failing the build: the evidence then says plainly that this artifact
+        // was not built against a pinned revision.
+        let revision = match cargo_lock_source(&cargo_lock, package) {
+            None => "patched".to_owned(),
+            Some(resolved) => resolved
+                .split("rev=")
+                .nth(1)
+                .and_then(|tail| tail.split('#').next())
+                .unwrap_or_else(|| {
+                    panic!("Cargo.lock source for {package} pins no revision: {resolved}")
+                })
+                .to_owned(),
+        };
 
         println!(
             "cargo:rustc-env=FOL_LOCKED_{}_REVISION={revision}",

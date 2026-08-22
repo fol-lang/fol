@@ -37,17 +37,32 @@ impl Drop for Scratch {
     }
 }
 
+// glibc and musl are separate promoted platforms, so each gets its own
+// link-and-run proof rather than one standing in for the other.
 #[test]
 fn build_fol_c_import_runs_the_locked_typed_pipeline() {
+    run_locked_typed_pipeline("x86_64-unknown-linux-gnu", "FOL_H7_GCC");
+}
+
+#[test]
+fn build_fol_c_import_runs_the_locked_typed_pipeline_on_musl() {
+    run_locked_typed_pipeline("x86_64-unknown-linux-musl", "FOL_H7_MUSL_CC");
+}
+
+fn run_locked_typed_pipeline(target: &str, compiler_variable: &str) {
+    assert!(
+        fol_interop::is_certified_interop_target(target),
+        "{target} is not a promoted interop platform"
+    );
     let required = std::env::var_os("FOL_H7_REQUIRED").is_some();
-    let Some(gcc) = std::env::var_os("FOL_H7_GCC") else {
+    let Some(gcc) = std::env::var_os(compiler_variable) else {
         if required {
-            panic!("make test-interop requires an explicit FOL_H7_GCC");
+            panic!("make test-interop requires an explicit {compiler_variable}");
         }
-        eprintln!("H7 system smoke skipped; run `make test-interop` to require it");
+        eprintln!("H7 {target} smoke skipped; run `make test-interop` to require it");
         return;
     };
-    let gcc = canonical_tool(gcc, "GCC");
+    let gcc = canonical_tool(gcc, compiler_variable);
     let scratch = Scratch::new();
     let package = scratch.path().join("package");
     let probe_parent = scratch.path().join("probes");
@@ -96,7 +111,7 @@ fn build_fol_c_import_runs_the_locked_typed_pipeline() {
         cache_root_override: Some(scratch.path().join("cache")),
         git_cache_root_override: Some(scratch.path().join("git-cache")),
         install_prefix_override: Some(scratch.path().join("install")),
-        build_target_override: Some(fol_interop::CERTIFIED_INTEROP_TARGET.to_owned()),
+        build_target_override: Some(target.to_owned()),
         build_optimize_override: Some("debug".to_owned()),
         interop_compiler_override: Some(gcc),
         interop_temporary_parent_override: Some(probe_parent),
@@ -171,7 +186,7 @@ fn build_fol_c_import_runs_the_locked_typed_pipeline() {
     // hard-coded hashes rot on every component bump.
     let locked = locked_component_revisions();
     for required_identity in [
-        "target=x86_64-unknown-linux-gnu".to_string(),
+        format!("target={target}"),
         format!("parc={}", locked.parc),
         format!("linc={}", locked.linc),
         format!("gerc={}", locked.gerc),
@@ -290,7 +305,7 @@ fn run_failing_case(
     let config = FrontendConfig {
         working_directory: package.clone(),
         build_root_override: Some(build_root.clone()),
-        build_target_override: Some(fol_interop::CERTIFIED_INTEROP_TARGET.to_owned()),
+        build_target_override: Some(fol_interop::CERTIFIED_INTEROP_TARGETS[0].to_owned()),
         build_optimize_override: Some("debug".to_owned()),
         interop_compiler_override: Some(gcc.to_owned()),
         interop_temporary_parent_override: Some(probe_parent),

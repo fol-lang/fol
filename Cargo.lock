@@ -331,7 +331,7 @@ version = "0.2.6"
 [[package]]
 name = "follang-gerc"
 version = "0.1.0"
-source = "git+https://github.com/fol-lang/gerc?rev=fdf139209e824dd7fdc274da20b6be3ba0183a10#fdf139209e824dd7fdc274da20b6be3ba0183a10"
+source = "git+https://github.com/fol-lang/gerc?rev=df0479a1074a1a3d50022ca6a28cdec4221987dd#df0479a1074a1a3d50022ca6a28cdec4221987dd"
 dependencies = [
  "blake3",
  "follang-linc",
@@ -343,7 +343,7 @@ dependencies = [
 [[package]]
 name = "follang-linc"
 version = "0.1.0"
-source = "git+https://github.com/fol-lang/linc?rev=fdb50ae9743ee09c6592bc40e87b6f57a892fc51#fdb50ae9743ee09c6592bc40e87b6f57a892fc51"
+source = "git+https://github.com/fol-lang/linc?rev=38f73db2d14e3b877e430d59220c8ea0d6c92e85#38f73db2d14e3b877e430d59220c8ea0d6c92e85"
 dependencies = [
  "blake3",
  "follang-parc",

@@ -105,6 +105,9 @@
             # The H7 interop smoke hands this compiler to LINC's ABI probe, and
             # it must be the real binary rather than the nix wrapper script.
             export FOL_H7_GCC="${pkgs.gcc.cc}/bin/gcc"
+            # musl is a separately promoted interop platform, so the smoke
+            # needs a real musl compiler as well as the glibc one.
+            export FOL_H7_MUSL_CC="${muslCc}"
           '';
         };
 

@@ -9,20 +9,21 @@ use parc::contract::{
     ScalarLayout, SignedIntegerRepresentation, Signedness, TargetSpec, TargetSpecParts, Vendor,
 };
 
-use crate::{analysis::certification_resource_limits, CERTIFIED_INTEROP_TARGET};
+use crate::analysis::certification_resource_limits;
 
-/// Exact operational GCC identity paired with PARC's canonical target value.
+/// Exact operational C compiler identity paired with PARC's canonical target
+/// value. GCC and clang are both accepted; LINC observes and fingerprints which.
 ///
 /// Construction invokes the supplied compiler directly. No shell, ambient
 /// compiler lookup, target fallback, or caller-provided fingerprint is used.
 #[derive(Debug, Clone)]
-pub(crate) struct CertifiedGnuToolchain {
+pub(crate) struct CertifiedCToolchain {
     certification: CertificationToolchain,
     target: TargetSpec,
 }
 
-impl CertifiedGnuToolchain {
-    /// Observe an explicit GCC executable for the selected concrete FOL target.
+impl CertifiedCToolchain {
+    /// Observe an explicit C compiler for the selected concrete FOL target.
     ///
     /// Compiler identity, target, sysroot, and executable bytes are observed by
     /// LINC's bounded production API. FOL does not run its own identity probes.
@@ -30,7 +31,7 @@ impl CertifiedGnuToolchain {
         selected_target: &ResolvedTarget,
         compiler_executable: impl Into<PathBuf>,
     ) -> Result<Self, InteropToolchainError> {
-        if selected_target.as_str() != CERTIFIED_INTEROP_TARGET {
+        if !crate::is_certified_interop_target(selected_target.as_str()) {
             return Err(InteropToolchainError::UnsupportedTarget(
                 selected_target.as_str().to_owned(),
             ));
@@ -60,7 +61,12 @@ impl CertifiedGnuToolchain {
             Vec::new(),
             certification_resource_limits()?,
         )?;
-        if certification.compiler_identity().family() != CompilerFamily::Gcc {
+        // LINC observes and fingerprints the compiler either way, and its
+        // certification profile already accepts both families.
+        if !matches!(
+            certification.compiler_identity().family(),
+            CompilerFamily::Gcc | CompilerFamily::Clang
+        ) {
             return Err(InteropToolchainError::CompilerFamilyMismatch(
                 certification.compiler_identity().family(),
             ));
@@ -70,7 +76,10 @@ impl CertifiedGnuToolchain {
                 sysroot.to_owned(),
             ));
         }
-        let target = certified_target(certification.compiler_identity().clone())?;
+        let target = certified_target(
+            selected_target.as_str(),
+            certification.compiler_identity().clone(),
+        )?;
 
         Ok(Self {
             certification,
@@ -108,7 +117,8 @@ impl std::fmt::Display for InteropToolchainError {
         match self {
             Self::UnsupportedTarget(target) => write!(
                 formatter,
-                "FOL interop is not certified for target '{target}'; expected {CERTIFIED_INTEROP_TARGET}"
+                "FOL interop is not certified for target '{target}'; expected one of {}",
+                crate::CERTIFIED_INTEROP_TARGETS.join(", ")
             ),
             Self::InvalidCompilerPath(path) => write!(
                 formatter,
@@ -159,14 +169,25 @@ impl From<linc::contract::ContractError> for InteropToolchainError {
     }
 }
 
-fn certified_target(compiler: CompilerIdentity) -> Result<TargetSpec, InteropToolchainError> {
+/// The certified `TargetSpec` for the selected triple. The libc decides the
+/// environment; everything else is identical because glibc and musl share the
+/// SysV AMD64 ABI.
+fn certified_target(
+    triple: &str,
+    compiler: CompilerIdentity,
+) -> Result<TargetSpec, InteropToolchainError> {
+    let environment = match triple {
+        "x86_64-unknown-linux-gnu" => Environment::Gnu,
+        "x86_64-unknown-linux-musl" => Environment::Musl,
+        other => return Err(InteropToolchainError::UnsupportedTarget(other.to_owned())),
+    };
     TargetSpec::try_new(TargetSpecParts {
-        triple: CERTIFIED_INTEROP_TARGET.to_owned(),
+        triple: triple.to_owned(),
         architecture: Architecture::X86_64,
         vendor: Vendor::try_new("unknown")
             .map_err(|error| InteropToolchainError::InvalidTarget(error.to_string()))?,
         operating_system: OperatingSystem::Linux,
-        environment: Environment::Gnu,
+        environment,
         object_format: ObjectFormat::Elf,
         endian: Endian::Little,
         pointer_width: 64,
@@ -234,8 +255,8 @@ pub(crate) mod tests {
 
     use fol_types::ResolvedTarget;
 
-    use super::{CertifiedGnuToolchain, InteropToolchainError};
-    use crate::CERTIFIED_INTEROP_TARGET;
+    use super::{CertifiedCToolchain, InteropToolchainError};
+    use crate::CERTIFIED_INTEROP_TARGETS;
 
     pub(crate) fn synthetic_target() -> parc::contract::TargetSpec {
         let compiler = parc::contract::CompilerIdentity::try_new(
@@ -243,25 +264,25 @@ pub(crate) mod tests {
             "toolchains/gcc/bin/gcc",
             parc::contract::ContentFingerprint::from_content(b"test compiler"),
             parc::contract::ContentFingerprint::from_content(b"test compiler version"),
-            CERTIFIED_INTEROP_TARGET,
+            CERTIFIED_INTEROP_TARGETS[0],
             "test compiler",
         )
         .unwrap();
-        super::certified_target(compiler).unwrap()
+        super::certified_target(CERTIFIED_INTEROP_TARGETS[0], compiler).unwrap()
     }
 
     #[test]
     fn rejects_uncertified_target_before_compiler_io() {
-        let target = ResolvedTarget::resolve("x86_64-unknown-linux-musl").unwrap();
+        let target = ResolvedTarget::resolve("aarch64-unknown-linux-gnu").unwrap();
         let error =
-            CertifiedGnuToolchain::observe(&target, PathBuf::from("not-absolute")).unwrap_err();
+            CertifiedCToolchain::observe(&target, PathBuf::from("not-absolute")).unwrap_err();
         assert!(matches!(error, InteropToolchainError::UnsupportedTarget(_)));
     }
 
     #[test]
     fn rejects_relative_compiler_before_invocation() {
-        let target = ResolvedTarget::resolve(CERTIFIED_INTEROP_TARGET).unwrap();
-        let error = CertifiedGnuToolchain::observe(&target, PathBuf::from("gcc")).unwrap_err();
+        let target = ResolvedTarget::resolve(CERTIFIED_INTEROP_TARGETS[0]).unwrap();
+        let error = CertifiedCToolchain::observe(&target, PathBuf::from("gcc")).unwrap_err();
         assert!(matches!(
             error,
             InteropToolchainError::InvalidCompilerPath(_)

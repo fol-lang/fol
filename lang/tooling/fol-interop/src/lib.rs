@@ -26,8 +26,16 @@ pub use pipeline::{
 pub use source::InteropSourceError;
 pub use toolchain::InteropToolchainError;
 
-/// The only platform promoted for the initial FOL interop handoff.
-pub const CERTIFIED_INTEROP_TARGET: &str = "x86_64-unknown-linux-gnu";
+/// The platforms promoted for the FOL interop handoff. glibc and musl are the
+/// same SysV AMD64 ABI, and layouts are measured with the caller own compiler,
+/// so both are certified against the same evidence.
+pub const CERTIFIED_INTEROP_TARGETS: &[&str] =
+    &["x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl"];
+
+/// Whether `target` is one of the promoted interop platforms.
+pub fn is_certified_interop_target(target: &str) -> bool {
+    CERTIFIED_INTEROP_TARGETS.contains(&target)
+}
 
 // The contract versions the pinned components must expose.
 // These replace the deleted runtime git inspection: instead of asking whether a

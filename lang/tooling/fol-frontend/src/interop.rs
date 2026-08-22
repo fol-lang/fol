@@ -69,11 +69,11 @@ pub(crate) fn prepare_h7_interop_for_selection(
             "selected C import artifact identity drifted from its authoritative graph",
         ));
     }
-    if selection.target.as_str() != fol_interop::CERTIFIED_INTEROP_TARGET {
+    if !fol_interop::is_certified_interop_target(selection.target.as_str()) {
         return Err(invalid_input(format!(
-            "C import target '{}' is not certified; expected {}",
+            "C import target '{}' is not certified; expected one of {}",
             selection.target,
-            fol_interop::CERTIFIED_INTEROP_TARGET
+            fol_interop::CERTIFIED_INTEROP_TARGETS.join(", ")
         )));
     }
     if !matches!(
@@ -265,7 +265,8 @@ mod tests {
         ] {
             let mut graph = fol_package::BuildGraph::new();
             let target =
-                fol_types::ResolvedTarget::resolve(fol_interop::CERTIFIED_INTEROP_TARGET).unwrap();
+                fol_types::ResolvedTarget::resolve(fol_interop::CERTIFIED_INTEROP_TARGETS[0])
+                    .unwrap();
             let artifact_id = graph.add_configured_artifact(
                 fol_package::BuildArtifactKind::Executable,
                 "app",

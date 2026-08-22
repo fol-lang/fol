@@ -44,8 +44,8 @@ from those pins. H7 is certified against this exact snapshot:
 | Stage | Package | Contract | Pinned revision |
 |---|---|---|---|
 | PARC | `follang-parc 0.16.0` | source package schema 2 | `0f52aeeeeec47a082c0d8a515130ee853aa1101d` |
-| LINC | `follang-linc 0.1.0` with `native-inspection` | link-analysis schema 2 | `fdb50ae9743ee09c6592bc40e87b6f57a892fc51` |
-| GERC | `follang-gerc 0.1.0` with `pipeline-native` | generation domain 1 | `fdf139209e824dd7fdc274da20b6be3ba0183a10` |
+| LINC | `follang-linc 0.1.0` with `native-inspection` | link-analysis schema 2 | `38f73db2d14e3b877e430d59220c8ea0d6c92e85` |
+| GERC | `follang-gerc 0.1.0` with `pipeline-native` | generation domain 1 | `df0479a1074a1a3d50022ca6a28cdec4221987dd` |
 
 The three components are **git dependencies pinned by revision**, not sibling
 path dependencies, so a fresh clone of this repository builds and tests without
@@ -71,27 +71,31 @@ The earlier design shelled out to `git` at run time to check each sibling
 checkout's root, `HEAD`, worktree cleanliness, and origin. That could only pass
 inside a source tree — a released binary carried the build machine's paths — so
 it verified nothing for users.
-## Certified platform
+## Certified platforms
 
-The only promoted lane is:
+Two lanes are promoted:
 
 ```text
-x86_64-unknown-linux-gnu
-ELF, LP64
-explicit GCC executable and observed compiler identity
+x86_64-unknown-linux-gnu     ELF, LP64
+x86_64-unknown-linux-musl    ELF, LP64
+explicit GCC or clang executable and observed compiler identity
 one executable artifact with one C object provider
 ```
 
-The caller supplies normalized absolute paths for GCC and the bounded LINC
-probe workspace. LINC observes and fingerprints the compiler rather than FOL
-guessing its identity. The selected FOL target must equal every sibling target
-fingerprint before generated files or backend compilation are allowed.
+glibc and musl are the same System V AMD64 ABI — only the libc differs — and
+LINC measures every layout by compiling probes with the caller's own compiler
+rather than modelling it, so the same evidence certifies both. Each lane has
+its own link-and-run smoke; neither stands in for the other.
 
-Linux musl, other Linux architectures, Apple targets, Windows targets,
-frameworks, import libraries, multiple imports, and the general C type/API
-surface are not certified by H7. Clang remains sibling differential evidence;
-it is not the compiler for FOL's promoted H7 lane.
+The caller supplies normalized absolute paths for the compiler and the bounded
+LINC probe workspace. LINC observes and fingerprints the compiler rather than
+FOL guessing its identity, and accepts the GCC and clang families. The selected
+FOL target must equal every sibling target fingerprint before generated files
+or backend compilation are allowed.
 
+Other Linux architectures, Apple targets, Windows targets, frameworks, import
+libraries, multiple imports, and the general C type/API surface remain
+uncertified.
 ## Evidence and failure policy
 
 The required smoke test starts from the real `build.fol` graph route. It

@@ -33,8 +33,7 @@ use crate::{
         attach_generated_bindings, attach_h7_anchor, InteropMaterializationPlanError,
     },
     source::{scan_complete_header, InteropSourceError},
-    toolchain::{CertifiedGnuToolchain, InteropToolchainError},
-    CERTIFIED_INTEROP_TARGET,
+    toolchain::{CertifiedCToolchain, InteropToolchainError},
 };
 
 const MAX_TRANSITIVE_NATIVE_DEPENDENCIES: usize = 128;
@@ -75,6 +74,7 @@ impl<'a> H7InteropRequest<'a> {
 /// Exact identities retained across the one promoted FOL interop handoff.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct H7InteropReport {
+    triple: &'static str,
     parc_revision: &'static str,
     linc_revision: &'static str,
     gerc_revision: &'static str,
@@ -121,7 +121,7 @@ impl H7InteropReport {
     pub fn summary(self) -> String {
         format!(
             "target={} parc={} linc={} gerc={} source={} target_fingerprint={} evidence={} generation={} provider={}",
-            CERTIFIED_INTEROP_TARGET,
+            self.triple,
             self.parc_revision(),
             self.linc_revision(),
             self.gerc_revision(),
@@ -199,11 +199,17 @@ pub fn prepare_h7_interop(request: H7InteropRequest<'_>) -> Result<H7InteropBuil
     if artifact.kind != BuildArtifactKind::Executable {
         return Err(H7InteropError::UnsupportedArtifactKind(artifact.kind));
     }
-    if artifact.target.as_str() != CERTIFIED_INTEROP_TARGET {
+    // Keep the promoted spelling itself, so the evidence names the exact
+    // platform the run was certified against rather than a fixed constant.
+    let Some(certified_triple) = crate::CERTIFIED_INTEROP_TARGETS
+        .iter()
+        .copied()
+        .find(|promoted| *promoted == artifact.target.as_str())
+    else {
         return Err(H7InteropError::UnsupportedTarget(
             artifact.target.as_str().to_owned(),
         ));
-    }
+    };
     if !matches!(
         artifact.optimize,
         BuildOptimizeMode::Debug | BuildOptimizeMode::ReleaseSafe
@@ -248,7 +254,7 @@ pub fn prepare_h7_interop(request: H7InteropRequest<'_>) -> Result<H7InteropBuil
     let revisions = compiled_component_revisions();
 
     let policy = strict_compile_only_policy(temporary_parent)?;
-    let toolchain = CertifiedGnuToolchain::observe(&artifact.target, compiler)?;
+    let toolchain = CertifiedCToolchain::observe(&artifact.target, compiler)?;
     let source = scan_complete_header(&package_root, &header, toolchain.target())?;
     let native_inputs = [NativeInput::ObjectPath(provider.clone())];
     let analysis_request = AnalysisRequest::try_new(&source, &native_inputs, policy)?;
@@ -319,6 +325,7 @@ pub fn prepare_h7_interop(request: H7InteropRequest<'_>) -> Result<H7InteropBuil
         anchor_crate_root,
         rustc_link_arguments,
         report: H7InteropReport {
+            triple: certified_triple,
             parc_revision: revisions.parc,
             linc_revision: revisions.linc,
             gerc_revision: revisions.gerc,
@@ -583,7 +590,8 @@ impl std::fmt::Display for H7InteropError {
             }
             Self::UnsupportedTarget(target) => write!(
                 formatter,
-                "H7 interop target is '{target}', expected {CERTIFIED_INTEROP_TARGET}"
+                "H7 interop target is '{target}', expected one of {}",
+                crate::CERTIFIED_INTEROP_TARGETS.join(", ")
             ),
             Self::UnsupportedOptimize(optimize) => write!(
                 formatter,
@@ -834,7 +842,7 @@ mod tests {
             "app",
             "src/main.fol",
             BuildArtifactFolModel::Core,
-            fol_types::ResolvedTarget::resolve("x86_64-unknown-linux-musl").unwrap(),
+            fol_types::ResolvedTarget::resolve("aarch64-unknown-linux-gnu").unwrap(),
             BuildOptimizeMode::Debug,
         );
         let missing = Path::new("/definitely/missing/fol-h7-input");
@@ -853,7 +861,7 @@ mod tests {
             "app",
             "src/main.fol",
             BuildArtifactFolModel::Core,
-            fol_types::ResolvedTarget::resolve(crate::CERTIFIED_INTEROP_TARGET).unwrap(),
+            fol_types::ResolvedTarget::resolve(crate::CERTIFIED_INTEROP_TARGETS[0]).unwrap(),
             BuildOptimizeMode::ReleaseFast,
         );
         let missing = Path::new("/definitely/missing/fol-h7-input");
@@ -867,7 +875,7 @@ mod tests {
     #[test]
     fn missing_package_leaves_output_root_uncreated() {
         let scratch = Scratch::new("missing-package");
-        let (graph, artifact) = h7_graph(crate::CERTIFIED_INTEROP_TARGET);
+        let (graph, artifact) = h7_graph(crate::CERTIFIED_INTEROP_TARGETS[0]);
         let missing_package = scratch.path().join("missing-package");
         let missing_compiler = scratch.path().join("missing-gcc");
         let missing_temporary_parent = scratch.path().join("missing-probes");
@@ -902,7 +910,7 @@ mod tests {
         );
         fs::write(fixture.package.join("native/provider.o"), b"not reached")
             .expect("create canonical provider path");
-        let (graph, artifact) = h7_graph(crate::CERTIFIED_INTEROP_TARGET);
+        let (graph, artifact) = h7_graph(crate::CERTIFIED_INTEROP_TARGETS[0]);
         let missing_compiler = fixture.package.join("missing-gcc");
 
         let error = prepare_h7_interop(H7InteropRequest::new(
@@ -934,7 +942,7 @@ mod tests {
         );
         fs::write(fixture.package.join("native/provider.o"), b"not reached")
             .expect("create canonical provider path");
-        let (graph, artifact) = h7_graph(crate::CERTIFIED_INTEROP_TARGET);
+        let (graph, artifact) = h7_graph(crate::CERTIFIED_INTEROP_TARGETS[0]);
         let missing_compiler = fixture.package.join("missing-gcc");
         let missing_temporary_parent = fixture._scratch.path().join("missing-probes");
 
@@ -955,7 +963,7 @@ mod tests {
     #[test]
     fn target_failure_leaves_output_root_uncreated() {
         let scratch = Scratch::new("target");
-        let (graph, artifact) = h7_graph("x86_64-unknown-linux-musl");
+        let (graph, artifact) = h7_graph("aarch64-unknown-linux-gnu");
         let missing = scratch.path().join("not-reached");
         let output_root = scratch.path().join("interop-generated");
 
@@ -984,7 +992,7 @@ mod tests {
             "int unrelated_provider(void) { return 1; }\n",
         );
         fixture.compile_provider(&gcc);
-        let (graph, artifact) = h7_graph(crate::CERTIFIED_INTEROP_TARGET);
+        let (graph, artifact) = h7_graph(crate::CERTIFIED_INTEROP_TARGETS[0]);
 
         let error = prepare_h7_interop(H7InteropRequest::new(
             &graph,
@@ -1011,7 +1019,7 @@ mod tests {
             "int unrelated_provider(void) { return 1; }\n",
         );
         fixture.compile_provider(&gcc);
-        let (graph, artifact) = h7_graph(crate::CERTIFIED_INTEROP_TARGET);
+        let (graph, artifact) = h7_graph(crate::CERTIFIED_INTEROP_TARGETS[0]);
 
         let error = prepare_h7_interop(H7InteropRequest::new(
             &graph,
@@ -1038,7 +1046,7 @@ mod tests {
             "_Thread_local int fol_h7_tls = 42;\nint fol_h7_value(void) { return fol_h7_tls; }\n",
         );
         fixture.compile_provider(&gcc);
-        let (graph, artifact) = h7_graph(crate::CERTIFIED_INTEROP_TARGET);
+        let (graph, artifact) = h7_graph(crate::CERTIFIED_INTEROP_TARGETS[0]);
 
         let error = prepare_h7_interop(H7InteropRequest::new(
             &graph,
@@ -1065,7 +1073,7 @@ mod tests {
             "int fol_h7_value(void) { return 42; }\n",
         );
         fixture.compile_provider(&gcc);
-        let (graph, artifact) = h7_graph(crate::CERTIFIED_INTEROP_TARGET);
+        let (graph, artifact) = h7_graph(crate::CERTIFIED_INTEROP_TARGETS[0]);
         assert!(!fixture.output_root.exists());
 
         let build = prepare_h7_interop(H7InteropRequest::new(
@@ -1138,7 +1146,7 @@ mod tests {
         fs::create_dir(&target).unwrap();
         symlink(&target, &fixture.output_root).unwrap();
         let missing_compiler = fixture.package.join("missing-gcc");
-        let (graph, artifact) = h7_graph(crate::CERTIFIED_INTEROP_TARGET);
+        let (graph, artifact) = h7_graph(crate::CERTIFIED_INTEROP_TARGETS[0]);
 
         let error = prepare_h7_interop(H7InteropRequest::new(
             &graph,
