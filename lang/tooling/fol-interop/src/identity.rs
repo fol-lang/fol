@@ -6,11 +6,11 @@
 //! from whichever machine built the binary — and it is meaningless now that the
 //! components are git dependencies resolved by cargo.
 //!
-//! Identity became a build-time property instead: `build.rs` proves that
-//! `interop.lock.toml` and `Cargo.lock` agree on every revision and remote, and
-//! the schema assertions in `lib.rs` prove the resolved crates expose the
-//! contract versions the lock claims. A git revision is content-binding, so a
-//! matching revision *is* the evidence.
+//! Identity became a build-time property instead: `Cargo.toml` pins each
+//! component by `rev`, `build.rs` reads back what cargo resolved, and the schema
+//! assertions in `lib.rs` prove those crates expose the expected contract
+//! versions. A git revision is content-binding, so the resolved revision *is*
+//! the evidence.
 
 use crate::lock::{LOCKED_GERC_REVISION, LOCKED_LINC_REVISION, LOCKED_PARC_REVISION};
 

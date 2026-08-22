@@ -167,9 +167,8 @@ fn build_fol_c_import_runs_the_locked_typed_pipeline() {
         .iter()
         .find(|artifact| artifact.kind == FrontendArtifactKind::InteropEvidence)
         .expect("build result must report exact sibling evidence");
-    // Revisions come from interop.lock.toml rather than being duplicated here:
-    // the lock is the single source of truth, and hard-coded hashes rot on every
-    // component bump.
+    // Revisions come from what cargo resolved rather than being duplicated here:
+    // hard-coded hashes rot on every component bump.
     let locked = locked_component_revisions();
     for required_identity in [
         "target=x86_64-unknown-linux-gnu".to_string(),
@@ -391,35 +390,12 @@ struct LockedRevisions {
     gerc: String,
 }
 
-/// The component revisions the checked `interop.lock.toml` pins.
+/// The component revisions cargo resolved from the `rev` pins, compiled into
+/// `fol-interop` by its build script.
 fn locked_component_revisions() -> LockedRevisions {
-    let lock_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .join("interop.lock.toml");
-    let lock = fs::read_to_string(&lock_path)
-        .unwrap_or_else(|error| panic!("cannot read {}: {error}", lock_path.display()));
-    let revision = |section: &str| {
-        let mut active = false;
-        for line in lock.lines() {
-            let line = line.trim();
-            if line.starts_with('[') && line.ends_with(']') {
-                active = line == format!("[{section}]");
-                continue;
-            }
-            if !active {
-                continue;
-            }
-            if let Some((key, value)) = line.split_once('=') {
-                if key.trim() == "revision" {
-                    return value.trim().trim_matches('"').to_string();
-                }
-            }
-        }
-        panic!("interop.lock.toml has no [{section}] revision");
-    };
     LockedRevisions {
-        parc: revision("parc"),
-        linc: revision("linc"),
-        gerc: revision("gerc"),
+        parc: fol_interop::LOCKED_PARC_REVISION.to_string(),
+        linc: fol_interop::LOCKED_LINC_REVISION.to_string(),
+        gerc: fol_interop::LOCKED_GERC_REVISION.to_string(),
     }
 }

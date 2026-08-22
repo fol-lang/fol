@@ -35,40 +35,42 @@ models, a second provider resolver, a second raw `extern "C"` emitter, shell
 splitting, or text link-argument parsing. GERC's typed link atoms remain
 individual native process arguments when they reach `rustc`.
 
-## Locked inputs
+## Pinned inputs
 
-The checked root `interop.lock.toml` is the machine authority. H7 is certified
-against this exact snapshot:
+`lang/tooling/fol-interop/Cargo.toml` is the machine authority: each component
+is pinned there by git revision, and `Cargo.lock` records what cargo resolved
+from those pins. H7 is certified against this exact snapshot:
 
-| Stage | Package | Contract | Locked revision |
+| Stage | Package | Contract | Pinned revision |
 |---|---|---|---|
 | PARC | `follang-parc 0.16.0` | source package schema 2 | `0f52aeeeeec47a082c0d8a515130ee853aa1101d` |
 | LINC | `follang-linc 0.1.0` with `native-inspection` | link-analysis schema 2 | `fdb50ae9743ee09c6592bc40e87b6f57a892fc51` |
 | GERC | `follang-gerc 0.1.0` with `pipeline-native` | generation domain 1 | `fdf139209e824dd7fdc274da20b6be3ba0183a10` |
 
-The lock also freezes the GERC H5 compatibility driver, fixtures, and support
-code under digest
-`13644fd1f6ad3f1de06338e5bd415604dbedc9b6baaaaed8a63f44515db004e7`.
 The three components are **git dependencies pinned by revision**, not sibling
 path dependencies, so a fresh clone of this repository builds and tests without
 any of them checked out. A pinned revision is content-binding, which makes
 provenance a build-time property rather than something to re-observe at run
 time:
 
-- `fol-interop/build.rs` proves that every revision and remote in
-  `interop.lock.toml` equals what cargo resolved in `Cargo.lock`, and hands the
-  verified revisions to the crate. A stale lockfile is a compile error.
-- compile-time assertions in `fol-interop/src/lib.rs` prove the resolved crates
-  still expose the contract versions the lock claims.
-- each component pins the components below it at the same revisions this lock
-  records (`parc_revision`, `linc_revision`), because two different `follang-parc`
-  revisions in one graph would produce two incompatible sets of contract types.
+- `fol-interop/build.rs` reads the resolved revisions back out of `Cargo.lock`
+  and hands them to the crate, so the recorded provenance is whatever cargo
+  actually built against.
+- compile-time assertions in `fol-interop/src/lib.rs` prove those crates still
+  expose the expected contract versions.
+- each component pins the components below it at these same revisions, because
+  two different `follang-parc` revisions in one graph would produce two
+  incompatible sets of contract types — cargo resolves them as separate crates
+  and every shared type stops matching.
+
+`tools/verify-interop-lock.sh` checks that nothing loosens a pin to a branch or
+a path, that no `[patch]` entry substitutes a component, and that this table
+still quotes the revisions in force.
 
 The earlier design shelled out to `git` at run time to check each sibling
 checkout's root, `HEAD`, worktree cleanliness, and origin. That could only pass
 inside a source tree — a released binary carried the build machine's paths — so
 it verified nothing for users.
-
 ## Certified platform
 
 The only promoted lane is:
@@ -137,8 +139,8 @@ make interop-check interop-locked test-interop
 
 CI checks out only FOL and invokes the same Make-owned locked smoke gate; cargo
 fetches the pinned components. Moving a component means updating
-`interop.lock.toml`, `fol-interop/Cargo.toml`, `Cargo.lock`, and this snapshot
-together — the offline tier fails the moment any one of them disagrees.
+`fol-interop/Cargo.toml`, `Cargo.lock`, and this snapshot together — the check
+fails the moment the book stops quoting the revisions in force.
 
 Working on a component locally without editing the pins:
 
