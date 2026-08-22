@@ -349,7 +349,10 @@ second backend-only side path.
   rename restrictions, ABI diagnostics, manifest navigation, and complete V4
   build-record completion do not exist.
 - `.github/workflows/tests.yml` is Ubuntu-only and does not establish a
-  multi-platform C ABI consumer matrix. Release output is Linux-musl-only.
+  multi-platform C ABI consumer matrix. Release output covers only
+  `x86_64-linux` and `aarch64-linux`, both built on Alpine against musl, while
+  the certified interop lane is `x86_64-unknown-linux-gnu` — so no released
+  toolchain is built on the one target whose C interop is certified.
 - `flake.nix` does not make a pinned C compiler/preprocessor or the required
   sibling interop revisions an explicit V4 toolchain contract.
 - `book/src/055_build/600_artifacts.md` and related build chapters describe
@@ -366,9 +369,9 @@ required architecture, not optional inspiration:
 
 | stage | required checkout | revision authority | current crate/schema | owned responsibility |
 |---|---|---|---|---|
-| PARC | `../parc` | root `interop.lock.toml` | `follang-parc 0.16.0`, source schema 2 | explicit-target C preprocessing, parsing, recovery, source extraction, provenance |
-| LINC | `../linc` | root `interop.lock.toml` | `follang-linc 0.1.0`, link-analysis schema 2 | object/archive/shared-library inspection, ABI probes, strict symbol/provider validation, ordered resolved-link evidence |
-| GERC | `../gerc` | root `interop.lock.toml` | `follang-gerc 0.1.0`, typed generation domain 1 | closed-world gating, C-to-Rust projection, deterministic raw Rust files and typed link arguments |
+| PARC | `../parc` | `fol-interop/Cargo.toml` rev pin | `follang-parc 0.16.0`, source schema 2 | explicit-target C preprocessing, parsing, recovery, source extraction, provenance |
+| LINC | `../linc` | `fol-interop/Cargo.toml` rev pin | `follang-linc 0.1.0`, link-analysis schema 2 | object/archive/shared-library inspection, ABI probes, strict symbol/provider validation, ordered resolved-link evidence |
+| GERC | `../gerc` | `fol-interop/Cargo.toml` rev pin | `follang-gerc 0.1.0`, typed generation domain 1 | closed-world gating, C-to-Rust projection, deterministic raw Rust files and typed link arguments |
 
 The checked-in lock manifest is the machine authority for exact accepted
 commits. H7 mirrors that snapshot in CI and the interop book page, and the
@@ -864,19 +867,17 @@ exact path dependencies into the sibling checkout topology; only
 `fol-interop` consumes all three. Do not vendor their sources into FOL and do
 not add optional copied fallback implementations.
 
-The root `interop.lock.toml` records, for each sibling:
+`lang/tooling/fol-interop/Cargo.toml` pins each sibling by git revision, and
+`Cargo.lock` records what cargo resolved from those pins. A git revision is
+content-binding, so that pair fixes the Git identity, crate version, and
+accepted feature set of every component; the serialized-contract schema
+versions are asserted at compile time in `fol-interop/src/lib.rs`.
 
-- canonical relative path and canonical remote identity
-- full Git commit, crate version, and serialized-contract schema version
-- accepted feature set
-
-It also records one digest over the GERC H5 compatibility driver, fixtures,
-and support code.
-
-`Cargo.lock` is not sufficient because it does not pin the Git identity of path
-dependencies. `make interop-check` verifies paths, schemas, selected features,
-typed orchestration compilation, and compatibility fixtures for active
-development.
+There is no separate interop lock file. One existed and duplicated the `rev`
+pins, which meant a second thing to keep in step and a build that failed when
+it drifted. `make interop-check` now verifies that no pin is loosened to a
+branch or a path, that no `[patch]` entry substitutes a component, and that the
+book quotes the revisions in force.
 `make interop-locked` additionally requires the exact locked commits and clean
 worktrees for CI/release. CI checks out the three repositories as siblings at
 those exact commits before invoking the FOL Makefile.
@@ -887,7 +888,7 @@ Upgrades are one stage at a time:
 2. run that repository's `make test` and commit there independently
 3. update only the corresponding FOL orchestration boundary and fixtures
 4. run the whole PARC -> LINC -> GERC compatibility corpus
-5. update `interop.lock.toml` and the FOL build fingerprint
+5. update the `rev` pins in `fol-interop/Cargo.toml`, `Cargo.lock`, and the FOL build fingerprint
 
 Never make an uncommitted multi-repository state the only passing state. Do not
 use `[patch]`, a local fork, a copied module, or an unrecorded floating branch to
