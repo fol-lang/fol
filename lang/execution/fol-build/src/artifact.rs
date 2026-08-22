@@ -378,9 +378,40 @@ mod tests {
             "x86_64-unknown-linux-gnu"
         );
         assert_eq!(definition.target.optimize, BuildOptimizeMode::ReleaseSafe);
-        assert_eq!(definition.native_attachments.include_paths.len(), 1);
-        assert_eq!(definition.native_attachments.library_paths.len(), 1);
-        assert_eq!(definition.native_attachments.link_inputs.len(), 2);
+        // Counting the attachments only proves arity: a projection that dropped
+        // the search-path origin or the link mode would still pass. The values
+        // are what has to survive, so they are the ones asserted.
+        assert_eq!(
+            definition.native_attachments.include_paths,
+            vec![NativeIncludePath {
+                origin: NativeSearchPathOrigin::PackageRoot,
+                relative_path: "include".to_string(),
+            }]
+        );
+        assert_eq!(
+            definition.native_attachments.library_paths,
+            vec![NativeLibraryPath {
+                origin: NativeSearchPathOrigin::BuildRoot,
+                relative_path: ".fol/build/native".to_string(),
+            }]
+        );
+        assert_eq!(
+            definition.native_attachments.link_inputs,
+            vec![
+                NativeLinkDirective {
+                    input: NativeLinkInput::LibraryName("ssl".to_string()),
+                    mode: NativeLinkMode::Dynamic,
+                },
+                NativeLinkDirective {
+                    input: NativeLinkInput::Artifact(NativeArtifactDefinition {
+                        name: "zlib".to_string(),
+                        kind: NativeArtifactKind::StaticLibrary,
+                        relative_path: "native/libz.a".to_string(),
+                    }),
+                    mode: NativeLinkMode::Static,
+                },
+            ]
+        );
     }
 
     #[test]
@@ -594,6 +625,19 @@ mod tests {
         graph.add_artifact_module_input(test, main);
         graph.add_artifact_module_input(object, main);
 
+        // A native attachment has to reach the projected definition, not just
+        // the graph node: this is the route `build.fol` actually takes, and the
+        // definition-level test above builds its attachments by hand.
+        graph.add_artifact_system_library(
+            exe,
+            &crate::native::SystemLibraryRequest {
+                name: "ssl".to_string(),
+                mode: NativeLinkMode::Dynamic,
+                framework: false,
+                search_path: Some("/usr/lib".to_string()),
+            },
+        );
+
         let projected = project_graph_artifacts(&graph);
 
         assert_eq!(projected.len(), 4);
@@ -613,6 +657,22 @@ mod tests {
         assert_eq!(projected[3].kind, BuildArtifactModelKind::Object);
         assert_eq!(projected[3].linkage, BuildArtifactLinkage::Object);
         assert_eq!(projected[3].root_source.path, "src/support.fol");
+
+        let executable = &projected[0].native_attachments;
+        assert_eq!(
+            executable.library_paths,
+            vec![NativeLibraryPath {
+                origin: NativeSearchPathOrigin::System,
+                relative_path: "/usr/lib".to_string(),
+            }]
+        );
+        assert_eq!(
+            executable.link_inputs,
+            vec![NativeLinkDirective {
+                input: NativeLinkInput::LibraryName("ssl".to_string()),
+                mode: NativeLinkMode::Dynamic,
+            }]
+        );
         assert_eq!(
             projected[3].target.target.as_str(),
             "x86_64-unknown-linux-musl"
