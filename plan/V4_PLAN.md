@@ -327,6 +327,14 @@ by guessing widths.
   atomic publication, and actual installation.
 - `PreparedPackage::native_surfaces` can retain a manually supplied set, but
   the normal route does not populate an operational native plan.
+- `BuildArtifactNativeAttachmentSet` is written by the projection and read by
+  nobody: outside `fol-build/src/artifact.rs` and its tests, no crate mentions
+  `native_attachments`. The frontend and backend never see it, so a
+  `graph.add_system_lib(...)` plus `app.link(ssl)` produces no `-l` flag. The
+  whole native-link surface is declarative today.
+- No library artifact is produced at all. A package declaring a static library,
+  linking it into an executable, and building succeeds and writes only the
+  executable; there is no `.a` or `.so` anywhere in the output tree.
 
 V4 must fix this foundation rather than attach headers and libraries through a
 second backend-only side path.
@@ -1287,17 +1295,28 @@ Tasks:
   `.de_alloc` placeholder; update diagnostics, intrinsics inventory, lexer,
   parser fixtures, tree-sitter grammar/queries/corpus, book, and examples in
   the same commit.
-- [ ] Correct book/architecture claims that static/shared linking already works.
-  Restore shipped wording only at the milestone that proves it.
+- [x] Correct book/architecture claims that static/shared linking already works.
+  Restore shipped wording only at the milestone that proves it. Corrected in
+  `book/src/055_build/600_artifacts.md` (the artifact-kind table gained a
+  status column; the Linking section and the system-library claim now say what
+  actually happens) and `book/src/055_build/200_graph_api.md`
+  (`add_static_lib`/`add_shared_lib`). `ARCHITECTURE.md` made no such claim.
+  Verified by building a package that declares a static library, links it into
+  an executable, and produces no `.a`.
 - [x] Revalidate the retained ABI rationale in this plan against the refreshed
   truth snapshot. Three sections contradicted what shipped and were rewritten:
   4.6 rejected a default `int` that is now indistinguishable from `i64`; 4.8
   asserted destructor provenance is metadata two paragraphs below its own
   amendment saying it is not; 4.9 named `as` as the conversion spelling and
   deferred narrowing, both of which the width work overtook.
-- [ ] Add an ABI diagnostic family to `fol-diagnostics` (planned family label
+- [x] Add an ABI diagnostic family to `fol-diagnostics` (planned family label
   `ABI`, with stable producer-owned codes) and reserve exact codes only when a
-  real construction site exists.
+  real construction site exists. `A` maps to `ABI` in `family_for_code`; no
+  code is registered, and `abi_family_is_reserved_without_registered_codes`
+  asserts the registry stays empty of them. The family is deliberately absent
+  from the book's family list in `book/src/650_errors/300_diagnostics.md`,
+  because listing a chip no diagnostic can print would be the same false claim
+  the reserved-codes rule exists to prevent.
 
 Verification:
 

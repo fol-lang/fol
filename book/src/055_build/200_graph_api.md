@@ -171,7 +171,12 @@ the package does not make `corelib` a hosted artifact.
 
 ### `graph.add_static_lib`
 
-Adds a static library artifact.
+Adds a static library artifact to the graph.
+
+> **Not yet implemented.** The artifact is recorded, and no `.a` is produced.
+> A graph containing only libraries also has no runnable step: `fol code build`
+> reports that `build` is not a defined step. V4 milestone M3 builds real
+> library artifacts.
 
 ```fol
 var core = graph.add_static_lib({ name = "core", root = "src/core/lib.fol" });
@@ -187,7 +192,10 @@ Library and test artifact config records follow the same optional fields:
 
 ### `graph.add_shared_lib`
 
-Adds a shared (dynamic) library artifact.
+Adds a shared (dynamic) library artifact to the graph.
+
+> **Not yet implemented**, exactly as for `add_static_lib` above: the artifact
+> is recorded and no `.so` is produced.
 
 ```fol
 var sdk = graph.add_shared_lib({ name = "sdk", root = "src/sdk/lib.fol" });

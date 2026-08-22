@@ -71,6 +71,13 @@ pub fn family_for_code(code: &str) -> (&'static str, &'static str) {
             "BACKEND",
             "a code-generation problem while emitting the program",
         ),
+        // Reserved for the V4 C ABI boundary. The family exists so producers
+        // have somewhere to emit; individual codes are registered only when a
+        // real construction site exists, per plan/V4_PLAN.md M0.
+        Some(b'A') => (
+            "ABI",
+            "a C ABI boundary problem — a declaration could not be projected to C",
+        ),
         _ => ("ERROR", "a problem the compiler could not accept"),
     }
 }
@@ -755,6 +762,19 @@ mod tests {
         assert_eq!(family_for_code("B1000").0, "BACKEND");
         assert_eq!(family_for_code("t1003").0, "TYPES");
         assert_eq!(family_for_code("Z9999").0, "ERROR");
+        assert_eq!(family_for_code("A1001").0, "ABI");
+        assert_eq!(family_for_code("a1001").0, "ABI");
+    }
+
+    /// The ABI family is reserved, not populated. M0 adds the label so V4
+    /// producers have a family to emit into; a code only becomes real when
+    /// something constructs it, so registering one now would document a
+    /// diagnostic that cannot be produced.
+    #[test]
+    fn abi_family_is_reserved_without_registered_codes() {
+        assert_eq!(family_for_code("A1001").0, "ABI");
+        assert!(explanation("A1001").is_none());
+        assert!(!registered_codes().any(|code| code.starts_with('A')));
     }
 
     #[test]

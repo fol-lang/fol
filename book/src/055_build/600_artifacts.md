@@ -7,12 +7,16 @@ artifacts, modules, and generated files.
 
 Artifacts are the primary compiled outputs of a package.
 
-| Kind           | Method              | Output                 |
-|----------------|---------------------|------------------------|
-| Executable     | `graph.add_exe`     | Binary                 |
-| Static library | `graph.add_static_lib` | `.a` / `.lib`       |
-| Shared library | `graph.add_shared_lib` | `.so` / `.dylib`    |
-| Test bundle    | `graph.add_test`    | Runnable test binary   |
+| Kind           | Method              | Output                 | Status |
+|----------------|---------------------|------------------------|--------|
+| Executable     | `graph.add_exe`     | Binary                 | built |
+| Static library | `graph.add_static_lib` | `.a` / `.lib`       | declared only |
+| Shared library | `graph.add_shared_lib` | `.so` / `.dylib`    | declared only |
+| Test bundle    | `graph.add_test`    | Runnable test binary   | built |
+
+A **declared only** kind is accepted by the graph and produces no file. The
+output column names what it will produce once V4 milestone M3 lands, not what
+you will find in `.fol/build` today.
 
 All artifact constructors accept the same base config record:
 
@@ -55,7 +59,14 @@ The build system validates artifact names at evaluation time. Invalid names
 
 ### Linking
 
-Static and shared libraries can be linked into executables using
+> **Not yet implemented.** `artifact.link(dep)` is accepted and recorded in the
+> build graph, and it currently produces nothing: no static or shared library
+> is built, and no link step runs. A package that declares a library, links it
+> into an executable, and builds will find only the executable in its output
+> tree. The surface below is the declared spelling; V4 milestone M3 is what
+> makes it real. See `plan/V4_PLAN.md`.
+
+Static and shared libraries are declared for linking into executables using
 `artifact.link(dep)`:
 
 ```fol
@@ -64,7 +75,10 @@ var app  = graph.add_exe({ name = "app", root = "src/main.fol" });
 app.link(core);
 ```
 
-Typed system-library requests can be linked the same way:
+Typed system-library requests use the same surface. They reach the build
+graph and the projected artifact definition, and stop there: nothing outside
+`fol-build` reads `native_attachments`, so no `-l` flag is ever passed to the
+linker.
 
 ```fol
 var ssl = graph.add_system_lib({ name = "ssl", mode = "dynamic" });
