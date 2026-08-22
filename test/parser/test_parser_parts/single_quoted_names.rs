@@ -13,15 +13,15 @@ fn test_single_quoted_names_parse_across_declaration_surfaces() {
 
     match ast {
         AstNode::Program { declarations } => {
-            assert!(declarations.iter().any(|node| {
-                matches!(node, AstNode::SegDecl { name, .. } if name == "core")
-            }));
-            assert!(declarations.iter().any(|node| {
-                use_decl_matches_path(node, "warn", "std/warn")
-            }));
-            assert!(declarations.iter().any(|node| {
-                matches!(node, AstNode::VarDecl { name, .. } if name == "state")
-            }));
+            assert!(declarations
+                .iter()
+                .any(|node| { matches!(node, AstNode::SegDecl { name, .. } if name == "core") }));
+            assert!(declarations
+                .iter()
+                .any(|node| { use_decl_matches_path(node, "warn", "std/warn") }));
+            assert!(declarations
+                .iter()
+                .any(|node| { matches!(node, AstNode::VarDecl { name, .. } if name == "state") }));
             assert!(declarations.iter().any(|node| {
                 matches!(
                     node,

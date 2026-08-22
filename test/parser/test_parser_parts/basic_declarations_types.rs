@@ -43,7 +43,6 @@ fn test_canonical_duplicate_record_field_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -103,7 +102,6 @@ fn test_record_lab_field_missing_name_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -259,7 +257,6 @@ fn test_type_generic_headers_reject_duplicate_names() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -522,7 +519,6 @@ fn test_unknown_type_option_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();

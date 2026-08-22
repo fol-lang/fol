@@ -126,9 +126,7 @@ fn test_dead_var_tilde_binding_option_is_rejected() {
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
-    let errors = parser
-        .parse(&mut lexer)
-        .expect_err("var[~] must not parse");
+    let errors = parser.parse(&mut lexer).expect_err("var[~] must not parse");
     assert!(errors
         .iter()
         .any(|error| error.message.contains("Unknown binding option")));
@@ -233,7 +231,6 @@ fn test_binding_conflicting_options_report_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -257,7 +254,6 @@ fn test_binding_unknown_option_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();

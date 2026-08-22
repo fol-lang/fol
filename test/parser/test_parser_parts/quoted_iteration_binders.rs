@@ -33,9 +33,8 @@ fn test_each_iteration_accepts_quoted_binder() {
 
 #[test]
 fn test_for_iteration_accepts_typed_quoted_binder() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_for_quoted_typed_binder.fol")
-            .expect("Should read quoted typed for-binder fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_for_quoted_typed_binder.fol")
+        .expect("Should read quoted typed for-binder fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -67,9 +66,8 @@ fn test_for_iteration_accepts_typed_quoted_binder() {
 
 #[test]
 fn test_each_iteration_accepts_single_quoted_binder() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_each_single_quoted_binder.fol")
-            .expect("Should read single-quoted each-binder fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_each_single_quoted_binder.fol")
+        .expect("Should read single-quoted each-binder fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();

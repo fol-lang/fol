@@ -2,9 +2,8 @@ use super::*;
 
 #[test]
 fn test_routine_option_brackets_accept_semicolon_separators() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_routine_options_semicolon.fol")
-            .expect("Should read semicolon routine options test file");
+    let mut file_stream = FileStream::from_file("test/parser/simple_routine_options_semicolon.fol")
+        .expect("Should read semicolon routine options test file");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();

@@ -2,9 +2,8 @@ use super::*;
 
 #[test]
 fn test_top_level_type_record_fields_support_keyword_names() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_typ_record_keyword_fields.fol")
-            .expect("Should read keyword-named record field test file");
+    let mut file_stream = FileStream::from_file("test/parser/simple_typ_record_keyword_fields.fol")
+        .expect("Should read keyword-named record field test file");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -44,13 +43,10 @@ fn test_duplicate_keyword_named_record_field_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
-        parse_error
-            .message
-            .contains("Duplicate record field 'get'"),
+        parse_error.message.contains("Duplicate record field 'get'"),
         "Duplicate keyword field should report the duplicate name, got: {}",
         parse_error.message
     );
@@ -100,7 +96,6 @@ fn test_duplicate_keyword_named_entry_variant_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(

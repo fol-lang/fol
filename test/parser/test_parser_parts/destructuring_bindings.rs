@@ -60,9 +60,8 @@ fn test_destructuring_binding_supports_trailing_rest_pattern() {
 
 #[test]
 fn test_destructuring_binding_supports_nested_patterns() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_var_destructure_nested.fol")
-            .expect("Should read nested destructuring fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_var_destructure_nested.fol")
+        .expect("Should read nested destructuring fixture");
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
 
@@ -99,9 +98,8 @@ fn test_destructuring_binding_supports_nested_patterns() {
 
 #[test]
 fn test_grouped_destructuring_bindings_parse() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_var_grouped_destructure.fol")
-            .expect("Should read grouped destructuring fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_var_grouped_destructure.fol")
+        .expect("Should read grouped destructuring fixture");
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
 
@@ -128,9 +126,8 @@ fn test_grouped_destructuring_bindings_parse() {
 
 #[test]
 fn test_label_destructuring_bindings_parse() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_lab_destructure.fol")
-            .expect("Should read label destructuring fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_lab_destructure.fol")
+        .expect("Should read label destructuring fixture");
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
 

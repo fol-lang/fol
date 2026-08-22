@@ -61,13 +61,18 @@ fn test_top_level_while_loop_parsing() {
             condition,
             body,
         } => {
-            assert!(syntax_id.is_some(), "loop keyword should retain a scope anchor");
+            assert!(
+                syntax_id.is_some(),
+                "loop keyword should retain a scope anchor"
+            );
             assert!(matches!(
                 condition.as_ref(),
                 LoopCondition::Condition(expr)
                 if matches!(expr.as_ref(), AstNode::Identifier { name, .. } if name == "ready")
             ));
-            assert!(body.iter().any(|node| matches!(node, AstNode::Yield { .. })));
+            assert!(body
+                .iter()
+                .any(|node| matches!(node, AstNode::Yield { .. })));
             assert!(body.iter().any(|node| matches!(node, AstNode::Break)));
         }
         _ => panic!("Expected loop node"),

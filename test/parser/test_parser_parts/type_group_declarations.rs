@@ -108,9 +108,8 @@ fn test_multi_name_type_alias_declarations_expand_into_multiple_nodes() {
 
 #[test]
 fn test_multi_name_type_declarations_share_object_definitions() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_typ_multi_object_shared.fol")
-            .expect("Should read shared object-definition fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_typ_multi_object_shared.fol")
+        .expect("Should read shared object-definition fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -129,7 +128,10 @@ fn test_multi_name_type_declarations_share_object_definitions() {
                         && matches!(fields.get("name"), Some(FolType::Named { name, .. }) if name == "str")
                 ))
                 .count();
-            assert_eq!(matched, 2, "Expected shared object definition for both names");
+            assert_eq!(
+                matched, 2,
+                "Expected shared object definition for both names"
+            );
         }
         _ => panic!("Expected program node"),
     }
@@ -217,7 +219,10 @@ fn test_grouped_type_declarations_accept_empty_object_markers() {
                     } if (name == "User" || name == "Admin") && fields.is_empty() && members.is_empty()
                 ))
                 .count();
-            assert_eq!(matched, 2, "Expected both grouped object markers to lower to empty records");
+            assert_eq!(
+                matched, 2,
+                "Expected both grouped object markers to lower to empty records"
+            );
         }
         _ => panic!("Expected program node"),
     }
@@ -248,7 +253,10 @@ fn test_multi_name_type_declarations_accept_shared_empty_object_markers() {
                     } if (name == "User" || name == "Admin") && fields.is_empty() && members.is_empty()
                 ))
                 .count();
-            assert_eq!(matched, 2, "Expected both names to receive the shared empty object definition");
+            assert_eq!(
+                matched, 2,
+                "Expected both names to receive the shared empty object definition"
+            );
         }
         _ => panic!("Expected program node"),
     }

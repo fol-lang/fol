@@ -50,9 +50,8 @@ fn test_standard_declaration_accepts_empty_options() {
 
 #[test]
 fn test_protocol_standard_accepts_kind_options() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_std_protocol_kind_options.fol")
-            .expect("Should read pro[] standard test file");
+    let mut file_stream = FileStream::from_file("test/parser/simple_std_protocol_kind_options.fol")
+        .expect("Should read pro[] standard test file");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -166,9 +165,8 @@ fn test_blueprint_standard_accepts_field_alternatives() {
 
 #[test]
 fn test_extended_standard_accepts_empty_kind_brackets() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_std_extended_kind_options.fol")
-            .expect("Should read ext[] standard test file");
+    let mut file_stream = FileStream::from_file("test/parser/simple_std_extended_kind_options.fol")
+        .expect("Should read ext[] standard test file");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -265,7 +263,6 @@ fn test_protocol_standard_rejects_duplicate_signatures() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -296,7 +293,6 @@ fn test_protocol_standard_rejects_canonical_duplicate_signatures() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -327,7 +323,6 @@ fn test_blueprint_standard_rejects_duplicate_fields() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -358,7 +353,6 @@ fn test_blueprint_standard_rejects_canonical_duplicate_fields() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -389,7 +383,6 @@ fn test_extended_standard_rejects_duplicate_members() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -408,9 +401,8 @@ fn test_extended_standard_rejects_duplicate_members() {
 
 #[test]
 fn test_standard_rejects_unknown_declaration_options() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_std_unknown_options.fol")
-            .expect("Should read malformed std[] fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_std_unknown_options.fol")
+        .expect("Should read malformed std[] fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -420,13 +412,10 @@ fn test_standard_rejects_unknown_declaration_options() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
-        parse_error
-            .message
-            .contains("Unknown standard option"),
+        parse_error.message.contains("Unknown standard option"),
         "Expected std option error, got: {}",
         parse_error.message
     );
@@ -434,9 +423,8 @@ fn test_standard_rejects_unknown_declaration_options() {
 
 #[test]
 fn test_standard_rejects_unknown_kind_options() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_std_unknown_kind_options.fol")
-            .expect("Should read malformed standard kind fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_std_unknown_kind_options.fol")
+        .expect("Should read malformed standard kind fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -446,7 +434,6 @@ fn test_standard_rejects_unknown_kind_options() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -496,9 +483,8 @@ fn test_extended_standards_accept_grouped_type_members() {
 
 #[test]
 fn test_extended_standards_accept_empty_object_type_members() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_std_object_member_empty.fol")
-            .expect("Should read empty object standard-member fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_std_object_member_empty.fol")
+        .expect("Should read empty object standard-member fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();

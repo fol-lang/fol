@@ -210,9 +210,8 @@ fn test_if_flow_declaration_bodies_parsing() {
 
 #[test]
 fn test_if_flow_grouped_type_bodies_parsing() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_if_flow_grouped_types.fol")
-            .expect("Should read if grouped-type flow fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_if_flow_grouped_types.fol")
+        .expect("Should read if grouped-type flow fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -247,9 +246,8 @@ fn test_if_flow_grouped_type_bodies_parsing() {
 
 #[test]
 fn test_if_flow_empty_object_type_bodies_parsing() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_if_flow_object_empty.fol")
-            .expect("Should read if empty-object flow fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_if_flow_object_empty.fol")
+        .expect("Should read if empty-object flow fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -827,12 +825,12 @@ fn test_if_flow_missing_body_reports_branch_message() {
         .parse(&mut lexer)
         .expect_err("Parser should reject missing if branch body");
 
-    let parse_error = errors
-        .first()
-        .expect("First parser error should exist");
+    let parse_error = errors.first().expect("First parser error should exist");
 
     assert!(
-        parse_error.message.contains("Expected '{' or '=>' to start branch body"),
+        parse_error
+            .message
+            .contains("Expected '{' or '=>' to start branch body"),
         "Missing if body should use generic branch-body wording, got: {}",
         parse_error.message
     );
@@ -850,12 +848,12 @@ fn test_when_flow_missing_body_reports_branch_message() {
         .parse(&mut lexer)
         .expect_err("Parser should reject missing when branch body");
 
-    let parse_error = errors
-        .first()
-        .expect("First parser error should exist");
+    let parse_error = errors.first().expect("First parser error should exist");
 
     assert!(
-        parse_error.message.contains("Expected '{' or '=>' to start branch body"),
+        parse_error
+            .message
+            .contains("Expected '{' or '=>' to start branch body"),
         "Missing when body should use generic branch-body wording, got: {}",
         parse_error.message
     );

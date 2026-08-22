@@ -18,12 +18,18 @@ fn first_parse_error_message(path: &str) -> String {
 #[test]
 fn test_parser_owned_unknown_option_diagnostics_name_the_surface() {
     for (path, expected) in [
-        ("test/parser/simple_use_unknown_option.fol", "Unknown use option"),
+        (
+            "test/parser/simple_use_unknown_option.fol",
+            "Unknown use option",
+        ),
         (
             "test/parser/simple_std_unknown_options.fol",
             "Unknown standard option",
         ),
-        ("test/parser/simple_typ_options_unknown.fol", "Unknown type option"),
+        (
+            "test/parser/simple_typ_options_unknown.fol",
+            "Unknown type option",
+        ),
         (
             "test/parser/simple_routine_options_unknown.fol",
             "Unknown routine option",

@@ -270,7 +270,6 @@ fn test_type_alias_missing_bracket_close_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -404,7 +403,6 @@ fn test_record_var_field_missing_colon_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -434,7 +432,6 @@ fn test_duplicate_record_field_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();

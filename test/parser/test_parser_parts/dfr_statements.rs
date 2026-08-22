@@ -36,8 +36,12 @@ fn test_dfr_statement_is_rejected_at_file_root() {
         .expect("Expected parser to emit at least one file-root dfr diagnostic");
 
     assert!(
-        first.message.contains("Control-flow statements are not allowed at file root")
-            || first.message.contains("'dfr' is only allowed inside routines"),
+        first
+            .message
+            .contains("Control-flow statements are not allowed at file root")
+            || first
+                .message
+                .contains("'dfr' is only allowed inside routines"),
         "Expected file-root control-flow diagnostic, got: {}",
         first.message
     );

@@ -14,7 +14,6 @@ fn test_type_entry_missing_variant_name_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -44,7 +43,6 @@ fn test_duplicate_entry_variant_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -79,7 +77,6 @@ fn test_canonical_duplicate_entry_variant_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -109,7 +106,6 @@ fn test_type_entry_marker_unknown_option_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -169,7 +165,6 @@ fn test_type_entry_definition_reports_missing_lab_variant_name() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -194,7 +189,6 @@ fn test_type_record_marker_missing_assign_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -224,7 +218,6 @@ fn test_type_record_marker_unknown_option_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -254,7 +247,6 @@ fn test_type_generic_header_missing_separator_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -283,7 +275,6 @@ fn test_type_record_missing_close_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -313,11 +304,13 @@ fn test_duplicate_record_method_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
-        parse_error.message.clone().contains("Duplicate type member 'getBrand#0'"),
+        parse_error
+            .message
+            .clone()
+            .contains("Duplicate type member 'getBrand#0'"),
         "Duplicate record method should report the member key, got: {}",
         parse_error.message
     );
@@ -337,11 +330,13 @@ fn test_record_field_and_alias_name_conflict_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
-        parse_error.message.clone().contains("Duplicate type member 'host'"),
+        parse_error
+            .message
+            .clone()
+            .contains("Duplicate type member 'host'"),
         "Record field/alias conflict should report duplicate type member, got: {}",
         parse_error.message
     );
@@ -361,7 +356,6 @@ fn test_record_field_and_alias_canonical_name_conflict_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -387,11 +381,13 @@ fn test_entry_variant_and_type_name_conflict_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
-        parse_error.message.clone().contains("Duplicate type member 'Ok'"),
+        parse_error
+            .message
+            .clone()
+            .contains("Duplicate type member 'Ok'"),
         "Entry variant/type conflict should report duplicate type member, got: {}",
         parse_error.message
     );
@@ -411,7 +407,6 @@ fn test_entry_variant_and_type_canonical_name_conflict_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(

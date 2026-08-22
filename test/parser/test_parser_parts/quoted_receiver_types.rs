@@ -36,10 +36,9 @@ fn test_quoted_type_references_parse_in_receiver_and_error_positions() {
 
 #[test]
 fn test_single_quoted_type_references_parse_in_receiver_and_error_positions() {
-    let mut file_stream = FileStream::from_file(
-        "test/parser/simple_single_quoted_receiver_and_error_types.fol",
-    )
-    .expect("Should read single-quoted receiver/error-type fixture");
+    let mut file_stream =
+        FileStream::from_file("test/parser/simple_single_quoted_receiver_and_error_types.fol")
+            .expect("Should read single-quoted receiver/error-type fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();

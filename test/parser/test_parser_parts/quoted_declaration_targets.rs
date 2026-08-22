@@ -29,10 +29,9 @@ fn test_quoted_type_references_parse_in_declaration_targets() {
 
 #[test]
 fn test_single_quoted_type_references_parse_in_declaration_targets() {
-    let mut file_stream = FileStream::from_file(
-        "test/parser/simple_single_quoted_declaration_targets.fol",
-    )
-    .expect("Should read single-quoted declaration-target fixture");
+    let mut file_stream =
+        FileStream::from_file("test/parser/simple_single_quoted_declaration_targets.fol")
+            .expect("Should read single-quoted declaration-target fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();

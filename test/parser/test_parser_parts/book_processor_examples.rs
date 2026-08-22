@@ -27,8 +27,10 @@ fn test_book_eventual_examples_parse() {
                 match node {
                     AstNode::ProDecl { body, .. } | AstNode::FunDecl { body, .. } => {
                         for stmt in body {
-                            saw_async |= contains_node(&stmt, |node| matches!(node, AstNode::AsyncStage));
-                            saw_await |= contains_node(&stmt, |node| matches!(node, AstNode::AwaitStage));
+                            saw_async |=
+                                contains_node(&stmt, |node| matches!(node, AstNode::AsyncStage));
+                            saw_await |=
+                                contains_node(&stmt, |node| matches!(node, AstNode::AwaitStage));
                         }
                     }
                     _ => {}
@@ -61,20 +63,32 @@ fn test_book_coroutine_examples_parse() {
 
             for node in declarations {
                 match node {
-                    AstNode::FunDecl { params, body, .. } | AstNode::ProDecl { params, body, .. } => {
+                    AstNode::FunDecl { params, body, .. }
+                    | AstNode::ProDecl { params, body, .. } => {
                         saw_mutex |= params.iter().any(|param| param.is_mutex);
                         for stmt in body {
-                            saw_spawn |= contains_node(&stmt, |node| matches!(node, AstNode::Spawn { .. }));
-                            saw_select |= contains_node(&stmt, |node| matches!(node, AstNode::Select { .. }));
+                            saw_spawn |=
+                                contains_node(&stmt, |node| matches!(node, AstNode::Spawn { .. }));
+                            saw_select |=
+                                contains_node(&stmt, |node| matches!(node, AstNode::Select { .. }));
                         }
                     }
                     _ => {}
                 }
             }
 
-            assert!(saw_spawn, "Expected coroutine spawn from book coroutine example");
-            assert!(saw_select, "Expected select statement from book coroutine example");
-            assert!(saw_mutex, "Expected mutex parameter from book coroutine example");
+            assert!(
+                saw_spawn,
+                "Expected coroutine spawn from book coroutine example"
+            );
+            assert!(
+                saw_select,
+                "Expected select statement from book coroutine example"
+            );
+            assert!(
+                saw_mutex,
+                "Expected mutex parameter from book coroutine example"
+            );
         }
         _ => panic!("Expected program node"),
     }

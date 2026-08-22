@@ -30,9 +30,8 @@ fn test_record_type_definition_accepts_quoted_fields() {
 
 #[test]
 fn test_entry_type_definition_accepts_quoted_variants() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_typ_entry_quoted_variants.fol")
-            .expect("Should read quoted entry-variant fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_typ_entry_quoted_variants.fol")
+        .expect("Should read quoted entry-variant fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -98,9 +97,8 @@ fn test_single_quoted_type_members_parse() {
 
 #[test]
 fn test_quoted_type_references_parse_in_type_member_hints() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_quoted_type_member_hints.fol")
-            .expect("Should read quoted type-member hint fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_quoted_type_member_hints.fol")
+        .expect("Should read quoted type-member hint fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();

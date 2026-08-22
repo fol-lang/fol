@@ -2,9 +2,8 @@ use super::*;
 
 #[test]
 fn test_book_keyword_call_example_parses() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_book_keyword_call_example.fol")
-            .expect("Should read book keyword call example");
+    let mut file_stream = FileStream::from_file("test/parser/simple_book_keyword_call_example.fol")
+        .expect("Should read book keyword call example");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -291,9 +290,8 @@ fn test_book_variadic_call_example_parses() {
 
 #[test]
 fn test_book_dispatch_example_parses() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_book_dispatch_example.fol")
-            .expect("Should read book dispatch example");
+    let mut file_stream = FileStream::from_file("test/parser/simple_book_dispatch_example.fol")
+        .expect("Should read book dispatch example");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();

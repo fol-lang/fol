@@ -90,9 +90,8 @@ fn test_record_const_field_metadata_is_retained() {
 
 #[test]
 fn test_entry_const_variant_metadata_is_retained() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_typ_entry_const_variants.fol")
-            .expect("Should read const entry variant fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_typ_entry_const_variants.fol")
+        .expect("Should read const entry variant fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -120,9 +119,8 @@ fn test_entry_const_variant_metadata_is_retained() {
 
 #[test]
 fn test_record_field_binding_options_are_retained() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_typ_record_field_options.fol")
-            .expect("Should read record field option fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_typ_record_field_options.fol")
+        .expect("Should read record field option fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -150,9 +148,8 @@ fn test_record_field_binding_options_are_retained() {
 
 #[test]
 fn test_entry_variant_binding_options_are_retained() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_typ_entry_variant_options.fol")
-            .expect("Should read entry variant option fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_typ_entry_variant_options.fol")
+        .expect("Should read entry variant option fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -180,9 +177,8 @@ fn test_entry_variant_binding_options_are_retained() {
 
 #[test]
 fn test_record_grouped_fields_are_retained() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_typ_record_grouped_fields.fol")
-            .expect("Should read grouped record field fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_typ_record_grouped_fields.fol")
+        .expect("Should read grouped record field fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -290,7 +286,6 @@ fn test_grouped_record_duplicate_field_error_anchors_to_duplicate_name() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(

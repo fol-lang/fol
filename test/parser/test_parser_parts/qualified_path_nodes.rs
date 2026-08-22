@@ -11,7 +11,11 @@ fn test_qualified_path_helpers_preserve_segment_structure() {
     assert!(path.is_qualified());
     assert_eq!(
         path.segments,
-        vec!["io".to_string(), "console".to_string(), "writer".to_string()]
+        vec![
+            "io".to_string(),
+            "console".to_string(),
+            "writer".to_string()
+        ]
     );
     assert_eq!(path.joined(), "io::console::writer");
 }
@@ -47,7 +51,10 @@ fn test_named_type_helpers_preserve_flat_and_structured_forms() {
             "entry".to_string(),
         ]),
     };
-    assert_eq!(structured.named_text().as_deref(), Some("pkg::cache::entry"));
+    assert_eq!(
+        structured.named_text().as_deref(),
+        Some("pkg::cache::entry")
+    );
 }
 
 #[test]
@@ -78,8 +85,5 @@ fn test_method_call_children_include_structured_receiver_before_args() {
                     "entry".to_string(),
                 ]
     ));
-    assert!(matches!(
-        children[1],
-        AstNode::Literal(Literal::Integer(1))
-    ));
+    assert!(matches!(children[1], AstNode::Literal(Literal::Integer(1))));
 }

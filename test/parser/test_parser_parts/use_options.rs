@@ -80,9 +80,8 @@ fn test_use_declaration_accepts_symbolic_visibility_options() {
 
 #[test]
 fn test_use_declaration_accepts_multiple_visibility_options() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_use_multi_options.fol")
-            .expect("Should read multi-option use fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_use_multi_options.fol")
+        .expect("Should read multi-option use fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -107,9 +106,8 @@ fn test_use_declaration_accepts_multiple_visibility_options() {
 
 #[test]
 fn test_use_declaration_rejects_conflicting_visibility_options() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_use_conflicting_options.fol")
-            .expect("Should read conflicting use-option fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_use_conflicting_options.fol")
+        .expect("Should read conflicting use-option fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -119,7 +117,6 @@ fn test_use_declaration_rejects_conflicting_visibility_options() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -133,9 +130,8 @@ fn test_use_declaration_rejects_conflicting_visibility_options() {
 
 #[test]
 fn test_use_declaration_rejects_duplicate_visibility_options() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_use_duplicate_options.fol")
-            .expect("Should read duplicate use-option fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_use_duplicate_options.fol")
+        .expect("Should read duplicate use-option fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -145,7 +141,6 @@ fn test_use_declaration_rejects_duplicate_visibility_options() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -159,9 +154,8 @@ fn test_use_declaration_rejects_duplicate_visibility_options() {
 
 #[test]
 fn test_use_declaration_rejects_duplicate_names() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_use_duplicate_names.fol")
-            .expect("Should read duplicate use-name fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_use_duplicate_names.fol")
+        .expect("Should read duplicate use-name fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -171,11 +165,13 @@ fn test_use_declaration_rejects_duplicate_names() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
-        parse_error.message.clone().contains("Duplicate use name 'math'"),
+        parse_error
+            .message
+            .clone()
+            .contains("Duplicate use name 'math'"),
         "Duplicate use names should report the repeated name, got: {}",
         parse_error.message
     );
@@ -195,7 +191,6 @@ fn test_use_declaration_rejects_canonical_duplicate_names() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(

@@ -2,9 +2,8 @@ use super::*;
 
 #[test]
 fn test_book_generic_object_type_example() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_book_generic_object_type.fol")
-            .expect("Should read generic object type example");
+    let mut file_stream = FileStream::from_file("test/parser/simple_book_generic_object_type.fol")
+        .expect("Should read generic object type example");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -152,9 +151,8 @@ fn test_book_extended_standard_example() {
 
 #[test]
 fn test_book_type_contract_record_example() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_book_type_contract_record.fol")
-            .expect("Should read type-contract record example");
+    let mut file_stream = FileStream::from_file("test/parser/simple_book_type_contract_record.fol")
+        .expect("Should read type-contract record example");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -203,7 +201,10 @@ fn test_book_macro_definition_examples() {
                     if (name == "!" || name == "*") && def_kind == "mac" && !params.is_empty()
                 ))
                 .count();
-            assert_eq!(macro_defs, 3, "Expected all macro examples to parse as def mac declarations");
+            assert_eq!(
+                macro_defs, 3,
+                "Expected all macro examples to parse as def mac declarations"
+            );
         }
         _ => panic!("Expected program node"),
     }
@@ -211,9 +212,8 @@ fn test_book_macro_definition_examples() {
 
 #[test]
 fn test_book_alternative_definition_examples() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_book_alternative_defs.fol")
-            .expect("Should read alternative definition examples");
+    let mut file_stream = FileStream::from_file("test/parser/simple_book_alternative_defs.fol")
+        .expect("Should read alternative definition examples");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -233,7 +233,10 @@ fn test_book_alternative_definition_examples() {
                         && matches!(body.as_slice(), [AstNode::Literal(Literal::String(_))])
                 ))
                 .count();
-            assert_eq!(alt_defs, 3, "Expected all alternative examples to parse as def alt declarations");
+            assert_eq!(
+                alt_defs, 3,
+                "Expected all alternative examples to parse as def alt declarations"
+            );
         }
         _ => panic!("Expected program node"),
     }
@@ -271,9 +274,8 @@ fn test_book_default_definition_example() {
 
 #[test]
 fn test_book_block_marker_definition_example() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_book_block_marker_def.fol")
-            .expect("Should read block marker definition example");
+    let mut file_stream = FileStream::from_file("test/parser/simple_book_block_marker_def.fol")
+        .expect("Should read block marker definition example");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();

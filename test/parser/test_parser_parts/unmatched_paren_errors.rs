@@ -19,7 +19,6 @@ fn test_function_call_with_unmatched_close_paren_argument_reports_parse_error() 
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -53,7 +52,6 @@ fn test_method_call_with_unmatched_close_paren_argument_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -87,7 +85,6 @@ fn test_top_level_call_with_unmatched_close_paren_argument_reports_parse_error()
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -121,7 +118,6 @@ fn test_function_call_with_unmatched_open_paren_argument_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -155,7 +151,6 @@ fn test_method_call_with_unmatched_open_paren_argument_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -189,7 +184,6 @@ fn test_top_level_call_with_unmatched_open_paren_argument_reports_parse_error() 
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -215,15 +209,12 @@ fn assert_first_parse_error(path: &str, expected_message_substring: &str, expect
         path
     ));
 
-    let parse_error = errors
-        .first()
-        
-        .unwrap_or_else(|| {
-            panic!(
-                "First parser error should be ParseError for fixture: {}",
-                path
-            )
-        });
+    let parse_error = errors.first().unwrap_or_else(|| {
+        panic!(
+            "First parser error should be ParseError for fixture: {}",
+            path
+        )
+    });
 
     let first_message = parse_error.message.clone();
     assert!(

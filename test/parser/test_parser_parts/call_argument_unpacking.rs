@@ -12,20 +12,22 @@ fn test_function_calls_support_unpack_arguments() {
         .expect("Parser should accept call-site unpack arguments");
 
     let has_unpack_call = match ast {
-        AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-            matches!(
-                node,
-                AstNode::Assignment { value, .. }
-                if matches!(
-                    value.as_ref(),
-                    AstNode::FunctionCall { name, args, .. }
-                    if name == "calc"
-                        && args.len() == 2
-                        && matches!(&args[0], AstNode::Literal(Literal::Boolean(true)))
-                        && matches!(&args[1], AstNode::Unpack { .. })
+        AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
+            .into_iter()
+            .any(|node| {
+                matches!(
+                    node,
+                    AstNode::Assignment { value, .. }
+                    if matches!(
+                        value.as_ref(),
+                        AstNode::FunctionCall { name, args, .. }
+                        if name == "calc"
+                            && args.len() == 2
+                            && matches!(&args[0], AstNode::Literal(Literal::Boolean(true)))
+                            && matches!(&args[1], AstNode::Unpack { .. })
+                    )
                 )
-            )
-        }),
+            }),
         _ => panic!("Expected program node"),
     };
 
@@ -48,20 +50,22 @@ fn test_method_calls_support_unpack_arguments() {
         .expect("Parser should accept unpack method call arguments");
 
     let has_unpack_method_call = match ast {
-        AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-            matches!(
-                node,
-                AstNode::Assignment { value, .. }
-                if matches!(
-                    value.as_ref(),
-                    AstNode::MethodCall { method, args, .. }
-                    if method == "calc"
-                        && args.len() == 2
-                        && matches!(&args[0], AstNode::Literal(Literal::Boolean(true)))
-                        && matches!(&args[1], AstNode::Unpack { .. })
+        AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
+            .into_iter()
+            .any(|node| {
+                matches!(
+                    node,
+                    AstNode::Assignment { value, .. }
+                    if matches!(
+                        value.as_ref(),
+                        AstNode::MethodCall { method, args, .. }
+                        if method == "calc"
+                            && args.len() == 2
+                            && matches!(&args[0], AstNode::Literal(Literal::Boolean(true)))
+                            && matches!(&args[1], AstNode::Unpack { .. })
+                    )
                 )
-            )
-        }),
+            }),
         _ => panic!("Expected program node"),
     };
 
@@ -73,9 +77,8 @@ fn test_method_calls_support_unpack_arguments() {
 
 #[test]
 fn test_invoke_expressions_support_unpack_arguments() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_invoke_unpack_args.fol")
-            .expect("Should read unpack invoke fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_invoke_unpack_args.fol")
+        .expect("Should read unpack invoke fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -84,19 +87,21 @@ fn test_invoke_expressions_support_unpack_arguments() {
         .expect("Parser should accept unpack invoke arguments");
 
     let has_unpack_invoke = match ast {
-        AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-            matches!(
-                node,
-                AstNode::Assignment { value, .. }
-                if matches!(
-                    value.as_ref(),
-                    AstNode::Invoke { args, .. }
-                    if args.len() == 2
-                        && matches!(&args[0], AstNode::Literal(Literal::Boolean(true)))
-                        && matches!(&args[1], AstNode::Unpack { .. })
+        AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
+            .into_iter()
+            .any(|node| {
+                matches!(
+                    node,
+                    AstNode::Assignment { value, .. }
+                    if matches!(
+                        value.as_ref(),
+                        AstNode::Invoke { args, .. }
+                        if args.len() == 2
+                            && matches!(&args[0], AstNode::Literal(Literal::Boolean(true)))
+                            && matches!(&args[1], AstNode::Unpack { .. })
+                    )
                 )
-            )
-        }),
+            }),
         _ => panic!("Expected program node"),
     };
 
@@ -154,20 +159,22 @@ fn test_unpack_arguments_accept_semicolon_separators() {
         .expect("Parser should accept semicolon-separated unpack arguments");
 
     let has_semicolon_unpack_call = match ast {
-        AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-            matches!(
-                node,
-                AstNode::Assignment { value, .. }
-                if matches!(
-                    value.as_ref(),
-                    AstNode::FunctionCall { name, args, .. }
-                    if name == "calc"
-                        && args.len() == 2
-                        && matches!(&args[0], AstNode::Literal(Literal::Boolean(true)))
-                        && matches!(&args[1], AstNode::Unpack { .. })
+        AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
+            .into_iter()
+            .any(|node| {
+                matches!(
+                    node,
+                    AstNode::Assignment { value, .. }
+                    if matches!(
+                        value.as_ref(),
+                        AstNode::FunctionCall { name, args, .. }
+                        if name == "calc"
+                            && args.len() == 2
+                            && matches!(&args[0], AstNode::Literal(Literal::Boolean(true)))
+                            && matches!(&args[1], AstNode::Unpack { .. })
+                    )
                 )
-            )
-        }),
+            }),
         _ => panic!("Expected program node"),
     };
 
@@ -190,20 +197,22 @@ fn test_unpack_arguments_accept_trailing_separators() {
         .expect("Parser should accept trailing separators after unpack arguments");
 
     let has_trailing_unpack_call = match ast {
-        AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-            matches!(
-                node,
-                AstNode::Assignment { value, .. }
-                if matches!(
-                    value.as_ref(),
-                    AstNode::FunctionCall { name, args, .. }
-                    if name == "calc"
-                        && args.len() == 2
-                        && matches!(&args[0], AstNode::Literal(Literal::Boolean(true)))
-                        && matches!(&args[1], AstNode::Unpack { .. })
+        AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
+            .into_iter()
+            .any(|node| {
+                matches!(
+                    node,
+                    AstNode::Assignment { value, .. }
+                    if matches!(
+                        value.as_ref(),
+                        AstNode::FunctionCall { name, args, .. }
+                        if name == "calc"
+                            && args.len() == 2
+                            && matches!(&args[0], AstNode::Literal(Literal::Boolean(true)))
+                            && matches!(&args[1], AstNode::Unpack { .. })
+                    )
                 )
-            )
-        }),
+            }),
         _ => panic!("Expected program node"),
     };
 
@@ -215,9 +224,8 @@ fn test_unpack_arguments_accept_trailing_separators() {
 
 #[test]
 fn test_unpack_function_call_statements_parse() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_call_unpack_stmt.fol")
-            .expect("Should read unpack call-statement fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_call_unpack_stmt.fol")
+        .expect("Should read unpack call-statement fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -226,16 +234,18 @@ fn test_unpack_function_call_statements_parse() {
         .expect("Parser should accept unpack function call statements");
 
     let has_unpack_call_stmt = match ast {
-        AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-            matches!(
-                node,
-                AstNode::FunctionCall { name, args, .. }
-                if name == "calc"
-                    && args.len() == 2
-                    && matches!(&args[0], AstNode::Literal(Literal::Boolean(true)))
-                    && matches!(&args[1], AstNode::Unpack { .. })
-            )
-        }),
+        AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
+            .into_iter()
+            .any(|node| {
+                matches!(
+                    node,
+                    AstNode::FunctionCall { name, args, .. }
+                    if name == "calc"
+                        && args.len() == 2
+                        && matches!(&args[0], AstNode::Literal(Literal::Boolean(true)))
+                        && matches!(&args[1], AstNode::Unpack { .. })
+                )
+            }),
         _ => panic!("Expected program node"),
     };
 
@@ -258,16 +268,18 @@ fn test_unpack_method_call_statements_parse() {
         .expect("Parser should accept unpack method call statements");
 
     let has_unpack_method_stmt = match ast {
-        AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-            matches!(
-                node,
-                AstNode::MethodCall { method, args, .. }
-                if method == "calc"
-                    && args.len() == 2
-                    && matches!(&args[0], AstNode::Literal(Literal::Boolean(true)))
-                    && matches!(&args[1], AstNode::Unpack { .. })
-            )
-        }),
+        AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
+            .into_iter()
+            .any(|node| {
+                matches!(
+                    node,
+                    AstNode::MethodCall { method, args, .. }
+                    if method == "calc"
+                        && args.len() == 2
+                        && matches!(&args[0], AstNode::Literal(Literal::Boolean(true)))
+                        && matches!(&args[1], AstNode::Unpack { .. })
+                )
+            }),
         _ => panic!("Expected program node"),
     };
 
@@ -279,9 +291,8 @@ fn test_unpack_method_call_statements_parse() {
 
 #[test]
 fn test_unpack_invoke_statements_parse() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_invoke_unpack_stmt.fol")
-            .expect("Should read unpack invoke-statement fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_invoke_unpack_stmt.fol")
+        .expect("Should read unpack invoke-statement fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -290,15 +301,17 @@ fn test_unpack_invoke_statements_parse() {
         .expect("Parser should accept unpack invoke statements");
 
     let has_unpack_invoke_stmt = match ast {
-        AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-            matches!(
-                node,
-                AstNode::Invoke { args, .. }
-                if args.len() == 2
-                    && matches!(&args[0], AstNode::Literal(Literal::Boolean(true)))
-                    && matches!(&args[1], AstNode::Unpack { .. })
-            )
-        }),
+        AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
+            .into_iter()
+            .any(|node| {
+                matches!(
+                    node,
+                    AstNode::Invoke { args, .. }
+                    if args.len() == 2
+                        && matches!(&args[0], AstNode::Literal(Literal::Boolean(true)))
+                        && matches!(&args[1], AstNode::Unpack { .. })
+                )
+            }),
         _ => panic!("Expected program node"),
     };
 

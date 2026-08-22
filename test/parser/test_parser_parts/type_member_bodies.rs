@@ -229,9 +229,8 @@ fn test_entry_type_accepts_nested_type_members() {
 
 #[test]
 fn test_record_type_accepts_prefixed_export_methods() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_typ_record_export_method.fol")
-            .expect("Should read prefixed record method fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_typ_record_export_method.fol")
+        .expect("Should read prefixed record method fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -258,9 +257,8 @@ fn test_record_type_accepts_prefixed_export_methods() {
 
 #[test]
 fn test_entry_type_accepts_prefixed_export_methods() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_typ_entry_export_method.fol")
-            .expect("Should read prefixed entry method fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_typ_entry_export_method.fol")
+        .expect("Should read prefixed entry method fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();

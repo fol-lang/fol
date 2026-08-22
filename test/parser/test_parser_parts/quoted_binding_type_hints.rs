@@ -2,9 +2,8 @@ use super::*;
 
 #[test]
 fn test_quoted_type_references_parse_in_binding_hints() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_quoted_binding_type_hints.fol")
-            .expect("Should read quoted binding-type hint fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_quoted_binding_type_hints.fol")
+        .expect("Should read quoted binding-type hint fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();

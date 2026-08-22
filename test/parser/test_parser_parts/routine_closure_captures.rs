@@ -72,7 +72,6 @@ fn test_duplicate_routine_closure_captures_are_rejected() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let message = parse_error.message.clone();
@@ -97,7 +96,6 @@ fn test_canonical_duplicate_routine_closure_captures_are_rejected() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let message = parse_error.message.clone();

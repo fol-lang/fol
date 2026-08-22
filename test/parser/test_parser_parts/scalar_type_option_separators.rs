@@ -63,10 +63,9 @@ fn test_scalar_type_options_accept_semicolon_separators() {
 
 #[test]
 fn test_scalar_type_options_accept_trailing_separators() {
-    let mut file_stream = FileStream::from_file(
-        "test/parser/simple_typ_scalar_types_trailing_separator.fol",
-    )
-    .expect("Should read trailing scalar type-option fixture");
+    let mut file_stream =
+        FileStream::from_file("test/parser/simple_typ_scalar_types_trailing_separator.fol")
+            .expect("Should read trailing scalar type-option fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();

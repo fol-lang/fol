@@ -166,10 +166,9 @@ fn test_quoted_type_references_compose_inside_array_and_matrix_types() {
 
 #[test]
 fn test_single_quoted_type_references_compose_inside_array_and_matrix_types() {
-    let mut file_stream = FileStream::from_file(
-        "test/parser/simple_single_quoted_array_matrix_type_refs.fol",
-    )
-    .expect("Should read single-quoted array/matrix type-reference fixture");
+    let mut file_stream =
+        FileStream::from_file("test/parser/simple_single_quoted_array_matrix_type_refs.fol")
+            .expect("Should read single-quoted array/matrix type-reference fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();

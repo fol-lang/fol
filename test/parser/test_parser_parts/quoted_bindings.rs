@@ -64,9 +64,8 @@ fn test_function_body_var_declaration_accepts_quoted_name() {
 
 #[test]
 fn test_grouped_quoted_binding_names_parse() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_var_grouped_quoted_names.fol")
-            .expect("Should read grouped quoted-binding fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_var_grouped_quoted_names.fol")
+        .expect("Should read grouped quoted-binding fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -91,9 +90,8 @@ fn test_grouped_quoted_binding_names_parse() {
 
 #[test]
 fn test_segmented_quoted_binding_names_parse() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_var_segment_quoted_names.fol")
-            .expect("Should read segmented quoted-binding fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_var_segment_quoted_names.fol")
+        .expect("Should read segmented quoted-binding fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -126,9 +124,8 @@ fn test_segmented_quoted_binding_names_parse() {
 
 #[test]
 fn test_segmented_quoted_binding_names_parse_in_function_bodies() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_segment_quoted_names.fol")
-            .expect("Should read function-body segmented quoted-binding fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_segment_quoted_names.fol")
+        .expect("Should read function-body segmented quoted-binding fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -145,12 +142,12 @@ fn test_segmented_quoted_binding_names_parse_in_function_bodies() {
                     _ => None,
                 })
                 .expect("Program should include function body");
-            assert!(body.iter().any(|node| {
-                matches!(node, AstNode::VarDecl { name, .. } if name == "left")
-            }));
-            assert!(body.iter().any(|node| {
-                matches!(node, AstNode::VarDecl { name, .. } if name == "right")
-            }));
+            assert!(body
+                .iter()
+                .any(|node| { matches!(node, AstNode::VarDecl { name, .. } if name == "left") }));
+            assert!(body
+                .iter()
+                .any(|node| { matches!(node, AstNode::VarDecl { name, .. } if name == "right") }));
         }
         _ => panic!("Expected program node"),
     }

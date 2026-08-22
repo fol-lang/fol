@@ -38,8 +38,9 @@ fn test_function_calls_support_keyword_arguments() {
 
 #[test]
 fn test_function_calls_support_mixed_keyword_arguments() {
-    let mut file_stream = FileStream::from_file("test/parser/simple_fun_mixed_keyword_call_args.fol")
-        .expect("Should read mixed keyword call-argument fixture");
+    let mut file_stream =
+        FileStream::from_file("test/parser/simple_fun_mixed_keyword_call_args.fol")
+            .expect("Should read mixed keyword call-argument fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -100,8 +101,9 @@ fn test_function_calls_reject_positional_arguments_after_keyword_arguments() {
 
 #[test]
 fn test_method_calls_support_keyword_arguments() {
-    let mut file_stream = FileStream::from_file("test/parser/simple_fun_keyword_method_call_args.fol")
-        .expect("Should read keyword method-call fixture");
+    let mut file_stream =
+        FileStream::from_file("test/parser/simple_fun_keyword_method_call_args.fol")
+            .expect("Should read keyword method-call fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -280,9 +282,8 @@ fn test_keyword_call_arguments_accept_trailing_separators() {
 
 #[test]
 fn test_keyword_function_call_statements_parse() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_keyword_call_stmt.fol")
-            .expect("Should read keyword call-statement fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_keyword_call_stmt.fol")
+        .expect("Should read keyword call-statement fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -291,17 +292,19 @@ fn test_keyword_function_call_statements_parse() {
         .expect("Parser should accept keyword function call statements");
 
     let has_keyword_call_stmt = match ast {
-        AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-            matches!(
-                node,
-                AstNode::FunctionCall { name, args, .. }
-                if name == "calc"
-                    && args.len() == 3
-                    && matches!(&args[0], AstNode::NamedArgument { name, .. } if name == "el3")
-                    && matches!(&args[1], AstNode::NamedArgument { name, .. } if name == "el2")
-                    && matches!(&args[2], AstNode::NamedArgument { name, .. } if name == "el1")
-            )
-        }),
+        AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
+            .into_iter()
+            .any(|node| {
+                matches!(
+                    node,
+                    AstNode::FunctionCall { name, args, .. }
+                    if name == "calc"
+                        && args.len() == 3
+                        && matches!(&args[0], AstNode::NamedArgument { name, .. } if name == "el3")
+                        && matches!(&args[1], AstNode::NamedArgument { name, .. } if name == "el2")
+                        && matches!(&args[2], AstNode::NamedArgument { name, .. } if name == "el1")
+                )
+            }),
         _ => panic!("Expected program node"),
     };
 
@@ -324,17 +327,19 @@ fn test_keyword_method_call_statements_parse() {
         .expect("Parser should accept keyword method call statements");
 
     let has_keyword_method_stmt = match ast {
-        AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations).into_iter().any(|node| {
-            matches!(
-                node,
-                AstNode::MethodCall { method, args, .. }
-                if method == "calc"
-                    && args.len() == 3
-                    && matches!(&args[0], AstNode::NamedArgument { name, .. } if name == "el3")
-                    && matches!(&args[1], AstNode::NamedArgument { name, .. } if name == "el2")
-                    && matches!(&args[2], AstNode::NamedArgument { name, .. } if name == "el1")
-            )
-        }),
+        AstNode::Program { declarations } => only_root_routine_body_nodes(&declarations)
+            .into_iter()
+            .any(|node| {
+                matches!(
+                    node,
+                    AstNode::MethodCall { method, args, .. }
+                    if method == "calc"
+                        && args.len() == 3
+                        && matches!(&args[0], AstNode::NamedArgument { name, .. } if name == "el3")
+                        && matches!(&args[1], AstNode::NamedArgument { name, .. } if name == "el2")
+                        && matches!(&args[2], AstNode::NamedArgument { name, .. } if name == "el1")
+                )
+            }),
         _ => panic!("Expected program node"),
     };
 
@@ -346,9 +351,8 @@ fn test_keyword_method_call_statements_parse() {
 
 #[test]
 fn test_keyword_invoke_statements_parse() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_keyword_invoke_stmt.fol")
-            .expect("Should read keyword invoke-statement fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_keyword_invoke_stmt.fol")
+        .expect("Should read keyword invoke-statement fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();

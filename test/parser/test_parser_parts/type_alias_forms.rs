@@ -163,7 +163,6 @@ fn test_special_boxed_type_bad_arity_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -284,7 +283,6 @@ fn test_container_type_bad_arity_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -660,7 +658,6 @@ fn test_type_alias_parsing_rejects_unknown_scalar_type_option() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();

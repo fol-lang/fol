@@ -10,7 +10,6 @@ fn parse_error_snapshot_decl(path: &str) -> (String, usize, usize) {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     (
@@ -70,7 +69,10 @@ fn test_type_entry_marker_illegal_option_reports_offending_token_location() {
         "Illegal entry marker options should surface as explicit illegal-token diagnostics, got: {}",
         message
     );
-    assert_eq!(line, 1, "Illegal entry marker options should report the declaration line");
+    assert_eq!(
+        line, 1,
+        "Illegal entry marker options should report the declaration line"
+    );
     assert!(
         column > 0,
         "Illegal entry marker options should retain a concrete source column"
@@ -107,7 +109,10 @@ fn test_type_record_marker_illegal_option_reports_offending_token_location() {
         "Illegal record marker options should surface as explicit illegal-token diagnostics, got: {}",
         message
     );
-    assert_eq!(line, 1, "Illegal record marker options should report the declaration line");
+    assert_eq!(
+        line, 1,
+        "Illegal record marker options should report the declaration line"
+    );
     assert!(
         column > 0,
         "Illegal record marker options should retain a concrete source column"
@@ -124,21 +129,34 @@ fn test_use_declaration_illegal_name_reports_offending_token_location() {
         "Illegal use names should surface as explicit illegal-token diagnostics, got: {}",
         message
     );
-    assert_eq!(line, 1, "Illegal use names should report the declaration line");
-    assert!(column > 0, "Illegal use names should retain a concrete source column");
+    assert_eq!(
+        line, 1,
+        "Illegal use names should report the declaration line"
+    );
+    assert!(
+        column > 0,
+        "Illegal use names should retain a concrete source column"
+    );
 }
 
 #[test]
 fn test_use_declaration_illegal_option_reports_offending_token_location() {
-    let (message, line, column) = parse_error_snapshot_decl("test/parser/simple_use_illegal_option.fol");
+    let (message, line, column) =
+        parse_error_snapshot_decl("test/parser/simple_use_illegal_option.fol");
 
     assert!(
         message.contains("Parser encountered illegal token"),
         "Illegal use options should surface as explicit illegal-token diagnostics, got: {}",
         message
     );
-    assert_eq!(line, 1, "Illegal use options should report the declaration line");
-    assert!(column > 0, "Illegal use options should retain a concrete source column");
+    assert_eq!(
+        line, 1,
+        "Illegal use options should report the declaration line"
+    );
+    assert!(
+        column > 0,
+        "Illegal use options should retain a concrete source column"
+    );
 }
 
 #[test]
@@ -151,7 +169,10 @@ fn test_use_declaration_braced_illegal_path_reports_offending_token_location() {
         "Unquoted braced use targets should surface the quoted-target diagnostic, got: {}",
         message
     );
-    assert_eq!(line, 1, "Illegal braced use paths should report the declaration line");
+    assert_eq!(
+        line, 1,
+        "Illegal braced use paths should report the declaration line"
+    );
     assert!(
         column > 0,
         "Illegal braced use paths should retain a concrete source column"
@@ -164,13 +185,14 @@ fn test_use_declaration_direct_illegal_path_reports_offending_token_location() {
         parse_error_snapshot_decl("test/parser/simple_use_direct_illegal_path.fol");
 
     assert!(
-        message.contains(
-            "Import targets must be written as quoted strings inside braces"
-        ),
+        message.contains("Import targets must be written as quoted strings inside braces"),
         "Bare use targets should surface the quoted-target diagnostic, got: {}",
         message
     );
-    assert_eq!(line, 1, "Illegal direct use paths should report the declaration line");
+    assert_eq!(
+        line, 1,
+        "Illegal direct use paths should report the declaration line"
+    );
     assert!(
         column > 0,
         "Illegal direct use paths should retain a concrete source column"
@@ -524,7 +546,10 @@ fn test_scalar_type_illegal_option_reports_offending_token_location() {
         "Illegal scalar type options should surface as explicit illegal-token diagnostics, got: {}",
         message
     );
-    assert_eq!(line, 1, "Illegal scalar type options should report the declaration line");
+    assert_eq!(
+        line, 1,
+        "Illegal scalar type options should report the declaration line"
+    );
     assert!(
         column > 0,
         "Illegal scalar type options should retain a concrete source column"
@@ -601,7 +626,10 @@ fn test_binding_illegal_option_reports_offending_token_location() {
         "Illegal binding options should surface as explicit illegal-token diagnostics, got: {}",
         message
     );
-    assert_eq!(line, 1, "Illegal binding options should anchor to the binding line");
+    assert_eq!(
+        line, 1,
+        "Illegal binding options should anchor to the binding line"
+    );
     assert!(
         column > 0,
         "Illegal binding options should retain a concrete source column"

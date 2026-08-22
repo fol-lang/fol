@@ -29,7 +29,10 @@ fn test_function_type_references_accept_named_headers() {
                     )
                 })
                 .count();
-            assert_eq!(count, 3, "All named function-type declarations should parse");
+            assert_eq!(
+                count, 3,
+                "All named function-type declarations should parse"
+            );
         }
         _ => panic!("Expected program node"),
     }

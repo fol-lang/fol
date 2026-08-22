@@ -2,9 +2,8 @@ use super::*;
 
 #[test]
 fn test_routine_variadic_parameter_lowers_to_sequence_type() {
-    let mut file_stream =
-        FileStream::from_file("test/parser/simple_fun_variadic_param.fol")
-            .expect("Should read variadic parameter fixture");
+    let mut file_stream = FileStream::from_file("test/parser/simple_fun_variadic_param.fol")
+        .expect("Should read variadic parameter fixture");
 
     let mut lexer = Elements::init(&mut file_stream);
     let mut parser = AstParser::new();
@@ -46,7 +45,6 @@ fn test_variadic_parameter_must_be_last() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -72,7 +70,6 @@ fn test_variadic_parameter_cannot_have_default_value() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(
@@ -98,7 +95,6 @@ fn test_variadic_parameter_is_rejected_in_generic_headers() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(

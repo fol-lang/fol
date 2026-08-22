@@ -14,7 +14,6 @@ fn test_when_has_case_missing_close_paren_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -44,7 +43,6 @@ fn test_function_declaration_missing_bracket_close_in_parameter_type_reports_par
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -210,7 +208,6 @@ fn test_function_declaration_missing_error_type_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -240,7 +237,6 @@ fn test_function_declaration_legacy_error_separator_reports_parse_error() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();

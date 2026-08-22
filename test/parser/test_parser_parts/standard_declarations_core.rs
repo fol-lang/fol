@@ -505,7 +505,6 @@ fn test_standard_declaration_rejects_conflicting_visibility_options() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     assert!(

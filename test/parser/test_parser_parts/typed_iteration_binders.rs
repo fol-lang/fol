@@ -63,7 +63,6 @@ fn test_top_level_each_typed_binder_requires_matching_iteration_name() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -293,7 +292,6 @@ fn test_top_level_loop_typed_binder_requires_matching_iteration_name() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
@@ -390,7 +388,6 @@ fn test_top_level_for_keyword_typed_binder_requires_matching_iteration_name() {
 
     let parse_error = errors
         .first()
-        
         .expect("First parser error should be ParseError");
 
     let first_message = parse_error.message.clone();
