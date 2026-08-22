@@ -2770,6 +2770,30 @@ const INTRINSICS: &[IntrinsicEntry] = &[
         IntrinsicLoweringMode::RuntimeHook,
         "the bitwise complement of an integer",
     ),
+    IntrinsicEntry::new(
+        IntrinsicId::new(235),
+        "widen",
+        &[],
+        IntrinsicCategory::Conversion,
+        IntrinsicSurface::DotRootCall,
+        IntrinsicAvailability::V1,
+        IntrinsicStatus::Implemented,
+        IntrinsicArity::Exactly(1),
+        IntrinsicLoweringMode::RuntimeHook,
+        "an integer at a wider type, which cannot lose value",
+    ),
+    IntrinsicEntry::new(
+        IntrinsicId::new(236),
+        "narrow",
+        &[],
+        IntrinsicCategory::Conversion,
+        IntrinsicSurface::DotRootCall,
+        IntrinsicAvailability::V1,
+        IntrinsicStatus::Reserved,
+        IntrinsicArity::Exactly(1),
+        IntrinsicLoweringMode::Reject,
+        "an integer at a narrower type, reporting the value when it does not fit",
+    ),
 ];
 
 pub const fn intrinsic_registry() -> &'static [IntrinsicEntry] {
@@ -2854,7 +2878,10 @@ pub fn backend_role_for_intrinsic(id: IntrinsicId) -> Option<IntrinsicBackendRol
         // their Deferred placeholders rather than shadowed by second entries.
         // 23-24 min/max, 30 abs, 36 sqrt, 37-46 bitwise and 49-54 the overflow
         // family were all promoted in place from Deferred placeholders.
-        8 | 11 | 23 | 24 | 30 | 36..=46 | 49..=54 | 57..=197 | 200..=234 => {
+        // 235 = widen: it goes through the hook dispatch but emits an inline
+        // cast, because its target width comes from the destination local and
+        // no runtime function could know it.
+        8 | 11 | 23 | 24 | 30 | 36..=46 | 49..=54 | 57..=197 | 200..=235 => {
             Some(IntrinsicBackendRole::RuntimeHook)
         }
         13 => Some(IntrinsicBackendRole::ControlEffect),

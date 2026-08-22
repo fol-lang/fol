@@ -163,9 +163,18 @@ pub(crate) fn type_dot_intrinsic_call(
                     expected_type,
                 )?,
                 None if terminal_intrinsic_signature(typed, entry.name).is_some()
-                    || CONTAINER_TYPED_INTRINSICS.contains(&entry.name) =>
+                    || CONTAINER_TYPED_INTRINSICS.contains(&entry.name)
+                    || WIDTH_CONVERSION_INTRINSICS.contains(&entry.name) =>
                 {
-                    type_terminal_intrinsic(typed, resolved, context, entry, args, syntax_id)?
+                    type_terminal_intrinsic(
+                        typed,
+                        resolved,
+                        context,
+                        entry,
+                        args,
+                        syntax_id,
+                        expected_type,
+                    )?
                 }
                 None => {
                     let message = if entry.availability != fol_intrinsics::IntrinsicAvailability::V1
@@ -579,6 +588,10 @@ fn type_echo_intrinsic(
 /// and typed in `type_terminal_intrinsic`, which has the mutable borrow that
 /// interning a `vec[T]` requires. Keeping the list in one place stops the guard
 /// and the signature match from drifting apart.
+/// The conversions whose result width comes from the context rather than from a
+/// fixed signature, so the dispatch guard cannot find them in the table.
+const WIDTH_CONVERSION_INTRINSICS: &[&str] = &["widen", "narrow"];
+
 const CONTAINER_TYPED_INTRINSICS: &[&str] = &[
     "str_chars",
     "str_from_chars",
@@ -756,6 +769,129 @@ fn terminal_intrinsic_signature(
     }
 }
 
+/// `.widen(x)` and `.narrow(x)` take their result width from the context, so
+/// they are typed here rather than through the fixed signature table: the table
+/// maps a name to one signature, and these have one per target width.
+///
+/// The direction is checked rather than assumed. Widening is refused when it
+/// would not actually widen, so the two names always mean what they say, and
+/// narrowing is refused when nothing could be lost — there is no reason to pay
+/// for a failure that cannot happen (`plan/V4_SCALAR_WIDTHS.md`).
+fn type_width_conversion(
+    typed: &mut TypedProgram,
+    resolved: &ResolvedProgram,
+    context: TypeContext,
+    entry: &fol_intrinsics::IntrinsicEntry,
+    args: &[AstNode],
+    syntax_id: SyntaxNodeId,
+    expected_type: Option<CheckedTypeId>,
+) -> Result<TypedExpr, TypecheckError> {
+    let origin = origin_for(resolved, syntax_id);
+    let fail = |message: String| match origin.clone() {
+        Some(origin) => {
+            TypecheckError::with_origin(TypecheckErrorKind::IncompatibleType, message, origin)
+        }
+        None => TypecheckError::new(TypecheckErrorKind::IncompatibleType, message),
+    };
+
+    let [arg] = args else {
+        return Err(fail(format!(
+            "'.{}(...)' takes exactly one integer",
+            entry.name
+        )));
+    };
+
+    let Some(target) = expected_type
+        .and_then(|expected| apparent_type_id(typed, expected).ok())
+        .and_then(|apparent| match typed.type_table().get(apparent) {
+            Some(CheckedType::Builtin(crate::BuiltinType::Int(width))) => Some(*width),
+            _ => None,
+        })
+    else {
+        return Err(fail(format!(
+            "'.{}(...)' takes its result width from the context; \
+             give the binding or parameter an integer type",
+            entry.name
+        )));
+    };
+
+    let raw = type_node_with_expectation(typed, resolved, context, arg, None)?;
+    let expr = plain_value_expr(
+        typed,
+        context,
+        raw,
+        node_origin(resolved, arg),
+        "plain use of an errorful intrinsic operand",
+    )?;
+    let actual = expr.required_value("intrinsic operand does not have a type")?;
+    let apparent = apparent_type_id(typed, actual)?;
+    let Some(CheckedType::Builtin(crate::BuiltinType::Int(source))) =
+        typed.type_table().get(apparent)
+    else {
+        return Err(fail(format!(
+            "'.{}(...)' converts between integer widths, but got '{}'",
+            entry.name,
+            typed.type_table().render_type(apparent)
+        )));
+    };
+    let source = *source;
+
+    // Narrowing needs a fallible result, and the IR carries a recoverable error
+    // only on a Call; adding it to a RuntimeHook is the next slice
+    // (`plan/V4_SCALAR_WIDTHS.md`). Rejecting here beats typing into a
+    // lowering that cannot represent it.
+    if entry.name == "narrow" {
+        return Err(fail(
+            "'.narrow(...)' is not available yet; it reports the values that do not fit, \
+             which needs a fallible intrinsic result"
+                .to_string(),
+        ));
+    }
+
+    if source == target {
+        return Err(fail(format!(
+            "the value is already '{}', so it needs no conversion",
+            target.fol_spelling()
+        )));
+    }
+
+    let widens = target.contains_range_of(source);
+    if entry.name == "widen" && !widens {
+        return Err(fail(format!(
+            "'{}' does not hold every '{}', so this is not a widening; use '.narrow(...)', \
+             which reports the values that do not fit",
+            target.fol_spelling(),
+            source.fol_spelling()
+        )));
+    }
+    if entry.name == "narrow" && widens {
+        return Err(fail(format!(
+            "'{}' holds every '{}', so nothing can be lost; use '.widen(...)'",
+            target.fol_spelling(),
+            source.fol_spelling()
+        )));
+    }
+
+    let result = typed
+        .type_table_mut()
+        .intern_builtin(crate::BuiltinType::Int(target));
+    typed.record_node_intrinsic_params(syntax_id, context.source_unit_id, vec![apparent]);
+    typed.record_node_type(syntax_id, context.source_unit_id, result)?;
+
+    // Narrowing can lose the value, so it reports through the ordinary error
+    // channel; widening cannot fail and carries only the operand's own effect.
+    let conversion_effect = (entry.name == "narrow").then(|| RecoverableCallEffect {
+        error_type: typed.builtin_types().int,
+    });
+    let effect = super::helpers::merge_recoverable_effects(
+        typed,
+        origin,
+        entry.name,
+        [expr.recoverable_effect, conversion_effect],
+    )?;
+    Ok(TypedExpr::value(result).with_optional_effect(effect))
+}
+
 fn type_terminal_intrinsic(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
@@ -763,7 +899,21 @@ fn type_terminal_intrinsic(
     entry: &fol_intrinsics::IntrinsicEntry,
     args: &[AstNode],
     syntax_id: SyntaxNodeId,
+    expected_type: Option<CheckedTypeId>,
 ) -> Result<TypedExpr, TypecheckError> {
+    // The width conversions take their result type from the context, which no
+    // fixed signature can express.
+    if matches!(entry.name, "widen" | "narrow") {
+        return type_width_conversion(
+            typed,
+            resolved,
+            context,
+            entry,
+            args,
+            syntax_id,
+            expected_type,
+        );
+    }
     let origin = origin_for(resolved, syntax_id);
     // `vec[chr]` has to be interned, which the shared signature table cannot do
     // from a shared borrow, so the two container-typed char intrinsics are

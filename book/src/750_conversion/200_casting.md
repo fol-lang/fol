@@ -56,3 +56,43 @@ That last point is deliberately later work:
 
 Until that contract exists, `V1` treats cast syntax as parsed-but-unsupported
 instead of guessing semantics.
+
+## Integer widths
+
+Integer widths never mix implicitly. `i32` and `int` are different types, and
+adding them is a type error rather than a silent promotion:
+
+```fol
+var small: i32 = 1;
+var big: int = 2;
+var sum: int = small + big;   // rejected: 'i32' and 'int'
+```
+
+`.widen(...)` converts a value to a wider type. It takes its result width from
+the context, so the binding or parameter it fills decides the target:
+
+```fol
+var small: i32 = 2000000000;
+var wide: i64 = .widen(small);
+
+var byte: u8 = 200;
+var signed: i16 = .widen(byte);   // every u8 fits an i16
+```
+
+Widening is checked in both directions rather than assumed. The compiler
+refuses a conversion that could lose value, one where nothing could be lost, and
+one with no target to read:
+
+```text
+'i32' does not hold every 'int', so this is not a widening
+the value is already 'i32', so it needs no conversion
+'.widen(...)' takes its result width from the context
+```
+
+"Wider" means the target holds every value of the source, not that it has more
+bits. `u8` widens to `i16` because every byte is a valid `i16`; `i32` does not
+widen to `u32`, and `u32` does not widen to `i32`, because each holds values the
+other cannot.
+
+Converting the other way reports the values that do not fit, and is not
+available yet. See `plan/V4_SCALAR_WIDTHS.md`.

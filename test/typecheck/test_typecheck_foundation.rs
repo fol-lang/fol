@@ -7445,3 +7445,79 @@ fn statement_position_expressions_keep_every_operand() {
 fn scalar_type_count() -> usize {
     fol_types::IntWidth::ALL.len() + fol_types::FloatWidth::ALL.len() + 4
 }
+
+// `.widen(...)` takes its result width from the context, and the direction is
+// checked rather than assumed, so the name always means what it says.
+#[test]
+fn widen_accepts_only_conversions_that_cannot_lose_value() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var small: i32 = 5;\n\
+             var wide: i64 = .widen(small);\n\
+             var byte: u8 = 200;\n\
+             var signed: i16 = .widen(byte);\n\
+             return 0;\n\
+         };\n",
+    )]);
+
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn widen_rejects_a_conversion_that_would_lose_value() {
+    for (source, target) in [("i64", "i32"), ("u32", "i32"), ("i32", "u32")] {
+        let errors = typecheck_fixture_folder_errors(&[(
+            "main.fol",
+            &format!(
+                "fun[] main(): int = {{\n\
+                     var from: {source} = 5;\n\
+                     var into: {target} = .widen(from);\n\
+                     return 0;\n\
+                 }};\n"
+            ),
+        )]);
+
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message().contains("is not a widening")),
+            "{source} to {target} should not be a widening, got: {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn widen_needs_a_target_width_and_refuses_a_no_op() {
+    let no_target = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var value: i32 = 5;\n\
+             var text: str = .widen(value);\n\
+             return 0;\n\
+         };\n",
+    )]);
+    assert!(
+        no_target.iter().any(|error| error
+            .message()
+            .contains("takes its result width from the context")),
+        "a non-integer target should say where the width comes from, got: {no_target:?}"
+    );
+
+    let same_width = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var value: i32 = 5;\n\
+             var same: i32 = .widen(value);\n\
+             return 0;\n\
+         };\n",
+    )]);
+    assert!(
+        same_width
+            .iter()
+            .any(|error| error.message().contains("needs no conversion")),
+        "widening to the same width is a no-op and should be refused, got: {same_width:?}"
+    );
+}

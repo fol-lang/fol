@@ -126,6 +126,15 @@ impl IntWidth {
     }
 
     /// Whether a constant can be stored at this width without losing value.
+
+    /// Whether every value of `source` is representable at this width. This is
+    /// what makes a conversion a widening: `u8` fits in `i16`, `i32` does not
+    /// fit in `u32`, and neither direction of `i64`/`u64` fits the other.
+    pub const fn contains_range_of(self, source: Self) -> bool {
+        let (low, high) = self.constant_range();
+        let (source_low, source_high) = source.constant_range();
+        low <= source_low && high >= source_high
+    }
     pub const fn accepts_constant(self, value: i128) -> bool {
         let (low, high) = self.constant_range();
         value >= low && value <= high
@@ -211,6 +220,22 @@ mod tests {
         assert!(!IntWidth::U8.accepts_constant(-1));
         assert!(IntWidth::I8.accepts_constant(-128));
         assert!(!IntWidth::I8.accepts_constant(128));
+    }
+
+    #[test]
+    fn widening_is_containment_not_bit_count() {
+        // Every u8 fits an i16, so that is a widening even though the sign
+        // differs.
+        assert!(IntWidth::I16.contains_range_of(IntWidth::U8));
+        assert!(IntWidth::I64.contains_range_of(IntWidth::I32));
+        assert!(IntWidth::U64.contains_range_of(IntWidth::U32));
+        // Same bit count, neither contains the other.
+        assert!(!IntWidth::U32.contains_range_of(IntWidth::I32));
+        assert!(!IntWidth::I32.contains_range_of(IntWidth::U32));
+        // A narrower target never contains a wider source.
+        assert!(!IntWidth::I8.contains_range_of(IntWidth::I64));
+        // A width always contains itself.
+        assert!(IntWidth::U8.contains_range_of(IntWidth::U8));
     }
 
     #[test]

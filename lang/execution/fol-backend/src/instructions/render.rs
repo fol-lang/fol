@@ -822,6 +822,15 @@ pub fn render_core_instruction_in_workspace(
                 )
             })?;
             let rendered = match (entry.name, args.as_slice()) {
+                // The only hook whose emission depends on its destination
+                // rather than its name: the target width comes from the local
+                // it writes into, so no runtime function could know it.
+                ("widen", [value]) => {
+                    let width = result_int_width(type_table, routine, instruction)?;
+                    let value =
+                        render_transfer_expr(type_table, package_identity, routine, *value)?;
+                    format!("({value} as {})", width.rust_primitive())
+                }
                 ("echo", [value])
                 | ("write", [value])
                 | ("int_to_str", [value])
@@ -1681,6 +1690,30 @@ fn operand_is_float(
                 Some(LoweredType::Builtin(fol_lower::LoweredBuiltinType::Float(
                     _
                 )))
+            )
+        })
+}
+
+/// The integer width an instruction writes into. `.widen(...)` emits a cast to
+/// its destination type, which the intrinsic name alone does not carry.
+fn result_int_width(
+    type_table: &LoweredTypeTable,
+    routine: &LoweredRoutine,
+    instruction: &LoweredInstr,
+) -> BackendResult<fol_types::IntWidth> {
+    instruction
+        .result
+        .and_then(|local_id| routine.locals.get(local_id))
+        .and_then(|local| local.type_id)
+        .and_then(|type_id| type_table.get(type_id))
+        .and_then(|lowered| match lowered {
+            LoweredType::Builtin(fol_lower::LoweredBuiltinType::Int(width)) => Some(*width),
+            _ => None,
+        })
+        .ok_or_else(|| {
+            BackendError::new(
+                BackendErrorKind::InvalidInput,
+                "a width conversion must write into an integer local",
             )
         })
 }
