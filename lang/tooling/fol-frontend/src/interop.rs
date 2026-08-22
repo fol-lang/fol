@@ -214,7 +214,7 @@ mod tests {
     #[test]
     fn target_mismatch_fails_before_output_or_tool_io() {
         let mut graph = fol_package::BuildGraph::new();
-        let target = fol_types::ResolvedTarget::resolve("x86_64-unknown-linux-musl").unwrap();
+        let target = fol_types::ResolvedTarget::resolve("aarch64-unknown-linux-gnu").unwrap();
         let artifact_id = graph.add_configured_artifact(
             fol_package::BuildArtifactKind::Executable,
             "app",

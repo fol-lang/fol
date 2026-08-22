@@ -73,6 +73,9 @@
           rust-analyzer
           llvmPackages.lldb
           gcc
+          # clang is a promoted interop compiler family, so the smoke and LINC
+          # own clang observation path need a real one on PATH.
+          clang
           binutils
           gnumake
           pkg-config
@@ -108,6 +111,7 @@
             # musl is a separately promoted interop platform, so the smoke
             # needs a real musl compiler as well as the glibc one.
             export FOL_H7_MUSL_CC="${muslCc}"
+            export FOL_H7_CLANG="${pkgs.clang}/bin/clang"
           '';
         };
 

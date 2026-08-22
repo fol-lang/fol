@@ -49,6 +49,14 @@ fn build_fol_c_import_runs_the_locked_typed_pipeline_on_musl() {
     run_locked_typed_pipeline("x86_64-unknown-linux-musl", "FOL_H7_MUSL_CC");
 }
 
+// GCC and clang are both promoted compiler families, and LINC observes each
+// differently: clang has no portable `-print-sysroot`, so it is read through
+// its resource directory instead. The families are proven separately.
+#[test]
+fn build_fol_c_import_runs_the_locked_typed_pipeline_with_clang() {
+    run_locked_typed_pipeline("x86_64-unknown-linux-gnu", "FOL_H7_CLANG");
+}
+
 fn run_locked_typed_pipeline(target: &str, compiler_variable: &str) {
     assert!(
         fol_interop::is_certified_interop_target(target),
