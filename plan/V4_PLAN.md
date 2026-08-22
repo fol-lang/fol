@@ -243,41 +243,59 @@ If a milestone violates one of these rules, stop rather than patch around it.
 # 3. Verified Pre-Implementation Truth Snapshot
 
 This section records why the order in this plan is non-negotiable. It describes
-the repository at the planning anchor, not the desired V4 result.
+the repository as measured, not the desired V4 result.
+
+> **Re-run 2026-08-23** against the tree at that date. Every claim below was
+> checked rather than carried forward. Bullets marked **Resolved** were true at
+> the planning anchor and are no longer true; they are kept rather than deleted
+> so the plan reads as a record of what moved. Facts added by the re-run are
+> the library-only routing gap, profile-blind workspace identity, dropped
+> generated inputs, unpopulatable include paths, the absent install field, and
+> unvalidated duplicate artifact names.
 
 ## 3.1 Parser, typecheck, and lowering
 
 - `lang/compiler/fol-parser/src/ast/types.rs` preserves integer size/sign,
   float size, character encoding, and `PointerQualifier::Raw`.
-- `lang/compiler/fol-typecheck/src/decls.rs::lower_type_inner` collapses those
-  scalar variants into unsized `BuiltinType::{Int, Float, Char}`. The sized
-  spellings are reachable from source and silently lie: `var x: u8 = 999` is
-  accepted and stores 999. See `plan/V4_SCALAR_WIDTHS.md`, which also records
-  that no FOL source in the repository uses one, so fixing it breaks nothing.
+- **Resolved 2026-08-22.** Typecheck once collapsed every scalar into an
+  unsized `BuiltinType::{Int, Float, Char}`, so `var x: u8 = 999` was accepted
+  and stored 999. `BuiltinType` now carries `Int(IntWidth)` and
+  `Float(FloatWidth)`, width and sign survive to codegen, a literal adopts its
+  target and is range-checked, and mixed widths are rejected. `Char` is still
+  unsized, which is the one part of this bullet that remains open. See
+  `plan/V4_SCALAR_WIDTHS.md`.
 - `lang/compiler/fol-typecheck/src/types.rs::CheckedType::Pointer` carries
   `target`, `shared`, `weak`, and `sync`. Those describe FOL-side sharing, not
   the C boundary: it still cannot represent raw-pointer constness, nullability,
   ownership, escape, or destructor provenance.
-- Record declaration order exists in
-  `fol_typecheck::RecordFieldLayout`, but
-  `lang/compiler/fol-lower/src/decls/type_decls.rs` iterates the checked map
-  instead. Entry variants have no equivalent source-order table; current tests
-  demonstrate map-order reordering.
+- Record declaration order exists in `fol_typecheck::RecordFieldLayout` and is
+  used by record literals, but `CheckedType::Record` and `LoweredType::Record`
+  both store a `BTreeMap` and
+  `lang/compiler/fol-lower/src/decls/type_decls.rs` iterates it, so a record
+  declared `{zulu, alpha, mike}` lowers as `{alpha, mike, zulu}`. Entry
+  variants have no equivalent source-order table. Pinned by
+  `lowered_record_field_order_is_alphabetical_not_declaration_order`.
 - `lang/compiler/fol-parser/src/ast/node.rs`,
   `lang/compiler/fol-typecheck/src/types.rs`, and
   `lang/compiler/fol-lower/src/model.rs` have no foreign declaration, calling
   convention, external name, ownership/effect, ABI import/export, or canonical
   ABI type model.
-- `LoweredInstrKind::Cast` and a backend Rust `as` renderer exist for manually
-  constructed IR, but source `as` and `cast` are rejected in typecheck and do
-  not form an end-to-end conversion contract.
+- **Resolved 2026-08-22.** `cast` is deleted from the lexer, parser, grammar,
+  and docs; source `as` is still rejected, but now points at the conversion
+  intrinsics rather than at nothing. `.widen` and `.narrow` form the end-to-end
+  contract this bullet said was missing: widening is infallible, narrowing
+  returns `/ E`. `LoweredInstrKind::Cast` survives as an IR variant.
 - `ptr[raw, T]` parses and is highlighted, but typecheck correctly rejects it as
   a V4 boundary.
-- `.de_alloc(...)` is reserved as a rejected V4 intrinsic without an allocator
-  or destructor provenance model.
+- **Resolved 2026-08-22.** `.de_alloc(...)` is deleted rather than reserved;
+  `fol-intrinsics` now carries guard tests asserting the name resolves to
+  nothing. An allocator and destructor-provenance model is still owed, and is
+  specified by `plan/V4_LINEAR_RESOURCES.md`.
 
-These facts make scalar preservation and a canonical foreign model blockers.
-Generating wrappers from today's `LoweredType` would silently invent an ABI.
+Scalar preservation is done; a canonical foreign model and declaration-order
+record layout are still blockers. Generating wrappers from today's
+`LoweredType` would still invent an ABI, now by reordering fields rather than
+by guessing widths.
 
 ## 3.2 Build graph and package flow
 
@@ -286,16 +304,24 @@ Generating wrappers from today's `LoweredType` would silently invent an ABI.
 - Hardening improved
   `lang/execution/fol-build/src/artifact.rs::project_graph_artifacts`: it now
   preserves object kind/linkage, `fol_model`, `ResolvedTarget`, optimization,
-  library paths, and link inputs. It still leaves include paths empty and does
-  not replace the several downstream partial representations with one complete
-  artifact/action/output/install plan.
+  library paths, and link inputs, each now locked by value rather than by
+  count. Three losses remain and are pinned by characterization tests: it
+  matches `BuildArtifactInput::GeneratedFile(_) => None`, dropping generated
+  inputs outright; it hardcodes `include_paths: Vec::new()`, and nothing
+  anywhere can populate that field, because the graph has no include storage
+  and no `build.fol` method adds one; and `BuildArtifactDefinition` has no
+  install field at all, so a destination never travels with its artifact.
 - `ExecArtifact`, graph artifacts, projected artifact definitions, package
   native surfaces, frontend selections, and backend config are separate partial
   representations. No single resolved artifact plan survives end to end.
 - Dependency artifact handles do not carry an exact output path, resolved
   target, content identity, provenance, or transitive link interface.
-- Link cycles, self-links, kind mismatches, target/object-format mismatches,
-  duplicate outputs, and static link ordering are not validated.
+- `BuildGraphValidationErrorKind` carries only `StepDependencyCycle`,
+  `MissingArtifactInput`, and `InvalidInstallTarget`. Link cycles, self-links,
+  kind mismatches, target/object-format mismatches, duplicate outputs, and
+  static link ordering are not validated. Duplicate *names* are not validated
+  either: two artifacts may share one public name through to a successful
+  `run`, and the evaluator resolves the name to whichever was declared last.
 - Generated-file/tool/install declarations are mostly graph/report metadata;
   there is no general action materializer that owns declared inputs/outputs,
   atomic publication, and actual installation.
@@ -330,11 +356,22 @@ second backend-only side path.
   backend Rust-source form is internal materialization, not a V4 public output;
   H7 added `InteropEvidence`, while general compile routing still expects a
   binary.
+- `synthesized_default_steps` in
+  `lang/tooling/fol-frontend/src/build_route/mod.rs` emits steps only for
+  `Executable` and `Test`, so a library-only graph gets no runnable route. It
+  typechecks clean, then `fol code build` reports that `build` is not a defined
+  step and lists `install` among the ones that are -- and `fol code` has no
+  `install` subcommand, so the one route offered cannot be taken.
+- `BackendWorkspaceIdentity::for_workspace` hashes only
+  `render_lowered_workspace(...)`. Debug and release builds of one package
+  produce the same crate directory name; profile and target survive as output
+  path segments, not as identity.
 
 ## 3.4 Runtime and ABI safety
 
-- `fol_runtime::value::FolInt` is currently `i64`; parsed scalar widths do not
-  change that runtime mapping.
+- `fol_runtime::value::FolInt` is `i64`, which is now correct rather than
+  lossy: `int` is an alias for `i64`, and every other width emits its own Rust
+  primitive.
 - Runtime `bool`, `char`, `String`, `Vec`, `Option`, `FolRecover`, `Rc`, channel,
   mutex, and eventual representations are implementation types, not public C
   layouts.
@@ -669,14 +706,23 @@ Rules:
 
 ## 4.6 Stable C ABI type vocabulary
 
+> **Revalidated 2026-08-23.** The matrix used the bracket option spelling and
+> rejected "unsized/default `int`". Since `int` is now an alias for `i64` and
+> `flt` for `f64` -- one interned type each, not two -- rejecting `int` while
+> accepting `i64` cannot be enforced, because there is nothing to tell apart.
+> The rows below use the canonical bare spellings, and the default names are
+> accepted as the aliases they are.
+
 The initial public ABI accepts only explicit, versioned shapes. Internal Rust
 or FOL representations never cross directly.
 
 | FOL/canonical shape | C projection | V4 rule |
 |---|---|---|
-| `int[8/16/32/64]` | `intN_t` | signed width must survive all compiler stages |
-| `int[u8/u16/u32/u64]` | `uintN_t` | unsigned width must survive all compiler stages |
-| `flt[32/64]` | `float` / `double` | IEEE target support is verified |
+| `i8`/`i16`/`i32`/`i64` | `intN_t` | signed width must survive all compiler stages |
+| `u8`/`u16`/`u32`/`u64` | `uintN_t` | unsigned width must survive all compiler stages |
+| `int` | `int64_t` | accepted as the alias for `i64`, not as a separate row |
+| `f32`/`f64` | `float` / `double` | IEEE target support is verified |
+| `flt` | `double` | accepted as the alias for `f64` |
 | `bol` | `uint8_t` / `fol_bool_t` | only 0 and 1 are valid; imports validate |
 | `chr[utf32]` | `uint32_t` / `fol_char_t` | imports validate Unicode scalar values |
 | no-value return | no success out field | wrapper still returns status |
@@ -691,9 +737,11 @@ or FOL representations never cross directly.
 
 Boundary restrictions:
 
-- unsized/default `int`, default `flt`, `int[128]`, architecture-sized numeric
-  types, non-UTF32 character encodings, and platform C `long` are rejected until
-  explicitly added to this matrix
+- `i128`/`u128`, the architecture-sized `arch`/`uarch`, non-UTF32 character
+  encodings, and platform C `long` are rejected until explicitly added to this
+  matrix. `i128` has no portable C counterpart; `arch`/`uarch` are
+  target-dependent by construction, which is exactly what a stable ABI cannot
+  be
 - direct arrays as parameters/returns, packed records, bitfields, flexible
   arrays, arbitrary unions, C varargs, vector/SIMD ABI, and complex numbers are
   rejected
@@ -707,6 +755,11 @@ Boundary restrictions:
 
 The first scalar milestone does not wait for every aggregate, but no aggregate
 ships until its row has layout and lifetime tests.
+
+The POD-record row depends on a fact the compiler does not yet keep: lowering
+stores record fields in a `BTreeMap` and emits them alphabetically, so "source
+field order" is currently lost. See section 3.1. No record row can ship until
+declaration order survives to the lowered type.
 
 ## 4.7 Uniform C-export status and panic contract
 
@@ -752,8 +805,10 @@ Chosen source shape:
 - `opt ptr[raw, T]` / `opt ptr[raw, mut, T]`: nullable forms
 
 The parser/type system must preserve raw-ness and mutability rather than
-collapsing them to `shared: bool`. Ownership, escape, and destructor provenance
-are signature/manifest metadata, not guessed from the address.
+collapsing them to `shared: bool`. Ownership and escape are signature/manifest
+metadata, not guessed from the address. Destructor provenance is not metadata:
+it is a type obligation carried by the linear capability, because a release
+that can fail needs somewhere to report the failure.
 
 V4 permits a raw address token to be received, compared for identity, stored
 only where its lifetime contract allows, and passed to an approved foreign
@@ -770,27 +825,41 @@ There is no general unsafe block in V4. Imported declarations that cannot be
 projected into the safe canonical shapes stay uncallable and require a small C
 adapter.
 
-Delete the placeholder `.de_alloc(...)` intrinsic during M0/M4. It must not
-become a universal free. Owned resources instead expose a type/provider-specific
-destroy or release routine recorded in the manifest. The ownership checker
-consumes the resource exactly once at that call and diagnoses wrong-provider,
-double-release, use-after-release, missing-release, and borrowed-release cases.
+The placeholder `.de_alloc(...)` intrinsic was deleted in M0 rather than
+reserved, so it cannot become a universal free. Owned resources instead expose
+a type/provider-specific destroy or release routine recorded in the manifest.
+The ownership checker consumes the resource exactly once at that call and
+diagnoses wrong-provider, double-release, use-after-release, missing-release,
+and borrowed-release cases.
 
 ## 4.9 Explicit conversion
+
+> **Revalidated 2026-08-23.** This section was written before the conversion
+> surface existed and specified `as` as its spelling, with narrowing deferred.
+> Both are now wrong: `plan/V4_SCALAR_WIDTHS.md` chose dot-root intrinsics, and
+> narrowing shipped with the checked result contract this section said a later
+> plan would have to supply. Rewritten against what is built.
 
 V4 does not turn the existing generic Rust `as` renderer into a transmute
 facility.
 
-- `as` becomes the single source spelling for explicitly lossless fixed-width
-  numeric conversion.
-- The duplicate `cast` keyword/operator/intrinsic/editor spelling is deleted,
-  with no alias or compatibility route.
-- Narrowing, float/integer conversion, bool/integer conversion, character
-  conversion, pointer conversion, ownership conversion, bit reinterpretation,
-  and container conversion remain rejected unless a later plan gives them a
-  checked result contract.
+- `.widen(...)` and `.narrow(...)` are the source spellings for explicit
+  numeric width conversion. Both take their result width from the expected
+  type, so a conversion is only ever written where the target is already
+  stated.
+- `.widen` is infallible and is rejected when the target does not contain every
+  value of the source. `.narrow` returns `/ E` and is rejected when nothing can
+  be lost. The two are mutually exclusive and each diagnostic names the other.
+- `as` still parses and is still rejected; its diagnostic now points at the two
+  intrinsics. The duplicate `cast` keyword/operator/intrinsic/editor spelling is
+  deleted, with no alias or compatibility route.
+- The surface is **integer widths only**. Float-width conversion,
+  float/integer conversion, bool/integer conversion, character conversion,
+  pointer conversion, ownership conversion, bit reinterpretation, and container
+  conversion all remain rejected unless a later plan gives each a checked
+  result contract.
 - ABI boolean/character/tag/pointer validation uses dedicated typed lowering
-  operations generated by the ABI projection, not user-visible `as`.
+  operations generated by the ABI projection, not a user-visible conversion.
 
 This keeps V4's conversion work sufficient for ABI projection without silently
 claiming a complete general casting system.
@@ -1155,7 +1224,7 @@ Primary files:
 
 Tasks:
 
-- [ ] Re-run the truth snapshot and record changed symbols/files in this plan.
+- [x] Re-run the truth snapshot and record changed symbols/files in this plan.
 - [x] Lock positive regressions for hardening's fixed behavior: unknown targets
   reject, backend `--target` is explicit, and object/model/optimization/library
   paths/link inputs survive graph projection.
@@ -1220,8 +1289,12 @@ Tasks:
   the same commit.
 - [ ] Correct book/architecture claims that static/shared linking already works.
   Restore shipped wording only at the milestone that proves it.
-- [ ] Revalidate the retained ABI rationale in this plan against the refreshed
-  truth snapshot.
+- [x] Revalidate the retained ABI rationale in this plan against the refreshed
+  truth snapshot. Three sections contradicted what shipped and were rewritten:
+  4.6 rejected a default `int` that is now indistinguishable from `i64`; 4.8
+  asserted destructor provenance is metadata two paragraphs below its own
+  amendment saying it is not; 4.9 named `as` as the conversion spelling and
+  deferred narrowing, both of which the width work overtook.
 - [ ] Add an ABI diagnostic family to `fol-diagnostics` (planned family label
   `ABI`, with stable producer-owned codes) and reserve exact codes only when a
   real construction site exists.
