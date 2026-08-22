@@ -909,7 +909,7 @@ shared-library artifact may select the same entries, but each resolves and
 verifies its own target-specific surface and output set. Successful
 materialization produces the appropriate library form together with the same
 canonical `<artifact>.h` and `<artifact>.folabi.json`; the install plan places
-them in the M0-frozen include, library, and ABI-metadata roles.
+them in the include, library, and ABI-metadata roles frozen by section 4.16.
 
 The export record intentionally has no `rust_name`, language selector, inferred
 symbol, or wildcard. Future language projections add their own versioned schema
@@ -1250,6 +1250,13 @@ target-specific provider       the `target` field on any provider    M3
 C-import safety/error overlay  the `annotations` field on            M6
                                    add_c_import, naming a file
 ```
+
+Every row above whose receiver is written `library` or `artifact` is the same
+receiver: an artifact handle, as returned by `graph.add_exe`,
+`graph.add_static_lib`, and the other artifact constructors. Section 4.5 and
+section 4.13 write it `artifact`; section 4.10 and the table above write
+`library`, because the examples there bind a library. These are variable names
+in examples, not two methods.
 
 Rules that hold for every row:
 
