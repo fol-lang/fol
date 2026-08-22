@@ -1,15 +1,22 @@
 # V4 Decision Record: Fallible Release of Foreign Resources
 
-> **Status: open. A decision is required before M7 can be specified.**
+> **Status: decided 2026-08-22.** A C handle is modelled as a **linear**
+> resource that must be consumed exactly once by an explicit, fallible release
+> (option C below). `[fin]value` remains available as an explicit
+> discard-the-failure consumer, so the unsafe choice is spelled in the source
+> rather than being the default. A scope still holding an unreleased linear
+> resource **may not `report`** (resolution 4 below): it must release first.
 >
-> `fin` finalization is not a sound model for a C handle, because releasing a C
-> handle can fail and finalization has nowhere to report the failure. This
-> record states the constraint, the verified facts behind it, the options, and
-> their costs. It deliberately does not choose: the `report` interaction below
-> is a language-level call.
+> `fin` finalization was ruled out because releasing a C handle can fail and
+> scope-exit finalization has no caller to report the failure to. The analysis
+> that led here is retained below; sections 1 to 5 are the reasoning, section 6
+> is the decision, and section 7 is what it changes.
+>
+> Open detail: the capability is spelled `lin` throughout this record as a
+> placeholder. The name is not part of the decision.
 >
 > `plan/V4_PLAN.md` remains the implementation authority. Section 4.8 and
-> milestone M7 are blocked on the outcome recorded here.
+> milestone M7 are specified from this record.
 
 ## 1. The constraint
 
@@ -106,7 +113,7 @@ discard the error" consumer that satisfies the linear obligation.
 - Matches the posture the interop stack already takes, where GERC refuses a
   declaration rather than emitting an opaque type.
 
-## 5. The open sub-question: release on the error path
+## 5. The sub-question: release on the error path
 
 This is the part that decides how hard B and C are, and it is a language-level
 call rather than an implementation detail.
@@ -131,25 +138,65 @@ work.
 `dfr` running on the `report` path is relevant but not sufficient: it gives a
 hook that already fires on both exits, and it still cannot carry a status out.
 
-## 6. Recommendation
+## 6. Decision
 
-Option **C**, with sub-question resolution **4** as the initial rule.
+**Option C**, with sub-question resolution **4**.
 
-That combination is conservative in the direction the rest of V4 is already
-conservative: it refuses the case it cannot represent honestly, rather than
-choosing silently which error to lose. Relaxing it later — to option 3, once an
-aggregate error shape exists — is a widening, and widenings do not break
-existing programs. Choosing 1 or 2 first would be a narrowing to undo.
+A foreign resource type declares the linear capability (spelled `lin` here as a
+placeholder). The compiler proves every path through a scope consumes the value
+exactly once, by one of:
+
+- an explicit fallible release, whose error propagates like any other:
+
+  ```fol
+  close([mov]handle) || report;
+  ```
+
+- or the existing explicit discard, which satisfies the obligation while
+  stating plainly that the failure is being thrown away:
+
+  ```fol
+  [fin]handle;
+  ```
+
+Omitting both is a compile error. There is no implicit scope-exit release, so
+no failure is ever discarded without a token in the source saying so, and
+`[fin]` is greppable when auditing a codebase for ignored release failures.
+
+A scope that still holds an unreleased linear resource may not `report`. The
+resource must be released first, on the error path as on the success path:
+
+```fol
+fun[] work(): int / E = {
+    var handle: File = open("x");
+    when(bad) {
+        case(true) { report 9; }   // rejected: handle still unreleased
+        * { }
+    };
+    close([mov]handle) || report;
+    return 7;
+};
+```
+
+That rule is chosen because it refuses the case it cannot represent honestly
+rather than silently choosing which of two errors to lose. It is the most
+restrictive of the four, deliberately: relaxing it later to an aggregate error
+(resolution 3) is a widening, and widenings do not break existing programs,
+whereas shipping resolution 1 or 2 first would be a narrowing to undo.
+
+The cost is real and should be expected: the diagnostic for a rejected
+`report` has to name the resource still held and point at where it was
+acquired, or the rule will read as arbitrary.
 
 ## 7. Consequences for `plan/V4_PLAN.md`
 
-- **§4.8** currently states that "ownership, escape, and destructor provenance
-  are signature/manifest metadata." Destructor provenance is not metadata under
-  B or C; it is a type obligation. That sentence must be rewritten once this is
-  decided.
-- **M7** ("Records, Entries, Errors, Views, Buffers, and Handles") cannot be
-  specified until then. Contrary to an earlier assessment during this review,
-  M7 **grows** rather than shrinks: it gains a linear-resource design.
+- **§4.8** stated that "ownership, escape, and destructor provenance are
+  signature/manifest metadata." Destructor provenance is not metadata: it is a
+  type obligation carried by the linear capability. That subsection is
+  rewritten from this record.
+- **M7** ("Records, Entries, Errors, Views, Buffers, and Handles") gains a
+  linear-resource design. Contrary to an earlier assessment during this review,
+  M7 **grows** rather than shrinks.
 
   M7 already leans that way without naming it. Section 12.4 asks to "consume
   transferred handles exactly once in ownership checking" and to "diagnose leak

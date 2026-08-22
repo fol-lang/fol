@@ -732,10 +732,12 @@ unsupported. Plain `extern "C"` never carries an unwind.
 
 ## 4.8 Raw pointers, ownership, and cleanup
 
-> **Blocked in part.** Destructor provenance is recorded below as signature or
-> manifest metadata. That is wrong for a resource whose release can fail, which
-> is every interesting C handle. See `plan/V4_LINEAR_RESOURCES.md`; this
-> subsection is rewritten once that record is decided.
+> **Amended by `plan/V4_LINEAR_RESOURCES.md` (decided 2026-08-22).** Ownership
+> and escape remain signature/manifest metadata. **Destructor provenance does
+> not**: a resource whose release can fail is a linear type that must be
+> consumed exactly once by an explicit fallible release, and a scope still
+> holding one may not `report`. Read that record before implementing anything
+> in this subsection.
 
 Raw pointers are non-owning foreign address tokens, not aliases for V3 `Box` or
 `Rc` pointers.
@@ -1618,10 +1620,12 @@ safety contract is unknown.
 
 # 12. M7 — Records, Entries, Errors, Views, Buffers, and Handles
 
-> **Blocked on `plan/V4_LINEAR_RESOURCES.md`.** Section 12.4 assumes a handle
-> can be released by a `fin` finalizer. It cannot: a C release can fail and
-> finalization has no caller to report to. M7 cannot be specified until that
-> record is decided, and it grows by a linear-resource design when it is.
+> **Specified by `plan/V4_LINEAR_RESOURCES.md` (decided 2026-08-22).** Section
+> 12.4 must not release a handle through a `fin` finalizer: a C release can
+> fail and finalization has no caller to report to. Handles are linear —
+> consumed exactly once by an explicit fallible release, with `[fin]handle` as
+> the explicit discard-the-failure consumer. This milestone grows by that
+> design; the sub-slices below are necessary but no longer sufficient.
 
 This milestone is a sequence of independently gated sub-slices. Land them in
 the listed order; omit a later slice rather than weakening an earlier contract.
@@ -1662,13 +1666,27 @@ mutability negatives pass under sanitizers.
 
 ## 12.4 Owned buffers and opaque handles
 
+Handles are linear, per `plan/V4_LINEAR_RESOURCES.md`. The first four items
+below are the linear-resource design that decision requires; the rest is the
+existing provider and buffer work, which it does not change.
+
+- [ ] Add the linear capability (`lin`, spelling unconfirmed): a type whose
+  values must be consumed exactly once on every path.
+- [ ] Prove consumption across every exit — fall-through, early `return`, loop
+  `break`, and each `when` arm — and reject a scope that reaches its end still
+  holding one.
+- [ ] Reject `report` from a scope holding an unreleased linear resource. The
+  diagnostic must name the resource and point at its acquisition, or the rule
+  reads as arbitrary.
+- [ ] Accept `[fin]handle` as an explicit discard-the-failure consumer that
+  satisfies the obligation, and keep it greppable as the audit surface for
+  ignored release failures.
 - [ ] Record ownership direction and exact generated/imported destroy symbol.
 - [ ] Give every allocator/provider domain a stable identity checked by the
   destroy adapter.
-- [ ] Consume transferred handles exactly once in ownership checking.
-- [ ] Generate FOL-owned C destroy wrappers and honor imported C destroy pairs.
-- [ ] Diagnose leak paths where an owned foreign resource exits scope without
-  transfer or destruction; use explicit cleanup/`dfr`, not a universal free.
+- [ ] Generate FOL-owned C destroy wrappers and honor imported C destroy pairs,
+  with the release typed fallible (`pro (T)close(): non / E`) rather than as a
+  `fin` finalizer.
 - [ ] Validate capacity/length/domain before reconstructing owned buffers.
 
 Gate: create/use/destroy, early-error cleanup, wrong destroyer, double destroy,
