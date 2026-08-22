@@ -251,9 +251,10 @@ the repository at the planning anchor, not the desired V4 result.
   float size, character encoding, and `PointerQualifier::Raw`.
 - `lang/compiler/fol-typecheck/src/decls.rs::lower_type_inner` collapses those
   scalar variants into unsized `BuiltinType::{Int, Float, Char}`.
-- `lang/compiler/fol-typecheck/src/types.rs::CheckedType::Pointer` retains only
-  `target` and a `shared` boolean. It cannot represent raw-pointer constness,
-  nullability, ownership, escape, or destructor provenance.
+- `lang/compiler/fol-typecheck/src/types.rs::CheckedType::Pointer` carries
+  `target`, `shared`, `weak`, and `sync`. Those describe FOL-side sharing, not
+  the C boundary: it still cannot represent raw-pointer constness, nullability,
+  ownership, escape, or destructor provenance.
 - Record declaration order exists in
   `fol_typecheck::RecordFieldLayout`, but
   `lang/compiler/fol-lower/src/decls/type_decls.rs` iterates the checked map
@@ -350,11 +351,13 @@ second backend-only side path.
   build-record completion do not exist.
 - `.github/workflows/tests.yml` is Ubuntu-only and does not establish a
   multi-platform C ABI consumer matrix. Release output covers only
-  `x86_64-linux` and `aarch64-linux`, both built on Alpine against musl, while
-  the certified interop lane is `x86_64-unknown-linux-gnu` — so no released
-  toolchain is built on the one target whose C interop is certified.
-- `flake.nix` does not make a pinned C compiler/preprocessor or the required
-  sibling interop revisions an explicit V4 toolchain contract.
+  `x86_64-linux` and `aarch64-linux`, both built through the flake against musl,
+  while the certified interop lane is `x86_64-unknown-linux-gnu` — so no
+  released toolchain is built on the one target whose C interop is certified.
+- `flake.nix` is now the whole toolchain: it pins Rust, the tree-sitter CLI by
+  content hash, and a gcc it exports as `FOL_H7_GCC` for the interop smoke. It
+  does not pin a preprocessor separately, and the sibling interop revisions live
+  in `fol-interop/Cargo.toml` rather than in the flake.
 - `book/src/055_build/600_artifacts.md` and related build chapters describe
   static/shared output and transitive linking more strongly than the current
   executable pipeline implements; `book/src/055_build/900_direction.md` still
@@ -364,19 +367,25 @@ second backend-only side path.
 
 ## 3.6 Required sibling interop stack
 
-The project owner has selected the sibling checkout stack below. These are
+These are git dependencies pinned by revision, not sibling checkouts: a fresh
+clone builds and tests without any of them on disk. `../parc`, `../linc`, and
+`../gerc` are where the work happens, not where the build reads from.
+
+The project owner has selected the sibling stack below. These are
 required architecture, not optional inspiration:
 
-| stage | required checkout | revision authority | current crate/schema | owned responsibility |
+| stage | source | revision authority | current crate/schema | owned responsibility |
 |---|---|---|---|---|
-| PARC | `../parc` | `fol-interop/Cargo.toml` rev pin | `follang-parc 0.16.0`, source schema 2 | explicit-target C preprocessing, parsing, recovery, source extraction, provenance |
-| LINC | `../linc` | `fol-interop/Cargo.toml` rev pin | `follang-linc 0.1.0`, link-analysis schema 2 | object/archive/shared-library inspection, ABI probes, strict symbol/provider validation, ordered resolved-link evidence |
-| GERC | `../gerc` | `fol-interop/Cargo.toml` rev pin | `follang-gerc 0.1.0`, typed generation domain 1 | closed-world gating, C-to-Rust projection, deterministic raw Rust files and typed link arguments |
+| PARC | git dependency | `fol-interop/Cargo.toml` rev pin | `follang-parc 0.16.0`, source schema 2 | explicit-target C preprocessing, parsing, recovery, source extraction, provenance |
+| LINC | git dependency | `fol-interop/Cargo.toml` rev pin | `follang-linc 0.1.0`, link-analysis schema 2 | object/archive/shared-library inspection, ABI probes, strict symbol/provider validation, ordered resolved-link evidence |
+| GERC | git dependency | `fol-interop/Cargo.toml` rev pin | `follang-gerc 0.1.0`, typed generation domain 1 | closed-world gating, C-to-Rust projection, deterministic raw Rust files and typed link arguments |
 
-The checked-in lock manifest is the machine authority for exact accepted
-commits. H7 mirrors that snapshot in CI and the interop book page, and the
-Make-owned lock gate rejects drift between them. Every intentional sibling
-update changes the lock and its compatibility evidence together.
+The `rev` pins in `fol-interop/Cargo.toml` are the machine authority for exact
+accepted commits, and `Cargo.lock` records what cargo resolved from them. H7
+mirrors that snapshot in CI and the interop book page, and `make interop-check`
+rejects a pin loosened to a branch or a path, a `[patch]` substitution, or a
+book that has stopped quoting the revisions in force. Every intentional sibling
+update changes the pins and their compatibility evidence together.
 
 "Required by FOL" does not mean "owned by FOL." Each sibling keeps a public,
 general Rust API that can be used without the FOL compiler: PARC for C source
@@ -863,9 +872,11 @@ parent/
 ```
 
 `lang/tooling/fol-interop/Cargo.toml` declares `parc`, `linc`, and `gerc` as
-exact path dependencies into the sibling checkout topology; only
-`fol-interop` consumes all three. Do not vendor their sources into FOL and do
-not add optional copied fallback implementations.
+git dependencies pinned by exact revision; only `fol-interop` consumes all
+three. The sibling checkout above is a convenience for working on them, not a
+build input — a fresh clone of FOL builds and tests with none of them on disk.
+Do not vendor their sources into FOL and do not add optional copied fallback
+implementations.
 
 `lang/tooling/fol-interop/Cargo.toml` pins each sibling by git revision, and
 `Cargo.lock` records what cargo resolved from those pins. A git revision is
@@ -878,9 +889,9 @@ pins, which meant a second thing to keep in step and a build that failed when
 it drifted. `make interop-check` now verifies that no pin is loosened to a
 branch or a path, that no `[patch]` entry substitutes a component, and that the
 book quotes the revisions in force.
-`make interop-locked` additionally requires the exact locked commits and clean
-worktrees for CI/release. CI checks out the three repositories as siblings at
-those exact commits before invoking the FOL Makefile.
+`make interop-locked` additionally proves the pins resolve with `--locked`, so
+no network access or manifest edit can change what CI and release build. CI
+checks out only FOL; cargo fetches the pinned components.
 
 Upgrades are one stage at a time:
 
@@ -1962,8 +1973,8 @@ Existing lanes to retain:
 - `make fmt-check` — keep the current non-mutating changed-Rust baseline check
 - `make lint` — keep workspace clippy with warnings denied
 - `make test` — keep the full workspace plus ignored-test execution
-- `make interop-check` — keep lock/shape/schema/feature and typed compile checks
-- `make interop-locked` — keep exact clean sibling revision/remote enforcement
+- `make interop-check` — keep pin/shape/schema/feature and typed compile checks
+- `make interop-locked` — keep `--locked` resolution of the exact pinned revisions
 - `make test-interop` — keep the H7 link-and-run gate, which depends on
   `interop-locked`
 

@@ -125,14 +125,12 @@ sibling checkouts:
 make interop-check interop-locked test-interop
 ```
 
-- `make interop-check` runs the offline tier: lock self-consistency, the
-  cross-pins between components, agreement with `fol-interop/Cargo.toml` and
-  `Cargo.lock`, the absence of any source override, and compilation of the typed
-  integration. It needs no network and no resolved checkouts.
-- `make interop-locked` adds the resolved tier: it fetches with `--locked`,
-  finds each component's checkout in the cargo git cache, and verifies its
-  revision, manifest identity, schema constants, features, and the H5 corpus
-  digest.
+- `make interop-check` runs the offline tier: every component pinned to a
+  40-character revision rather than a branch or a path, no `[patch]` entry
+  substituting one, this page still quoting the revisions in force, and
+  compilation of the typed integration. It needs no network.
+- `make interop-locked` adds `--locked` resolution, proving the pins resolve
+  exactly as committed with no network access and no manifest edit.
 - `make test-interop` depends on the locked check, requires Linux and GCC, and
   runs the positive and fail-closed native H7 tests without an optional-skip
   path.
