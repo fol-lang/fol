@@ -545,7 +545,7 @@ fn unsupported_lowering_surfaces_report_explicit_boundary_messages() {
     use crate::types::{LoweredBuiltinType, LoweredTypeTable};
 
     let mut types = LoweredTypeTable::new();
-    let int_type = types.intern_builtin(LoweredBuiltinType::Int);
+    let int_type = types.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let mut routine =
         crate::LoweredRoutine::new(crate::LoweredRoutineId(0), "main", crate::LoweredBlockId(0));
     let entry = routine.blocks.push(crate::LoweredBlock {
@@ -735,7 +735,7 @@ fn indexed_assignment_lowers_its_value_against_the_element_type() {
         matches!(
             workspace.type_table().get(value_type),
             Some(crate::LoweredType::Builtin(
-                crate::LoweredBuiltinType::Float
+                crate::LoweredBuiltinType::Float(fol_types::FloatWidth::DEFAULT)
             ))
         ),
         "the value must take the element type, not the literal's default"

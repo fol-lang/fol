@@ -1,4 +1,5 @@
 use fol_parser::ast::AstNode;
+use fol_types::{FloatWidth, IntWidth};
 use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
@@ -12,8 +13,10 @@ pub struct CheckedTypeId(pub usize);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BuiltinType {
-    Int,
-    Float,
+    /// Integers keep the width and sign they were written with. `int` is
+    /// `Int(IntWidth::DEFAULT)`, which is `i64`.
+    Int(IntWidth),
+    Float(FloatWidth),
     Bool,
     Char,
     Str,
@@ -23,8 +26,8 @@ pub enum BuiltinType {
 impl BuiltinType {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Int => "int",
-            Self::Float => "flt",
+            Self::Int(width) => width.fol_spelling(),
+            Self::Float(width) => width.fol_spelling(),
             Self::Bool => "bol",
             Self::Char => "chr",
             Self::Str => "str",
@@ -32,7 +35,11 @@ impl BuiltinType {
         }
     }
 
-    pub const ALL_NAMES: &[&str] = &["int", "flt", "bol", "chr", "str", "never"];
+    /// Every spelling that names a builtin scalar, including the sized ones.
+    pub const ALL_NAMES: &[&str] = &[
+        "int", "flt", "bol", "chr", "str", "never", "i8", "i16", "i32", "i64", "i128", "arch",
+        "u8", "u16", "u32", "u64", "u128", "uarch", "f32", "f64",
+    ];
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -414,8 +421,8 @@ mod tests {
     fn type_table_interns_builtin_types_canonically() {
         let mut table = TypeTable::new();
 
-        let first = table.intern_builtin(BuiltinType::Int);
-        let second = table.intern_builtin(BuiltinType::Int);
+        let first = table.intern_builtin(BuiltinType::Int(fol_types::IntWidth::DEFAULT));
+        let second = table.intern_builtin(BuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let third = table.intern_builtin(BuiltinType::Str);
 
         assert_eq!(first, second);
@@ -423,7 +430,9 @@ mod tests {
         assert_eq!(table.len(), 2);
         assert_eq!(
             table.get(first),
-            Some(&CheckedType::Builtin(BuiltinType::Int))
+            Some(&CheckedType::Builtin(BuiltinType::Int(
+                fol_types::IntWidth::DEFAULT
+            )))
         );
         assert_eq!(
             table.get(third),
@@ -434,7 +443,7 @@ mod tests {
     #[test]
     fn type_table_canonicalizes_declared_and_structural_shapes() {
         let mut table = TypeTable::new();
-        let int_id = table.intern_builtin(BuiltinType::Int);
+        let int_id = table.intern_builtin(BuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let declared = table.intern(CheckedType::Declared {
             symbol: SymbolId(4),
             name: "Point".to_string(),
@@ -477,8 +486,14 @@ mod tests {
 
     #[test]
     fn builtin_type_as_str_matches_language_spelling() {
-        assert_eq!(BuiltinType::Int.as_str(), "int");
-        assert_eq!(BuiltinType::Float.as_str(), "flt");
+        assert_eq!(
+            BuiltinType::Int(fol_types::IntWidth::DEFAULT).as_str(),
+            "int"
+        );
+        assert_eq!(
+            BuiltinType::Float(fol_types::FloatWidth::DEFAULT).as_str(),
+            "flt"
+        );
         assert_eq!(BuiltinType::Bool.as_str(), "bol");
         assert_eq!(BuiltinType::Char.as_str(), "chr");
         assert_eq!(BuiltinType::Str.as_str(), "str");
@@ -496,7 +511,7 @@ mod tests {
     #[test]
     fn render_type_handles_builtins_and_containers() {
         let mut table = TypeTable::new();
-        let int_id = table.intern_builtin(BuiltinType::Int);
+        let int_id = table.intern_builtin(BuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let str_id = table.intern_builtin(BuiltinType::Str);
         let opt_id = table.intern(CheckedType::Optional { inner: int_id });
         let vec_id = table.intern(CheckedType::Vector {
@@ -516,7 +531,7 @@ mod tests {
     #[test]
     fn render_type_handles_routines() {
         let mut table = TypeTable::new();
-        let int_id = table.intern_builtin(BuiltinType::Int);
+        let int_id = table.intern_builtin(BuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let str_id = table.intern_builtin(BuiltinType::Str);
         let routine_id = table.intern(CheckedType::Routine(RoutineType {
             generic_params: Vec::new(),

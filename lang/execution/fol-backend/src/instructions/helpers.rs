@@ -320,8 +320,14 @@ pub fn render_type_default_expr_in_workspace(
     };
 
     match ty {
-        LoweredType::Builtin(LoweredBuiltinType::Int) => Ok("0_i64".to_string()),
-        LoweredType::Builtin(LoweredBuiltinType::Float) => Ok("0.0_f64".to_string()),
+        // The zero has to be spelled at the operand's own width, or rustc
+        // infers a different one and the assignment stops compiling.
+        LoweredType::Builtin(LoweredBuiltinType::Int(width)) => {
+            Ok(format!("0_{}", width.rust_primitive()))
+        }
+        LoweredType::Builtin(LoweredBuiltinType::Float(width)) => {
+            Ok(format!("0.0_{}", width.rust_primitive()))
+        }
         LoweredType::Builtin(LoweredBuiltinType::Bool) => Ok("false".to_string()),
         LoweredType::Builtin(LoweredBuiltinType::Char) => Ok("'\\0'".to_string()),
         LoweredType::Builtin(LoweredBuiltinType::Str) => {
@@ -547,7 +553,10 @@ pub fn render_operand(operand: &LoweredOperand) -> BackendResult<String> {
             BackendErrorKind::Unsupported,
             "unimplemented operand: Global",
         )),
-        LoweredOperand::Int(value) => Ok(format!("{value}_i64")),
+        // No suffix: the destination local is declared at the operand's own
+        // width, so rustc infers it. A fixed `_i64` here would contradict every
+        // width other than the default.
+        LoweredOperand::Int(value) => Ok(format!("{value}")),
         LoweredOperand::Float(bits) => Ok(format!("f64::from_bits({bits})")),
         LoweredOperand::Bool(value) => Ok(value.to_string()),
         LoweredOperand::Char(value) => Ok(format!("{value:?}")),

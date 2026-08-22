@@ -160,7 +160,7 @@ mod tests {
     fn terminator_rendering_emits_return_shells() {
         let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let mut routine = LoweredRoutine::new(LoweredRoutineId(2), "main", LoweredBlockId(0));
         let value = routine.locals.push(LoweredLocal {
             id: LoweredLocalId(0),
@@ -246,7 +246,7 @@ mod tests {
         let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
         let mut table = LoweredTypeTable::new();
         let bool_id = table.intern_builtin(LoweredBuiltinType::Bool);
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let str_id = table.intern_builtin(LoweredBuiltinType::Str);
         let mut routine = LoweredRoutine::new(LoweredRoutineId(5), "main", LoweredBlockId(0));
         routine.signature = Some(table.intern(LoweredType::Routine(
@@ -313,7 +313,7 @@ mod tests {
     fn recoverable_return_rendering_wraps_success_values_in_runtime_abi() {
         let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let str_id = table.intern_builtin(LoweredBuiltinType::Str);
         let signature_id = table.intern(LoweredType::Routine(fol_lower::LoweredRoutineType {
             params: vec![],

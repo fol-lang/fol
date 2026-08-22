@@ -2,10 +2,12 @@
 
 #[macro_use]
 pub mod r#mod;
+pub mod scalar;
 pub mod target;
 
 // Basic types
 pub use r#mod::*;
+pub use scalar::{FloatWidth, IntWidth};
 pub use target::{ResolveTargetError, ResolvedTarget};
 
 pub fn canonical_identifier_key(name: &str) -> String {

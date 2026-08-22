@@ -12,6 +12,7 @@ path = "src/lib.rs"
 fol-diagnostics = { path = "../fol-diagnostics" }
 fol-intrinsics = { path = "../fol-intrinsics" }
 fol-parser = { path = "../fol-parser" }
+fol-types = { path = "../fol-types" }
 fol-resolver = { path = "../fol-resolver" }
 fol-typecheck = { path = "../fol-typecheck" }
 stacker = "0.1.24"

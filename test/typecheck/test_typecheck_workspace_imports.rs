@@ -369,7 +369,9 @@ fn workspace_expression_typing_keeps_qualified_imported_value_and_call_types() {
                 .resolved_type
                 .expect("qualified imported value references should keep a resolved type"),
         ),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
     assert_eq!(
         typed.type_table().get(
@@ -377,7 +379,9 @@ fn workspace_expression_typing_keeps_qualified_imported_value_and_call_types() {
                 .resolved_type
                 .expect("qualified imported call references should keep a resolved type"),
         ),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -427,7 +431,9 @@ fn workspace_expression_typing_types_plain_imported_method_calls() {
             .typed_node(syntax_id)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -471,7 +477,9 @@ fn workspace_expression_typing_accepts_named_imported_method_calls() {
             .typed_node(syntax_id)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -515,7 +523,9 @@ fn workspace_expression_typing_accepts_imported_default_parameters_for_method_ca
             .typed_node(syntax_id)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -555,7 +565,9 @@ fn workspace_expression_typing_accepts_imported_variadic_free_calls() {
             .typed_node(syntax_id)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -596,7 +608,9 @@ fn workspace_expression_typing_accepts_imported_unpack_for_variadic_free_calls()
             .typed_node(syntax_id)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -637,7 +651,9 @@ fn workspace_expression_typing_accepts_named_imported_unpack_for_variadic_free_c
             .typed_node(syntax_id)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -681,7 +697,9 @@ fn workspace_expression_typing_accepts_imported_variadic_method_calls() {
             .typed_node(syntax_id)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -726,7 +744,9 @@ fn workspace_expression_typing_accepts_named_imported_unpack_for_variadic_method
             .typed_node(syntax_id)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -771,7 +791,9 @@ fn workspace_expression_typing_accepts_imported_unpack_for_variadic_method_calls
             .typed_node(syntax_id)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -811,7 +833,9 @@ fn workspace_expression_typing_accepts_imported_default_parameters_for_free_call
             .typed_node(syntax_id)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -992,7 +1016,9 @@ fn workspace_expression_typing_types_qualified_imported_method_calls() {
             .typed_node(syntax_id)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -1050,7 +1076,9 @@ fn workspace_expression_typing_selects_imported_method_overloads_by_record_recei
             .typed_node(counter_syntax_id)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
     assert_eq!(
         typed
@@ -1102,7 +1130,9 @@ fn workspace_expression_typing_expands_imported_alias_record_shells_for_field_ac
             .typed_node(syntax_id)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -1813,7 +1843,9 @@ fn declaration_signature_lowering_checks_local_bindings() {
         typed
             .type_table()
             .get(local.declared_type.expect("local binding should lower")),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -1849,7 +1881,9 @@ fn declaration_signature_lowering_checks_nested_routine_signatures() {
                 .return_type
                 .expect("nested routine return should lower")
         ),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 

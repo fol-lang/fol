@@ -7,6 +7,7 @@ use fol_lower::{
     LoweredTypeTable, LoweredVariantLayout, LoweredWorkspace,
 };
 use fol_resolver::PackageIdentity;
+use fol_types::{FloatWidth, IntWidth};
 
 pub fn render_rust_type(
     type_table: &LoweredTypeTable,
@@ -369,7 +370,7 @@ fn aggregate_derives(
             workspace,
             type_table,
             type_id,
-            &|ty| matches!(ty, LoweredType::Builtin(LoweredBuiltinType::Float)),
+            &|ty| matches!(ty, LoweredType::Builtin(LoweredBuiltinType::Float(_))),
             &mut std::collections::BTreeSet::new(),
         ) {
             has_float = true;
@@ -770,8 +771,12 @@ fn render_entry_field_match_arm(
 
 fn render_builtin_type(builtin: LoweredBuiltinType) -> BackendResult<&'static str> {
     match builtin {
-        LoweredBuiltinType::Int => Ok("rt::FolInt"),
-        LoweredBuiltinType::Float => Ok("rt::FolFloat"),
+        // The default widths keep their runtime aliases so existing emitted
+        // code is unchanged; every other width names the Rust primitive it is.
+        LoweredBuiltinType::Int(IntWidth::DEFAULT) => Ok("rt::FolInt"),
+        LoweredBuiltinType::Int(width) => Ok(width.rust_primitive()),
+        LoweredBuiltinType::Float(FloatWidth::DEFAULT) => Ok("rt::FolFloat"),
+        LoweredBuiltinType::Float(width) => Ok(width.rust_primitive()),
         LoweredBuiltinType::Bool => Ok("rt::FolBool"),
         LoweredBuiltinType::Char => Ok("rt::FolChar"),
         LoweredBuiltinType::Never => Ok("rt::FolNever"),
@@ -798,8 +803,9 @@ mod tests {
     #[test]
     fn builtin_scalar_type_rendering_uses_backend_owned_runtime_aliases() {
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
-        let float_id = table.intern_builtin(LoweredBuiltinType::Float);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
+        let float_id =
+            table.intern_builtin(LoweredBuiltinType::Float(fol_types::FloatWidth::DEFAULT));
         let bool_id = table.intern_builtin(LoweredBuiltinType::Bool);
         let char_id = table.intern_builtin(LoweredBuiltinType::Char);
         let never_id = table.intern_builtin(LoweredBuiltinType::Never);
@@ -829,7 +835,7 @@ mod tests {
     #[test]
     fn runtime_backed_type_rendering_covers_current_v1_families() {
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let str_id = table.intern_builtin(LoweredBuiltinType::Str);
         let array_id = table.intern(LoweredType::Array {
             element_type: int_id,
@@ -983,7 +989,7 @@ mod tests {
     #[test]
     fn record_with_a_routine_field_hand_writes_default_and_skips_routine_echo() {
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let str_id = table.intern_builtin(LoweredBuiltinType::Str);
         let fn_id = table.intern(LoweredType::Routine(LoweredRoutineType {
             params: vec![int_id],
@@ -1041,7 +1047,7 @@ mod tests {
     #[test]
     fn entry_definition_rendering_emits_backend_authored_enum_shapes() {
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let str_id = table.intern_builtin(LoweredBuiltinType::Str);
         let entry_id = table.intern(LoweredType::Entry {
             variants: std::collections::BTreeMap::from([
@@ -1088,7 +1094,7 @@ mod tests {
     #[test]
     fn entry_trait_impl_rendering_emits_runtime_fol_entry_contract() {
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let str_id = table.intern_builtin(LoweredBuiltinType::Str);
         let entry_id = table.intern(LoweredType::Entry {
             variants: std::collections::BTreeMap::from([
@@ -1142,7 +1148,7 @@ mod tests {
     fn combined_type_emission_snapshot_stays_stable_for_current_v1_shapes() {
         let mut table = LoweredTypeTable::new();
         let bool_id = table.intern_builtin(LoweredBuiltinType::Bool);
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let str_id = table.intern_builtin(LoweredBuiltinType::Str);
         let record_id = table.intern(LoweredType::Record {
             fields: std::collections::BTreeMap::from([
@@ -1250,7 +1256,7 @@ mod tests {
     #[test]
     fn v1_boundary_types_produce_explicit_rejection_messages() {
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
 
         let unsized_array_id = table.intern(LoweredType::Array {
             element_type: int_id,
@@ -1277,7 +1283,7 @@ mod tests {
     #[test]
     fn routine_type_rendering_emits_function_pointer_syntax() {
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let str_id = table.intern_builtin(LoweredBuiltinType::Str);
         let bool_id = table.intern_builtin(LoweredBuiltinType::Bool);
 

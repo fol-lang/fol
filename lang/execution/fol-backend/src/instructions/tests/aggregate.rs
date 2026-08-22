@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 fn aggregate_and_container_rendering_emits_native_array_literals() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let array_id = table.intern(fol_lower::LoweredType::Array {
         element_type: int_id,
         size: Some(2),
@@ -59,7 +59,7 @@ fn aggregate_and_container_rendering_emits_native_array_literals() {
 fn aggregate_and_container_rendering_emits_vector_and_sequence_runtime_constructors() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let vec_id = table.intern(fol_lower::LoweredType::Vector {
         element_type: int_id,
     });
@@ -125,7 +125,7 @@ fn aggregate_and_container_rendering_emits_vector_and_sequence_runtime_construct
 fn aggregate_and_container_rendering_emits_set_and_map_runtime_constructors() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let set_id = table.intern(fol_lower::LoweredType::Set {
         member_types: vec![int_id],
     });
@@ -190,7 +190,7 @@ fn aggregate_and_container_rendering_emits_set_and_map_runtime_constructors() {
 fn aggregate_constructors_move_unique_elements_and_values() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let pointer_id = table.intern(LoweredType::Pointer {
         target: int_id,
         shared: false,
@@ -268,7 +268,7 @@ fn aggregate_constructors_move_unique_elements_and_values() {
 fn aggregate_and_container_rendering_emits_runtime_index_helpers() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let array_id = table.intern(fol_lower::LoweredType::Array {
         element_type: int_id,
         size: Some(2),
@@ -433,7 +433,7 @@ fn aggregate_and_container_rendering_emits_runtime_index_helpers() {
 fn slice_rendering_rejects_move_only_results_before_clone_emission() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let unique_pointer = table.intern(LoweredType::Pointer {
         target: int_id,
         shared: false,
@@ -525,7 +525,7 @@ fn aggregate_and_container_rendering_emits_record_and_entry_constructors() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
     let bool_id = table.intern_builtin(LoweredBuiltinType::Bool);
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let record_type = table.intern(LoweredType::Record {
         fields: BTreeMap::from([("count".to_string(), int_id)]),
         finalized: false,
@@ -644,7 +644,7 @@ fn aggregate_and_container_rendering_emits_record_and_entry_constructors() {
 fn aggregate_and_container_snapshot_stays_stable() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let array_id = table.intern(fol_lower::LoweredType::Array {
         element_type: int_id,
         size: Some(2),
@@ -793,7 +793,7 @@ fn aggregate_and_container_snapshot_stays_stable() {
 #[test]
 fn cast_instruction_rendering_emits_native_rust_cast_expression() {
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut routine = LoweredRoutine::new(LoweredRoutineId(21), "main", LoweredBlockId(0));
     let local_id = routine.locals.push(LoweredLocal {

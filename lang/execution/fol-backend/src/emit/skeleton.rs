@@ -514,7 +514,7 @@ fn resolve_entry_callable(
         returns_int: signature.return_type.is_some_and(|return_type| {
             matches!(
                 session.workspace().type_table().get(return_type),
-                Some(LoweredType::Builtin(LoweredBuiltinType::Int))
+                Some(LoweredType::Builtin(LoweredBuiltinType::Int(_)))
             )
         }),
     })
@@ -555,12 +555,18 @@ fn render_entry_arg_expr(
     // A command line that does not satisfy the entry signature is a usage
     // error, never a silent default.
     let expr = match ty {
-        LoweredType::Builtin(LoweredBuiltinType::Int) => {
-            render_parsed_entry_arg(index, "int", "raw.parse::<rt::FolInt>().ok()")
-        }
-        LoweredType::Builtin(LoweredBuiltinType::Float) => {
-            render_parsed_entry_arg(index, "flt", "raw.parse::<rt::FolFloat>().ok()")
-        }
+        // A CLI argument is parsed at the declared width, so an out-of-range
+        // argument is rejected by the parse rather than silently truncated.
+        LoweredType::Builtin(LoweredBuiltinType::Int(width)) => render_parsed_entry_arg(
+            index,
+            width.fol_spelling(),
+            &format!("raw.parse::<{}>().ok()", width.rust_primitive()),
+        ),
+        LoweredType::Builtin(LoweredBuiltinType::Float(width)) => render_parsed_entry_arg(
+            index,
+            width.fol_spelling(),
+            &format!("raw.parse::<{}>().ok()", width.rust_primitive()),
+        ),
         LoweredType::Builtin(LoweredBuiltinType::Bool) => {
             render_parsed_entry_arg(index, "bol", "__fol_parse_bool(&raw)")
         }

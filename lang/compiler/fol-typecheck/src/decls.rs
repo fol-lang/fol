@@ -2841,8 +2841,20 @@ fn lower_type_inner(
     typ: &FolType,
 ) -> Result<CheckedTypeId, TypecheckError> {
     match typ {
-        FolType::Int { .. } => Ok(typed.builtin_types().int),
-        FolType::Float { .. } => Ok(typed.builtin_types().float),
+        // The parser already read the width and the sign; keep them. Dropping
+        // them here is what made every sized spelling a synonym for `i64`.
+        FolType::Int { size, signed } => {
+            let width = crate::exprs::helpers::int_width_of(size.as_ref(), *signed);
+            Ok(typed
+                .type_table_mut()
+                .intern_builtin(crate::BuiltinType::Int(width)))
+        }
+        FolType::Float { size } => {
+            let width = crate::exprs::helpers::float_width_of(size.as_ref());
+            Ok(typed
+                .type_table_mut()
+                .intern_builtin(crate::BuiltinType::Float(width)))
+        }
         FolType::Bool => Ok(typed.builtin_types().bool_),
         FolType::Char { .. } => Ok(typed.builtin_types().char_),
         typ if typ.is_builtin_str() => {
@@ -3810,7 +3822,7 @@ pub(crate) fn checked_type_blocks_ordering(
         checked_type_blocks_ordering(typed, inner, visited)
     };
     match checked {
-        CheckedType::Builtin(crate::BuiltinType::Float) => true,
+        CheckedType::Builtin(crate::BuiltinType::Float(_)) => true,
         CheckedType::Pointer { weak: true, .. } => true,
         CheckedType::Pointer { target, .. } => blocks(target, visited),
         CheckedType::Owned { inner }

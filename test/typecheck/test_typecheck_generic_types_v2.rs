@@ -18,7 +18,9 @@ fn generic_record_instantiations_typecheck_with_field_access() {
             .typed_node(main)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -41,7 +43,9 @@ fn generic_alias_instantiations_typecheck_through_nested_generic_uses() {
             .typed_node(main)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -63,7 +67,9 @@ fn nested_generic_record_instantiations_typecheck_through_field_access() {
             .typed_node(main)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -91,8 +97,9 @@ fn imported_generic_type_instantiations_typecheck_with_field_access() {
         ],
     );
 
-    let typed = typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
-        .expect("imported generic type fixture should typecheck");
+    let typed =
+        typecheck_fixture_workspace_entry_with_config(&root, "app", ResolverConfig::default())
+            .expect("imported generic type fixture should typecheck");
 
     let main = find_named_routine_syntax_id(&typed, "main");
     assert_eq!(
@@ -100,7 +107,9 @@ fn imported_generic_type_instantiations_typecheck_with_field_access() {
             .typed_node(main)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -116,12 +125,15 @@ fn generic_type_instantiations_reject_arity_mismatches() {
          };\n",
     )]);
 
-    assert!(errors.iter().any(|error| {
-        error.kind() == TypecheckErrorKind::InvalidInput
-            && error
-                .message()
-                .contains("generic type 'Box' expects 1 type argument(s) but got 2")
-    }), "Expected generic type arity mismatch to fail locally, got: {errors:?}");
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::InvalidInput
+                && error
+                    .message()
+                    .contains("generic type 'Box' expects 1 type argument(s) but got 2")
+        }),
+        "Expected generic type arity mismatch to fail locally, got: {errors:?}"
+    );
 }
 
 #[test]
@@ -133,11 +145,14 @@ fn generic_type_instantiations_reject_recursive_self_reference_boundary() {
          };\n",
     )]);
 
-    assert!(errors.iter().any(|error| {
-        error.kind() == TypecheckErrorKind::Unsupported
-            && error.message().contains("recursive value type 'Node'")
-            && error.message().contains("opt @Node")
-    }), "Expected recursive generic type definition boundary to stay explicit, got: {errors:?}");
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::Unsupported
+                && error.message().contains("recursive value type 'Node'")
+                && error.message().contains("opt @Node")
+        }),
+        "Expected recursive generic type definition boundary to stay explicit, got: {errors:?}"
+    );
 }
 
 #[test]
@@ -167,7 +182,9 @@ fn generic_type_instantiations_accept_protocol_constraints() {
             .typed_node(main)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -194,12 +211,15 @@ fn generic_type_constraints_fire_on_imported_constraint() {
         ),
     ]);
 
-    assert!(errors.iter().any(|error| {
-        error.kind() == TypecheckErrorKind::IncompatibleType
-            && error
-                .message()
-                .contains("requires type 'Plain' to satisfy standard 'geo'")
-    }), "imported constraint on generic type should still fire: {errors:?}");
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::IncompatibleType
+                && error
+                    .message()
+                    .contains("requires type 'Plain' to satisfy standard 'geo'")
+        }),
+        "imported constraint on generic type should still fire: {errors:?}"
+    );
 }
 
 #[test]
@@ -220,12 +240,15 @@ fn generic_type_constraints_fire_on_nested_instantiation() {
          };\n",
     )]);
 
-    assert!(errors.iter().any(|error| {
-        error.kind() == TypecheckErrorKind::IncompatibleType
-            && error
-                .message()
-                .contains("requires type 'Plain' to satisfy standard 'geo'")
-    }), "nested generic type constraint failure should surface: {errors:?}");
+    assert!(
+        errors.iter().any(|error| {
+            error.kind() == TypecheckErrorKind::IncompatibleType
+                && error
+                    .message()
+                    .contains("requires type 'Plain' to satisfy standard 'geo'")
+        }),
+        "nested generic type constraint failure should surface: {errors:?}"
+    );
 }
 
 #[test]
@@ -276,6 +299,8 @@ fn generic_type_aliases_instantiate_through_their_target() {
             .typed_node(main)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }

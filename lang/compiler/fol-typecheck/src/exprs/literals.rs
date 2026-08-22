@@ -17,8 +17,33 @@ pub(crate) fn type_literal(
     expected_type: Option<CheckedTypeId>,
 ) -> Result<CheckedTypeId, TypecheckError> {
     Ok(match literal {
-        Literal::Integer(_) => typed.builtin_types().int,
-        Literal::Float(_) => typed.builtin_types().float,
+        // A literal adopts the width it is being stored at, and a constant that
+        // does not fit is rejected here rather than silently truncated
+        // (`plan/V4_SCALAR_WIDTHS.md`). Without the target it is plain `int`.
+        Literal::Integer(value) => match expected_int_width(typed, expected_type) {
+            Some(width) if width.accepts_constant(i128::from(*value)) => typed
+                .type_table_mut()
+                .intern_builtin(crate::BuiltinType::Int(width)),
+            Some(width) => {
+                let (low, high) = width.constant_range();
+                return Err(with_node_origin(
+                    resolved,
+                    node,
+                    TypecheckErrorKind::IncompatibleType,
+                    format!(
+                        "the literal {value} does not fit '{}', whose values run {low} to {high}",
+                        width.fol_spelling()
+                    ),
+                ));
+            }
+            None => typed.builtin_types().int,
+        },
+        Literal::Float(_) => match expected_float_width(typed, expected_type) {
+            Some(width) => typed
+                .type_table_mut()
+                .intern_builtin(crate::BuiltinType::Float(width)),
+            None => typed.builtin_types().float,
+        },
         Literal::String(_) => {
             reject_heap_backed_literal_in_core(typed, resolved, node, "string literals")?;
             typed.builtin_types().str_
@@ -826,4 +851,32 @@ pub(crate) fn type_literal_simple(
             }
         }
     })
+}
+
+/// The integer width a literal is being stored at, if the context names one.
+/// Looks through aliases so `ali Byte: u8` narrows a literal the same way `u8`
+/// does.
+fn expected_int_width(
+    typed: &TypedProgram,
+    expected_type: Option<CheckedTypeId>,
+) -> Option<fol_types::IntWidth> {
+    let expected = expected_type?;
+    let apparent = apparent_type_id(typed, expected).ok()?;
+    match typed.type_table().get(apparent) {
+        Some(CheckedType::Builtin(crate::BuiltinType::Int(width))) => Some(*width),
+        _ => None,
+    }
+}
+
+/// The float width a literal is being stored at, if the context names one.
+fn expected_float_width(
+    typed: &TypedProgram,
+    expected_type: Option<CheckedTypeId>,
+) -> Option<fol_types::FloatWidth> {
+    let expected = expected_type?;
+    let apparent = apparent_type_id(typed, expected).ok()?;
+    match typed.type_table().get(apparent) {
+        Some(CheckedType::Builtin(crate::BuiltinType::Float(width))) => Some(*width),
+        _ => None,
+    }
 }

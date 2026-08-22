@@ -3056,7 +3056,9 @@ mod tests {
         let int_type = type_literal_simple(&mut typed, &Literal::Integer(1), None).unwrap();
         assert_eq!(
             typed.type_table().get(int_type),
-            Some(&crate::CheckedType::Builtin(BuiltinType::Int))
+            Some(&crate::CheckedType::Builtin(BuiltinType::Int(
+                fol_types::IntWidth::DEFAULT
+            )))
         );
         let str_type =
             type_literal_simple(&mut typed, &Literal::String("ok".to_string()), None).unwrap();

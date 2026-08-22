@@ -59,7 +59,9 @@ fn declaration_lowering_maps_top_level_routine_signatures_to_lowered_types() {
         LoweredType::Routine(signature) => {
             assert_eq!(
                 lowered_workspace.type_table().get(signature.params[0]),
-                Some(&LoweredType::Builtin(LoweredBuiltinType::Int))
+                Some(&LoweredType::Builtin(LoweredBuiltinType::Int(
+                    fol_types::IntWidth::DEFAULT
+                )))
             );
             assert_eq!(
                 signature
@@ -285,7 +287,9 @@ fn declaration_lowering_records_aliases_as_erased_runtime_shapes() {
     assert_eq!(alias_decl.name, "Counter");
     assert_eq!(
         lowered_workspace.type_table().get(alias_decl.runtime_type),
-        Some(&LoweredType::Builtin(LoweredBuiltinType::Int))
+        Some(&LoweredType::Builtin(LoweredBuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
     assert_eq!(
         alias_decl.kind,
@@ -341,12 +345,12 @@ fn declaration_lowering_records_explicit_record_field_layouts() {
                 LoweredFieldLayout {
                     name: "x".to_string(),
                     type_id: lowered_workspace.entry_package().checked_type_map
-                        [&fol_typecheck::CheckedTypeId(0)],
+                        [&typed_package.program.builtin_types().int],
                 },
                 LoweredFieldLayout {
                     name: "y".to_string(),
                     type_id: lowered_workspace.entry_package().checked_type_map
-                        [&fol_typecheck::CheckedTypeId(4)],
+                        [&typed_package.program.builtin_types().str_],
                 },
             ],
         }
@@ -358,12 +362,12 @@ fn declaration_lowering_records_explicit_record_field_layouts() {
                 (
                     "x".to_string(),
                     lowered_workspace.entry_package().checked_type_map
-                        [&fol_typecheck::CheckedTypeId(0)],
+                        [&typed_package.program.builtin_types().int],
                 ),
                 (
                     "y".to_string(),
                     lowered_workspace.entry_package().checked_type_map
-                        [&fol_typecheck::CheckedTypeId(4)],
+                        [&typed_package.program.builtin_types().str_],
                 ),
             ]),
             finalized: false,
@@ -418,14 +422,14 @@ fn declaration_lowering_records_explicit_entry_variant_layouts() {
                     name: "Err".to_string(),
                     payload_type: Some(
                         lowered_workspace.entry_package().checked_type_map
-                            [&fol_typecheck::CheckedTypeId(4)],
+                            [&typed_package.program.builtin_types().str_],
                     ),
                 },
                 LoweredVariantLayout {
                     name: "Ok".to_string(),
                     payload_type: Some(
                         lowered_workspace.entry_package().checked_type_map
-                            [&fol_typecheck::CheckedTypeId(0)],
+                            [&typed_package.program.builtin_types().int],
                     ),
                 },
             ],
@@ -439,14 +443,14 @@ fn declaration_lowering_records_explicit_entry_variant_layouts() {
                     "Err".to_string(),
                     Some(
                         lowered_workspace.entry_package().checked_type_map
-                            [&fol_typecheck::CheckedTypeId(4)],
+                            [&typed_package.program.builtin_types().str_],
                     ),
                 ),
                 (
                     "Ok".to_string(),
                     Some(
                         lowered_workspace.entry_package().checked_type_map
-                            [&fol_typecheck::CheckedTypeId(0)],
+                            [&typed_package.program.builtin_types().int],
                     ),
                 ),
             ]),
@@ -515,7 +519,7 @@ fn declaration_lowering_synthesizes_runtime_decls_for_instantiated_generic_recor
             fields: std::collections::BTreeMap::from([(
                 "value".to_string(),
                 lowered_workspace.entry_package().checked_type_map
-                    [&fol_typecheck::CheckedTypeId(0)],
+                    [&typed_package.program.builtin_types().int],
             )]),
             finalized: false,
             nominal: None,
@@ -624,7 +628,9 @@ fn declaration_lowering_records_top_level_globals_with_storage_types() {
     assert!(globals[0].mutable);
     assert_eq!(
         lowered_workspace.type_table().get(globals[0].type_id),
-        Some(&LoweredType::Builtin(LoweredBuiltinType::Int))
+        Some(&LoweredType::Builtin(LoweredBuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
     assert_eq!(globals[1].name, "label");
     assert!(!globals[1].mutable);

@@ -127,7 +127,9 @@ fn pipe_or_typing_accepts_default_value_fallbacks() {
             .typed_node(syntax_id)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -581,7 +583,9 @@ fn when_result_typing_accepts_matching_branch_values() {
             .typed_node(syntax_id)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -627,7 +631,9 @@ fn loop_typing_infers_iteration_binder_types_and_checks_bool_guards() {
             item.declared_type
                 .expect("loop binder should infer an element type")
         ),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -688,7 +694,9 @@ fn control_never_typing_allows_panic_and_skips_unreachable_tails() {
             .typed_node(syntax_id)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -710,7 +718,9 @@ fn control_never_typing_treats_report_branches_as_early_exits() {
             .typed_node(syntax_id)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -745,19 +755,19 @@ fn container_literal_typing_accepts_array_vector_and_sequence_contexts() {
                 Some(CheckedType::Array { element_type, .. })
                     if expected_label == "Array"
                         && typed.type_table().get(*element_type)
-                            == Some(&CheckedType::Builtin(BuiltinType::Int))
+                            == Some(&CheckedType::Builtin(BuiltinType::Int(fol_types::IntWidth::DEFAULT)))
             ) || matches!(
                 inferred,
                 Some(CheckedType::Vector { element_type })
                     if expected_label == "Vector"
                         && typed.type_table().get(*element_type)
-                            == Some(&CheckedType::Builtin(BuiltinType::Int))
+                            == Some(&CheckedType::Builtin(BuiltinType::Int(fol_types::IntWidth::DEFAULT)))
             ) || matches!(
                 inferred,
                 Some(CheckedType::Sequence { element_type })
                     if expected_label == "Sequence"
                         && typed.type_table().get(*element_type)
-                            == Some(&CheckedType::Builtin(BuiltinType::Int))
+                            == Some(&CheckedType::Builtin(BuiltinType::Int(fol_types::IntWidth::DEFAULT)))
             ),
             "Expected {name} to keep a {expected_label} container type, got {inferred:?}"
         );
@@ -824,7 +834,9 @@ fn container_literal_typing_accepts_set_and_map_contexts() {
             .typed_node(lookup)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -926,7 +938,9 @@ fn record_initializer_typing_accepts_named_binding_and_call_argument_contexts() 
             .typed_node(syntax_id)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -1097,7 +1111,9 @@ fn workspace_record_initializer_typing_accepts_imported_named_record_contexts() 
             .typed_node(syntax_id)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -1226,6 +1242,8 @@ fn entry_declaration_accepts_payload_free_and_valued_variants() {
             .typed_node(syntax_id)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }

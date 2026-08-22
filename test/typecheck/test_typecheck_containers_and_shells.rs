@@ -186,7 +186,9 @@ fn shell_typing_accepts_optional_and_error_payload_lifting() {
             .typed_node(fail_syntax)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -299,7 +301,10 @@ fn operator_typing_accepts_v1_scalar_operator_families() {
     )]);
 
     for (name, expected) in [
-        ("math", CheckedType::Builtin(BuiltinType::Int)),
+        (
+            "math",
+            CheckedType::Builtin(BuiltinType::Int(fol_types::IntWidth::DEFAULT)),
+        ),
         ("text", CheckedType::Builtin(BuiltinType::Str)),
         ("compare", CheckedType::Builtin(BuiltinType::Bool)),
         ("invert", CheckedType::Builtin(BuiltinType::Bool)),
@@ -557,7 +562,9 @@ fn intrinsic_query_typing_accepts_len_for_v1_length_queries() {
                 .typed_node(syntax_id)
                 .and_then(|node| node.inferred_type)
                 .and_then(|type_id| typed.type_table().get(type_id)),
-            Some(&CheckedType::Builtin(BuiltinType::Int)),
+            Some(&CheckedType::Builtin(BuiltinType::Int(
+                fol_types::IntWidth::DEFAULT
+            ))),
             "Expected {name} to lower to int through .len(...)",
         );
     }
@@ -632,7 +639,9 @@ fn intrinsic_query_typing_covers_full_v1_length_family_matrix() {
                 .typed_node(syntax_id)
                 .and_then(|node| node.inferred_type)
                 .and_then(|type_id| typed.type_table().get(type_id)),
-            Some(&CheckedType::Builtin(BuiltinType::Int)),
+            Some(&CheckedType::Builtin(BuiltinType::Int(
+                fol_types::IntWidth::DEFAULT
+            ))),
             "Expected {name} to lower to int through .len(...)",
         );
     }
@@ -660,7 +669,9 @@ fn core_model_keeps_array_length_queries_available() {
             .typed_node(syntax_id)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int)),
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        ))),
         "Expected array .len(...) to remain available in 'fol_model = core'",
     );
 }
@@ -691,7 +702,9 @@ fn mem_model_accepts_dynamic_length_queries() {
                 .typed_node(syntax_id)
                 .and_then(|node| node.inferred_type)
                 .and_then(|type_id| typed.type_table().get(type_id)),
-            Some(&CheckedType::Builtin(BuiltinType::Int)),
+            Some(&CheckedType::Builtin(BuiltinType::Int(
+                fol_types::IntWidth::DEFAULT
+            ))),
             "Expected {name} to retain dynamic .len(...) support in 'fol_model = memo'",
         );
     }
@@ -741,7 +754,9 @@ fn intrinsic_query_typing_distinguishes_implemented_and_deferred_families() {
             .typed_node(count_syntax_id)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int)),
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        ))),
         "Expected .len(...) to remain the implemented V1 query intrinsic",
     );
 
@@ -787,7 +802,10 @@ fn intrinsic_diagnostic_typing_accepts_echo_as_a_value_preserving_tap() {
 
     for (name, expected) in [
         ("log_flag", CheckedType::Builtin(BuiltinType::Bool)),
-        ("log_count", CheckedType::Builtin(BuiltinType::Int)),
+        (
+            "log_count",
+            CheckedType::Builtin(BuiltinType::Int(fol_types::IntWidth::DEFAULT)),
+        ),
     ] {
         let syntax_id = find_named_routine_syntax_id(&typed, name);
         assert_eq!(

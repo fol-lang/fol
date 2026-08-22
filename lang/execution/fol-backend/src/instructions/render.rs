@@ -1678,7 +1678,9 @@ fn operand_is_float(
         .is_some_and(|type_id| {
             matches!(
                 type_table.get(type_id),
-                Some(LoweredType::Builtin(fol_lower::LoweredBuiltinType::Float))
+                Some(LoweredType::Builtin(fol_lower::LoweredBuiltinType::Float(
+                    _
+                )))
             )
         })
 }

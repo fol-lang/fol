@@ -890,7 +890,9 @@ fn standards_m2_default_protocol_implementation_dispatches_at_call_site() {
             .typed_node(main)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int)),
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        ))),
         "calling a default-inherited routine should type through method resolution"
     );
 }

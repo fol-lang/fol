@@ -228,7 +228,7 @@ fn verifier_rejects_runtime_hooks_with_results_and_helper_without_results() {
     let identity = identity("app");
     let mut type_table = LoweredTypeTable::new();
     let bool_type = type_table.intern_builtin(LoweredBuiltinType::Bool);
-    let int_type = type_table.intern_builtin(LoweredBuiltinType::Int);
+    let int_type = type_table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let seq_type = type_table.intern(crate::types::LoweredType::Sequence {
         element_type: bool_type,
     });
@@ -363,7 +363,7 @@ fn verifier_rejects_reading_move_only_aggregates_out_of_borrows() {
     let identity = identity("app");
     let mut type_table = LoweredTypeTable::new();
     let bool_type = type_table.intern_builtin(LoweredBuiltinType::Bool);
-    let int_type = type_table.intern_builtin(LoweredBuiltinType::Int);
+    let int_type = type_table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let pointer_type = type_table.intern(crate::types::LoweredType::Pointer {
         target: int_type,
         shared: false,

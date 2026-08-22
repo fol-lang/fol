@@ -352,18 +352,21 @@ pub(crate) fn type_binary_op(
                 typed.type_table().get(left_apparent),
                 typed.type_table().get(right_apparent),
             ) {
+                // Widths never mix implicitly: both sides must already be the
+                // same width, and the result keeps it. Converting is the
+                // caller's job and is written down (V4_SCALAR_WIDTHS).
                 (
-                    Some(CheckedType::Builtin(crate::BuiltinType::Int)),
-                    Some(CheckedType::Builtin(crate::BuiltinType::Int)),
-                ) => {
-                    Ok(TypedExpr::value(typed.builtin_types().int)
-                        .with_optional_effect(merged_effect))
+                    Some(CheckedType::Builtin(crate::BuiltinType::Int(left_width))),
+                    Some(CheckedType::Builtin(crate::BuiltinType::Int(right_width))),
+                ) if left_width == right_width => {
+                    Ok(TypedExpr::value(left_apparent).with_optional_effect(merged_effect))
                 }
                 (
-                    Some(CheckedType::Builtin(crate::BuiltinType::Float)),
-                    Some(CheckedType::Builtin(crate::BuiltinType::Float)),
-                ) => Ok(TypedExpr::value(typed.builtin_types().float)
-                    .with_optional_effect(merged_effect)),
+                    Some(CheckedType::Builtin(crate::BuiltinType::Float(left_width))),
+                    Some(CheckedType::Builtin(crate::BuiltinType::Float(right_width))),
+                ) if left_width == right_width => {
+                    Ok(TypedExpr::value(left_apparent).with_optional_effect(merged_effect))
+                }
                 (
                     Some(CheckedType::Builtin(crate::BuiltinType::Str)),
                     Some(CheckedType::Builtin(crate::BuiltinType::Str)),
@@ -395,17 +398,16 @@ pub(crate) fn type_binary_op(
             typed.type_table().get(right_apparent),
         ) {
             (
-                Some(CheckedType::Builtin(crate::BuiltinType::Int)),
-                Some(CheckedType::Builtin(crate::BuiltinType::Int)),
-            ) => {
-                Ok(TypedExpr::value(typed.builtin_types().int).with_optional_effect(merged_effect))
+                Some(CheckedType::Builtin(crate::BuiltinType::Int(left_width))),
+                Some(CheckedType::Builtin(crate::BuiltinType::Int(right_width))),
+            ) if left_width == right_width => {
+                Ok(TypedExpr::value(left_apparent).with_optional_effect(merged_effect))
             }
             (
-                Some(CheckedType::Builtin(crate::BuiltinType::Float)),
-                Some(CheckedType::Builtin(crate::BuiltinType::Float)),
-            ) => {
-                Ok(TypedExpr::value(typed.builtin_types().float)
-                    .with_optional_effect(merged_effect))
+                Some(CheckedType::Builtin(crate::BuiltinType::Float(left_width))),
+                Some(CheckedType::Builtin(crate::BuiltinType::Float(right_width))),
+            ) if left_width == right_width => {
+                Ok(TypedExpr::value(left_apparent).with_optional_effect(merged_effect))
             }
             _ => Err(invalid_binary_operator_error(
                 typed, op, left_type, right_type,
@@ -1291,14 +1293,15 @@ pub(crate) fn type_unary_op(
 
     match op {
         UnaryOperator::Neg => match typed.type_table().get(apparent) {
-            Some(CheckedType::Builtin(crate::BuiltinType::Int)) => {
-                Ok(TypedExpr::value(typed.builtin_types().int)
-                    .with_optional_effect(operand_expr.recoverable_effect))
-            }
-            Some(CheckedType::Builtin(crate::BuiltinType::Float)) => {
-                Ok(TypedExpr::value(typed.builtin_types().float)
-                    .with_optional_effect(operand_expr.recoverable_effect))
-            }
+            // Negation keeps the operand's width. An unsigned width has no
+            // negative values, so negating one is refused rather than wrapped.
+            Some(CheckedType::Builtin(crate::BuiltinType::Int(width))) if width.is_signed() => Ok(
+                TypedExpr::value(apparent).with_optional_effect(operand_expr.recoverable_effect),
+            ),
+            Some(CheckedType::Builtin(crate::BuiltinType::Float(_))) => Ok(TypedExpr::value(
+                apparent,
+            )
+            .with_optional_effect(operand_expr.recoverable_effect)),
             _ => Err(invalid_unary_operator_error(typed, op, operand_type)),
         },
         UnaryOperator::Not => {

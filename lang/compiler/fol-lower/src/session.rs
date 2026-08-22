@@ -613,8 +613,8 @@ fn translate_checked_type(
 
 fn lower_builtin(builtin: BuiltinType) -> LoweredBuiltinType {
     match builtin {
-        BuiltinType::Int => LoweredBuiltinType::Int,
-        BuiltinType::Float => LoweredBuiltinType::Float,
+        BuiltinType::Int(width) => LoweredBuiltinType::Int(width),
+        BuiltinType::Float(width) => LoweredBuiltinType::Float(width),
         BuiltinType::Bool => LoweredBuiltinType::Bool,
         BuiltinType::Char => LoweredBuiltinType::Char,
         BuiltinType::Str => LoweredBuiltinType::Str,
@@ -676,6 +676,9 @@ mod tests {
             .check_resolved_workspace(resolved)
             .expect("Lowering fixture should typecheck");
 
+        // Capture the int id before the typed workspace is moved: the builtin
+        // table interns one type per width, so slot 0 is no longer `int`.
+        let int_checked = typed.entry_package().program.builtin_types().int;
         let lowered = LoweringSession::new(typed)
             .lower_workspace()
             .expect("Lowering shell should now translate workspace shells");
@@ -692,11 +695,11 @@ mod tests {
                 .get(
                     *entry
                         .checked_type_map
-                        .get(&fol_typecheck::CheckedTypeId(0))
+                        .get(&int_checked)
                         .expect("int builtin should translate")
                 )
                 .expect("lowered builtin type should exist"),
-            &LoweredType::Builtin(LoweredBuiltinType::Int)
+            &LoweredType::Builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT))
         );
     }
 

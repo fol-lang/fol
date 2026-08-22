@@ -594,8 +594,24 @@ fn lower_expression_observed_inner(
     let lowered = match node {
         AstNode::Literal(Literal::Nil) => lower_nil_literal(type_table, cursor, expected_type),
         AstNode::Literal(literal) => {
-            let type_id =
-                literal_type_id(typed_package, checked_type_map, literal).ok_or_else(|| {
+            // A numeric literal takes the width it is being stored at, the same
+            // rule typecheck applied. `AstNode::Literal` carries no syntax id,
+            // so the expected type is the only channel that reaches here — and
+            // it is the one typecheck used too.
+            let narrowed = match literal {
+                Literal::Integer(_) | Literal::Float(_) => expected_type.filter(|expected| {
+                    matches!(
+                        type_table.get(*expected),
+                        Some(crate::LoweredType::Builtin(
+                            crate::LoweredBuiltinType::Int(_) | crate::LoweredBuiltinType::Float(_)
+                        ))
+                    )
+                }),
+                _ => None,
+            };
+            let type_id = narrowed
+                .or_else(|| literal_type_id(typed_package, checked_type_map, literal))
+                .ok_or_else(|| {
                     LoweringError::with_kind(
                         LoweringErrorKind::InvalidInput,
                         "literal expression does not retain a lowering-owned type",

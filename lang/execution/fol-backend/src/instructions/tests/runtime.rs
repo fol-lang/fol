@@ -11,7 +11,7 @@ use fol_resolver::PackageSourceKind;
 fn runtime_shaped_instruction_rendering_emits_length_via_runtime_prelude() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let mut routine = LoweredRoutine::new(LoweredRoutineId(7), "main", LoweredBlockId(0));
     let source = routine.locals.push(LoweredLocal {
         id: LoweredLocalId(0),
@@ -42,7 +42,7 @@ fn runtime_shaped_instruction_rendering_emits_length_via_runtime_prelude() {
 fn length_observation_dereferences_owned_container_storage() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let vec_id = table.intern(LoweredType::Vector {
         element_type: int_id,
     });
@@ -76,7 +76,7 @@ fn length_observation_dereferences_owned_container_storage() {
 fn borrowed_value_reads_clone_through_the_reference() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let borrowed_id = table.intern(LoweredType::Borrowed {
         inner: int_id,
         mutable: false,
@@ -111,7 +111,7 @@ fn borrowed_value_reads_clone_through_the_reference() {
 fn runtime_shaped_instruction_rendering_emits_echo_via_runtime_hook() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let mut routine = LoweredRoutine::new(LoweredRoutineId(8), "main", LoweredBlockId(0));
     let value = routine.locals.push(LoweredLocal {
         id: LoweredLocalId(0),
@@ -145,7 +145,7 @@ fn runtime_shaped_instruction_rendering_emits_echo_via_runtime_hook() {
 fn runtime_shaped_echo_moves_a_unique_value() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let pointer_id = table.intern(fol_lower::LoweredType::Pointer {
         target: int_id,
         shared: false,
@@ -216,7 +216,7 @@ fn runtime_shaped_instruction_rendering_emits_check_recoverable_via_runtime_help
 fn runtime_shaped_instruction_rendering_emits_unwrap_recoverable_success_lane() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let mut routine = LoweredRoutine::new(LoweredRoutineId(10), "main", LoweredBlockId(0));
     let source = routine.locals.push(LoweredLocal {
         id: LoweredLocalId(0),
@@ -277,7 +277,7 @@ fn runtime_shaped_instruction_rendering_emits_recoverable_error_extraction() {
 fn runtime_shaped_instruction_rendering_emits_optional_shell_construction() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let optional_id = table.intern(fol_lower::LoweredType::Optional { inner: int_id });
     let mut routine = LoweredRoutine::new(LoweredRoutineId(12), "main", LoweredBlockId(0));
     let payload = routine.locals.push(LoweredLocal {
@@ -331,7 +331,7 @@ fn runtime_shaped_instruction_rendering_emits_optional_shell_construction() {
 fn runtime_shaped_instruction_rendering_emits_error_shell_construction() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let error_id = table.intern(fol_lower::LoweredType::Error {
         inner: Some(int_id),
     });
@@ -368,7 +368,7 @@ fn runtime_shaped_instruction_rendering_emits_error_shell_construction() {
 fn runtime_shaped_error_shell_moves_a_unique_payload() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let pointer_id = table.intern(fol_lower::LoweredType::Pointer {
         target: int_id,
         shared: false,
@@ -411,7 +411,7 @@ fn runtime_shaped_error_shell_moves_a_unique_payload() {
 fn runtime_shaped_instruction_rendering_emits_shell_unwraps_for_optional_and_error_values() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let optional_id = table.intern(fol_lower::LoweredType::Optional { inner: int_id });
     let error_id = table.intern(fol_lower::LoweredType::Error {
         inner: Some(int_id),
@@ -499,7 +499,7 @@ fn runtime_shaped_instruction_rendering_emits_shell_unwraps_for_optional_and_err
 fn runtime_shaped_instruction_snapshot_stays_stable() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let bool_id = table.intern_builtin(LoweredBuiltinType::Bool);
     let optional_id = table.intern(fol_lower::LoweredType::Optional { inner: int_id });
     let error_id = table.intern(fol_lower::LoweredType::Error {

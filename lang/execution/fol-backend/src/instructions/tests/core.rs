@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 fn core_instruction_rendering_covers_constants_and_local_global_storage_shapes() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let mut routine = LoweredRoutine::new(LoweredRoutineId(0), "main", LoweredBlockId(0));
     let result_local = routine.locals.push(LoweredLocal {
         id: LoweredLocalId(0),
@@ -57,7 +57,9 @@ fn core_instruction_rendering_covers_constants_and_local_global_storage_shapes()
     let store_local_rendered =
         render_core_instruction(&package_identity, &table, &routine, &store_local).expect("store");
 
-    assert!(const_rendered.contains("l__pkg__entry__app__r0__l0__value = 7_i64;"));
+    // The constant carries no suffix: its destination local is declared at
+    // the operand.s own width, so rustc infers it (V4_SCALAR_WIDTHS).
+    assert!(const_rendered.contains("l__pkg__entry__app__r0__l0__value = 7;"));
     assert!(load_local_rendered.contains(
         "l__pkg__entry__app__r0__l1__other = l__pkg__entry__app__r0__l0__value.clone();"
     ));
@@ -73,7 +75,7 @@ fn core_instruction_rendering_covers_constants_and_local_global_storage_shapes()
 fn core_loads_take_move_only_slots_for_later_reinitialization() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let pointer_id = table.intern(LoweredType::Pointer {
         target: int_id,
         shared: false,
@@ -109,7 +111,7 @@ fn core_loads_take_move_only_slots_for_later_reinitialization() {
 fn consuming_pointer_deref_moves_pointee_and_replaces_owner() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let inner_pointer_id = table.intern(LoweredType::Pointer {
         target: int_id,
         shared: false,
@@ -154,7 +156,7 @@ fn consuming_pointer_deref_moves_pointee_and_replaces_owner() {
 fn borrowed_pointer_deref_reads_through_both_indirections() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let pointer_id = table.intern(LoweredType::Pointer {
         target: int_id,
         shared: false,
@@ -197,7 +199,7 @@ fn borrowed_pointer_deref_reads_through_both_indirections() {
 fn core_loads_clone_mutex_handles_with_move_only_inner_values() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let pointer_id = table.intern(LoweredType::Pointer {
         target: int_id,
         shared: false,
@@ -235,7 +237,7 @@ fn core_loads_clone_mutex_handles_with_move_only_inner_values() {
 fn core_loads_read_guard_bindings_through_the_held_lock() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let mut routine = LoweredRoutine::new(LoweredRoutineId(0), "peek", LoweredBlockId(0));
     let source = routine.locals.push(LoweredLocal {
         id: LoweredLocalId(0),
@@ -269,7 +271,7 @@ fn core_loads_read_guard_bindings_through_the_held_lock() {
 fn core_instruction_rendering_emits_plain_routine_calls_for_non_recoverable_sites() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let bool_id = table.intern_builtin(LoweredBuiltinType::Bool);
     let mut routine = LoweredRoutine::new(LoweredRoutineId(3), "main", LoweredBlockId(0));
     let arg_local = routine.locals.push(LoweredLocal {
@@ -332,7 +334,7 @@ fn core_instruction_rendering_emits_plain_routine_calls_for_non_recoverable_site
 fn mutex_wrapping_preserves_move_only_argument_transfer() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let bool_id = table.intern_builtin(LoweredBuiltinType::Bool);
     let pointer_id = table.intern(LoweredType::Pointer {
         target: int_id,
@@ -418,7 +420,7 @@ fn mutex_wrapping_preserves_move_only_argument_transfer() {
 fn core_instruction_rendering_emits_record_field_accesses_as_native_member_reads() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let mut routine = LoweredRoutine::new(LoweredRoutineId(4), "main", LoweredBlockId(0));
     let base_local = routine.locals.push(LoweredLocal {
         id: LoweredLocalId(0),
@@ -452,7 +454,7 @@ fn core_instruction_rendering_emits_record_field_accesses_as_native_member_reads
 fn core_instruction_rendering_takes_unique_record_fields() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let pointer_id = table.intern(LoweredType::Pointer {
         target: int_id,
         shared: false,
@@ -492,7 +494,7 @@ fn core_instruction_rendering_takes_unique_record_fields() {
 fn core_instruction_rendering_rejects_unique_fields_from_borrowed_bases() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let pointer_id = table.intern(LoweredType::Pointer {
         target: int_id,
         shared: false,
@@ -534,7 +536,7 @@ fn core_instruction_rendering_rejects_unique_fields_from_borrowed_bases() {
 fn core_instruction_rendering_emits_scalar_intrinsics_as_native_rust_ops() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let bool_id = table.intern_builtin(LoweredBuiltinType::Bool);
     let mut routine = LoweredRoutine::new(LoweredRoutineId(5), "main", LoweredBlockId(0));
     let lhs = routine.locals.push(LoweredLocal {
@@ -598,7 +600,7 @@ fn core_instruction_rendering_emits_scalar_intrinsics_as_native_rust_ops() {
 fn workspace_global_rendering_uses_fol_default_initializers_for_mutable_globals() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let mut routine = LoweredRoutine::new(LoweredRoutineId(15), "main", LoweredBlockId(0));
     let value_local = routine.locals.push(LoweredLocal {
         id: LoweredLocalId(0),
@@ -683,7 +685,7 @@ fn workspace_global_rendering_uses_fol_default_initializers_for_mutable_globals(
 fn field_stores_move_unique_values_and_global_storage_rejects_them() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let owned_id = table.intern(LoweredType::Owned { inner: int_id });
     let unique_pointer_id = table.intern(LoweredType::Pointer {
         target: int_id,
@@ -795,7 +797,7 @@ fn field_stores_move_unique_values_and_global_storage_rejects_them() {
 fn combined_core_instruction_snapshot_stays_stable() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let bool_id = table.intern_builtin(LoweredBuiltinType::Bool);
     let mut routine = LoweredRoutine::new(LoweredRoutineId(6), "main", LoweredBlockId(0));
     let lhs = routine.locals.push(LoweredLocal {
@@ -915,7 +917,7 @@ fn combined_core_instruction_snapshot_stays_stable() {
     assert_eq!(
         rendered,
         concat!(
-            "l__pkg__entry__app__r6__l3__tmp = 7_i64;\n",
+            "l__pkg__entry__app__r6__l3__tmp = 7;\n",
             "l__pkg__entry__app__r6__l0__lhs = l__pkg__entry__app__r6__l3__tmp.clone();\n",
             "l__pkg__entry__app__r6__l1__rhs = l__pkg__entry__app__r6__l0__lhs.clone();\n",
             "l__pkg__entry__app__r6__l3__tmp = crate::packages::pkg__entry__app::root::r__pkg__entry__app__r8__callee(l__pkg__entry__app__r6__l0__lhs.clone(), l__pkg__entry__app__r6__l1__rhs.clone());\n",
@@ -930,7 +932,7 @@ fn combined_core_instruction_snapshot_stays_stable() {
 fn core_instruction_rendering_emits_routine_ref_as_fn_pointer_cast() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let bool_id = table.intern_builtin(LoweredBuiltinType::Bool);
     let fn_sig = table.intern(fol_lower::LoweredType::Routine(
         fol_lower::LoweredRoutineType {
@@ -1019,7 +1021,7 @@ fn core_instruction_rendering_emits_routine_ref_as_fn_pointer_cast() {
 fn core_instruction_rendering_emits_call_indirect_with_callee_local() {
     let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
     let mut table = LoweredTypeTable::new();
-    let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+    let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let fn_sig = table.intern(fol_lower::LoweredType::Routine(
         fol_lower::LoweredRoutineType {
             params: vec![int_id],

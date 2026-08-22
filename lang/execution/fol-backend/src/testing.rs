@@ -24,7 +24,7 @@ pub(crate) fn sample_lowered_workspace_named(entry_name: &str) -> LoweredWorkspa
     let shared_identity = package_identity("shared", PackageSourceKind::Local, "/workspace/shared");
 
     let mut type_table = LoweredTypeTable::new();
-    let int_type = type_table.intern_builtin(LoweredBuiltinType::Int);
+    let int_type = type_table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let bool_type = type_table.intern_builtin(LoweredBuiltinType::Bool);
     let str_type = type_table.intern_builtin(LoweredBuiltinType::Str);
 

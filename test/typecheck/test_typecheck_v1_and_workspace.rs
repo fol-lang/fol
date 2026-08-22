@@ -274,7 +274,9 @@ fn literal_family_policy_accepts_matching_integer_and_float_sites() {
                 .declared_type
                 .expect("int literal binding should lower")
         ),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
     assert_eq!(
         typed.type_table().get(
@@ -282,21 +284,27 @@ fn literal_family_policy_accepts_matching_integer_and_float_sites() {
                 .declared_type
                 .expect("float literal binding should lower")
         ),
-        Some(&CheckedType::Builtin(BuiltinType::Float))
+        Some(&CheckedType::Builtin(BuiltinType::Float(
+            fol_types::FloatWidth::DEFAULT
+        )))
     );
     assert_eq!(
         typed
             .typed_node(good_int)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
     assert_eq!(
         typed
             .typed_node(good_float)
             .and_then(|node| node.inferred_type)
             .and_then(|type_id| typed.type_table().get(type_id)),
-        Some(&CheckedType::Builtin(BuiltinType::Float))
+        Some(&CheckedType::Builtin(BuiltinType::Float(
+            fol_types::FloatWidth::DEFAULT
+        )))
     );
 }
 
@@ -643,7 +651,9 @@ fn workspace_typechecking_imports_mounted_value_and_routine_types_from_foreign_p
                 .declared_type
                 .expect("mounted imported values should keep translated types")
         ),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 
     let (_bump_id, bump) = find_typed_symbol(entry, "bump", SymbolKind::Routine);
@@ -875,7 +885,9 @@ fn workspace_expression_typing_keeps_plain_imported_value_reference_types() {
                 .resolved_type
                 .expect("imported value references should keep a resolved type"),
         ),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -913,7 +925,9 @@ fn workspace_expression_typing_keeps_plain_imported_call_types() {
                 .resolved_type
                 .expect("imported call references should keep a resolved type"),
         ),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 }
 
@@ -961,7 +975,9 @@ fn workspace_typechecking_imports_alias_record_and_entry_type_facts() {
                 .declared_type
                 .expect("imported aliases should keep lowered semantic types"),
         ),
-        Some(&CheckedType::Builtin(BuiltinType::Int))
+        Some(&CheckedType::Builtin(BuiltinType::Int(
+            fol_types::IntWidth::DEFAULT
+        )))
     );
 
     let point_fields = BTreeMap::from([
@@ -1293,7 +1309,9 @@ fn workspace_expression_typing_keeps_plain_imported_value_types_in_bindings_retu
                     .resolved_type
                     .expect("imported value references should keep a resolved type"),
             ),
-            Some(&CheckedType::Builtin(BuiltinType::Int))
+            Some(&CheckedType::Builtin(BuiltinType::Int(
+                fol_types::IntWidth::DEFAULT
+            )))
         );
     }
 }

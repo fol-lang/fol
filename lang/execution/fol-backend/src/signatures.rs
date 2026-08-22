@@ -692,7 +692,7 @@ mod tests {
     #[test]
     fn global_declaration_rendering_emits_lazy_shells_for_mutable_and_immutable_globals() {
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let package_identity = package_identity("app", PackageSourceKind::Entry, "/workspace/app");
         let immutable = LoweredGlobal {
             id: LoweredGlobalId(0),
@@ -761,7 +761,7 @@ mod tests {
     #[test]
     fn routine_signature_rendering_covers_plain_and_receiver_qualified_routines() {
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let bool_id = table.intern_builtin(LoweredBuiltinType::Bool);
         let signature_id = table.intern(LoweredType::Routine(LoweredRoutineType {
             params: vec![bool_id],
@@ -812,7 +812,7 @@ mod tests {
     #[test]
     fn routine_signatures_make_move_only_parameters_replaceable() {
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let pointer_id = table.intern(LoweredType::Pointer {
             target: int_id,
             shared: false,
@@ -843,7 +843,7 @@ mod tests {
     #[test]
     fn routine_signature_rendering_wraps_recoverable_returns_in_runtime_abi() {
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let str_id = table.intern_builtin(LoweredBuiltinType::Str);
         let signature_id = table.intern(LoweredType::Routine(LoweredRoutineType {
             params: vec![],
@@ -865,7 +865,7 @@ mod tests {
     #[test]
     fn routine_shell_rendering_adds_non_param_locals_as_backend_frame_slots() {
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let bool_id = table.intern_builtin(LoweredBuiltinType::Bool);
         let signature_id = table.intern(LoweredType::Routine(LoweredRoutineType {
             params: vec![bool_id],
@@ -905,7 +905,7 @@ mod tests {
     #[test]
     fn combined_global_and_routine_signature_snapshot_stays_stable() {
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let bool_id = table.intern_builtin(LoweredBuiltinType::Bool);
         let str_id = table.intern_builtin(LoweredBuiltinType::Str);
         let signature_id = table.intern(LoweredType::Routine(LoweredRoutineType {
@@ -960,7 +960,7 @@ mod tests {
     #[test]
     fn routine_shell_rendering_emits_unreachable_stub_for_function_pointer_locals() {
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let fn_type_id = table.intern(LoweredType::Routine(LoweredRoutineType {
             params: vec![int_id],
             return_type: Some(int_id),
@@ -992,7 +992,7 @@ mod tests {
     #[test]
     fn routine_shell_rendering_builds_routine_bearing_aggregates_without_default() {
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let fn_type_id = table.intern(LoweredType::Routine(LoweredRoutineType {
             params: vec![int_id],
             return_type: Some(int_id),

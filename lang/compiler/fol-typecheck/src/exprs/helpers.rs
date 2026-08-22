@@ -4,6 +4,7 @@ use crate::{
 };
 use fol_parser::ast::{AstNode, SyntaxNodeId, SyntaxOrigin};
 use fol_resolver::{ReferenceKind, ResolvedProgram, ScopeId, SourceUnitId, SymbolId, SymbolKind};
+use fol_types::{FloatWidth, IntWidth};
 use std::collections::BTreeSet;
 
 use super::{ErrorCallMode, TypeContext, TypedExpr};
@@ -1263,8 +1264,8 @@ pub(crate) fn is_equality_type(typed: &TypedProgram, type_id: CheckedTypeId) -> 
     }
     matches!(
         typed.type_table().get(type_id),
-        Some(CheckedType::Builtin(crate::BuiltinType::Int))
-            | Some(CheckedType::Builtin(crate::BuiltinType::Float))
+        Some(CheckedType::Builtin(crate::BuiltinType::Int(_)))
+            | Some(CheckedType::Builtin(crate::BuiltinType::Float(_)))
             | Some(CheckedType::Builtin(crate::BuiltinType::Bool))
             | Some(CheckedType::Builtin(crate::BuiltinType::Char))
             | Some(CheckedType::Builtin(crate::BuiltinType::Str))
@@ -1288,8 +1289,8 @@ pub(crate) fn is_ordered_type(typed: &TypedProgram, type_id: CheckedTypeId) -> b
     }
     matches!(
         typed.type_table().get(type_id),
-        Some(CheckedType::Builtin(crate::BuiltinType::Int))
-            | Some(CheckedType::Builtin(crate::BuiltinType::Float))
+        Some(CheckedType::Builtin(crate::BuiltinType::Int(_)))
+            | Some(CheckedType::Builtin(crate::BuiltinType::Float(_)))
             | Some(CheckedType::Builtin(crate::BuiltinType::Char))
             | Some(CheckedType::Builtin(crate::BuiltinType::Str))
     )
@@ -2000,5 +2001,38 @@ pub(crate) fn unsupported_node_surface(
         TypecheckError::with_origin(TypecheckErrorKind::Unsupported, message, origin)
     } else {
         TypecheckError::new(TypecheckErrorKind::Unsupported, message)
+    }
+}
+
+/// The canonical width for a parsed integer type. An unsized `int` is the
+/// default width, which is `i64`; every other spelling keeps exactly what it
+/// was written as (`plan/V4_SCALAR_WIDTHS.md`).
+pub(crate) fn int_width_of(size: Option<&fol_parser::ast::IntSize>, signed: bool) -> IntWidth {
+    use fol_parser::ast::IntSize;
+    match (size, signed) {
+        (None, _) => IntWidth::DEFAULT,
+        (Some(IntSize::I8), true) => IntWidth::I8,
+        (Some(IntSize::I16), true) => IntWidth::I16,
+        (Some(IntSize::I32), true) => IntWidth::I32,
+        (Some(IntSize::I64), true) => IntWidth::I64,
+        (Some(IntSize::I128), true) => IntWidth::I128,
+        (Some(IntSize::Arch), true) => IntWidth::Arch,
+        (Some(IntSize::I8), false) => IntWidth::U8,
+        (Some(IntSize::I16), false) => IntWidth::U16,
+        (Some(IntSize::I32), false) => IntWidth::U32,
+        (Some(IntSize::I64), false) => IntWidth::U64,
+        (Some(IntSize::I128), false) => IntWidth::U128,
+        (Some(IntSize::Arch), false) => IntWidth::UArch,
+    }
+}
+
+/// The canonical width for a parsed float type; an unsized `flt` is `f64`.
+pub(crate) fn float_width_of(size: Option<&fol_parser::ast::FloatSize>) -> FloatWidth {
+    use fol_parser::ast::FloatSize;
+    match size {
+        None => FloatWidth::DEFAULT,
+        Some(FloatSize::F32) => FloatWidth::F32,
+        Some(FloatSize::F64) => FloatWidth::F64,
+        Some(FloatSize::Arch) => FloatWidth::Arch,
     }
 }

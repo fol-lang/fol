@@ -1,11 +1,14 @@
 use crate::ids::LoweredTypeId;
 use fol_resolver::{PackageIdentity, SymbolId};
+use fol_types::{FloatWidth, IntWidth};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LoweredBuiltinType {
-    Int,
-    Float,
+    /// Width and sign survive lowering unchanged; codegen needs them to emit
+    /// the right Rust primitive (`plan/V4_SCALAR_WIDTHS.md`).
+    Int(IntWidth),
+    Float(FloatWidth),
     Bool,
     Char,
     Str,
@@ -175,8 +178,12 @@ impl LoweredTypeTable {
         };
         match self.get(type_id) {
             Some(LoweredType::Builtin(builtin)) => match builtin {
-                LoweredBuiltinType::Int => "int".to_string(),
-                LoweredBuiltinType::Float => "flt".to_string(),
+                LoweredBuiltinType::Int(width) if *width == IntWidth::DEFAULT => "int".to_string(),
+                LoweredBuiltinType::Int(width) => width.as_str().to_string(),
+                LoweredBuiltinType::Float(width) if *width == FloatWidth::DEFAULT => {
+                    "flt".to_string()
+                }
+                LoweredBuiltinType::Float(width) => width.as_str().to_string(),
                 LoweredBuiltinType::Bool => "bol".to_string(),
                 LoweredBuiltinType::Char => "chr".to_string(),
                 LoweredBuiltinType::Str => "str".to_string(),
@@ -753,8 +760,8 @@ mod tests {
     fn lowered_type_table_interns_builtin_shapes_canonically() {
         let mut table = LoweredTypeTable::new();
 
-        let first = table.intern_builtin(LoweredBuiltinType::Int);
-        let second = table.intern_builtin(LoweredBuiltinType::Int);
+        let first = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
+        let second = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let third = table.intern_builtin(LoweredBuiltinType::Str);
 
         assert_eq!(first, second);
@@ -765,7 +772,7 @@ mod tests {
     #[test]
     fn lowered_type_table_canonicalizes_structural_shapes() {
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
 
         let mut fields = BTreeMap::new();
         fields.insert("x".to_string(), int_id);
@@ -802,7 +809,7 @@ mod tests {
     #[test]
     fn aggregate_transfer_is_move_only_when_a_field_is_unique() {
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let unique = table.intern(LoweredType::Pointer {
             target: int_id,
             shared: false,
@@ -842,7 +849,7 @@ mod tests {
             name: "T".to_string(),
         });
         let optional_generic = table.intern(LoweredType::Optional { inner: generic });
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
 
         assert!(table.moves_on_transfer(generic));
         assert!(table.moves_on_transfer(optional_generic));
@@ -852,7 +859,7 @@ mod tests {
     #[test]
     fn global_storage_hazards_are_detected_transitively() {
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let borrowed = table.intern(LoweredType::Borrowed {
             inner: int_id,
             mutable: false,
@@ -886,7 +893,7 @@ mod render_type_tests {
     #[test]
     fn renders_builtins_and_containers_in_fol_spelling() {
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let str_id = table.intern_builtin(LoweredBuiltinType::Str);
         assert_eq!(table.render_type(int_id), "int");
         assert_eq!(table.render_type(str_id), "str");
@@ -908,7 +915,7 @@ mod render_type_tests {
     #[test]
     fn renders_arrays_with_their_declared_length() {
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let sized = table.intern(LoweredType::Array {
             element_type: int_id,
             size: Some(8),
@@ -926,7 +933,7 @@ mod render_type_tests {
     #[test]
     fn nominal_records_render_the_declared_name_without_the_package_path() {
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let record = table.intern(LoweredType::Record {
             fields: BTreeMap::from([("x".to_string(), int_id)]),
             finalized: false,
@@ -938,7 +945,7 @@ mod render_type_tests {
     #[test]
     fn structural_records_render_their_fields() {
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let record = table.intern(LoweredType::Record {
             fields: BTreeMap::from([("x".to_string(), int_id)]),
             finalized: false,
@@ -950,7 +957,7 @@ mod render_type_tests {
     #[test]
     fn entries_prefer_a_noted_declared_name_over_their_variants() {
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let entry = table.intern(LoweredType::Entry {
             variants: BTreeMap::from([("DARK".to_string(), Some(int_id))]),
         });
@@ -967,7 +974,7 @@ mod render_type_tests {
     #[test]
     fn renders_loans_and_pointers_distinctly() {
         let mut table = LoweredTypeTable::new();
-        let int_id = table.intern_builtin(LoweredBuiltinType::Int);
+        let int_id = table.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
         let shared = table.intern(LoweredType::Borrowed {
             inner: int_id,
             mutable: false,

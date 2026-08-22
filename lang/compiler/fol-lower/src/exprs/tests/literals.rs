@@ -17,8 +17,9 @@ use std::collections::BTreeMap;
 #[test]
 fn literal_lowering_emits_constant_instructions_into_the_current_block() {
     let mut types = LoweredTypeTable::new();
-    let int_type = types.intern_builtin(LoweredBuiltinType::Int);
-    let float_type = types.intern_builtin(LoweredBuiltinType::Float);
+    let int_type = types.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
+    let float_type =
+        types.intern_builtin(LoweredBuiltinType::Float(fol_types::FloatWidth::DEFAULT));
     let str_type = types.intern_builtin(LoweredBuiltinType::Str);
 
     let mut routine =
@@ -714,7 +715,7 @@ fn parser_typecheck_and_lower_keep_same_canonical_intrinsic_identity() {
 #[test]
 fn nil_literal_lowering_stays_deferred_to_shell_lowering() {
     let mut types = LoweredTypeTable::new();
-    let int_type = types.intern_builtin(LoweredBuiltinType::Int);
+    let int_type = types.intern_builtin(LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT));
     let mut routine =
         LoweredRoutine::new(crate::LoweredRoutineId(0), "main", crate::LoweredBlockId(0));
     let entry = routine.blocks.push(LoweredBlock {

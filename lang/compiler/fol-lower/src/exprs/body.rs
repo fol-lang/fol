@@ -772,7 +772,9 @@ pub(crate) fn lower_body_node(
                 single => vec![single],
             };
             let int_type = type_table
-                .find(&crate::LoweredType::Builtin(crate::LoweredBuiltinType::Int))
+                .find(&crate::LoweredType::Builtin(
+                    crate::LoweredBuiltinType::Int(fol_types::IntWidth::DEFAULT),
+                ))
                 .ok_or_else(|| {
                     LoweringError::with_kind(
                         LoweringErrorKind::InvalidInput,

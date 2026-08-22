@@ -246,6 +246,7 @@ dependencies = [
  "fol-stream",
  "fol-testkit",
  "fol-typecheck",
+ "fol-types",
  "stacker",
 ]
 
@@ -321,6 +322,7 @@ dependencies = [
  "fol-resolver",
  "fol-stream",
  "fol-testkit",
+ "fol-types",
  "stacker",
 ]
 
