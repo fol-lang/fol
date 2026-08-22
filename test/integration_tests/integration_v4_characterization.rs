@@ -1,0 +1,311 @@
+//! Characterization tests for V4 milestone M0.
+//!
+//! These pin down behaviour that is currently lossy or untruthful, so that the
+//! milestone which fixes each one has to change a test rather than quietly
+//! change an outcome. A characterization test is not an endorsement: every
+//! assertion below records what the compiler does today, and each names the
+//! milestone that is expected to replace it.
+
+use super::*;
+
+fn strip_ansi(value: &str) -> String {
+    let mut stripped = String::with_capacity(value.len());
+    let mut chars = value.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' && matches!(chars.peek(), Some('[')) {
+            chars.next();
+            for next in chars.by_ref() {
+                if next.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+            continue;
+        }
+        stripped.push(ch);
+    }
+    stripped
+}
+
+fn store_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("lang/library")
+}
+
+/// A package whose graph declares one static library and no executable.
+fn library_only_package(fixture: &crate::fixture::TempFixture) -> PathBuf {
+    let root = fixture.path().join("libonly");
+    std::fs::create_dir_all(root.join("src")).expect("package tree should be creatable");
+    std::fs::write(
+        root.join("build.fol"),
+        r#"pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "libonly", version = "0.1.0", kind = "lib",
+        description = "library-only graph, no executable",
+        license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+    var lib = graph.add_static_lib({
+        name = "libonly", root = "src/lib.fol", fol_model = "memo",
+        target = target, optimize = optimize,
+    });
+    graph.install(lib);
+    return;
+};
+"#,
+    )
+    .expect("build.fol should be writable");
+    std::fs::write(
+        root.join("src/lib.fol"),
+        "fun[] add(a: int, b: int): int = {\n    return a + b;\n};\n",
+    )
+    .expect("lib.fol should be writable");
+    root
+}
+
+/// A library-only graph does not report a binary success, which is the outcome
+/// M1 is written to prevent. What it reports instead is that `build` is not a
+/// defined step -- correct as far as it goes, and silent about the fact that
+/// building a library is unimplemented rather than unrequested.
+#[test]
+fn library_only_graph_reports_a_missing_step_not_a_binary_success() {
+    let fixture = unique_temp_root("v4_library_only_build");
+    let package = library_only_package(&fixture);
+
+    let output = run_fol_in_dir(
+        &package,
+        &[
+            "code",
+            "build",
+            "--package-store-root",
+            store_root().to_str().expect("store root should be utf-8"),
+        ],
+    );
+    let text = strip_ansi(&format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    ));
+
+    assert!(
+        !output.status.success(),
+        "a library-only graph must not report success for `build`; got:\n{text}"
+    );
+    assert!(
+        text.contains("does not define step 'build'"),
+        "expected the missing-step diagnostic, got:\n{text}"
+    );
+    // The failure is framed as an absent step rather than as an unsupported
+    // artifact kind. M1 replaces this with a precise not-yet-supported error
+    // that names the library.
+    assert!(
+        !text.contains("static library") && !text.contains("not yet supported"),
+        "the diagnostic already names the real cause; convert this test at M1:\n{text}"
+    );
+}
+
+/// The missing-step diagnostic advertises `install` as an available step, and
+/// `fol code` has no `install` subcommand. The only route a library-only
+/// package is offered cannot be taken.
+#[test]
+fn advertised_install_step_has_no_subcommand_to_run_it() {
+    let fixture = unique_temp_root("v4_library_only_install");
+    let package = library_only_package(&fixture);
+    let store = store_root();
+    let store = store.to_str().expect("store root should be utf-8");
+
+    let advertised = run_fol_in_dir(&package, &["code", "build", "--package-store-root", store]);
+    let advertised_text = strip_ansi(&String::from_utf8_lossy(&advertised.stderr));
+    assert!(
+        advertised_text.contains("install"),
+        "expected the diagnostic to list `install` among known steps, got:\n{advertised_text}"
+    );
+
+    let attempted = run_fol_in_dir(
+        &package,
+        &["code", "install", "--package-store-root", store],
+    );
+    let attempted_text = strip_ansi(&String::from_utf8_lossy(&attempted.stderr));
+    assert!(
+        !attempted.status.success(),
+        "`fol code install` unexpectedly ran; the advertised step became real"
+    );
+    assert!(
+        attempted_text.contains("unknown code subcommand: install"),
+        "expected the subcommand to be rejected outright, got:\n{attempted_text}"
+    );
+}
+
+/// `check` succeeds on a library-only package, so the graph itself is sound and
+/// only the build route is missing. This is what makes the two tests above a
+/// routing defect rather than a compilation one.
+#[test]
+fn library_only_graph_typechecks_even_though_it_cannot_be_built() {
+    let fixture = unique_temp_root("v4_library_only_check");
+    let package = library_only_package(&fixture);
+
+    let output = run_fol_in_dir(
+        &package,
+        &[
+            "code",
+            "check",
+            "--package-store-root",
+            store_root().to_str().expect("store root should be utf-8"),
+        ],
+    );
+
+    assert!(
+        output.status.success(),
+        "a library-only graph should typecheck; got:\n{}",
+        strip_ansi(&String::from_utf8_lossy(&output.stderr))
+    );
+}
+
+/// Two artifacts may declare the same public name. Nothing rejects it, and the
+/// evaluator's name map keeps only the last one, so `install`/`add_run` by name
+/// silently resolve to whichever was declared later while both artifacts remain
+/// in the graph under distinct positional IDs. M1's deterministic plan identity
+/// has to make this either an error or a distinction that survives.
+#[test]
+fn two_artifacts_may_share_one_public_name_without_diagnosis() {
+    let fixture = unique_temp_root("v4_same_named_artifacts");
+    let root = fixture.path().join("duped");
+    std::fs::create_dir_all(root.join("src")).expect("package tree should be creatable");
+    std::fs::write(
+        root.join("build.fol"),
+        r#"pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "duped", version = "0.1.0", kind = "exe",
+        description = "two artifacts share one public name",
+        license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+    var first = graph.add_exe({
+        name = "duped", root = "src/main.fol", fol_model = "memo",
+        target = target, optimize = optimize,
+    });
+    var second = graph.add_exe({
+        name = "duped", root = "src/main.fol", fol_model = "memo",
+        target = target, optimize = optimize,
+    });
+    graph.install(first);
+    graph.add_run(second);
+    return;
+};
+"#,
+    )
+    .expect("build.fol should be writable");
+    std::fs::write(
+        root.join("src/main.fol"),
+        "use std: pkg = {\"std\"};\n\nfun[] main(): non = {\n    std::io::echo_str(\"FIRST\");\n    return;\n};\n",
+    )
+    .expect("main.fol should be writable");
+
+    let output = run_fol_in_dir(
+        &root,
+        &[
+            "code",
+            "run",
+            "--package-store-root",
+            store_root().to_str().expect("store root should be utf-8"),
+        ],
+    );
+    let text = strip_ansi(&format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    ));
+
+    assert!(
+        output.status.success(),
+        "duplicate artifact names are accepted today; got:\n{text}"
+    );
+    assert!(
+        !text.contains("found 1 error") && !text.contains("conflicts with"),
+        "a same-name diagnostic appeared; convert this test at M1:\n{text}"
+    );
+}
+
+/// Workspace identity is a hash of the rendered lowered source and nothing
+/// else, so a debug build and a release build of the same package produce the
+/// same crate directory name. Only the output path keeps them apart, which
+/// makes profile a naming convention rather than part of identity. M1 folds
+/// kind, target, model, and profile into deterministic plan identity.
+#[test]
+fn workspace_identity_ignores_the_build_profile() {
+    let fixture = unique_temp_root("v4_identity_ignores_profile");
+    let root = fixture.path().join("profiled");
+    std::fs::create_dir_all(root.join("src")).expect("package tree should be creatable");
+    std::fs::write(
+        root.join("build.fol"),
+        r#"pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "profiled", version = "0.1.0", kind = "exe",
+        description = "one source, two profiles",
+        license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+    var app = graph.add_exe({
+        name = "profiled", root = "src/main.fol", fol_model = "memo",
+        target = target, optimize = optimize,
+    });
+    graph.install(app);
+    graph.add_run(app);
+    return;
+};
+"#,
+    )
+    .expect("build.fol should be writable");
+    std::fs::write(
+        root.join("src/main.fol"),
+        "use std: pkg = {\"std\"};\n\nfun[] main(): non = {\n    std::io::echo_str(\"ONE\");\n    return;\n};\n",
+    )
+    .expect("main.fol should be writable");
+
+    let store = store_root();
+    let store = store.to_str().expect("store root should be utf-8");
+    let mut identities = Vec::new();
+    for profile in ["--debug", "--release"] {
+        let output = run_fol_in_dir(
+            &root,
+            &["code", "build", profile, "--package-store-root", store],
+        );
+        let text = strip_ansi(&format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+        assert!(
+            output.status.success(),
+            "the {profile} build should succeed; got:\n{text}"
+        );
+        let name = text
+            .split_whitespace()
+            .find_map(|token| {
+                token
+                    .rsplit('/')
+                    .next()
+                    .filter(|candidate| candidate.starts_with("fol-build-profiled-"))
+                    .map(str::to_string)
+            })
+            .unwrap_or_else(|| {
+                panic!("no crate identity appeared in the {profile} output:\n{text}")
+            });
+        identities.push(name);
+    }
+
+    assert_eq!(
+        identities[0], identities[1],
+        "profile has become part of workspace identity; convert this test at M1"
+    );
+}

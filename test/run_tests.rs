@@ -522,6 +522,10 @@ mod integration_tests {
     mod diagnostics_pipeline;
 
     #[cfg(test)]
+    #[path = "integration_v4_characterization.rs"]
+    mod v4_characterization;
+
+    #[cfg(test)]
     mod language_facts {
         #[test]
         fn builtin_type_names_are_nonempty_and_unique() {

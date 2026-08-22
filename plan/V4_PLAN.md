@@ -1156,12 +1156,36 @@ Primary files:
 Tasks:
 
 - [ ] Re-run the truth snapshot and record changed symbols/files in this plan.
-- [ ] Lock positive regressions for hardening's fixed behavior: unknown targets
+- [x] Lock positive regressions for hardening's fixed behavior: unknown targets
   reject, backend `--target` is explicit, and object/model/optimization/library
   paths/link inputs survive graph projection.
-- [ ] Add characterization tests for the remaining lossy fields and routes:
+- [~] Add characterization tests for the remaining lossy fields and routes:
   include/generated inputs, end-to-end artifact/output/install plans,
   library/test routing, scalar/order facts, and ID-based public-name hazards.
+
+  Landed in `test/integration_tests/integration_v4_characterization.rs` and in
+  the `fol-build` graph tests, each recording behaviour rather than endorsing
+  it, and each naming the milestone that must replace it:
+
+  ```text
+  library/test routing    a library-only graph reports `build` as an undefined
+                          step, not a binary success; it advertises `install`,
+                          which `fol code` has no subcommand to run; the same
+                          graph typechecks clean
+  public-name hazards     two artifacts may share one public name through to a
+                          successful `run`; generated-file names are likewise
+                          not unique, and graph identity is the insertion index
+  output/plan identity    workspace identity hashes only the rendered lowered
+                          source, so debug and release yield the same crate
+                          directory name; profile survives as a path
+                          convention rather than as identity
+  ```
+
+  Not yet characterized, and still owed by this task: include inputs as
+  distinct from generated inputs, install-plan projection end to end, and the
+  order facts. Scalar facts became positive regressions instead, in
+  `fol-types/src/scalar.rs`, because the width work landed rather than being
+  deferred.
 - [ ] Freeze the exact `build.fol` spelling for ABI exports, C imports, native
   exact files, target-specific providers, and C-import safety/error
   annotations. Preserve H7's accepted `header`/`provider`/`provider_kind`
@@ -1178,7 +1202,7 @@ Tasks:
 - [ ] Freeze the platform tiers, required toolchain versions, and skip policy.
 - [ ] Freeze the safe-import rule: no general unsafe block, unsupported raw C
   declarations require an adapter.
-- [ ] Delete `cast` as a duplicate planned spelling and delete the
+- [x] Delete `cast` as a duplicate planned spelling and delete the
   `.de_alloc` placeholder; update diagnostics, intrinsics inventory, lexer,
   parser fixtures, tree-sitter grammar/queries/corpus, book, and examples in
   the same commit.

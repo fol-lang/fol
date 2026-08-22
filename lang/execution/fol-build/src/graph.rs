@@ -1269,4 +1269,44 @@ mod tests {
             BuildGraphValidationErrorKind::InvalidInstallTarget
         );
     }
+    // --- V4 M0 characterization ---------------------------------------
+    //
+    // Both tests below record hazards rather than guarantees. They exist so the
+    // milestone that fixes each one has to edit a test instead of silently
+    // changing behaviour.
+
+    /// Graph identity is the insertion index. Two generated files that declare
+    /// the same public name are both accepted and are distinguished only by
+    /// that index, so declaration order is part of the contract without ever
+    /// being stated as one. M2 gives actions real cache identity.
+    #[test]
+    fn generated_file_names_are_not_unique_and_identity_is_positional() {
+        let mut graph = BuildGraph::new();
+        let first = graph.add_generated_file(BuildGeneratedFileKind::Write, "config.fol");
+        let second = graph.add_generated_file(BuildGeneratedFileKind::Write, "config.fol");
+
+        assert_ne!(first, second);
+        assert_eq!(first.index(), 0);
+        assert_eq!(second.index(), 1);
+        assert_eq!(first.to_string(), "generated:0");
+        // The name cannot tell them apart, so nothing downstream can either.
+        assert_eq!(
+            graph.generated_files[first.index()].name,
+            graph.generated_files[second.index()].name
+        );
+    }
+
+    /// Declaring the same artifact name twice is accepted at the graph layer.
+    /// The integration characterization proves it survives all the way to a
+    /// successful `run`.
+    #[test]
+    fn artifact_names_are_not_unique_within_one_graph() {
+        let mut graph = BuildGraph::new();
+        let first = graph.add_artifact(BuildArtifactKind::Executable, "app");
+        let second = graph.add_artifact(BuildArtifactKind::Executable, "app");
+
+        assert_ne!(first, second);
+        assert_eq!(graph.artifacts.len(), 2);
+        assert!(graph.validate().is_empty());
+    }
 }
