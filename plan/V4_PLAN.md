@@ -1271,6 +1271,60 @@ Rules that hold for every row:
 - Adding a field to any record above requires updating this table and the
   fixtures in the same commit.
 
+## 4.16 Frozen C header, install layout, and manifest identity
+
+Section 4.10 refers to "the M0-frozen include, library, and ABI-metadata
+roles" without ever stating them. This subsection states them, together with
+the header naming and guard rules that M5's emitter must follow.
+
+The normative references are checked in as `examples/v4_contract_header/`:
+`demo.h` is the header shape, `install.txt` the install layout. Nothing
+generates a header yet, so these are references rather than outputs. They exist
+so the emitter has a shape to match rather than a choice to make.
+
+```text
+header file        <artifact>.h
+include guard      FOL_<ARTIFACT>_H, where <ARTIFACT> is the artifact name
+                   uppercased with every non-alphanumeric byte replaced by `_`.
+                   The FOL_ prefix keeps a short artifact name from colliding
+                   with a consumer's own guard.
+extern "C"         guarded by __cplusplus, always emitted
+scalar typedefs    fol_status_t  int32_t
+                   fol_bool_t    uint8_t   (only 0 and 1 valid)
+                   fol_char_t    uint32_t  (Unicode scalar value)
+status macros      FOL_STATUS_OK                 0
+                   FOL_STATUS_REPORT             1
+                   FOL_STATUS_INVALID_ARGUMENT  -1
+                   FOL_STATUS_PANIC             -2
+                   FOL_STATUS_INTERNAL          -3
+```
+
+The status values are section 4.7's reserved set; the macro names are frozen
+here so a consumer writes `FOL_STATUS_OK` rather than a bare `0`. Negative
+macros are parenthesized, because `x == -1` and `x == (-1)` differ once the
+macro is pasted into a larger expression.
+
+Install layout, relative to the artifact's install prefix:
+
+```text
+executable  bin/<artifact>
+include     include/<artifact>.h
+library     lib/lib<artifact>.a
+library     lib/lib<artifact>.so
+abi         share/fol/abi/<artifact>.folabi.json
+```
+
+`bin/<artifact>` is what executables already do. The other four roles are what
+a library artifact adds. The `lib` prefix on the library file is the platform
+convention, not part of the artifact name; a Windows lane, when promoted,
+renames it rather than reusing this row.
+
+Manifest identity is unchanged from section 4.11: canonical JSON with sorted
+keys and a versioned SHA-256 digest, and two separate hashes --
+`interface_fingerprint` over public target ABI facts only, and
+`build_fingerprint` over compiler, runtime, toolchain, profile, native inputs,
+and link order. A compiler upgrade must move the second and not the first.
+
 
 # 5. M0 — Contract Freeze, Characterization, and Truth Repair
 
@@ -1356,17 +1410,42 @@ Tasks:
   The task assumed the general fields were rejected. They were silently
   accepted, along with any other name, so the freeze was unenforceable until
   config records started rejecting undeclared fields. See section 3.2.
-- [ ] Freeze V4 as C ABI only: no Rust-specific name, language selector,
+- [x] Freeze V4 as C ABI only: no Rust-specific name, language selector,
   generated Cargo role, Rust provider, or alternate foreign-declaration syntax
   appears in the build schema, manifest, artifact inventory, or examples.
-- [ ] Freeze the sibling ownership boundary with compile/API fixtures proving
+  `v4_build_surface_names_no_rust_specific_field` sweeps the build schema, the
+  graph, the artifact model, and every checked-in `build.fol`; it fails on any
+  of `rust_name`, `rust_provider`, `provider_kind = "rust"`,
+  `language_selector`, `cargo_role`, or `proc_macro`.
+- [x] Freeze the sibling ownership boundary with compile/API fixtures proving
   that PARC, LINC, and GERC remain usable without FOL types and that `fol-abi`
   remains independent of all three.
-- [ ] Freeze the C header naming, include guard, status values, scalar typedefs,
+  `sibling_interop_crates_do_not_depend_on_fol` reads the locked dependency set
+  for each sibling and fails on any `fol-*` edge;
+  `sibling_interop_dependency_direction_stays_one_way` fails on a back-edge
+  (parc -> linc, parc -> gerc, linc -> gerc), which would turn the staged
+  upgrade rule in section 4.12 into a cycle.
+
+  The `fol-abi` half cannot be frozen yet: the crate does not exist. It is
+  created by M4, and its independence guard belongs in that milestone rather
+  than being written here against nothing.
+- [x] Freeze the C header naming, include guard, status values, scalar typedefs,
   manifest schema, canonical JSON, two fingerprints, and install layout.
+  Section 4.16 states them; `examples/v4_contract_header/` carries the
+  normative `demo.h` and `install.txt`. Three tests hold them:
+  `v4_contract_header_freezes_naming_guard_and_status`,
+  `v4_contract_install_layout_covers_every_output_role`, and
+  `v4_contract_header_compiles_as_c_and_cxx`, which builds the reference under
+  `-Werror` as both C17 and C++17 so the frozen shape is one a compiler
+  actually accepts.
+
+  Section 4.10 called the install roles "M0-frozen" while no section stated
+  them; 4.16 is now where they live. The manifest schema, canonical JSON, and
+  the two fingerprints were already specified in 4.11 and are unchanged.
 - [ ] Freeze the platform tiers, required toolchain versions, and skip policy.
-- [ ] Freeze the safe-import rule: no general unsafe block, unsupported raw C
-  declarations require an adapter.
+- [x] Freeze the safe-import rule: no general unsafe block, unsupported raw C
+  declarations require an adapter. `fol_has_no_general_unsafe_keyword` asserts
+  no keyword table gains `unsafe`, `unchecked`, `transmute`, or `extern`.
 - [x] Delete `cast` as a duplicate planned spelling and delete the
   `.de_alloc` placeholder; update diagnostics, intrinsics inventory, lexer,
   parser fixtures, tree-sitter grammar/queries/corpus, book, and examples in

@@ -1,0 +1,12 @@
+# Frozen install layout for a library artifact named <artifact>, under the
+# artifact's install prefix. One role per line: <role> <path>.
+#
+# Executables already install to bin/<name>; the three roles below are what a
+# library artifact adds, and section 4.10 refers to them as the M0-frozen
+# include, library, and ABI-metadata roles.
+
+executable  bin/<artifact>
+include     include/<artifact>.h
+library     lib/lib<artifact>.a
+library     lib/lib<artifact>.so
+abi         share/fol/abi/<artifact>.folabi.json

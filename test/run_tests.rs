@@ -14,6 +14,9 @@ mod treesitter_error_recovery;
 #[path = "book_code_audit.rs"]
 mod book_code_audit;
 
+#[path = "v4_boundary_freeze.rs"]
+mod v4_boundary_freeze;
+
 mod stream {
     include!("stream/test_stream.rs");
 }
