@@ -250,7 +250,10 @@ the repository at the planning anchor, not the desired V4 result.
 - `lang/compiler/fol-parser/src/ast/types.rs` preserves integer size/sign,
   float size, character encoding, and `PointerQualifier::Raw`.
 - `lang/compiler/fol-typecheck/src/decls.rs::lower_type_inner` collapses those
-  scalar variants into unsized `BuiltinType::{Int, Float, Char}`.
+  scalar variants into unsized `BuiltinType::{Int, Float, Char}`. The sized
+  spellings are reachable from source and silently lie: `var x: u8 = 999` is
+  accepted and stores 999. See `plan/V4_SCALAR_WIDTHS.md`, which also records
+  that no FOL source in the repository uses one, so fixing it breaks nothing.
 - `lang/compiler/fol-typecheck/src/types.rs::CheckedType::Pointer` carries
   `target`, `shared`, `weak`, and `sync`. Those describe FOL-side sharing, not
   the C boundary: it still cannot represent raw-pointer constness, nullability,
