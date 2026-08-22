@@ -309,3 +309,58 @@ fn workspace_identity_ignores_the_build_profile() {
         "profile has become part of workspace identity; convert this test at M1"
     );
 }
+
+/// The frozen `build.fol` spellings from `plan/V4_PLAN.md` section 4.15.
+///
+/// Each fixture writes a spelling this plan has committed to and asserts what
+/// the evaluator does with it today. The point is not the rejection: it is that
+/// renaming a method or a field breaks a checked-in file, so a later milestone
+/// cannot quietly introduce a second name for something already named.
+#[test]
+fn frozen_build_api_spellings_keep_their_exact_names() {
+    let store = store_root();
+    let store = store.to_str().expect("store root should be utf-8");
+    let cases = [
+        (
+            "fail_v4_contract_abi_export",
+            "unsupported build API call",
+            "set_abi_version",
+        ),
+        (
+            "fail_v4_contract_native_file",
+            "unsupported build API call",
+            "add_native_file",
+        ),
+        (
+            "fail_v4_contract_c_import_fields",
+            "unknown field 'target'; add_c_import accepts header, provider, provider_kind",
+            "add_c_import",
+        ),
+    ];
+
+    for (fixture, expected, spelling) in cases {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("examples")
+            .join(fixture);
+        let output = run_fol_in_dir(&root, &["code", "check", "--package-store-root", store]);
+        let text = strip_ansi(&format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+
+        assert!(
+            !output.status.success(),
+            "{fixture} should be rejected while {spelling} is unimplemented; got:\n{text}"
+        );
+        assert!(
+            text.contains(expected),
+            "{fixture} should report `{expected}`; got:\n{text}"
+        );
+        assert!(
+            text.contains(spelling),
+            "{fixture}'s diagnostic should name `{spelling}`, which is what freezes the \
+             spelling; got:\n{text}"
+        );
+    }
+}

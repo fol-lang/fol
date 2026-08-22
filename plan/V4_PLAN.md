@@ -325,6 +325,13 @@ by guessing widths.
 - Generated-file/tool/install declarations are mostly graph/report metadata;
   there is no general action materializer that owns declared inputs/outputs,
   atomic publication, and actual installation.
+- **Fixed 2026-08-23.** A `build.fol` config record silently accepted any
+  field: `this_field_is_nonsense = "xyzzy"` checked clean, and so did a typo
+  like `optimze`, which then took the default. The canonical
+  `BuildSemanticRecordShape` set existed and was tested but was never consulted
+  by the evaluator. `add_exe`, `add_static_lib`, `add_shared_lib`, `add_test`,
+  and `add_c_import` now reject undeclared fields; the sweep over all 291
+  checked-in packages found no legitimate use of one.
 - `PreparedPackage::native_surfaces` can retain a manually supplied set, but
   the normal route does not populate an operational native plan.
 - `BuildArtifactNativeAttachmentSet` is written by the projection and read by
@@ -1206,6 +1213,64 @@ reserve unused Rust fields in today's ABI schema, add work to a C milestone,
 turn PARC/LINC/GERC into FOL-specific libraries, or introduce Cargo beside
 direct `rustc` as a second production truth.
 
+## 4.15 Frozen `build.fol` spellings
+
+M0 freezes the exact build-API spelling for every V4 surface, so that no
+milestone invents a second name for something this plan already named. A
+spelling here is frozen, not implemented: the evaluator rejects most of these
+today with `unsupported build API call in '<path>': <method>`, and the
+milestone in the right-hand column is what makes each real.
+
+Normative fixtures under `examples/v4_contract_*` and
+`examples/fail_v4_contract_*` check in every spelling below and assert its
+current outcome. Renaming a method breaks a fixture, which is the point.
+
+```text
+surface                        spelling                              owner
+ABI version                    library.set_abi_version({             M5
+                                   major = 1, minor = 0 })
+ABI export                     library.add_abi_export({              M5
+                                   routine = "api::add",
+                                   symbol = "fol_demo_add" })
+C import (H7 spine, accepted)  library.add_c_import({                M6
+                                   header = h, provider = p,
+                                   provider_kind = "object" })
+                               -- an ARTIFACT-handle method, not a graph
+                               method; h and p are file handles from
+                               graph.file_from_root("..."), not strings
+C import, general fields       ... target, dialect, compiler,        M6
+                                   sysroot, include_roots,
+                                   system_include_roots, defines,
+                                   annotations
+exact native file              graph.add_native_file({               M3
+                                   path = "native/libz.a",
+                                   kind = "static" })
+target-specific provider       the `target` field on any provider    M3
+                                   record; absent means every target
+C-import safety/error overlay  the `annotations` field on            M6
+                                   add_c_import, naming a file
+```
+
+Rules that hold for every row:
+
+- `provider_kind` accepts only `"object"` today; `"static"` and `"shared"` are
+  frozen names that reject until M3 builds real library artifacts.
+  `"import_library"` and `"framework"` reject until their lane is promoted, per
+  section 4.5. `kind` on `add_native_file` takes the same vocabulary.
+- A config record now rejects a field its shape does not declare. Before M0 an
+  unknown field was read by nobody and reported by nobody, so `optimze` took
+  the default in silence and no spelling could be frozen at all. Enforcement
+  covers `add_exe`, `add_static_lib`, `add_shared_lib`, `add_test`, and
+  `add_c_import`; the remaining build methods have no canonical shape yet and
+  are still permissive.
+- A record field named here is the only spelling. There is no alias, no
+  abbreviation, and no positional form.
+- The export record has no `rust_name`, language selector, inferred symbol, or
+  wildcard, per section 4.10. The import record has no Rust provider field, per
+  section 4.14.
+- Adding a field to any record above requires updating this table and the
+  fixtures in the same commit.
+
 
 # 5. M0 — Contract Freeze, Characterization, and Truth Repair
 
@@ -1275,11 +1340,22 @@ Tasks:
   Scalar facts became positive regressions instead, in
   `fol-types/src/scalar.rs`, because the width work landed rather than being
   deferred.
-- [ ] Freeze the exact `build.fol` spelling for ABI exports, C imports, native
+- [x] Freeze the exact `build.fol` spelling for ABI exports, C imports, native
   exact files, target-specific providers, and C-import safety/error
   annotations. Preserve H7's accepted `header`/`provider`/`provider_kind`
   spine; check in parser/evaluator fixtures for the new general fields even
   while their owning semantic milestones still reject them.
+
+  Section 4.15 is the single frozen table; the fixtures are
+  `examples/fail_v4_contract_{abi_export,native_file,c_import_fields}` and
+  `frozen_build_api_spellings_keep_their_exact_names`. Writing them corrected
+  three things this plan had wrong: `add_c_import` is an artifact-handle
+  method rather than a graph method, `header`/`provider` take file handles
+  rather than strings, and `provider_kind` accepts only `"object"`.
+
+  The task assumed the general fields were rejected. They were silently
+  accepted, along with any other name, so the freeze was unenforceable until
+  config records started rejecting undeclared fields. See section 3.2.
 - [ ] Freeze V4 as C ABI only: no Rust-specific name, language selector,
   generated Cargo role, Rust provider, or alternate foreign-declaration syntax
   appears in the build schema, manifest, artifact inventory, or examples.

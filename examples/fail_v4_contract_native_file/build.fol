@@ -1,0 +1,18 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "fail_v4_contract_native_file", version = "0.1.0", kind = "lib",
+        description = "frozen exact-native-file spelling, rejected until M3", license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+    var library = graph.add_static_lib({
+        name = "fail_v4_contract_native_file", root = "src/lib.fol", fol_model = "memo",
+        target = target, optimize = optimize,
+    });
+    graph.add_native_file({ path = "native/libz.a", kind = "static" });
+    graph.install(library);
+    return;
+};

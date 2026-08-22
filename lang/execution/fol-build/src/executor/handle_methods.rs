@@ -739,6 +739,7 @@ impl BuildBodyExecutor {
                 let [AstNode::RecordInit { fields, .. }] = args else {
                     return Err(self.invalid_config(method, "expected one config record"));
                 };
+                self.reject_unknown_config_fields(method, fields)?;
                 let header = self.resolve_local_c_import_file(method, fields, "header")?;
                 let provider = self.resolve_local_c_import_file(method, fields, "provider")?;
                 let provider_kind_field = fields

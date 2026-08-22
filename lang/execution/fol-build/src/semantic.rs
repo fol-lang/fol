@@ -1333,3 +1333,77 @@ mod tests {
         assert_eq!(metadata[2].kind, BuildSemanticChainKind::InstallDependency);
     }
 }
+
+/// The config-record shape a build API method accepts, or `None` for a method
+/// whose record is not yet schema-checked.
+///
+/// The evaluator reads config fields one at a time by name, so an unknown field
+/// used to be silently ignored: a `build.fol` that wrote `optimze` got the
+/// default and no diagnostic. That also made the frozen spellings in
+/// `plan/V4_PLAN.md` section 4.15 unenforceable, since any spelling was
+/// accepted. Methods listed here reject a field their shape does not declare.
+pub fn config_shape_for_method(method: &str) -> Option<BuildSemanticRecordShape> {
+    let name = match method {
+        "add_exe" => "ExeConfig",
+        "add_static_lib" => "StaticLibConfig",
+        "add_shared_lib" => "SharedLibConfig",
+        "add_test" => "TestConfig",
+        "add_c_import" => "CImportConfig",
+        _ => return None,
+    };
+    canonical_artifact_config_shapes()
+        .into_iter()
+        .find(|shape| shape.name == name)
+}
+
+/// Every field name a method's shape declares, in declaration order.
+pub fn config_shape_field_names(method: &str) -> Option<Vec<String>> {
+    config_shape_for_method(method)
+        .map(|shape| shape.fields.into_iter().map(|field| field.name).collect())
+}
+
+#[cfg(test)]
+mod config_shape_tests {
+    use super::{config_shape_field_names, config_shape_for_method};
+
+    #[test]
+    fn schema_checked_methods_resolve_to_their_canonical_shape() {
+        assert_eq!(
+            config_shape_for_method("add_exe").map(|shape| shape.name),
+            Some("ExeConfig".to_string())
+        );
+        assert_eq!(
+            config_shape_for_method("add_c_import").map(|shape| shape.name),
+            Some("CImportConfig".to_string())
+        );
+        // A method without a shape is not schema-checked, and says so by
+        // returning nothing rather than an empty list -- an empty list would
+        // reject every field.
+        assert!(config_shape_for_method("add_system_lib").is_none());
+        assert!(config_shape_field_names("add_system_lib").is_none());
+    }
+
+    #[test]
+    fn artifact_configs_accept_exactly_the_frozen_field_set() {
+        assert_eq!(
+            config_shape_field_names("add_exe"),
+            Some(vec![
+                "name".to_string(),
+                "root".to_string(),
+                "fol_model".to_string(),
+                "target".to_string(),
+                "optimize".to_string(),
+            ])
+        );
+        // The H7 C-import spine, frozen by plan/V4_PLAN.md section 4.15. The
+        // general fields belong to M6 and are not accepted yet.
+        assert_eq!(
+            config_shape_field_names("add_c_import"),
+            Some(vec![
+                "header".to_string(),
+                "provider".to_string(),
+                "provider_kind".to_string(),
+            ])
+        );
+    }
+}

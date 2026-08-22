@@ -815,6 +815,34 @@ impl BuildBodyExecutor {
         }
     }
 
+    /// Reject a config field the method's canonical shape does not declare.
+    ///
+    /// Without this an unknown field is read by nobody and reported by nobody,
+    /// so a typo silently takes the default and a frozen spelling cannot be
+    /// enforced.
+    pub(super) fn reject_unknown_config_fields(
+        &self,
+        method: &str,
+        fields: &[fol_parser::ast::RecordInitField],
+    ) -> Result<(), BuildEvaluationError> {
+        let Some(known) = crate::semantic::config_shape_field_names(method) else {
+            return Ok(());
+        };
+        for field in fields {
+            if !known.iter().any(|name| name == &field.name) {
+                return Err(BuildEvaluationError::new(
+                    BuildEvaluationErrorKind::InvalidInput,
+                    format!(
+                        "{method} config is invalid: unknown field '{}'; {method} accepts {}",
+                        field.name,
+                        known.join(", ")
+                    ),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn eval_artifact_method(
         &mut self,
         method: &str,
@@ -823,6 +851,7 @@ impl BuildBodyExecutor {
     ) -> Result<Option<ExecValue>, BuildEvaluationError> {
         let (name, root_module, fol_model, target, optimize) = match args {
             [AstNode::RecordInit { fields, .. }] => {
+                self.reject_unknown_config_fields(method, fields)?;
                 let name = self
                     .resolve_field_string(fields, "name")
                     .ok_or_else(|| BuildEvaluationError::new(

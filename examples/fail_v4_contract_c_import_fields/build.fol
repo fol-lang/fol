@@ -1,0 +1,34 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "fail_v4_contract_c_import_fields", version = "0.1.0", kind = "lib",
+        description = "frozen general C-import fields, rejected until M6",
+        license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+    var library = graph.add_static_lib({
+        name = "fail_v4_contract_c_import_fields", root = "src/lib.fol",
+        fol_model = "memo", target = target, optimize = optimize,
+    });
+    var header = graph.file_from_root("native/c_math.h");
+    var provider = graph.file_from_root("native/c_math.o");
+    var overlay = graph.file_from_root("interop/c_math.toml");
+    library.add_c_import({
+        header = header,
+        provider = provider,
+        provider_kind = "object",
+        target = target,
+        dialect = "c17",
+        compiler = "clang",
+        sysroot = "/usr",
+        include_roots = { "native/include" },
+        system_include_roots = { "/usr/include" },
+        defines = { "NDEBUG=1" },
+        annotations = overlay,
+    });
+    graph.install(library);
+    return;
+};

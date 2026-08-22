@@ -1,0 +1,19 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "fail_v4_contract_abi_export", version = "0.1.0", kind = "lib",
+        description = "frozen ABI export spelling, rejected until M5", license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+    var library = graph.add_static_lib({
+        name = "fail_v4_contract_abi_export", root = "src/lib.fol", fol_model = "memo",
+        target = target, optimize = optimize,
+    });
+    library.set_abi_version({ major = 1, minor = 0 });
+    library.add_abi_export({ routine = "api::add", symbol = "fol_demo_add" });
+    graph.install(library);
+    return;
+};
