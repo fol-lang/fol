@@ -732,6 +732,11 @@ unsupported. Plain `extern "C"` never carries an unwind.
 
 ## 4.8 Raw pointers, ownership, and cleanup
 
+> **Blocked in part.** Destructor provenance is recorded below as signature or
+> manifest metadata. That is wrong for a resource whose release can fail, which
+> is every interesting C handle. See `plan/V4_LINEAR_RESOURCES.md`; this
+> subsection is rewritten once that record is decided.
+
 Raw pointers are non-owning foreign address tokens, not aliases for V3 `Box` or
 `Rc` pointers.
 
@@ -1612,6 +1617,11 @@ safety contract is unknown.
 
 
 # 12. M7 — Records, Entries, Errors, Views, Buffers, and Handles
+
+> **Blocked on `plan/V4_LINEAR_RESOURCES.md`.** Section 12.4 assumes a handle
+> can be released by a `fin` finalizer. It cannot: a C release can fail and
+> finalization has no caller to report to. M7 cannot be specified until that
+> record is decided, and it grows by a linear-resource design when it is.
 
 This milestone is a sequence of independently gated sub-slices. Land them in
 the listed order; omit a later slice rather than weakening an earlier contract.
