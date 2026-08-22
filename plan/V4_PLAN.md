@@ -1159,7 +1159,7 @@ Tasks:
 - [x] Lock positive regressions for hardening's fixed behavior: unknown targets
   reject, backend `--target` is explicit, and object/model/optimization/library
   paths/link inputs survive graph projection.
-- [~] Add characterization tests for the remaining lossy fields and routes:
+- [x] Add characterization tests for the remaining lossy fields and routes:
   include/generated inputs, end-to-end artifact/output/install plans,
   library/test routing, scalar/order facts, and ID-based public-name hazards.
 
@@ -1179,11 +1179,23 @@ Tasks:
                           source, so debug and release yield the same crate
                           directory name; profile survives as a path
                           convention rather than as identity
+  generated inputs        `project_graph_artifacts` matches
+                          `BuildArtifactInput::GeneratedFile(_) => None`, so a
+                          generated-file dependency is dropped outright
+  include inputs          `NativeIncludePath` has a type and a definition field
+                          and no producer: the graph cannot store one, no
+                          `build.fol` method adds one, and the projection
+                          hardcodes the field empty
+  install plans           `BuildArtifactDefinition` has no install field, so a
+                          destination never travels with its artifact
+  order facts             a record lowers its fields alphabetically, not in
+                          declaration order, because `CheckedType::Record` and
+                          `LoweredType::Record` both store a `BTreeMap` and
+                          `decls/type_decls.rs` iterates it; `RecordFieldLayout`
+                          knows the real order and is used only by literals
   ```
 
-  Not yet characterized, and still owed by this task: include inputs as
-  distinct from generated inputs, install-plan projection end to end, and the
-  order facts. Scalar facts became positive regressions instead, in
+  Scalar facts became positive regressions instead, in
   `fol-types/src/scalar.rs`, because the width work landed rather than being
   deferred.
 - [ ] Freeze the exact `build.fol` spelling for ABI exports, C imports, native

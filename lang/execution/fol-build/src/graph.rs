@@ -1309,4 +1309,74 @@ mod tests {
         assert_eq!(graph.artifacts.len(), 2);
         assert!(graph.validate().is_empty());
     }
+    /// The projection drops generated-file inputs. An artifact that declares a
+    /// dependency on a generated file projects with that dependency simply
+    /// absent, so nothing downstream can know the artifact needs it built
+    /// first. M2 makes generated inputs real graph actions with declared
+    /// inputs and dependencies.
+    #[test]
+    fn projection_drops_generated_file_inputs_from_artifact_definitions() {
+        let mut graph = BuildGraph::new();
+        let module = graph.add_module(BuildModuleKind::Source, "src/main.fol");
+        let generated =
+            graph.add_generated_file(BuildGeneratedFileKind::Write, "src/generated.fol");
+        let artifact = graph.add_artifact(BuildArtifactKind::Executable, "app");
+        graph.add_artifact_module_input(artifact, module);
+        graph.add_artifact_generated_file_input(artifact, generated);
+
+        // Both inputs are present in the graph.
+        assert_eq!(graph.artifact_inputs_for(artifact).count(), 2);
+
+        let projected = crate::artifact::project_graph_artifacts(&graph);
+        // Only the module survives the projection.
+        assert_eq!(projected[0].modules.roots, vec!["src/main.fol".to_string()]);
+    }
+
+    /// Include paths have a type, a definition field, and no producer. The
+    /// graph cannot store one, no `build.fol` method adds one, and the
+    /// projection hardcodes the field empty, so a C header can never become a
+    /// tracked input. M2 and the C-import milestones give includes a route.
+    #[test]
+    fn include_paths_have_no_route_from_the_graph_into_a_definition() {
+        let mut graph = BuildGraph::new();
+        let artifact = graph.add_artifact(BuildArtifactKind::Executable, "app");
+        graph.add_artifact_system_library(
+            artifact,
+            &crate::native::SystemLibraryRequest {
+                name: "ssl".to_string(),
+                mode: crate::native::NativeLinkMode::Dynamic,
+                framework: false,
+                search_path: Some("/usr/include".to_string()),
+            },
+        );
+
+        let projected = crate::artifact::project_graph_artifacts(&graph);
+        // The library search path reaches the definition; the include set
+        // cannot, because nothing can populate it.
+        assert!(!projected[0].native_attachments.library_paths.is_empty());
+        assert!(projected[0].native_attachments.include_paths.is_empty());
+    }
+
+    /// Installs never reach a projected artifact definition. The definition has
+    /// no install field at all, so the install plan lives only in the graph and
+    /// the step layer and cannot travel with the artifact. M1 carries a
+    /// resolved plan losslessly; M2 validates install destinations.
+    #[test]
+    fn install_declarations_do_not_reach_projected_definitions() {
+        let mut graph = BuildGraph::new();
+        let artifact = graph.add_artifact(BuildArtifactKind::Executable, "app");
+        graph.add_install_with_target(
+            BuildInstallKind::Artifact,
+            "install-app",
+            Some(BuildInstallTarget::Artifact(artifact)),
+            "bin/app",
+        );
+
+        assert_eq!(graph.installs().len(), 1);
+        let projected = crate::artifact::project_graph_artifacts(&graph);
+        assert_eq!(projected.len(), 1);
+        // Nothing on the definition can carry `bin/app`; the assertion is the
+        // absence of a field, which this test exists to make visible.
+        assert_eq!(projected[0].output_name, "app");
+    }
 }
