@@ -432,7 +432,6 @@ impl Element {
             "and" => self.set_key(Keyword(BUILDIN::And)),
             "nand" => self.set_key(Keyword(BUILDIN::Nand)),
             "as" => self.set_key(Keyword(BUILDIN::As)),
-            "cast" => self.set_key(Keyword(BUILDIN::Cast)),
             "if" => self.set_key(Keyword(BUILDIN::If)),
             "else" => self.set_key(Keyword(BUILDIN::Else)),
             "while" => self.set_key(Keyword(BUILDIN::While)),

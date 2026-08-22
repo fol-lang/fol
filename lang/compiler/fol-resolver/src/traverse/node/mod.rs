@@ -222,10 +222,7 @@ fn traverse_node_inner(
             // references; typecheck owns the explicit unsupported-casting
             // boundary, so the resolver must not misreport them as
             // unresolved value names.
-            if !matches!(
-                op,
-                fol_parser::ast::BinaryOperator::As | fol_parser::ast::BinaryOperator::Cast
-            ) {
+            if !matches!(op, fol_parser::ast::BinaryOperator::As) {
                 traverse_node(
                     session,
                     program,

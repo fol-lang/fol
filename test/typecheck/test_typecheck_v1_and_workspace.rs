@@ -8,9 +8,6 @@ fn cast_policy_rejects_as_and_cast_surfaces_in_v1() {
          var target: int = 0;\n\
          fun[] bad_as(value: int): int = {\n\
              return value as text;\n\
-         };\n\
-         fun[] bad_cast(value: int): int = {\n\
-             return value cast target;\n\
          };\n",
     )]);
 
@@ -24,16 +21,8 @@ fn cast_policy_rejects_as_and_cast_surfaces_in_v1() {
         }),
         "Expected an unsupported 'as' cast diagnostic, got: {errors:?}"
     );
-    assert!(
-        errors.iter().any(|error| {
-            error.kind() == TypecheckErrorKind::Unsupported
-                && error
-                    .message()
-                    .contains("operator 'cast' is not yet supported")
-                && error.diagnostic_location().is_some()
-        }),
-        "Expected an unsupported 'cast' diagnostic, got: {errors:?}"
-    );
+    // `cast` was deleted as a duplicate of `as`, so it is an ordinary
+    // identifier now rather than a rejected operator.
 }
 
 #[test]

@@ -153,7 +153,6 @@
 (binary_expr operator: "and" @operator)
 (binary_expr operator: "nand" @operator)
 (binary_expr operator: "as" @operator)
-(binary_expr operator: "cast" @operator)
 (binary_expr operator: "is" @operator)
 (binary_expr operator: "has" @operator)
 (binary_expr operator: "in" @operator)

@@ -87,7 +87,10 @@ mod tests {
         assert!(names.contains(&"not"));
         assert!(names.contains(&"len"));
         assert!(names.contains(&"echo"));
-        assert!(names.contains(&"de_alloc"));
+        // `de_alloc` was a placeholder with no allocator or destructor model
+        // behind it; V4 handles release through linear handles instead
+        // (plan/V4_LINEAR_RESOURCES.md).
+        assert!(!names.contains(&"de_alloc"));
         assert!(!names.contains(&"pointer_value"));
         assert!(!names.contains(&"give_back"));
         assert!(!names.contains(&"address_of"));
@@ -226,16 +229,11 @@ mod tests {
     }
 
     #[test]
-    fn explicit_deallocation_stays_at_the_v4_ffi_boundary() {
-        let entry = intrinsic_by_canonical_name("de_alloc")
-            .expect("explicit deallocation boundary should remain registered");
-        assert_eq!(entry.id, IntrinsicId::new(16));
-        assert_eq!(entry.category, IntrinsicCategory::Memory);
-        assert_eq!(entry.surface, IntrinsicSurface::DotRootCall);
-        assert_eq!(entry.availability, IntrinsicAvailability::V4);
-        assert_eq!(entry.status, IntrinsicStatus::Unsupported);
-        assert_eq!(entry.arity, IntrinsicArity::Exactly(1));
-        assert_eq!(entry.lowering_mode, IntrinsicLoweringMode::Reject);
+    fn explicit_deallocation_is_not_registered() {
+        // The placeholder was deleted rather than left reserved: it named no
+        // allocator and no destructor provenance, and a linear handle now
+        // carries release (plan/V4_LINEAR_RESOURCES.md).
+        assert!(intrinsic_by_canonical_name("de_alloc").is_none());
     }
 
     #[test]
@@ -296,7 +294,10 @@ mod tests {
 
     #[test]
     fn conversion_operator_registry_entries_stay_stable() {
-        let expected = [("cast", IntrinsicId::new(9)), ("as", IntrinsicId::new(10))];
+        // `cast` was deleted as a duplicate spelling of `as`; the width
+        // conversions are `.widen`/`.narrow` (plan/V4_SCALAR_WIDTHS.md).
+        assert!(intrinsic_by_canonical_name("cast").is_none());
+        let expected = [("as", IntrinsicId::new(10))];
 
         for (name, id) in expected {
             let entry = intrinsic_by_canonical_name(name)
@@ -313,13 +314,12 @@ mod tests {
 
     #[test]
     fn conversion_intrinsics_stay_deferred_for_current_v1_scope() {
-        for name in ["cast", "as"] {
-            let entry = intrinsic_by_canonical_name(name)
-                .unwrap_or_else(|| panic!("conversion intrinsic '{name}' should exist"));
-            assert_eq!(entry.availability, IntrinsicAvailability::V1);
-            assert_eq!(entry.status, IntrinsicStatus::Unsupported);
-            assert_eq!(entry.lowering_mode, IntrinsicLoweringMode::Reject);
-        }
+        // `as` is the only rejected conversion operator left; `cast` was a
+        // duplicate spelling and the width conversions are intrinsics.
+        let entry = intrinsic_by_canonical_name("as").expect("as should exist");
+        assert_eq!(entry.availability, IntrinsicAvailability::V1);
+        assert_eq!(entry.status, IntrinsicStatus::Unsupported);
+        assert_eq!(entry.lowering_mode, IntrinsicLoweringMode::Reject);
     }
 
     #[test]
@@ -403,17 +403,16 @@ mod tests {
     #[test]
     fn roadmap_lookup_keeps_representative_intrinsics_explicit() {
         let len = intrinsic_by_canonical_name("len").expect("len should exist");
-        let cast = intrinsic_by_canonical_name("cast").expect("cast should exist");
+        let as_op = intrinsic_by_canonical_name("as").expect("as should exist");
         let add = intrinsic_by_canonical_name("add").expect("add should exist");
         let bit_and = intrinsic_by_canonical_name("bit_and").expect("bit_and should exist");
-        let de_alloc = intrinsic_by_canonical_name("de_alloc").expect("de_alloc should exist");
 
         assert_eq!(
             roadmap_for_intrinsic(len.id),
             Some(IntrinsicRoadmap::CurrentV1)
         );
         assert_eq!(
-            roadmap_for_intrinsic(cast.id),
+            roadmap_for_intrinsic(as_op.id),
             Some(IntrinsicRoadmap::LikelyV1x)
         );
         assert_eq!(
@@ -423,10 +422,6 @@ mod tests {
         assert_eq!(
             roadmap_for_intrinsic(bit_and.id),
             Some(IntrinsicRoadmap::V2)
-        );
-        assert_eq!(
-            roadmap_for_intrinsic(de_alloc.id),
-            Some(IntrinsicRoadmap::V4)
         );
         assert!(intrinsics_for_roadmap(IntrinsicRoadmap::CurrentV1)
             .iter()
@@ -448,11 +443,16 @@ mod tests {
             IntrinsicRoadmap::CoreStdInstead,
         ] {
             let entries = intrinsics_for_roadmap(roadmap);
-            assert!(
-                !entries.is_empty(),
-                "roadmap bucket '{}' should expose at least one intrinsic",
-                roadmap.as_str()
-            );
+            // The V4 bucket is empty since `de_alloc` was deleted: nothing is
+            // deferred to the FFI boundary any more. The property under test
+            // is the partition, not the population.
+            if roadmap != IntrinsicRoadmap::V4 {
+                assert!(
+                    !entries.is_empty(),
+                    "roadmap bucket '{}' should expose at least one intrinsic",
+                    roadmap.as_str()
+                );
+            }
             for entry in entries {
                 assert_eq!(
                     roadmap_for_intrinsic(entry.id),
@@ -523,7 +523,7 @@ mod tests {
         let len = intrinsic_by_canonical_name("len").expect("len should exist");
         let echo = intrinsic_by_canonical_name("echo").expect("echo should exist");
         let panic_entry = intrinsic_by_canonical_name("panic").expect("panic should exist");
-        let cast = intrinsic_by_canonical_name("cast").expect("cast should exist");
+        let as_op = intrinsic_by_canonical_name("as").expect("as should exist");
 
         assert_eq!(
             backend_role_for_intrinsic(eq.id),
@@ -541,7 +541,8 @@ mod tests {
             backend_role_for_intrinsic(panic_entry.id),
             Some(IntrinsicBackendRole::ControlEffect)
         );
-        assert_eq!(backend_role_for_intrinsic(cast.id), None);
+        // A rejected operator has no backend role at all.
+        assert_eq!(backend_role_for_intrinsic(as_op.id), None);
         assert!(
             implemented_intrinsics_for_backend_role(IntrinsicBackendRole::PureOp)
                 .iter()
@@ -557,7 +558,6 @@ mod tests {
     #[test]
     fn diagnostics_helpers_render_intrinsic_specific_guidance() {
         let eq = intrinsic_by_canonical_name("eq").expect("eq should exist");
-        let de_alloc = intrinsic_by_canonical_name("de_alloc").expect("de_alloc should exist");
 
         assert_eq!(
             unknown_intrinsic_message(IntrinsicSurface::DotRootCall, "mystery"),
@@ -571,13 +571,13 @@ mod tests {
             wrong_type_family_message(eq, "two comparable scalar operands", "'str' and 'seq[str]'"),
             ".eq(...) expects two comparable scalar operands but got 'str' and 'seq[str]'"
         );
+        // No intrinsic carries `IntrinsicAvailability::V4` any more, so the
+        // V4 wording has no construction site to exercise; `as` is the
+        // remaining rejected operator.
+        let as_op = intrinsic_by_canonical_name("as").expect("as should exist");
         assert_eq!(
-            wrong_version_message(de_alloc, IntrinsicAvailability::V1),
-            ".de_alloc(...) is a V4/FFI boundary and is not part of V3"
-        );
-        assert_eq!(
-            unsupported_intrinsic_message(de_alloc),
-            ".de_alloc(...) is not yet supported"
+            unsupported_intrinsic_message(as_op),
+            "operator 'as' is not yet supported"
         );
     }
 

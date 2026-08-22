@@ -6878,10 +6878,6 @@
                 },
                 {
                   "type": "STRING",
-                  "value": "cast"
-                },
-                {
-                  "type": "STRING",
                   "value": "is"
                 },
                 {

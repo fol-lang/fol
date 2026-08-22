@@ -10,13 +10,10 @@ The long-term language direction is:
 For the current `V1` compiler milestone, casting syntax is parsed, but casting
 semantics are not implemented yet.
 
-That means:
-
-- `value as target`
-- `value cast target`
-
-are both valid syntax surfaces, but they are not part of the supported `V1`
-type system.
+That means `value as target` is a valid syntax surface, but it is not part of
+the supported `V1` type system. The duplicate `cast` spelling was deleted rather
+than left reserved: integer width conversion is `.widen(...)` and `.narrow(...)`
+below, so `cast` named nothing that `as` did not.
 
 The current compiler behavior is explicit:
 
@@ -30,19 +27,15 @@ Example:
 fun[] bad_as(value: int): int = {
     return value as text;
 };
-
-fun[] bad_cast(value: int): int = {
-    return value cast target;
-};
 ```
 
-Both forms currently fail during typechecking.
+This fails during typechecking.
 
 This boundary is intentional.
 Before FOL can support casting for real, the compiler needs a stable legality
 contract answering questions such as:
 
-- which scalar casts are allowed
+- which scalar casts are allowed beyond the width conversions below
 - whether lossy casts are permitted
 - whether container casts exist
 - how aliases interact with explicit conversion

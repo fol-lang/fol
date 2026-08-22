@@ -23,7 +23,9 @@ var[new] heap_value: int = 64;
 heap-capable, but allocation does not itself require hosted APIs. Ownership
 checking is a compile-time rule and is also active in `core`.
 
-There is no `[@]` binding option and no manual `.de_alloc()` or `.free()`.
+There is no `[@]` binding option and no manual `.free()`. A `.de_alloc()`
+placeholder once stood here and was deleted: it named no allocator and no
+destructor provenance.
 Unique heap values lower to Rust `Box<T>` and are freed implicitly when their
 owning scope ends.
 

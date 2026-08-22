@@ -840,7 +840,7 @@ fn intrinsic_diagnostic_typing_rejects_wrong_arity_for_echo() {
 }
 
 #[test]
-fn retired_memory_intrinsics_are_unknown_and_deallocation_is_v4_only() {
+fn retired_memory_intrinsics_are_unknown_including_deallocation() {
     let errors = typecheck_fixture_folder_errors(&[(
         "main.fol",
         "fun[] free_value(value: int): int = {\n\
@@ -861,7 +861,8 @@ fn retired_memory_intrinsics_are_unknown_and_deallocation_is_v4_only() {
     )]);
 
     for intrinsic in [
-        ".de_alloc(...) is a V4/FFI boundary and is not part of V3",
+        // `de_alloc` is now retired like the rest rather than deferred to V4.
+        "unknown dot-root intrinsic '.de_alloc(...)'",
         "unknown dot-root intrinsic '.give_back(...)'",
         "unknown dot-root intrinsic '.address_of(...)'",
         "unknown dot-root intrinsic '.pointer_value(...)'",

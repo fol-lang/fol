@@ -55,7 +55,6 @@ pub(crate) fn describe_binary_operator(op: &fol_parser::ast::BinaryOperator) -> 
         fol_parser::ast::BinaryOperator::Has => "has",
         fol_parser::ast::BinaryOperator::Is => "is",
         fol_parser::ast::BinaryOperator::As => "as",
-        fol_parser::ast::BinaryOperator::Cast => "cast",
         fol_parser::ast::BinaryOperator::Pipe => "pipe",
         fol_parser::ast::BinaryOperator::PipeOr => "pipe_or",
     }

@@ -93,11 +93,6 @@ pub(crate) fn type_binary_op(
                 resolved, left, right, "as",
             ));
         }
-        BinaryOperator::Cast => {
-            return Err(unsupported_conversion_intrinsic(
-                resolved, left, right, "cast",
-            ));
-        }
         BinaryOperator::Pipe
             if matches!(
                 super::helpers::strip_comments(right),
@@ -534,7 +529,7 @@ pub(crate) fn type_binary_op(
             });
             Ok(TypedExpr::value(send_result))
         }
-        BinaryOperator::As | BinaryOperator::Cast | BinaryOperator::PipeOr => {
+        BinaryOperator::As | BinaryOperator::PipeOr => {
             unreachable!("handled before plain binary typing")
         }
     }

@@ -881,7 +881,7 @@ mod tests {
 
         assert_eq!(
             all_keywords.len(),
-            53,
+            52,
             "compiler keyword inventory changed; update editor summary coverage"
         );
 

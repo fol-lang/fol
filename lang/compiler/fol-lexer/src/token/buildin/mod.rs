@@ -13,7 +13,7 @@ pub const CONTROL_KEYWORDS: &[&str] = &[
 
 /// Operator keyword names.
 pub const OPERATOR_KEYWORDS: &[&str] = &[
-    "not", "or", "xor", "nor", "and", "nand", "as", "cast", "is", "at", "has", "in", "on", "of",
+    "not", "or", "xor", "nor", "and", "nand", "as", "is", "at", "has", "in", "on", "of",
 ];
 
 /// Literal keyword names.
@@ -47,7 +47,6 @@ pub enum BUILDIN {
     And,
     Nand,
     As,
-    Cast,
     If,
     Else,
     When,
@@ -105,7 +104,6 @@ impl fmt::Display for BUILDIN {
             BUILDIN::And => "and",
             BUILDIN::Nand => "nand",
             BUILDIN::As => "as",
-            BUILDIN::Cast => "cast",
             BUILDIN::If => "if",
             BUILDIN::Else => "else",
             BUILDIN::While => "while",

@@ -118,7 +118,6 @@ pub enum BinaryOperator {
     Has,
     Is,
     As,
-    Cast,
     Pipe,
     PipeOr,
 }

@@ -113,18 +113,6 @@ const INTRINSICS: &[IntrinsicEntry] = &[
         "emit a runtime-visible debug value and forward it unchanged",
     ),
     IntrinsicEntry::new(
-        IntrinsicId::new(9),
-        "cast",
-        &[],
-        IntrinsicCategory::Conversion,
-        IntrinsicSurface::OperatorAlias,
-        IntrinsicAvailability::V1,
-        IntrinsicStatus::Unsupported,
-        IntrinsicArity::Exactly(2),
-        IntrinsicLoweringMode::Reject,
-        "perform an explicit conversion once the V1 conversion contract is frozen",
-    ),
-    IntrinsicEntry::new(
         IntrinsicId::new(10),
         "as",
         &[],
@@ -195,18 +183,6 @@ const INTRINSICS: &[IntrinsicEntry] = &[
         IntrinsicArity::Exactly(1),
         IntrinsicLoweringMode::Deferred,
         "query emptiness after the shape query contract is frozen",
-    ),
-    IntrinsicEntry::new(
-        IntrinsicId::new(16),
-        "de_alloc",
-        &[],
-        IntrinsicCategory::Memory,
-        IntrinsicSurface::DotRootCall,
-        IntrinsicAvailability::V4,
-        IntrinsicStatus::Unsupported,
-        IntrinsicArity::Exactly(1),
-        IntrinsicLoweringMode::Reject,
-        "explicit deallocation is reserved for the V4 FFI boundary",
     ),
     // Ids 17-20 were assigned to allocation intrinsics that never shipped. Ids
     // are stable identifiers used by lowering and the backend, so the gap stays

@@ -209,8 +209,7 @@ impl AstParser {
             let leading_comments = self.collect_comments_before(tokens, |key| {
                 matches!(
                     key,
-                    KEYWORD::Keyword(BUILDIN::Cast)
-                        | KEYWORD::Keyword(BUILDIN::As)
+                    KEYWORD::Keyword(BUILDIN::As)
                         | KEYWORD::Keyword(BUILDIN::Is)
                         | KEYWORD::Keyword(BUILDIN::Has)
                         | KEYWORD::Keyword(BUILDIN::In)
@@ -233,7 +232,6 @@ impl AstParser {
             let next_key = self.next_significant_key_from_window(tokens);
             let op_text = op_token.con().trim().to_string();
             let (binary_op, consume_count) = match op_token.key() {
-                KEYWORD::Keyword(BUILDIN::Cast) => (Some(BinaryOperator::Cast), 1),
                 KEYWORD::Keyword(BUILDIN::As) => (Some(BinaryOperator::As), 1),
                 KEYWORD::Keyword(BUILDIN::Is) => (Some(BinaryOperator::Is), 1),
                 KEYWORD::Keyword(BUILDIN::Has) => (Some(BinaryOperator::Has), 1),

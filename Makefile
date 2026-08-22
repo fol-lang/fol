@@ -76,7 +76,7 @@ r: run
 TREE_DIR ?= $(TOP_DIR)/lang/tooling/fol-editor/tree-sitter
 
 tree:
-	@cargo run -- tool tree generate "$(TREE_DIR)"
+	@cargo run --bin folc -- tool tree generate "$(TREE_DIR)"
 
 tree-test: tree
 	@set -eu; \

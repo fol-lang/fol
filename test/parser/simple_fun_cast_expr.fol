@@ -1,3 +1,0 @@
-fun force(value: any, target: any): any = {
-    return value cast target;
-};

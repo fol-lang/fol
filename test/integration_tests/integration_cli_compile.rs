@@ -1371,7 +1371,7 @@ fn test_cli_json_v4_deallocation_boundary_keeps_structured_fields() {
 
     assert!(
         !output.status.success(),
-        "CLI should fail for V4-only explicit deallocation",
+        "CLI should fail for the deleted deallocation placeholder",
     );
 
     let json = parse_cli_json(&output);
@@ -1381,9 +1381,7 @@ fn test_cli_json_v4_deallocation_boundary_keeps_structured_fields() {
     let v4_error = diagnostics.iter().find(|diagnostic| {
         diagnostic["message"]
             .as_str()
-            .map(|message| {
-                message.contains(".de_alloc(...) is a V4/FFI boundary and is not part of V3")
-            })
+            .map(|message| message.contains("unknown dot-root intrinsic '.de_alloc(...)'"))
             .unwrap_or(false)
     });
 
@@ -1417,7 +1415,7 @@ fn test_cli_json_cast_intrinsic_failures_keep_structured_fields() {
             "    return value as text;\n",
             "};\n",
             "fun[] side(value: int): int = {\n",
-            "    return value cast target;\n",
+            "    return value as target;\n",
             "};\n",
         ),
     )
@@ -1442,7 +1440,7 @@ fn test_cli_json_cast_intrinsic_failures_keep_structured_fields() {
 
     for expected in [
         "operator 'as' is not yet supported",
-        "operator 'cast' is not yet supported",
+        "operator 'as' is not yet supported",
     ] {
         let diagnostic = diagnostics.iter().find(|diagnostic| {
             diagnostic["message"]
