@@ -125,8 +125,6 @@ impl IntWidth {
         }
     }
 
-    /// Whether a constant can be stored at this width without losing value.
-
     /// Whether every value of `source` is representable at this width. This is
     /// what makes a conversion a widening: `u8` fits in `i16`, `i32` does not
     /// fit in `u32`, and neither direction of `i64`/`u64` fits the other.
@@ -135,6 +133,8 @@ impl IntWidth {
         let (source_low, source_high) = source.constant_range();
         low <= source_low && high >= source_high
     }
+
+    /// Whether a constant can be stored at this width without losing value.
     pub const fn accepts_constant(self, value: i128) -> bool {
         let (low, high) = self.constant_range();
         value >= low && value <= high
