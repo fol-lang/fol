@@ -257,6 +257,7 @@ fn verifier_rejects_runtime_hooks_with_results_and_helper_without_results() {
                 .expect("echo should exist")
                 .id,
             args: vec![LoweredLocalId(0)],
+            error_type: None,
         },
     });
     routine.instructions.push(LoweredInstr {

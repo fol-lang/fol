@@ -222,7 +222,9 @@ fn render_instr_kind(kind: &crate::LoweredInstrKind) -> String {
                 render_local_list(args)
             )
         }
-        crate::LoweredInstrKind::RuntimeHook { intrinsic, args } => {
+        crate::LoweredInstrKind::RuntimeHook {
+            intrinsic, args, ..
+        } => {
             let name = fol_intrinsics::intrinsic_by_id(*intrinsic)
                 .map(|entry| entry.name)
                 .unwrap_or("<missing>");

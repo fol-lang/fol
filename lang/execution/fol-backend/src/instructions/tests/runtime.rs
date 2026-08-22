@@ -129,6 +129,7 @@ fn runtime_shaped_instruction_rendering_emits_echo_via_runtime_hook() {
         kind: LoweredInstrKind::RuntimeHook {
             intrinsic: intrinsic_by_canonical_name("echo").expect("echo").id,
             args: vec![value],
+            error_type: None,
         },
     };
 
@@ -169,6 +170,7 @@ fn runtime_shaped_echo_moves_a_unique_value() {
         kind: LoweredInstrKind::RuntimeHook {
             intrinsic: intrinsic_by_canonical_name("echo").expect("echo").id,
             args: vec![pointer],
+            error_type: None,
         },
     };
 
@@ -564,6 +566,7 @@ fn runtime_shaped_instruction_snapshot_stays_stable() {
             kind: LoweredInstrKind::RuntimeHook {
                 intrinsic: intrinsic_by_canonical_name("echo").expect("echo").id,
                 args: vec![value],
+                error_type: None,
             },
         },
         LoweredInstr {

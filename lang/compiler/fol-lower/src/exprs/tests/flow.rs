@@ -30,7 +30,9 @@ fn collect_echoed_ints(routine: &crate::LoweredRoutine) -> Vec<i64> {
                     local_ints.insert(result, known);
                 }
             }
-            LoweredInstrKind::RuntimeHook { intrinsic, args } if *intrinsic == echo_id => {
+            LoweredInstrKind::RuntimeHook {
+                intrinsic, args, ..
+            } if *intrinsic == echo_id => {
                 let value = args
                     .first()
                     .and_then(|local| local_ints.get(local))

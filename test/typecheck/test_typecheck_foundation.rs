@@ -7521,3 +7521,59 @@ fn widen_needs_a_target_width_and_refuses_a_no_op() {
         "widening to the same width is a no-op and should be refused, got: {same_width:?}"
     );
 }
+
+// `.narrow(...)` is the other direction: it can lose the value, so it reports
+// through the ordinary error channel rather than truncating silently.
+#[test]
+fn narrow_reports_through_the_error_channel() {
+    let typed = typecheck_fixture_folder(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var wide: i64 = 5000000000;\n\
+             var fitted: i32 = .narrow(wide) || 0;\n\
+             return 0;\n\
+         };\n",
+    )]);
+
+    assert!(typed
+        .typed_node(find_named_routine_syntax_id(&typed, "main"))
+        .is_some());
+}
+
+#[test]
+fn narrow_requires_its_failure_to_be_handled() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var wide: i64 = 5;\n\
+             var fitted: i32 = .narrow(wide);\n\
+             return 0;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message().contains("'/ ErrorType'")),
+        "an unhandled narrowing should demand the error be handled, got: {errors:?}"
+    );
+}
+
+#[test]
+fn narrow_refuses_a_conversion_that_cannot_lose_anything() {
+    let errors = typecheck_fixture_folder_errors(&[(
+        "main.fol",
+        "fun[] main(): int = {\n\
+             var small: i32 = 5;\n\
+             var wide: i64 = .narrow(small) || 0;\n\
+             return 0;\n\
+         };\n",
+    )]);
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message().contains("nothing can be lost")),
+        "narrowing to a type that holds every value should say to widen, got: {errors:?}"
+    );
+}

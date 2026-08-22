@@ -2789,9 +2789,9 @@ const INTRINSICS: &[IntrinsicEntry] = &[
         IntrinsicCategory::Conversion,
         IntrinsicSurface::DotRootCall,
         IntrinsicAvailability::V1,
-        IntrinsicStatus::Reserved,
+        IntrinsicStatus::Implemented,
         IntrinsicArity::Exactly(1),
-        IntrinsicLoweringMode::Reject,
+        IntrinsicLoweringMode::RuntimeHook,
         "an integer at a narrower type, reporting the value when it does not fit",
     ),
 ];
@@ -2881,7 +2881,7 @@ pub fn backend_role_for_intrinsic(id: IntrinsicId) -> Option<IntrinsicBackendRol
         // 235 = widen: it goes through the hook dispatch but emits an inline
         // cast, because its target width comes from the destination local and
         // no runtime function could know it.
-        8 | 11 | 23 | 24 | 30 | 36..=46 | 49..=54 | 57..=197 | 200..=235 => {
+        8 | 11 | 23 | 24 | 30 | 36..=46 | 49..=54 | 57..=197 | 200..=236 => {
             Some(IntrinsicBackendRole::RuntimeHook)
         }
         13 => Some(IntrinsicBackendRole::ControlEffect),

@@ -27,6 +27,7 @@ fn recoverable_error_type_for_local_inner(
             crate::LoweredInstrKind::Call { error_type, .. }
             | crate::LoweredInstrKind::CallIndirect { error_type, .. }
             | crate::LoweredInstrKind::AwaitEventual { error_type, .. }
+            | crate::LoweredInstrKind::RuntimeHook { error_type, .. }
                 if instr.result == Some(local_id) =>
             {
                 *error_type
@@ -275,7 +276,9 @@ pub(super) fn verify_instruction(
                 verify_local_reference(routine, instr.id.0, "intrinsic arg", *arg, errors);
             }
         }
-        crate::LoweredInstrKind::RuntimeHook { intrinsic, args } => {
+        crate::LoweredInstrKind::RuntimeHook {
+            intrinsic, args, ..
+        } => {
             if fol_intrinsics::intrinsic_by_id(*intrinsic).is_none() {
                 errors.push(LoweringError::with_kind(
                     LoweringErrorKind::InvalidInput,

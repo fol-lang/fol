@@ -304,6 +304,10 @@ pub enum LoweredInstrKind {
     RuntimeHook {
         intrinsic: IntrinsicId,
         args: Vec<LoweredLocalId>,
+        /// Set when the hook reports through the error channel rather than
+        /// always producing a value, which makes its result local a
+        /// `FolRecover` exactly as a fallible call does.
+        error_type: Option<LoweredTypeId>,
     },
     LengthOf {
         operand: LoweredLocalId,

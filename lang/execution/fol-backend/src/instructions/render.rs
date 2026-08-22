@@ -814,7 +814,9 @@ pub fn render_core_instruction_in_workspace(
             let (_, observed) = observed_storage_reference(type_table, operand_type, &operand);
             Ok(format!("{result} = rt::len({observed});"))
         }
-        LoweredInstrKind::RuntimeHook { intrinsic, args } => {
+        LoweredInstrKind::RuntimeHook {
+            intrinsic, args, ..
+        } => {
             let entry = intrinsic_by_id(*intrinsic).ok_or_else(|| {
                 BackendError::new(
                     BackendErrorKind::InvalidInput,
@@ -830,6 +832,18 @@ pub fn render_core_instruction_in_workspace(
                     let value =
                         render_transfer_expr(type_table, package_identity, routine, *value)?;
                     format!("({value} as {})", width.rust_primitive())
+                }
+                // `try_from` is the checked conversion. The reported error
+                // carries the value that did not fit, so a caller can say which
+                // one it was rather than only that something failed.
+                ("narrow", [value]) => {
+                    let width = result_int_width(type_table, routine, instruction)?;
+                    let value =
+                        render_transfer_expr(type_table, package_identity, routine, *value)?;
+                    format!(
+                        "{{ let __fol_narrowed = {value}; match <{target}>::try_from(__fol_narrowed) {{ Ok(fitted) => rt::FolRecover::Ok(fitted), Err(_) => rt::FolRecover::Err(__fol_narrowed as rt::FolInt) }} }}",
+                        target = width.rust_primitive()
+                    )
                 }
                 ("echo", [value])
                 | ("write", [value])

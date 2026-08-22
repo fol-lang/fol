@@ -85,6 +85,7 @@ pub(crate) fn type_binary_op(
     op: &BinaryOperator,
     left: &AstNode,
     right: &AstNode,
+    expected_type: Option<crate::CheckedTypeId>,
 ) -> Result<TypedExpr, TypecheckError> {
     match op {
         BinaryOperator::As => {
@@ -294,7 +295,9 @@ pub(crate) fn type_binary_op(
                 error_type.map(|error_type| crate::RecoverableCallEffect { error_type }),
             ));
         }
-        BinaryOperator::PipeOr => return type_pipe_or(typed, resolved, context, left, right),
+        BinaryOperator::PipeOr => {
+            return type_pipe_or(typed, resolved, context, left, right, expected_type)
+        }
         _ => {}
     }
 
@@ -543,8 +546,18 @@ pub(crate) fn type_pipe_or(
     context: TypeContext,
     left: &AstNode,
     right: &AstNode,
+    expected_type: Option<crate::CheckedTypeId>,
 ) -> Result<TypedExpr, TypecheckError> {
-    let observed_left = type_node(typed, resolved, observe_context(context), left)?;
+    // The fallback and the observed call produce the same type, so the
+    // expectation reaches both sides. Without it a width conversion on the left
+    // has nothing to read its target width from.
+    let observed_left = type_node_with_expectation(
+        typed,
+        resolved,
+        observe_context(context),
+        left,
+        expected_type,
+    )?;
     let Some(success_type) = observed_left.value_type else {
         return Err(node_origin(resolved, left).map_or_else(
             || {

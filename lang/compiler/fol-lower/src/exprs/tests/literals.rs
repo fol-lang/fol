@@ -533,7 +533,9 @@ fn diagnostic_intrinsic_lowering_emits_runtime_hooks_and_forwards_values() {
         .instructions
         .iter()
         .find_map(|instr| match &instr.kind {
-            LoweredInstrKind::RuntimeHook { intrinsic, args } => Some((*intrinsic, args.clone())),
+            LoweredInstrKind::RuntimeHook {
+                intrinsic, args, ..
+            } => Some((*intrinsic, args.clone())),
             _ => None,
         })
         .expect("diagnostic intrinsic lowering should emit a runtime hook");

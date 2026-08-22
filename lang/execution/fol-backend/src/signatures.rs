@@ -211,6 +211,7 @@ fn recoverable_error_type_for_local_inner(
             fol_lower::LoweredInstrKind::Call { error_type, .. }
             | fol_lower::LoweredInstrKind::CallIndirect { error_type, .. }
             | fol_lower::LoweredInstrKind::AwaitEventual { error_type, .. }
+            | fol_lower::LoweredInstrKind::RuntimeHook { error_type, .. }
                 if instruction.result == Some(local_id) =>
             {
                 *error_type

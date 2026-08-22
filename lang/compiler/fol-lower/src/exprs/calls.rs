@@ -323,6 +323,16 @@ pub(crate) fn lower_dot_intrinsic_call(
                 format!("dot intrinsic '.{name}(...)' selected unregistered intrinsic id {intrinsic_id:?}"),
             )
         })?;
+    // `.narrow(...)` reports the values that do not fit, so its result local
+    // carries a recoverable error exactly as a fallible call's does. Every
+    // other hook always produces a value.
+    let hook_error_type = if canonical_name == "narrow" {
+        checked_type_map
+            .get(&typed_package.program.builtin_types().int)
+            .copied()
+    } else {
+        None
+    };
     if matches!(
         lowering_mode,
         Some(fol_intrinsics::IntrinsicLoweringMode::DedicatedIr)
@@ -495,6 +505,7 @@ pub(crate) fn lower_dot_intrinsic_call(
                 LoweredInstrKind::RuntimeHook {
                     intrinsic: intrinsic_id,
                     args: vec![operand.local_id],
+                    error_type: None,
                 },
             )?;
             return Ok(*operand);
@@ -503,6 +514,7 @@ pub(crate) fn lower_dot_intrinsic_call(
         Some(fol_intrinsics::IntrinsicLoweringMode::RuntimeHook) => LoweredInstrKind::RuntimeHook {
             intrinsic: intrinsic_id,
             args: lowered_args.iter().map(|value| value.local_id).collect(),
+            error_type: hook_error_type,
         },
         _ => LoweredInstrKind::IntrinsicCall {
             intrinsic: intrinsic_id,
@@ -514,7 +526,7 @@ pub(crate) fn lower_dot_intrinsic_call(
     Ok(LoweredValue {
         local_id: result_local,
         type_id: result_type,
-        recoverable_error_type: None,
+        recoverable_error_type: hook_error_type,
     })
 }
 
@@ -922,6 +934,7 @@ pub(crate) fn lower_keyword_intrinsic_statement(
                 LoweredInstrKind::RuntimeHook {
                     intrinsic: entry.id,
                     args: lowered,
+                    error_type: None,
                 },
             )?;
             Ok(None)

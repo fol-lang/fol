@@ -704,7 +704,7 @@ fn type_node_with_expectation_inner(
             type_node_with_expectation(typed, resolved, context, node, expected_type)
         }
         AstNode::BinaryOp { op, left, right } => {
-            operators::type_binary_op(typed, resolved, context, op, left, right)
+            operators::type_binary_op(typed, resolved, context, op, left, right, expected_type)
         }
         AstNode::UnaryOp { op, operand } => {
             operators::type_unary_op(typed, resolved, context, node, op, operand, expected_type)

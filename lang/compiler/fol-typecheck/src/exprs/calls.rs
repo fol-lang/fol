@@ -836,18 +836,6 @@ fn type_width_conversion(
     };
     let source = *source;
 
-    // Narrowing needs a fallible result, and the IR carries a recoverable error
-    // only on a Call; adding it to a RuntimeHook is the next slice
-    // (`plan/V4_SCALAR_WIDTHS.md`). Rejecting here beats typing into a
-    // lowering that cannot represent it.
-    if entry.name == "narrow" {
-        return Err(fail(
-            "'.narrow(...)' is not available yet; it reports the values that do not fit, \
-             which needs a fallible intrinsic result"
-                .to_string(),
-        ));
-    }
-
     if source == target {
         return Err(fail(format!(
             "the value is already '{}', so it needs no conversion",

@@ -94,5 +94,17 @@ bits. `u8` widens to `i16` because every byte is a valid `i16`; `i32` does not
 widen to `u32`, and `u32` does not widen to `i32`, because each holds values the
 other cannot.
 
-Converting the other way reports the values that do not fit, and is not
-available yet. See `plan/V4_SCALAR_WIDTHS.md`.
+`.narrow(...)` converts the other way. It can lose the value, so it reports
+through the ordinary error channel and the failure has to be handled:
+
+```fol
+var wide: i64 = 5000000000;
+var fitted: i32 = .narrow(wide) || 0;   // 5000000000 does not fit, so 0
+```
+
+The direction is checked here too. Narrowing to a type that holds every value
+of the source is refused, because nothing could be lost:
+
+```text
+'int' holds every 'i32', so nothing can be lost; use '.widen(...)'
+```
