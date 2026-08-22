@@ -93,14 +93,24 @@ interop-check:
 interop-locked:
 	@bash tools/verify-interop-lock.sh --locked
 
+# Every promoted lane is required, so a missing compiler fails the gate rather
+# than quietly proving only the one that happens to be installed. The dev shell
+# exports all three.
 test-interop: interop-locked
 	@set -eu; \
 		test "$$(uname -s)" = Linux || { echo "H7 interop requires Linux" >&2; exit 1; }; \
-		gcc="$$(command -v gcc || true)"; \
-		test -n "$$gcc" || { echo "H7 interop requires GCC" >&2; exit 1; }; \
 		command -v realpath >/dev/null 2>&1 || { echo "H7 interop requires realpath" >&2; exit 1; }; \
-		gcc="$$(realpath "$$gcc")"; \
-		FOL_H7_REQUIRED=1 FOL_H7_GCC="$$gcc" cargo test -p fol-frontend --test interop_h7 -- --nocapture
+		gcc="$${FOL_H7_GCC:-$$(command -v gcc || true)}"; \
+		test -n "$$gcc" || { echo "H7 interop requires GCC; run inside 'nix develop'" >&2; exit 1; }; \
+		clang="$${FOL_H7_CLANG:-$$(command -v clang || true)}"; \
+		test -n "$$clang" || { echo "H7 interop requires clang; run inside 'nix develop'" >&2; exit 1; }; \
+		musl="$${FOL_H7_MUSL_CC:-}"; \
+		test -n "$$musl" || { echo "H7 interop requires FOL_H7_MUSL_CC; run inside 'nix develop'" >&2; exit 1; }; \
+		FOL_H7_REQUIRED=1 \
+		FOL_H7_GCC="$$(realpath "$$gcc")" \
+		FOL_H7_CLANG="$$(realpath "$$clang")" \
+		FOL_H7_MUSL_CC="$$(realpath "$$musl")" \
+		cargo test -p fol-frontend --test interop_h7 -- --nocapture
 
 
 TEST_ARGS ?=
