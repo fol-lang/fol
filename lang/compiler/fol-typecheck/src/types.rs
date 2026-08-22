@@ -502,7 +502,11 @@ mod tests {
 
     #[test]
     fn builtin_type_all_names_covers_every_variant() {
-        assert_eq!(BuiltinType::ALL_NAMES.len(), 6);
+        // Six unsized spellings plus every sized integer and float.
+        assert_eq!(
+            BuiltinType::ALL_NAMES.len(),
+            6 + fol_types::IntWidth::ALL.len() + 2
+        );
         for name in BuiltinType::ALL_NAMES {
             assert!(!name.is_empty());
         }

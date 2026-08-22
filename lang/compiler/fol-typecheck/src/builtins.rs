@@ -37,6 +37,12 @@ impl BuiltinTypeIds {
 #[cfg(test)]
 mod tests {
     use super::BuiltinTypeIds;
+
+    /// How many distinct types `install` interns: one per integer width, one
+    /// per float width, and one each for bol, chr, str, and never.
+    fn scalar_type_count() -> usize {
+        fol_types::IntWidth::ALL.len() + fol_types::FloatWidth::ALL.len() + 4
+    }
     use crate::types::{BuiltinType, CheckedType, TypeTable};
 
     #[test]
@@ -44,7 +50,8 @@ mod tests {
         let mut table = TypeTable::new();
         let builtins = BuiltinTypeIds::install(&mut table);
 
-        assert_eq!(table.len(), 6);
+        // One interned type per width, plus bol/chr/str/never.
+        assert_eq!(table.len(), scalar_type_count());
         assert_eq!(
             table.get(builtins.int),
             Some(&CheckedType::Builtin(BuiltinType::Int(
@@ -82,6 +89,6 @@ mod tests {
         let second = BuiltinTypeIds::install(&mut table);
 
         assert_eq!(first, second);
-        assert_eq!(table.len(), 6);
+        assert_eq!(table.len(), scalar_type_count());
     }
 }

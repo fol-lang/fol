@@ -350,7 +350,11 @@ mod tests {
             .expect("Typed shell should accept resolved programs");
 
         assert_eq!(typed.package_name(), "parser");
-        assert_eq!(typed.type_table().len(), 6);
+        // One interned type per width, plus bol/chr/str/never.
+        assert_eq!(
+            typed.type_table().len(),
+            fol_types::IntWidth::ALL.len() + fol_types::FloatWidth::ALL.len() + 4
+        );
         assert_eq!(typed.resolved().source_units.len(), 1);
     }
 
