@@ -32,26 +32,26 @@ jobs:
           # `make fmt-check` diffs against an audited baseline commit.
           fetch-depth: 0
 
-      # rust-toolchain.toml pins the version for CI, the nix shell, and local
-      # rustup alike, so there is one source of truth.
-      - name: Show Rust toolchain
-        working-directory: fol
-        run: |
-          rustup show
-          rustc --version
-          cargo --version
+      - name: Install Nix
+        uses: cachix/install-nix-action@08dcb3a5e62fa31e2da3d490afc4176ef55ecd72 # v30
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
 
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@82a92a6e8fbeee089604da2575dc567ae9ddeaab # v2.7.5
         with:
           workspaces: fol
 
-      - name: Install the pinned tree-sitter CLI
-        uses: ./fol/.github/actions/tree-sitter
-
-      - name: Install native prerequisites
-        run: sudo apt-get update && sudo apt-get install --yes binutils build-essential
-
+      # The flake is the single toolchain source: pinned Rust, the pinned
+      # tree-sitter CLI that fol-editor's build script needs, gcc for the
+      # interop smoke, and mdbook for the docs target.
       - name: Run repository verification
         working-directory: fol
-        run: make verify
+        run: |
+          nix develop --command sh -euc '
+            rustc --version
+            cargo --version
+            tree-sitter --version
+            make verify
+          '

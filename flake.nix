@@ -19,9 +19,15 @@
           inherit system;
           overlays = [ (import rust-overlay) ];
         };
-        # One source of truth for the Rust version: the same file CI and local
-        # rustup read.
-        rustToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+        # One source of truth for the Rust version: this flake. Nothing reads a
+        # rustup toolchain file, so a checkout that never installs rustup builds
+        # exactly what CI builds.
+        rustVersion = "1.89.0";
+        rustToolchain = pkgs.rust-bin.stable.${rustVersion}.default.override {
+          extensions = [ "rust-src" "rustfmt" "clippy" ];
+          # Release binaries are static musl so one artifact runs on any Linux.
+          targets = [ "x86_64-unknown-linux-musl" "aarch64-unknown-linux-musl" ];
+        };
 
         # fol-editor regenerates the grammar with this CLI and then asserts
         # against the bytes it produces, so the version is an exact pin rather
@@ -58,27 +64,39 @@
             runHook postInstall
           '';
         };
+
+        # `make verify` needs more than a Rust compiler: build scripts need a
+        # C toolchain, fol-editor's tests shell out to the tree-sitter CLI,
+        # `make docs` needs mdbook, and the H7 interop smoke needs gcc.
+        commonPackages = with pkgs; [
+          rustToolchain
+          rust-analyzer
+          llvmPackages.lldb
+          gcc
+          binutils
+          gnumake
+          pkg-config
+          git
+          curl
+          treeSitterCli
+          mdbook
+        ];
+
+        # Release binaries link against musl so one artifact runs on any Linux.
+        # fol-editor's build script compiles the generated `parser.c`, so this
+        # needs a musl C toolchain and not only the Rust target.
+        muslTarget = {
+          x86_64-linux = "x86_64-unknown-linux-musl";
+          aarch64-linux = "aarch64-unknown-linux-musl";
+        }.${system} or (throw "no musl release target pinned for ${system}");
+        muslCc = "${pkgs.pkgsMusl.stdenv.cc}/bin/cc";
+        # Cargo spells its per-target overrides with an upper-snake triple.
+        muslKey = builtins.replaceStrings [ "-" ] [ "_" ] (pkgs.lib.toUpper muslTarget);
       in
       {
         devShells.default = pkgs.mkShell {
           strictDeps = true;
-
-          # `make verify` needs more than a Rust compiler: build scripts need a
-          # C toolchain, fol-editor's tests shell out to the tree-sitter CLI,
-          # `make docs` needs mdbook, and the H7 interop smoke needs gcc.
-          packages = with pkgs; [
-            rustToolchain
-            rust-analyzer
-            llvmPackages.lldb
-            gcc
-            binutils
-            gnumake
-            pkg-config
-            git
-            curl
-            treeSitterCli
-            mdbook
-          ];
+          packages = commonPackages;
 
           RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
 
@@ -89,5 +107,17 @@
             export FOL_H7_GCC="${pkgs.gcc.cc}/bin/gcc"
           '';
         };
+
+        # `nix develop .#release` is what the release workflow builds in.
+        devShells.release = pkgs.mkShell ({
+          strictDeps = true;
+          packages = commonPackages;
+
+          CARGO_BUILD_TARGET = muslTarget;
+          RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
+        } // {
+          "CC_${builtins.replaceStrings [ "-" ] [ "_" ] muslTarget}" = muslCc;
+          "CARGO_TARGET_${muslKey}_LINKER" = muslCc;
+        });
       });
 }

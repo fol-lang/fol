@@ -159,9 +159,6 @@ fn test_tree_sitter_pin_is_the_same_in_ci_the_dev_shell_and_the_editor_guard() {
     }
 
     let flake = std::fs::read_to_string(repo_root().join("flake.nix")).expect("flake.nix");
-    let installer =
-        std::fs::read_to_string(repo_root().join(".github/actions/tree-sitter/action.yml"))
-            .expect("the shared tree-sitter installer should exist");
     let guard =
         std::fs::read_to_string(repo_root().join("lang/tooling/fol-editor/src/commands.rs"))
             .expect("editor commands should exist");
@@ -183,26 +180,27 @@ fn test_tree_sitter_pin_is_the_same_in_ci_the_dev_shell_and_the_editor_guard() {
         )),
         "the build script should demand the same tree-sitter {required_series}.x the editor does"
     );
-    assert!(
-        installer.contains(&format!("version={pinned}")),
-        "CI should install the same tree-sitter {pinned} the dev shell pins"
-    );
 
     // A pinned version that is fetched without verification is a pin in name
-    // only; the release chain runs this workflow.
+    // only. The flake fetches the CLI by content hash, so the pin is the whole
+    // artifact rather than a version string.
     assert!(
-        installer.contains("sha256sum --check --strict"),
-        "the CI tree-sitter download should be checksum-verified"
+        flake.contains("hash = \"sha256-"),
+        "the flake should fetch the tree-sitter CLI by content hash"
     );
 
-    // Every workflow that builds the workspace needs the CLI, not just the one
-    // that runs the tests.
+    // The flake is the single toolchain source: every workflow that builds the
+    // workspace enters it, so none of them can drift onto a host toolchain.
     for workflow in ["tests.yml", "network.yml", "release.yml"] {
         let text = std::fs::read_to_string(repo_root().join(".github/workflows").join(workflow))
             .unwrap_or_else(|_| panic!("{workflow} should exist"));
         assert!(
-            text.contains("./fol/.github/actions/tree-sitter"),
-            "{workflow} builds the workspace, so it must install the pinned tree-sitter CLI"
+            text.contains("nix develop"),
+            "{workflow} builds the workspace, so it must build inside the flake's shell"
+        );
+        assert!(
+            !text.contains("rustup"),
+            "{workflow} must take its Rust toolchain from the flake, not rustup"
         );
     }
 }
