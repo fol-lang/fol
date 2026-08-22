@@ -1442,7 +1442,14 @@ Tasks:
   Section 4.10 called the install roles "M0-frozen" while no section stated
   them; 4.16 is now where they live. The manifest schema, canonical JSON, and
   the two fingerprints were already specified in 4.11 and are unchanged.
-- [ ] Freeze the platform tiers, required toolchain versions, and skip policy.
+- [x] Freeze the platform tiers, required toolchain versions, and skip policy.
+  Section 16.3 was rewritten against what the gate actually requires: it still
+  described musl and clang as future candidate lanes, and both are certified
+  and release-blocking. `certified_interop_lanes_cannot_be_skipped` asserts the
+  interop gate keeps all three toolchains and `FOL_H7_REQUIRED=1`;
+  `toolchain_versions_stay_pinned_in_the_flake` asserts rustc 1.89.0 and
+  tree-sitter 0.26.8 stay pinned and that `rust-toolchain.toml` does not
+  return.
 - [x] Freeze the safe-import rule: no general unsafe block, unsupported raw C
   declarations require an adapter. `fol_has_no_general_unsafe_keyword` asserts
   no keyword table gains `unsafe`, `unchecked`, `transmute`, or `extern`.
@@ -2330,20 +2337,51 @@ clear reason; it cannot turn required host V4 tests green.
 
 ## 16.3 Platform support tiers
 
-Certified initial (release-blocking parse, inspect, probe, generate, compile,
-link, and run):
+> **Frozen 2026-08-23** against what the gate actually requires, not what the
+> plan originally anticipated. musl and clang were listed here as future
+> candidate lanes; both were certified and are now release-blocking alongside
+> gnu.
 
-- `x86_64-unknown-linux-gnu` with ELF and an explicit GCC toolchain identity
+Certified (release-blocking parse, inspect, probe, generate, compile, link, and
+run). `make test-interop` sets `FOL_H7_REQUIRED=1` and refuses to start unless
+all three toolchains resolve, so none of these can be skipped into a green run:
+
+```text
+lane            target                          toolchain      env var
+gnu             x86_64-unknown-linux-gnu        gcc 14.3.0     FOL_H7_GCC
+musl            x86_64-unknown-linux-musl       musl-gcc       FOL_H7_MUSL_CC
+clang           x86_64-unknown-linux-gnu        clang 19.1.7   FOL_H7_CLANG
+```
+
+Required toolchain versions, pinned in `flake.nix` and reproduced by
+`nix develop`:
+
+```text
+rustc         1.89.0
+tree-sitter   0.26.8   (pinned exactly; a newer CLI fails 33 grammar tests)
+gcc           14.3.0
+clang         19.1.7
+```
+
+Release binaries link against musl (`x86_64-unknown-linux-musl`,
+`aarch64-unknown-linux-musl`) so one artifact runs on any Linux.
 
 Candidate, non-blocking promotion lanes:
 
-- `x86_64-unknown-linux-musl` after explicit sysroot/static-link evidence
 - a second Linux architecture after native or policy-controlled emulated runs
 
 Experimental and not advertised for V4 until sibling-native certification:
 
 - `aarch64-apple-darwin` and `x86_64-apple-darwin`
 - `x86_64-pc-windows-msvc` and MinGW targets
+
+**Skip policy.** A certified lane is never skipped. `test-interop` fails with a
+named diagnostic when a toolchain is missing rather than passing with that lane
+silently absent, because a skipped lane and a passing lane are indistinguishable
+in a summary line. Tests that genuinely cannot run everywhere -- the C header
+compile check, for one -- skip only on the *absence of a compiler*, print why,
+and are additionally covered by CI running inside `nix develop`, where the
+compiler is pinned and present.
 
 Do not infer support from rustc accepting a triple or from string-rendering
 tests. Promotion is an explicit sibling-contract, native-fixture, CI, plan, and

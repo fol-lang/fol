@@ -333,3 +333,61 @@ fn v4_contract_header_compiles_as_c_and_cxx() {
 
     let _ = fs::remove_dir_all(&scratch);
 }
+
+/// The certified lanes, frozen by section 16.3.
+///
+/// A certified lane that can be skipped is not certified: a skipped lane and a
+/// passing lane look identical in a summary line. This asserts the interop gate
+/// still demands all three toolchains and still refuses to run without them.
+#[test]
+fn certified_interop_lanes_cannot_be_skipped() {
+    let makefile =
+        fs::read_to_string(repo_root().join("Makefile")).expect("Makefile should be readable");
+    let start = makefile
+        .find("test-interop:")
+        .expect("the interop target should exist");
+    let recipe = &makefile[start..];
+    let recipe = match recipe.find("\n\nTEST_ARGS") {
+        Some(end) => &recipe[..end],
+        None => recipe,
+    };
+
+    for toolchain in ["FOL_H7_GCC", "FOL_H7_CLANG", "FOL_H7_MUSL_CC"] {
+        assert!(
+            recipe.contains(toolchain),
+            "{toolchain} left the interop gate; a certified lane became optional \
+             (plan/V4_PLAN.md section 16.3)"
+        );
+    }
+    assert!(
+        recipe.contains("FOL_H7_REQUIRED=1"),
+        "the interop gate stopped requiring its lanes, so a missing toolchain \
+         would pass silently"
+    );
+    // Each toolchain has a named failure rather than a silent fallthrough.
+    assert_eq!(
+        recipe.matches("exit 1").count(),
+        5,
+        "the interop gate should fail loudly for Linux, realpath, and each of \
+         the three toolchains"
+    );
+}
+
+/// The pinned toolchain versions from section 16.3. `flake.nix` is the single
+/// source; `rust-toolchain.toml` was deleted deliberately and must not return.
+#[test]
+fn toolchain_versions_stay_pinned_in_the_flake() {
+    let flake =
+        fs::read_to_string(repo_root().join("flake.nix")).expect("flake.nix should be readable");
+
+    for pin in ["1.89.0", "0.26.8"] {
+        assert!(
+            flake.contains(pin),
+            "{pin} is no longer pinned in flake.nix; section 16.3 lists it as required"
+        );
+    }
+    assert!(
+        !repo_root().join("rust-toolchain.toml").exists(),
+        "rust-toolchain.toml came back; flake.nix is the only toolchain source"
+    );
+}
