@@ -18,7 +18,7 @@ pub enum BuiltinType {
     Int(IntWidth),
     Float(FloatWidth),
     Bool,
-    Char,
+    Char(fol_types::CharEncoding),
     Str,
     Never,
 }
@@ -29,7 +29,7 @@ impl BuiltinType {
             Self::Int(width) => width.fol_spelling(),
             Self::Float(width) => width.fol_spelling(),
             Self::Bool => "bol",
-            Self::Char => "chr",
+            Self::Char(encoding) => encoding.fol_spelling(),
             Self::Str => "str",
             Self::Never => "never",
         }
@@ -37,8 +37,8 @@ impl BuiltinType {
 
     /// Every spelling that names a builtin scalar, including the sized ones.
     pub const ALL_NAMES: &[&str] = &[
-        "int", "flt", "bol", "chr", "str", "never", "i8", "i16", "i32", "i64", "i128", "arch",
-        "u8", "u16", "u32", "u64", "u128", "uarch", "f32", "f64",
+        "int", "flt", "bol", "chr", "str", "never", "utf8", "utf16", "utf32", "i8", "i16", "i32",
+        "i64", "i128", "arch", "u8", "u16", "u32", "u64", "u128", "uarch", "f32", "f64",
     ];
 }
 
@@ -495,17 +495,25 @@ mod tests {
             "flt"
         );
         assert_eq!(BuiltinType::Bool.as_str(), "bol");
-        assert_eq!(BuiltinType::Char.as_str(), "chr");
+        assert_eq!(
+            BuiltinType::Char(fol_types::CharEncoding::DEFAULT).as_str(),
+            "chr"
+        );
+        assert_eq!(
+            BuiltinType::Char(fol_types::CharEncoding::Utf16).as_str(),
+            "utf16"
+        );
         assert_eq!(BuiltinType::Str.as_str(), "str");
         assert_eq!(BuiltinType::Never.as_str(), "never");
     }
 
     #[test]
     fn builtin_type_all_names_covers_every_variant() {
-        // Six unsized spellings plus every sized integer and float.
+        // Six unsized spellings, every sized integer and float, and the three
+        // character encodings.
         assert_eq!(
             BuiltinType::ALL_NAMES.len(),
-            6 + fol_types::IntWidth::ALL.len() + 2
+            6 + fol_types::IntWidth::ALL.len() + 2 + fol_types::CharEncoding::ALL.len()
         );
         for name in BuiltinType::ALL_NAMES {
             assert!(!name.is_empty());

@@ -118,14 +118,14 @@
 (record_type) @type.builtin
 (entry_type) @type.builtin
 (generic_type_expr base: (identifier) @type.builtin
-  (#match? @type.builtin "^(int|flt|bol|chr|str|never|i8|i16|i32|i64|i128|arch|u8|u16|u32|u64|u128|uarch|f32|f64)$"))
+  (#match? @type.builtin "^(int|flt|bol|chr|str|never|utf8|utf16|utf32|i8|i16|i32|i64|i128|arch|u8|u16|u32|u64|u128|uarch|f32|f64)$"))
 (generic_type_expr base: (identifier) @type
-  (#not-match? @type "^(int|flt|bol|chr|str|never|i8|i16|i32|i64|i128|arch|u8|u16|u32|u64|u128|uarch|f32|f64)$"))
+  (#not-match? @type "^(int|flt|bol|chr|str|never|utf8|utf16|utf32|i8|i16|i32|i64|i128|arch|u8|u16|u32|u64|u128|uarch|f32|f64)$"))
 (generic_type_expr base: (qualified_path) @type)
 (type_expr (identifier) @type.builtin
-  (#match? @type.builtin "^(int|flt|bol|chr|str|never|i8|i16|i32|i64|i128|arch|u8|u16|u32|u64|u128|uarch|f32|f64)$"))
+  (#match? @type.builtin "^(int|flt|bol|chr|str|never|utf8|utf16|utf32|i8|i16|i32|i64|i128|arch|u8|u16|u32|u64|u128|uarch|f32|f64)$"))
 (type_expr (identifier) @type
-  (#not-match? @type "^(int|flt|bol|chr|str|never|i8|i16|i32|i64|i128|arch|u8|u16|u32|u64|u128|uarch|f32|f64)$"))
+  (#not-match? @type "^(int|flt|bol|chr|str|never|utf8|utf16|utf32|i8|i16|i32|i64|i128|arch|u8|u16|u32|u64|u128|uarch|f32|f64)$"))
 (type_expr (qualified_path) @type)
 (error_type "/" @operator)
 (param name: (identifier) @variable.parameter)

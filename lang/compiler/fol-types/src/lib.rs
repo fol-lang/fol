@@ -7,7 +7,7 @@ pub mod target;
 
 // Basic types
 pub use r#mod::*;
-pub use scalar::{FloatWidth, IntWidth};
+pub use scalar::{CharEncoding, FloatWidth, IntWidth};
 pub use target::{
     Endianness, ObjectFormat, ResolveTargetError, ResolvedTarget, TargetArch, TargetEnv,
     TargetFacts, TargetNaming, TargetOs, TargetTier, TargetVendor, TARGETS,

@@ -10,7 +10,7 @@ pub enum LoweredBuiltinType {
     Int(IntWidth),
     Float(FloatWidth),
     Bool,
-    Char,
+    Char(fol_types::CharEncoding),
     Str,
     Never,
 }
@@ -185,7 +185,7 @@ impl LoweredTypeTable {
                 }
                 LoweredBuiltinType::Float(width) => width.as_str().to_string(),
                 LoweredBuiltinType::Bool => "bol".to_string(),
-                LoweredBuiltinType::Char => "chr".to_string(),
+                LoweredBuiltinType::Char(encoding) => encoding.fol_spelling().to_string(),
                 LoweredBuiltinType::Str => "str".to_string(),
                 LoweredBuiltinType::Never => "never".to_string(),
             },

@@ -329,7 +329,7 @@ pub fn render_type_default_expr_in_workspace(
             Ok(format!("0.0_{}", width.rust_primitive()))
         }
         LoweredType::Builtin(LoweredBuiltinType::Bool) => Ok("false".to_string()),
-        LoweredType::Builtin(LoweredBuiltinType::Char) => Ok("'\\0'".to_string()),
+        LoweredType::Builtin(LoweredBuiltinType::Char(_)) => Ok("'\\0'".to_string()),
         LoweredType::Builtin(LoweredBuiltinType::Str) => {
             Ok("rt_model::FolStr::new(\"\")".to_string())
         }

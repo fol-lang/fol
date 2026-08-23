@@ -778,7 +778,7 @@ fn render_builtin_type(builtin: LoweredBuiltinType) -> BackendResult<&'static st
         LoweredBuiltinType::Float(FloatWidth::DEFAULT) => Ok("rt::FolFloat"),
         LoweredBuiltinType::Float(width) => Ok(width.rust_primitive()),
         LoweredBuiltinType::Bool => Ok("rt::FolBool"),
-        LoweredBuiltinType::Char => Ok("rt::FolChar"),
+        LoweredBuiltinType::Char(_) => Ok("rt::FolChar"),
         LoweredBuiltinType::Never => Ok("rt::FolNever"),
         LoweredBuiltinType::Str => Err(BackendError::new(
             BackendErrorKind::Internal,
@@ -807,7 +807,8 @@ mod tests {
         let float_id =
             table.intern_builtin(LoweredBuiltinType::Float(fol_types::FloatWidth::DEFAULT));
         let bool_id = table.intern_builtin(LoweredBuiltinType::Bool);
-        let char_id = table.intern_builtin(LoweredBuiltinType::Char);
+        let char_id =
+            table.intern_builtin(LoweredBuiltinType::Char(fol_types::CharEncoding::DEFAULT));
         let never_id = table.intern_builtin(LoweredBuiltinType::Never);
 
         assert_eq!(

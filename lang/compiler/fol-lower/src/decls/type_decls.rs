@@ -480,8 +480,23 @@ fn lower_record_decl(
             ),
         ));
     };
+    // Source declaration order decides every C struct offset, so the ordered
+    // layout wins over the checked map. `CheckedType::Record` stores a
+    // `BTreeMap`, and iterating it emitted fields alphabetically -- a record
+    // declared `{zulu, alpha, mike}` lowered as `{alpha, mike, zulu}`.
+    let declared_order: Vec<(String, fol_typecheck::CheckedTypeId)> = typed_package
+        .program
+        .record_layout(checked_type)
+        .map(|layout| {
+            layout
+                .iter()
+                .map(|field| (field.name.clone(), field.type_id))
+                .collect()
+        })
+        .unwrap_or_else(|| fields.clone().into_iter().collect());
+
     let mut lowered_fields = Vec::new();
-    for (field_name, field_type) in fields {
+    for (field_name, field_type) in declared_order {
         let lowered_field_type = lowered_package
             .checked_type_map
             .get(&field_type)

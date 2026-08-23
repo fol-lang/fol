@@ -39,8 +39,14 @@ impl AstParser {
             }),
             "flt" | "float" => Some(FolType::Float { size: None }),
             "bol" | "bool" => Some(FolType::Bool),
+            // A bare `chr` is a Unicode scalar value, which is UTF-32: the
+            // runtime maps `FolChar` to Rust's `char`, and section 4.6 projects
+            // `chr[utf32]` to `uint32_t`. The previous UTF-8 default named a
+            // code unit, which is not what the runtime stores; nothing could
+            // observe the difference while every encoding collapsed to one
+            // type.
             "chr" | "char" => Some(FolType::Char {
-                encoding: CharEncoding::Utf8,
+                encoding: CharEncoding::Utf32,
             }),
             "i8" => Some(FolType::Int {
                 size: Some(IntSize::I8),

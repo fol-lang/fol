@@ -375,10 +375,10 @@ pub(crate) fn type_binary_op(
                 // `chr`) poisons every `text + "x"` expression.
                 (
                     Some(CheckedType::Builtin(crate::BuiltinType::Str)),
-                    Some(CheckedType::Builtin(crate::BuiltinType::Char)),
+                    Some(CheckedType::Builtin(crate::BuiltinType::Char(_))),
                 )
                 | (
-                    Some(CheckedType::Builtin(crate::BuiltinType::Char)),
+                    Some(CheckedType::Builtin(crate::BuiltinType::Char(_))),
                     Some(CheckedType::Builtin(crate::BuiltinType::Str)),
                 ) => Ok(TypedExpr::value(typed.builtin_types().str_)
                     .with_optional_effect(merged_effect)),

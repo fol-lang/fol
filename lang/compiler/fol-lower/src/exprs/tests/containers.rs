@@ -742,34 +742,36 @@ fn indexed_assignment_lowers_its_value_against_the_element_type() {
     );
 }
 
-/// V4 M0 characterization: a record's lowered field order is alphabetical, not
-/// declaration order.
+/// V4 M4 positive regression: a record lowers its fields in source declaration
+/// order.
 ///
-/// `fol_typecheck::RecordFieldLayout` keeps source order, and record literals
-/// bind positionally through it, so declaration order is known. The lowered
-/// *type* is not built from it: `CheckedType::Record` and `LoweredType::Record`
-/// both store fields in a `BTreeMap`, and `decls/type_decls.rs` iterates that
-/// map. For a C struct the field order decides every offset, so this must
-/// become declaration order at the milestone that projects records to C.
+/// This began as an M0 characterization of the opposite. `CheckedType::Record`
+/// still stores a `BTreeMap`, so iterating it would emit `{alpha, mike, zulu}`
+/// for a record declared `{zulu, alpha, mike}`; the lowered *declaration* now
+/// reads `RecordFieldLayout` instead, which keeps source order. Field order
+/// decides every C struct offset, so this is an ABI fact rather than a
+/// cosmetic one -- and the emitted Rust struct is built from this ordered
+/// declaration, not from the map.
 #[test]
-fn lowered_record_field_order_is_alphabetical_not_declaration_order() {
+fn a_record_lowers_its_fields_in_declaration_order() {
     let workspace = super::lower_fixture_workspace(
         "typ Header: rec = {\n    zulu: int,\n    alpha: int,\n    mike: int,\n};\n\nfun[] main(): non = {\n    var h: Header = { zulu = 1, alpha = 2, mike = 3 };\n    return;\n};\n",
     );
 
-    let table = workspace.type_table();
-    let order = (0..table.len())
-        .filter_map(|index| table.get(crate::ids::LoweredTypeId(index)))
-        .find_map(|lowered| match lowered {
-            crate::types::LoweredType::Record { fields, .. } if fields.len() == 3 => {
-                Some(fields.keys().cloned().collect::<Vec<_>>())
+    let declared = workspace
+        .packages()
+        .flat_map(|package| package.type_decls.iter())
+        .find_map(|(_, decl)| match &decl.kind {
+            crate::model::LoweredTypeDeclKind::Record { fields } if fields.len() == 3 => {
+                Some(fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>())
             }
             _ => None,
         })
-        .expect("the record type should be interned");
+        .expect("the record declaration should be lowered");
+
     assert_eq!(
-        order,
-        vec!["alpha".to_string(), "mike".to_string(), "zulu".to_string()],
-        "declaration order has started to survive lowering; convert this test"
+        declared,
+        vec!["zulu".to_string(), "alpha".to_string(), "mike".to_string()],
+        "field order was sorted; it decides every C struct offset"
     );
 }

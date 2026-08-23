@@ -616,7 +616,7 @@ fn lower_builtin(builtin: BuiltinType) -> LoweredBuiltinType {
         BuiltinType::Int(width) => LoweredBuiltinType::Int(width),
         BuiltinType::Float(width) => LoweredBuiltinType::Float(width),
         BuiltinType::Bool => LoweredBuiltinType::Bool,
-        BuiltinType::Char => LoweredBuiltinType::Char,
+        BuiltinType::Char(encoding) => LoweredBuiltinType::Char(encoding),
         BuiltinType::Str => LoweredBuiltinType::Str,
         BuiltinType::Never => LoweredBuiltinType::Never,
     }

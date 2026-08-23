@@ -1027,7 +1027,10 @@ fn aggregates_holding_routine_values_build_and_run() {
              \x20   return std::io::echo_int(.len(hooks) + .len(pending) + .len(slots));\n\
              };\n",
     );
-    assert_successful_stdout(&root, "Boxx { f: <routine>, tag: hi }\n1\n");
+    // Declared `{ tag, f }`, and that is the order it prints: M4 made record
+    // field order follow the source rather than the alphabet, because field
+    // order decides every C struct offset.
+    assert_successful_stdout(&root, "Boxx { tag: hi, f: <routine> }\n1\n");
     std::fs::remove_dir_all(root).ok();
 }
 

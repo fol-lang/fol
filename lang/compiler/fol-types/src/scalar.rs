@@ -248,3 +248,84 @@ mod tests {
         assert_eq!(FloatWidth::Arch.rust_primitive(), "f64");
     }
 }
+
+/// The encoding of a FOL character.
+///
+/// Carried for the same reason widths are: a `chr` that silently changes
+/// encoding at a boundary is a promise the compiler does not keep. Only
+/// `utf32` crosses the C boundary, because it is the one encoding with a
+/// fixed-width scalar representation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CharEncoding {
+    Utf8,
+    Utf16,
+    Utf32,
+}
+
+impl CharEncoding {
+    /// `chr` with no option is UTF-32: FOL's character is a Unicode scalar
+    /// value, not a code unit.
+    pub const DEFAULT: Self = Self::Utf32;
+
+    pub const ALL: &'static [Self] = &[Self::Utf8, Self::Utf16, Self::Utf32];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Utf8 => "utf8",
+            Self::Utf16 => "utf16",
+            Self::Utf32 => "utf32",
+        }
+    }
+
+    /// How FOL spells it; the default encoding is spelled `chr`.
+    pub const fn fol_spelling(self) -> &'static str {
+        match self {
+            Self::Utf32 => "chr",
+            other => other.as_str(),
+        }
+    }
+
+    /// Storage bits of one code unit.
+    pub const fn code_unit_bits(self) -> u16 {
+        match self {
+            Self::Utf8 => 8,
+            Self::Utf16 => 16,
+            Self::Utf32 => 32,
+        }
+    }
+
+    /// Whether this encoding crosses the C boundary.
+    ///
+    /// Only UTF-32 does: a `uint32_t` holds one Unicode scalar value, while a
+    /// UTF-8 or UTF-16 character is a code unit that may be part of a sequence,
+    /// which has no single-scalar C projection.
+    pub const fn crosses_c_boundary(self) -> bool {
+        matches!(self, Self::Utf32)
+    }
+}
+
+#[cfg(test)]
+mod char_encoding_tests {
+    use super::CharEncoding;
+
+    #[test]
+    fn the_default_encoding_is_utf32() {
+        assert_eq!(CharEncoding::DEFAULT, CharEncoding::Utf32);
+        assert_eq!(CharEncoding::Utf32.fol_spelling(), "chr");
+        assert_eq!(CharEncoding::Utf8.fol_spelling(), "utf8");
+    }
+
+    #[test]
+    fn only_utf32_crosses_the_c_boundary() {
+        assert!(CharEncoding::Utf32.crosses_c_boundary());
+        assert!(!CharEncoding::Utf8.crosses_c_boundary());
+        assert!(!CharEncoding::Utf16.crosses_c_boundary());
+    }
+
+    #[test]
+    fn code_unit_widths_are_what_the_names_say() {
+        assert_eq!(CharEncoding::Utf8.code_unit_bits(), 8);
+        assert_eq!(CharEncoding::Utf16.code_unit_bits(), 16);
+        assert_eq!(CharEncoding::Utf32.code_unit_bits(), 32);
+    }
+}

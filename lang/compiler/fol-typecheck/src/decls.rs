@@ -2856,7 +2856,19 @@ fn lower_type_inner(
                 .intern_builtin(crate::BuiltinType::Float(width)))
         }
         FolType::Bool => Ok(typed.builtin_types().bool_),
-        FolType::Char { .. } => Ok(typed.builtin_types().char_),
+        FolType::Char { encoding } => {
+            // The encoding survives, for the same reason integer width does: a
+            // `chr` that silently changes encoding at a boundary is a promise
+            // the compiler does not keep.
+            let encoding = match encoding {
+                fol_parser::ast::options::CharEncoding::Utf8 => fol_types::CharEncoding::Utf8,
+                fol_parser::ast::options::CharEncoding::Utf16 => fol_types::CharEncoding::Utf16,
+                fol_parser::ast::options::CharEncoding::Utf32 => fol_types::CharEncoding::Utf32,
+            };
+            Ok(typed
+                .type_table_mut()
+                .intern_builtin(crate::BuiltinType::Char(encoding)))
+        }
         typ if typ.is_builtin_str() => {
             reject_heap_backed_type_in_core(typed, resolved, typ, "str", None)?;
             Ok(typed.builtin_types().str_)

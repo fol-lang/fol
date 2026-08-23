@@ -28,7 +28,7 @@ impl BuiltinTypeIds {
             int: table.intern_builtin(BuiltinType::Int(IntWidth::DEFAULT)),
             float: table.intern_builtin(BuiltinType::Float(FloatWidth::DEFAULT)),
             bool_: table.intern_builtin(BuiltinType::Bool),
-            char_: table.intern_builtin(BuiltinType::Char),
+            char_: table.intern_builtin(BuiltinType::Char(fol_types::CharEncoding::DEFAULT)),
             str_: table.intern_builtin(BuiltinType::Str),
             never: table.intern_builtin(BuiltinType::Never),
         }
@@ -70,7 +70,9 @@ mod tests {
         );
         assert_eq!(
             table.get(builtins.char_),
-            Some(&CheckedType::Builtin(BuiltinType::Char))
+            Some(&CheckedType::Builtin(BuiltinType::Char(
+                fol_types::CharEncoding::DEFAULT
+            )))
         );
         assert_eq!(
             table.get(builtins.str_),

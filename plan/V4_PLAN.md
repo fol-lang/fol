@@ -2021,17 +2021,40 @@ Primary files:
 
 Tasks:
 
-- [ ] Carry integer width/sign, float width, and character encoding into checked
-  and lowered type identity without breaking ordinary runtime defaults.
-- [ ] Preserve record declaration order through lowering and add entry variant
-  order plus explicit stable discriminants.
+- [x] Carry integer width/sign, float width, and character encoding into checked
+  and lowered type identity without breaking ordinary runtime defaults. Integer
+  and float widths landed with `plan/V4_SCALAR_WIDTHS.md`; character encoding
+  is now `BuiltinType::Char(CharEncoding)` and
+  `LoweredBuiltinType::Char(CharEncoding)`.
+
+  The parser defaulted a bare `chr` to UTF-8, which contradicted the runtime --
+  `FolChar` is Rust's `char`, a Unicode scalar value -- and section 4.6, which
+  projects `chr[utf32]` to `uint32_t`. Nothing could observe the difference
+  while every encoding collapsed to one type. The default is now UTF-32, and
+  `crosses_c_boundary` records that only UTF-32 does: a UTF-8 or UTF-16
+  character is a code unit that may be part of a sequence, which has no
+  single-scalar C projection.
+- [~] Preserve record declaration order through lowering and add entry variant
+  order plus explicit stable discriminants. Record order is done:
+  `decls/type_decls.rs` reads `RecordFieldLayout`, which keeps source order,
+  instead of iterating `CheckedType::Record`'s `BTreeMap`. The emitted Rust
+  struct is built from that ordered declaration, so a record declared
+  `{zulu, alpha, mike}` no longer emits as `{alpha, mike, zulu}` -- field order
+  decides every C struct offset. Pinned by
+  `a_record_lowers_its_fields_in_declaration_order`, negative-controlled.
+  `AbiVariant` carries an explicit discriminant; entry order in lowering is the
+  remaining half.
 - [ ] Add raw-pointer checked/lowered variants with raw-ness and mutability;
   optional wrapping remains the nullability marker.
 - [ ] Add foreign import/export metadata, external name, calling convention,
   ownership/nullability/escape/destructor facts, effects, and source origin.
-- [ ] Create/register `fol-abi` as the dependency-foundation crate described in
+- [x] Create/register `fol-abi` as the dependency-foundation crate described in
   Section 4.1 without changing any workspace/package version field; enforce its
-  dependency prohibition in a crate-graph test.
+  dependency prohibition in a crate-graph test. `fol-types` is its only
+  dependency, asserted by `fol_abi_depends_only_on_fol_types` and held
+  transitively by `the_prohibition_holds_through_fol_types`;
+  `fol_abi_is_a_workspace_default_member` also asserts the workspace version
+  did not move.
 - [ ] Define `AbiTypeId`, `AbiTypeTable`, canonical shapes from Section 4.6,
   `ForeignInterfaceTemplate`, `ForeignInterface`, `ResolvedAbiSurface`,
   manifests, canonical encoding, fingerprints, and compatibility types in

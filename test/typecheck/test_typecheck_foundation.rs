@@ -548,18 +548,22 @@ fn builtin_type_as_str_matches_language_spelling() {
         "flt"
     );
     assert_eq!(BuiltinType::Bool.as_str(), "bol");
-    assert_eq!(BuiltinType::Char.as_str(), "chr");
+    assert_eq!(
+        BuiltinType::Char(fol_types::CharEncoding::DEFAULT).as_str(),
+        "chr"
+    );
     assert_eq!(BuiltinType::Str.as_str(), "str");
     assert_eq!(BuiltinType::Never.as_str(), "never");
 }
 
 #[test]
 fn builtin_type_all_names_covers_every_variant() {
-    // Six unsized spellings plus every sized integer and float, because a
-    // sized spelling names a real type now rather than a synonym for `int`.
+    // Six unsized spellings, every sized integer and float, and the three
+    // character encodings: a sized or encoded spelling names a real type now
+    // rather than a synonym for `int` or `chr`.
     assert_eq!(
         BuiltinType::ALL_NAMES.len(),
-        6 + fol_types::IntWidth::ALL.len() + 2
+        6 + fol_types::IntWidth::ALL.len() + 2 + fol_types::CharEncoding::ALL.len()
     );
     for name in BuiltinType::ALL_NAMES {
         assert!(!name.is_empty());

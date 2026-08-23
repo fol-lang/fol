@@ -614,7 +614,7 @@ fn render_entry_arg_expr(
         LoweredType::Builtin(LoweredBuiltinType::Bool) => {
             render_parsed_entry_arg(index, "bol", "__fol_parse_bool(&raw)")
         }
-        LoweredType::Builtin(LoweredBuiltinType::Char) => {
+        LoweredType::Builtin(LoweredBuiltinType::Char(_)) => {
             render_parsed_entry_arg(index, "chr", "__fol_parse_char(&raw)")
         }
         LoweredType::Builtin(LoweredBuiltinType::Str) => {

@@ -63,6 +63,9 @@ appropriate external runner. Adding bundled `std` does not affect that check.
 lang/
   compiler/       front-end: source --> typed IR
     fol-types         shared type definitions and traits
+    fol-abi           the canonical C ABI model: type table, foreign interfaces,
+                      manifests, and fingerprints. Depends only on fol-types,
+                      because the compiler and the interop stack both consume it
     fol-stream        file/directory to character-stream conversion
     fol-lexer         4-stage tokenization pipeline
     fol-parser        AST-only parser (no semantic analysis)
