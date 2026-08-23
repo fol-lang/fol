@@ -417,20 +417,25 @@ fn declaration_lowering_records_explicit_entry_variant_layouts() {
     assert_eq!(
         entry_decl.kind,
         LoweredTypeDeclKind::Entry {
+            // Declared `{ Ok, Err }`, and that is the lowered order: M4 made
+            // variant order and tags follow the source, because a discriminant
+            // is a value written to files and sent over wires.
             variants: vec![
-                LoweredVariantLayout {
-                    name: "Err".to_string(),
-                    payload_type: Some(
-                        lowered_workspace.entry_package().checked_type_map
-                            [&typed_package.program.builtin_types().str_],
-                    ),
-                },
                 LoweredVariantLayout {
                     name: "Ok".to_string(),
                     payload_type: Some(
                         lowered_workspace.entry_package().checked_type_map
                             [&typed_package.program.builtin_types().int],
                     ),
+                    discriminant: 0,
+                },
+                LoweredVariantLayout {
+                    name: "Err".to_string(),
+                    payload_type: Some(
+                        lowered_workspace.entry_package().checked_type_map
+                            [&typed_package.program.builtin_types().str_],
+                    ),
+                    discriminant: 1,
                 },
             ],
         }

@@ -17,6 +17,7 @@ impl AstParser {
         let mut variants = HashMap::new();
         let mut variant_meta = HashMap::new();
         let mut members = Vec::new();
+        let mut variant_order: Vec<String> = Vec::new();
         let mut seen_variant_names = HashSet::new();
         let mut seen_members = HashSet::new();
         for _ in 0..256 {
@@ -28,6 +29,7 @@ impl AstParser {
                 return Ok(TypeDefinition::Entry {
                     variants,
                     variant_meta,
+                    variant_order,
                     members,
                 });
             }
@@ -51,6 +53,7 @@ impl AstParser {
                     return Ok(TypeDefinition::Entry {
                         variants,
                         variant_meta,
+                        variant_order,
                         members,
                     });
                 }
@@ -80,6 +83,7 @@ impl AstParser {
                     return Ok(TypeDefinition::Entry {
                         variants,
                         variant_meta,
+                        variant_order,
                         members,
                     });
                 }
@@ -109,6 +113,7 @@ impl AstParser {
                     return Ok(TypeDefinition::Entry {
                         variants,
                         variant_meta,
+                        variant_order,
                         members,
                     });
                 }
@@ -139,6 +144,7 @@ impl AstParser {
                     return Ok(TypeDefinition::Entry {
                         variants,
                         variant_meta,
+                        variant_order,
                         members,
                     });
                 }
@@ -245,6 +251,7 @@ impl AstParser {
                     ));
                 }
                 let _ = variants.insert(name.clone(), variant_type.clone());
+                variant_order.push(name.clone());
                 if !seen_members.insert(canonical_identifier_key(&name)) {
                     return Err(self.duplicate_type_member_error(&name_token, &name));
                 }
@@ -270,6 +277,7 @@ impl AstParser {
                 return Ok(TypeDefinition::Entry {
                     variants,
                     variant_meta,
+                    variant_order,
                     members,
                 });
             }

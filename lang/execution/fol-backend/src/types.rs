@@ -1067,14 +1067,17 @@ mod tests {
                     LoweredVariantLayout {
                         name: "Ok".to_string(),
                         payload_type: Some(int_id),
+                        discriminant: 0,
                     },
                     LoweredVariantLayout {
                         name: "Err".to_string(),
                         payload_type: Some(str_id),
+                        discriminant: 0,
                     },
                     LoweredVariantLayout {
                         name: "Empty".to_string(),
                         payload_type: None,
+                        discriminant: 0,
                     },
                 ],
             },
@@ -1114,14 +1117,17 @@ mod tests {
                     LoweredVariantLayout {
                         name: "Ok".to_string(),
                         payload_type: Some(int_id),
+                        discriminant: 0,
                     },
                     LoweredVariantLayout {
                         name: "Err".to_string(),
                         payload_type: Some(str_id),
+                        discriminant: 0,
                     },
                     LoweredVariantLayout {
                         name: "Empty".to_string(),
                         payload_type: None,
+                        discriminant: 0,
                     },
                 ],
             },
@@ -1194,14 +1200,17 @@ mod tests {
                     LoweredVariantLayout {
                         name: "Ok".to_string(),
                         payload_type: Some(int_id),
+                        discriminant: 0,
                     },
                     LoweredVariantLayout {
                         name: "Err".to_string(),
                         payload_type: Some(str_id),
+                        discriminant: 0,
                     },
                     LoweredVariantLayout {
                         name: "Empty".to_string(),
                         payload_type: None,
+                        discriminant: 0,
                     },
                 ],
             },

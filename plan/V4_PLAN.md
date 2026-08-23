@@ -2034,7 +2034,7 @@ Tasks:
   `crosses_c_boundary` records that only UTF-32 does: a UTF-8 or UTF-16
   character is a code unit that may be part of a sequence, which has no
   single-scalar C projection.
-- [~] Preserve record declaration order through lowering and add entry variant
+- [x] Preserve record declaration order through lowering and add entry variant
   order plus explicit stable discriminants. Record order is done:
   `decls/type_decls.rs` reads `RecordFieldLayout`, which keeps source order,
   instead of iterating `CheckedType::Record`'s `BTreeMap`. The emitted Rust
@@ -2042,8 +2042,15 @@ Tasks:
   `{zulu, alpha, mike}` no longer emits as `{alpha, mike, zulu}` -- field order
   decides every C struct offset. Pinned by
   `a_record_lowers_its_fields_in_declaration_order`, negative-controlled.
-  `AbiVariant` carries an explicit discriminant; entry order in lowering is the
-  remaining half.
+  Entries needed a `variant_order` on the AST first: `TypeDefinition::Entry`
+  held only hash maps, so the parser lost declaration order before typecheck
+  ever saw it -- records already had `field_order`. `EntryVariantLayout` now
+  carries the name, payload, and an explicit discriminant assigned from
+  declaration position, and lowering reads it. A discriminant is a value
+  written to files and sent over wires, so deriving it from a map's iteration
+  order would silently change what an existing byte means. Pinned by
+  `an_entry_lowers_its_variants_in_declaration_order_with_stable_tags` and
+  `moving_an_entry_declaration_does_not_change_its_tags`.
 - [ ] Add raw-pointer checked/lowered variants with raw-ness and mutability;
   optional wrapping remains the nullability marker.
 - [ ] Add foreign import/export metadata, external name, calling convention,

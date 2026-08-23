@@ -149,6 +149,21 @@ pub struct RecordFieldLayout {
     pub default: Option<AstNode>,
 }
 
+/// One variant of an entry type, in source declaration order, with the
+/// discriminant its tag takes.
+///
+/// `CheckedType::Entry` stores variants in an order-losing map for identity, so
+/// this side table is where order lives. The discriminant is explicit rather
+/// than derived from position, because inserting a variant would otherwise
+/// renumber every variant after it -- silently changing the meaning of a value
+/// already written to a file or sent over a wire.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntryVariantLayout {
+    pub name: String,
+    pub payload: Option<CheckedTypeId>,
+    pub discriminant: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActiveBorrow {
     pub owner: SymbolId,
@@ -274,6 +289,7 @@ pub struct TypedProgram {
     call_signatures: BTreeMap<SyntaxNodeId, RoutineType>,
     constraint_call_sites: std::collections::BTreeSet<SyntaxNodeId>,
     record_layouts: BTreeMap<CheckedTypeId, Vec<RecordFieldLayout>>,
+    entry_layouts: BTreeMap<CheckedTypeId, Vec<EntryVariantLayout>>,
     /// Generic instantiations whose structural shape is currently being
     /// computed. Recursive value instantiation reaches its own node while
     /// expanding; this guard breaks the cycle so the checker can issue the
@@ -1118,6 +1134,7 @@ impl TypedProgram {
             call_signatures: BTreeMap::new(),
             constraint_call_sites: std::collections::BTreeSet::new(),
             record_layouts: BTreeMap::new(),
+            entry_layouts: BTreeMap::new(),
             moved_bindings: BTreeMap::new(),
             moved_fields: BTreeMap::new(),
             eventual_moves: BTreeMap::new(),
@@ -1149,6 +1166,22 @@ impl TypedProgram {
         layout: Vec<RecordFieldLayout>,
     ) {
         self.record_layouts.insert(type_id, layout);
+    }
+
+    /// Record an entry's variants in declaration order with their tags.
+    pub(crate) fn set_entry_layout(
+        &mut self,
+        type_id: CheckedTypeId,
+        layout: Vec<EntryVariantLayout>,
+    ) {
+        self.entry_layouts.insert(type_id, layout);
+    }
+
+    /// The ordered variant layout for an entry type, if one was recorded.
+    pub fn entry_layout(&self, type_id: CheckedTypeId) -> Option<&[EntryVariantLayout]> {
+        self.entry_layouts
+            .get(&type_id)
+            .map(|variants| variants.as_slice())
     }
 
     /// The ordered field layout for a record type, if one was recorded.

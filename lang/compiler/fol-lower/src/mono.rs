@@ -1022,10 +1022,16 @@ fn synthesize_missing_structural_decls(
                 LoweredTypeDeclKind::Entry {
                     variants: variants
                         .iter()
-                        .map(|(variant_name, variant_type)| LoweredVariantLayout {
-                            name: variant_name.clone(),
-                            payload_type: *variant_type,
-                        })
+                        .enumerate()
+                        .map(
+                            |(index, (variant_name, variant_type))| LoweredVariantLayout {
+                                name: variant_name.clone(),
+                                payload_type: *variant_type,
+                                // A monomorphized entry is synthesized rather than
+                                // declared, so there is no source tag to preserve.
+                                discriminant: index as i64,
+                            },
+                        )
                         .collect(),
                 },
             ),

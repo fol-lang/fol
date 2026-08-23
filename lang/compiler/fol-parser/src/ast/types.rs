@@ -341,6 +341,11 @@ pub enum TypeDefinition {
     Entry {
         variants: HashMap<String, Option<FolType>>,
         variant_meta: HashMap<String, EntryVariantMeta>,
+        /// Variant names in source declaration order. `variants`/`variant_meta`
+        /// are keyed maps that lose ordering, and a variant's position decides
+        /// its discriminant -- a value written to files and sent over wires, so
+        /// it cannot be re-derived from whatever order a map iteration gives.
+        variant_order: Vec<String>,
         members: Vec<AstNode>,
     },
     Alias {

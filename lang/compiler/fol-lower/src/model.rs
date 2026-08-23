@@ -108,6 +108,12 @@ pub struct LoweredFieldLayout {
 pub struct LoweredVariantLayout {
     pub name: String,
     pub payload_type: Option<LoweredTypeId>,
+    /// The stable tag this variant carries.
+    ///
+    /// Explicit rather than positional: inserting a variant would otherwise
+    /// renumber every variant after it, silently changing the meaning of a
+    /// value already written to a file or sent over a wire.
+    pub discriminant: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

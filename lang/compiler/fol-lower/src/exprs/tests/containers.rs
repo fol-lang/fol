@@ -775,3 +775,76 @@ fn a_record_lowers_its_fields_in_declaration_order() {
         "field order was sorted; it decides every C struct offset"
     );
 }
+
+/// V4 M4: an entry lowers its variants in declaration order with stable tags.
+///
+/// `CheckedType::Entry` stores a `BTreeMap`, so iterating it would order
+/// variants alphabetically and number them by that order. A discriminant is a
+/// value written to files and sent over wires; renumbering it because someone
+/// inserted a variant, or because the alphabet says so, silently changes what
+/// an existing byte means.
+#[test]
+fn an_entry_lowers_its_variants_in_declaration_order_with_stable_tags() {
+    let workspace = super::lower_fixture_workspace(
+        "typ Shape: ent = { lab zebra; lab apple; lab mango };\nfun[] main(): int = { return 0; };\n",
+    );
+
+    let declared = workspace
+        .packages()
+        .flat_map(|package| package.type_decls.iter())
+        .find_map(|(_, decl)| match &decl.kind {
+            crate::model::LoweredTypeDeclKind::Entry { variants } if variants.len() == 3 => Some(
+                variants
+                    .iter()
+                    .map(|variant| (variant.name.clone(), variant.discriminant))
+                    .collect::<Vec<_>>(),
+            ),
+            _ => None,
+        })
+        .expect("the entry declaration should be lowered");
+
+    assert_eq!(
+        declared,
+        vec![
+            ("zebra".to_string(), 0),
+            ("apple".to_string(), 1),
+            ("mango".to_string(), 2),
+        ],
+        "variant order or tags were sorted; both are ABI facts"
+    );
+}
+
+/// Reordering the *declarations in the file* does not renumber existing tags
+/// relative to their own names' positions.
+///
+/// The tag follows the variant's position inside its own entry, so moving the
+/// whole `typ` elsewhere in the file changes nothing.
+#[test]
+fn moving_an_entry_declaration_does_not_change_its_tags() {
+    let tags = |source: &str| {
+        super::lower_fixture_workspace(source)
+            .packages()
+            .flat_map(|package| package.type_decls.iter())
+            .find_map(|(_, decl)| match &decl.kind {
+                crate::model::LoweredTypeDeclKind::Entry { variants } if variants.len() == 3 => {
+                    Some(
+                        variants
+                            .iter()
+                            .map(|variant| (variant.name.clone(), variant.discriminant))
+                            .collect::<Vec<_>>(),
+                    )
+                }
+                _ => None,
+            })
+            .expect("the entry declaration should be lowered")
+    };
+
+    let entry_first = tags(
+        "typ Shape: ent = { lab zebra; lab apple; lab mango };\ntyp Other: rec = { a: int };\nfun[] main(): int = { return 0; };\n",
+    );
+    let entry_second = tags(
+        "typ Other: rec = { a: int };\ntyp Shape: ent = { lab zebra; lab apple; lab mango };\nfun[] main(): int = { return 0; };\n",
+    );
+
+    assert_eq!(entry_first, entry_second);
+}

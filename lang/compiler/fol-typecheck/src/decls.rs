@@ -521,20 +521,41 @@ fn lower_top_level_declaration(
                     )?;
                     record_type_id
                 }
-                TypeDefinition::Entry { variants, .. } => {
+                TypeDefinition::Entry {
+                    variants,
+                    variant_order,
+                    ..
+                } => {
                     let mut lowered = BTreeMap::new();
-                    for (variant_name, variant_type) in variants {
-                        lowered.insert(
-                            variant_name.clone(),
-                            variant_type
-                                .as_ref()
-                                .map(|variant| lower_type(typed, resolved, type_scope, variant))
-                                .transpose()?,
-                        );
+                    let mut layout = Vec::new();
+                    // Source declaration order, so a variant's tag follows
+                    // where it was written rather than where a hash map put it.
+                    let ordered: Vec<&String> = if variant_order.len() == variants.len() {
+                        variant_order.iter().collect()
+                    } else {
+                        variants.keys().collect()
+                    };
+                    for (index, variant_name) in ordered.into_iter().enumerate() {
+                        let variant_type = variants.get(variant_name).and_then(|t| t.as_ref());
+                        let payload = variant_type
+                            .map(|variant| lower_type(typed, resolved, type_scope, variant))
+                            .transpose()?;
+                        lowered.insert(variant_name.clone(), payload);
+                        // Assigned from declaration position at first sight and
+                        // then recorded, so the tag is a stored fact rather than
+                        // something re-derived from whatever order a later map
+                        // iteration happens to produce.
+                        layout.push(crate::model::EntryVariantLayout {
+                            name: variant_name.clone(),
+                            payload,
+                            discriminant: index as i64,
+                        });
                     }
-                    typed
+                    let entry_type_id = typed
                         .type_table_mut()
-                        .intern(CheckedType::Entry { variants: lowered })
+                        .intern(CheckedType::Entry { variants: lowered });
+                    typed.set_entry_layout(entry_type_id, layout);
+                    entry_type_id
                 }
             };
             crate::exprs::helpers::reject_embedded_full_channel(

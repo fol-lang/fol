@@ -557,7 +557,7 @@ fn synthesize_structural_type_decl(
         }
         CheckedType::Entry { variants } => {
             let mut lowered_variants = Vec::new();
-            for (variant_name, variant_type) in variants {
+            for (index, (variant_name, variant_type)) in variants.into_iter().enumerate() {
                 let lowered_variant_type = match variant_type {
                     Some(variant_type) => Some(
                         lowered_package
@@ -570,6 +570,10 @@ fn synthesize_structural_type_decl(
                 lowered_variants.push(LoweredVariantLayout {
                     name: variant_name,
                     payload_type: lowered_variant_type,
+                    // A structural entry has no declaration to read an explicit
+                    // tag from, and the ABI rejects anonymous aggregates, so it
+                    // never reaches a manifest.
+                    discriminant: index as i64,
                 });
             }
             Some(LoweredTypeDecl {
@@ -759,8 +763,29 @@ fn lower_entry_decl(
             ),
         ));
     };
+    // Declaration order and explicit tags come from the typed side table;
+    // `CheckedType::Entry` stores a `BTreeMap`, so iterating it would order
+    // variants alphabetically and number them by that order.
+    let declared: Vec<(String, Option<fol_typecheck::CheckedTypeId>, i64)> = typed_package
+        .program
+        .entry_layout(checked_type)
+        .map(|layout| {
+            layout
+                .iter()
+                .map(|variant| (variant.name.clone(), variant.payload, variant.discriminant))
+                .collect()
+        })
+        .unwrap_or_else(|| {
+            variants
+                .clone()
+                .into_iter()
+                .enumerate()
+                .map(|(index, (name, payload))| (name, payload, index as i64))
+                .collect()
+        });
+
     let mut lowered_variants = Vec::new();
-    for (variant_name, variant_type) in variants {
+    for (variant_name, variant_type, discriminant) in declared {
         let lowered_variant_type = variant_type
             .map(|variant_type| {
                 lowered_package
@@ -781,6 +806,7 @@ fn lower_entry_decl(
         lowered_variants.push(LoweredVariantLayout {
             name: variant_name,
             payload_type: lowered_variant_type,
+            discriminant,
         });
     }
 

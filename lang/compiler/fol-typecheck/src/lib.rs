@@ -29,10 +29,10 @@ pub use editor::{
 pub use errors::{TypecheckError, TypecheckErrorKind};
 pub use fol_parser::ast::ParsedSourceUnitKind;
 pub use model::{
-    ActiveMutexGuard, RecordFieldLayout, RecoverableCallEffect, TypedConformance,
-    TypedConformanceClaim, TypedExportMount, TypedNode, TypedPackage, TypedProgram, TypedReference,
-    TypedSourceUnit, TypedStandard, TypedStandardField, TypedStandardRoutine, TypedSymbol,
-    TypedWorkspace,
+    ActiveMutexGuard, EntryVariantLayout, RecordFieldLayout, RecoverableCallEffect,
+    TypedConformance, TypedConformanceClaim, TypedExportMount, TypedNode, TypedPackage,
+    TypedProgram, TypedReference, TypedSourceUnit, TypedStandard, TypedStandardField,
+    TypedStandardRoutine, TypedSymbol, TypedWorkspace,
 };
 pub use types::{
     BuiltinType, CheckedType, CheckedTypeId, DeclaredTypeKind, GenericConstraint, RoutineType,
