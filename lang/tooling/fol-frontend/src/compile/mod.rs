@@ -24,6 +24,24 @@ pub(crate) struct FrontendArtifactExecutionSelection {
 }
 
 impl FrontendArtifactExecutionSelection {
+    /// The resolved plan for this selection.
+    ///
+    /// Derived from the graph binding on demand rather than stored beside it,
+    /// so the plan cannot drift from the graph it describes. A selection with
+    /// no graph binding -- a whole-package build with no evaluated artifact --
+    /// has no plan, and says so rather than inventing one.
+    pub(crate) fn resolved_plan(&self) -> Option<fol_package::ResolvedArtifactPlan> {
+        let binding = self.graph_binding.as_ref()?;
+        let provenance = fol_package::ResolvedProvenance {
+            package_name: self.label.clone(),
+            package_version: String::new(),
+            build_source: self.package_root.join("build.fol").display().to_string(),
+        };
+        fol_package::resolve_graph_artifacts(&binding.graph, &provenance)
+            .into_iter()
+            .nth(binding.artifact_id.index())
+    }
+
     pub(crate) fn backend_build_profile(&self) -> fol_backend::BackendBuildProfile {
         backend_build_profile_for_optimize(self.optimize)
     }
@@ -786,6 +804,9 @@ pub(crate) fn build_selected_artifacts_for_profile_with_config(
         );
         selected_backend_config.auxiliary_rust_plan =
             prepared_interop.map(|prepared| prepared.backend_plan);
+        // The plan reaches the backend whole, rather than as the three fields
+        // `backend_config` copies out of it.
+        selected_backend_config.artifact_plan = selection.resolved_plan();
         let backend_session = fol_backend::BackendSession::new(lowered);
         let artifact = fol_backend::emit_backend_artifact(
             &backend_session,

@@ -114,6 +114,15 @@ pub struct BackendConfig {
     /// Optional validated auxiliary `no_std` Rust compilation. The default
     /// backend route leaves this absent and is byte-for-byte unchanged.
     pub auxiliary_rust_plan: Option<crate::auxiliary::BackendAuxiliaryRustPlan>,
+    /// The resolved artifact plan this compilation is for.
+    ///
+    /// Present whenever the build came from an evaluated graph. It is the whole
+    /// plan rather than the few fields the backend happens to read today, so a
+    /// later milestone that needs the artifact kind, the ABI exports, or the
+    /// output roles finds them here instead of reconstructing them from a
+    /// filename. `fol_model`, `machine_target`, and `build_profile` above stay
+    /// for the routes that have no graph.
+    pub artifact_plan: Option<fol_build::plan::ResolvedArtifactPlan>,
 }
 
 impl Default for BackendConfig {
@@ -127,6 +136,7 @@ impl Default for BackendConfig {
             mode: BackendMode::BuildArtifact,
             keep_build_dir: false,
             auxiliary_rust_plan: None,
+            artifact_plan: None,
         }
     }
 }
@@ -209,5 +219,58 @@ mod tests {
             BackendRuntimeTier::from(BackendFolModel::Std).runtime_module_path(),
             "fol_runtime::std"
         );
+    }
+}
+
+#[cfg(test)]
+mod artifact_plan_tests {
+    use super::BackendConfig;
+    use fol_build::graph::{
+        BuildArtifactKind, BuildGeneratedFileKind, BuildGraph, BuildModuleKind,
+    };
+    use fol_build::plan::{resolve_graph_artifacts, ResolvedInput, ResolvedProvenance};
+
+    /// The plan reaches the backend whole. Section 4.3 requires one resolved
+    /// plan to survive end to end; before this the backend received three
+    /// fields copied out of it and reconstructed the rest.
+    #[test]
+    fn a_resolved_plan_survives_into_the_backend_config_unchanged() {
+        let mut graph = BuildGraph::new();
+        let module = graph.add_module(BuildModuleKind::Source, "src/main.fol");
+        let generated = graph.add_generated_file(BuildGeneratedFileKind::Write, "src/gen.fol");
+        let artifact = graph.add_artifact(BuildArtifactKind::Test, "suite");
+        graph.add_artifact_module_input(artifact, module);
+        graph.add_artifact_generated_file_input(artifact, generated);
+
+        let plan = resolve_graph_artifacts(&graph, &ResolvedProvenance::default())
+            .into_iter()
+            .next()
+            .expect("the graph declares one artifact");
+
+        let config = BackendConfig {
+            artifact_plan: Some(plan.clone()),
+            ..BackendConfig::default()
+        };
+
+        let carried = config
+            .artifact_plan
+            .as_ref()
+            .expect("the plan should reach the backend");
+        assert_eq!(carried, &plan, "the plan changed in transit");
+        // The two facts the old projection lost are the ones worth naming.
+        assert!(carried
+            .inputs
+            .contains(&ResolvedInput::Generated("src/gen.fol".to_string())));
+        assert_eq!(
+            carried.kind,
+            fol_build::plan::ResolvedArtifactKind::TestExecutable,
+            "a test artifact must not arrive as a plain executable"
+        );
+    }
+
+    /// A route with no evaluated graph has no plan, and says so.
+    #[test]
+    fn the_default_config_carries_no_plan() {
+        assert!(BackendConfig::default().artifact_plan.is_none());
     }
 }

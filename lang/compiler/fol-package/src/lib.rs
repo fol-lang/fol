@@ -19,6 +19,7 @@ pub mod build_eval;
 pub mod build_graph;
 pub mod build_native;
 pub mod build_option;
+pub mod build_plan;
 pub mod build_runtime;
 pub mod build_semantic;
 pub mod build_step;
@@ -99,6 +100,11 @@ pub use build_option::{
     BuildOptimizeMode, BuildOptionDeclaration, BuildOptionDeclarationSet, BuildOptionOverride,
     BuildOptionOverrideParseError, BuildTargetTriple, ResolvedBuildOptionSet,
     StandardOptimizeDeclaration, StandardTargetDeclaration, UserOptionDeclaration,
+};
+pub use build_plan::{
+    resolve_graph_artifacts, OutputRole, ResolvedAbiExport, ResolvedAbiSurface, ResolvedAbiVersion,
+    ResolvedArtifactKind, ResolvedArtifactPlan, ResolvedInput, ResolvedInstall, ResolvedLinkPlan,
+    ResolvedOutput, ResolvedProvenance,
 };
 pub use build_runtime::{
     find_record_field, BuildExecutionRepresentation, BuildRuntimeDependency,

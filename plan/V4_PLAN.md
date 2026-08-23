@@ -1592,8 +1592,24 @@ Tasks:
   install destinations both reach the plan. The include-path characterization
   still holds and was repointed at the resolver -- the plan carries the field
   honestly empty because nothing anywhere can populate it.
-- [ ] Carry the plan losslessly through package preparation and frontend
+- [x] Carry the plan losslessly through package preparation and frontend
   artifact selection into a backend compile plan.
+  `FrontendArtifactExecutionSelection::resolved_plan` derives the plan from the
+  selection's graph binding **on demand** rather than storing a copy beside it,
+  so the plan cannot drift from the graph it describes, and no construction
+  site has to remember to populate a new field. `BackendConfig::artifact_plan`
+  carries it the rest of the way -- the whole plan, not the three fields the
+  backend reads today, so M3 and M5 find the kind, exports, and output roles
+  there instead of reconstructing them from a filename.
+
+  `fol-backend` gained a real dependency on `fol-build` (previously
+  dev-only). `fol-build` does not depend on `fol-backend`, so there is no
+  cycle, and depending on the build crate keeps the direction inside
+  `lang/execution/` rather than reaching up into the package layer.
+
+  A selection with no graph binding has no plan and says so, rather than
+  inventing one; `fol_model`, `machine_target`, and `build_profile` stay on the
+  config for those routes.
 - [x] Split executable and test-executable identity; preserve object/static/
   shared kinds exactly. `ResolvedArtifactKind` has five variants and
   `BuildArtifactKind::Test` maps to `TestExecutable`, so a test bundle is no

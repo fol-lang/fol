@@ -16,6 +16,7 @@ fol-parser = { path = "../../compiler/fol-parser" }
 fol-resolver = { path = "../../compiler/fol-resolver" }
 fol-runtime = { path = "../fol-runtime" }
 fol-types = { path = "../../compiler/fol-types" }
+fol-build = { path = "../fol-build" }
 
 [dev-dependencies]
 fol-testkit = { path = "../../tooling/fol-testkit" }
