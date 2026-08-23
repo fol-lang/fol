@@ -201,6 +201,7 @@ dependencies = [
 name = "fol-frontend"
 version = "0.2.6"
 dependencies = [
+ "fol-abi",
  "fol-backend",
  "fol-build",
  "fol-diagnostics",

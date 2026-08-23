@@ -896,6 +896,83 @@ pub(crate) fn build_selected_artifacts_for_profile_with_config(
             selection.label.clone(),
             Some(std::path::PathBuf::from(binary_path.clone())),
         ));
+        // The C surface's own roles: header, manifest, and symbol allowlist,
+        // all rendered from one resolved surface so they cannot disagree.
+        if let Some(request) = &selected_backend_config.abi_exports {
+            let surface = fol_backend::abi::surface::resolve_surface(
+                &backend_session,
+                &selection.label,
+                request.major,
+                request.minor,
+                &request.exports,
+                selection.target.clone(),
+            )
+            .map_err(|error| {
+                FrontendError::new(FrontendErrorKind::CommandFailed, error.to_string())
+            })?;
+            let outputs = fol_backend::abi::render_surface_outputs(
+                &surface,
+                fol_abi::BuildProvenance {
+                    compiler: env!("CARGO_PKG_VERSION").to_string(),
+                    runtime: "fol-runtime".to_string(),
+                    profile: format!("{:?}", selection.optimize),
+                    native_inputs: Vec::new(),
+                },
+            );
+
+            let install_prefix = std::path::PathBuf::from(
+                &config
+                    .install_prefix_override
+                    .as_ref()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| {
+                        selection
+                            .package_root
+                            .join(".fol/install")
+                            .display()
+                            .to_string()
+                    }),
+            );
+            for (role, relative, contents) in [
+                (
+                    FrontendArtifactKind::Installed,
+                    format!("include/{}.h", selection.label),
+                    outputs.header.clone(),
+                ),
+                (
+                    FrontendArtifactKind::Installed,
+                    format!("share/fol/abi/{}.folabi.json", selection.label),
+                    outputs.manifest.clone(),
+                ),
+                (
+                    FrontendArtifactKind::Installed,
+                    format!("share/fol/abi/{}.symbols", selection.label),
+                    outputs.symbol_allowlist.clone(),
+                ),
+            ] {
+                let destination = install_prefix.join(&relative);
+                if let Some(parent) = destination.parent() {
+                    std::fs::create_dir_all(parent).map_err(|error| {
+                        FrontendError::new(
+                            FrontendErrorKind::CommandFailed,
+                            format!("could not create '{}': {error}", parent.display()),
+                        )
+                    })?;
+                }
+                std::fs::write(&destination, contents).map_err(|error| {
+                    FrontendError::new(
+                        FrontendErrorKind::CommandFailed,
+                        format!("could not write '{}': {error}", destination.display()),
+                    )
+                })?;
+                result.artifacts.push(FrontendArtifactSummary::new(
+                    role,
+                    relative,
+                    Some(destination),
+                ));
+            }
+        }
+
         // Materialize `graph.install(...)` for this artifact: copy the built
         // binary to its projected destination (`<install_prefix>/bin/<name>`).
         // Before this, the install step was projection-only — the summary

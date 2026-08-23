@@ -17,6 +17,7 @@ fol-lexer = { path = "../../compiler/fol-lexer" }
 fol-parser = { path = "../../compiler/fol-parser" }
 fol-resolver = { path = "../../compiler/fol-resolver" }
 fol-typecheck = { path = "../../compiler/fol-typecheck" }
+fol-abi = { path = "../../compiler/fol-abi" }
 fol-lower = { path = "../../compiler/fol-lower" }
 fol-backend = { path = "../../execution/fol-backend" }
 fol-build = { path = "../../execution/fol-build" }
