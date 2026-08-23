@@ -364,3 +364,75 @@ fn frozen_build_api_spellings_keep_their_exact_names() {
         );
     }
 }
+
+/// M1 positive regression: an unsupported target is refused before anything is
+/// created.
+///
+/// Letting one through used to mean an output tree, a launched `rustc`, and a
+/// raw `E0463` advising `rustup target add` -- advice this project does not
+/// follow, since `flake.nix` is the only toolchain source.
+#[test]
+fn an_experimental_target_is_refused_before_any_output_exists() {
+    let fixture = unique_temp_root("v4_experimental_target");
+    let root = fixture.path().join("targeted");
+    std::fs::create_dir_all(root.join("src")).expect("package tree should be creatable");
+    std::fs::write(
+        root.join("build.fol"),
+        r#"pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "targeted", version = "0.1.0", kind = "exe",
+        description = "target selection", license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+    var app = graph.add_exe({
+        name = "targeted", root = "src/main.fol", fol_model = "memo",
+        target = target, optimize = optimize,
+    });
+    graph.install(app);
+    graph.add_run(app);
+    return;
+};
+"#,
+    )
+    .expect("build.fol should be writable");
+    std::fs::write(
+        root.join("src/main.fol"),
+        "use std: pkg = {\"std\"};\n\nfun[] main(): non = {\n    std::io::echo_str(\"ONE\");\n    return;\n};\n",
+    )
+    .expect("main.fol should be writable");
+
+    let output = run_fol_in_dir(
+        &root,
+        &[
+            "code",
+            "build",
+            "--target",
+            "aarch64-apple-darwin",
+            "--package-store-root",
+            store_root().to_str().expect("store root should be utf-8"),
+        ],
+    );
+    let text = strip_ansi(&format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    ));
+
+    assert!(!output.status.success(), "got:\n{text}");
+    assert!(
+        text.contains("is experimental and is not built by V4"),
+        "expected the tier diagnostic, got:\n{text}"
+    );
+    assert!(
+        !text.contains("rustup") && !text.contains("E0463"),
+        "rustc's own error leaked through, so the check ran too late:\n{text}"
+    );
+    assert!(
+        !root.join(".fol").exists(),
+        "the build left an output tree behind despite refusing the target"
+    );
+}

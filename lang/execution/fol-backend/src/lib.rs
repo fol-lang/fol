@@ -17,6 +17,7 @@ mod instructions;
 mod layout;
 mod mangle;
 mod model;
+pub mod preflight;
 mod session;
 mod signatures;
 mod trace;

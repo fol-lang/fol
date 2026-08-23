@@ -87,9 +87,18 @@ pub(crate) fn build_evaluation_inputs(
     };
     if let Some(target) = &config.build_target_override {
         let target = target.trim();
-        inputs.target = Some(fol_types::ResolvedTarget::resolve(target).map_err(|error| {
+        let resolved = fol_types::ResolvedTarget::resolve(target).map_err(|error| {
             FrontendError::new(FrontendErrorKind::InvalidInput, error.to_string())
-        })?);
+        })?;
+        // Before any output directory exists, so an unsupported target cannot
+        // leave a half-built tree behind.
+        resolved.ensure_buildable().map_err(|error| {
+            FrontendError::new(FrontendErrorKind::InvalidInput, error.to_string())
+        })?;
+        fol_backend::preflight::ensure_target_toolchain_available(&resolved).map_err(|error| {
+            FrontendError::new(FrontendErrorKind::InvalidInput, error.to_string())
+        })?;
+        inputs.target = Some(resolved);
     }
     if let Some(optimize) = &config.build_optimize_override {
         inputs.optimize = Some(parse_build_optimize(optimize)?);

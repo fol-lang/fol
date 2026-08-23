@@ -252,6 +252,12 @@ fn resolve_artifact_fields(
         fol_types::ResolvedTarget::host()
             .map_err(|error| evaluation_invalid_input(error.to_string(), origin.clone()))?
     };
+    // Section 4.4 target precedence is CLI override, then artifact, then host.
+    // Whichever won, an experimental target stops here -- during evaluation,
+    // before any output directory or tool process is created.
+    target
+        .ensure_buildable()
+        .map_err(|error| evaluation_invalid_input(error.to_string(), origin.clone()))?;
     let optimize = if let Some(optimize) = request.inputs.optimize {
         optimize
     } else if let Some(optimize) = optimize {

@@ -1546,9 +1546,26 @@ Tasks:
   facts explicit. `CERTIFIED_INTEROP_TARGETS` stays a separate constant -- a
   target could be certified for FOL before interop -- but
   `interop_promotion_list_matches_the_certified_tier` fails if the two drift.
-- [ ] Preserve unknown-target rejection and explicit backend `--target` as
+- [x] Preserve unknown-target rejection and explicit backend `--target` as
   locked regressions; reject invalid combinations and unsupported artifact/
   interop target use before output directories or commands are created.
+
+  The two regressions were already locked in M0. What was missing is the
+  second half: an experimental target used to be accepted, create an output
+  tree, launch `rustc`, and fail with `E0463` plus advice to run
+  `rustup target add` -- advice this project does not follow, `flake.nix` being
+  the only toolchain source. `ResolvedTarget::ensure_buildable` now refuses an
+  experimental tier during evaluation, after section 4.4 precedence has picked
+  a target and before any directory exists.
+
+  A supported target whose Rust standard library is not installed leaked the
+  same rustc error. `fol_backend::preflight::ensure_target_toolchain_available`
+  probes `rustc --print target-libdir` first and reports a FOL diagnostic
+  naming the target and the expected path. Host builds skip the probe, so only
+  cross builds pay for it.
+
+  Already correct and left alone: `run` on a non-host target is refused before
+  anything is created.
 - [ ] Define `ResolvedArtifactPlan` with every field listed in Section 4.3.
 - [ ] Produce it once from the evaluated graph; remove or completely replace
   `project_graph_artifacts` instead of retaining a compatibility projection.

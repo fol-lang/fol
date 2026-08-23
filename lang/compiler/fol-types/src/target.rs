@@ -280,6 +280,9 @@ pub struct ResolvedTarget {
 pub enum ResolveTargetError {
     UnsupportedTarget(String),
     UnsupportedHost,
+    /// The target resolves, and V4 does not build for it. Kept distinct from
+    /// `UnsupportedTarget` so the diagnostic can say the name was understood.
+    ExperimentalTarget(String),
 }
 
 impl std::fmt::Display for ResolveTargetError {
@@ -291,6 +294,12 @@ impl std::fmt::Display for ResolveTargetError {
             Self::UnsupportedHost => write!(
                 f,
                 "the current host does not map to a supported concrete machine target"
+            ),
+            Self::ExperimentalTarget(target) => write!(
+                f,
+                "machine target '{target}' is experimental and is not built by V4; \
+                 the certified targets are {}",
+                super::target::certified_target_spellings().join(", ")
             ),
         }
     }
@@ -434,6 +443,29 @@ impl ResolvedTarget {
 
     pub fn naming(&self) -> TargetNaming {
         self.facts.naming
+    }
+
+    /// Whether V4 builds for this target at all.
+    ///
+    /// An experimental target resolves so that a diagnostic can name it, and
+    /// stops there. Letting one through means creating output directories and
+    /// launching `rustc`, which then fails with its own error about a missing
+    /// standard library and advice to run `rustup` -- advice this project does
+    /// not follow.
+    pub fn is_buildable(&self) -> bool {
+        !matches!(self.facts.tier, TargetTier::Experimental)
+    }
+
+    /// Fail unless V4 builds for this target. Call at the boundary, before any
+    /// output directory or tool process exists.
+    pub fn ensure_buildable(&self) -> Result<(), ResolveTargetError> {
+        if self.is_buildable() {
+            Ok(())
+        } else {
+            Err(ResolveTargetError::ExperimentalTarget(
+                self.as_str().to_string(),
+            ))
+        }
     }
 
     /// The file name a link step produces for an executable artifact.
@@ -649,4 +681,13 @@ mod fact_tests {
         assert_eq!(mingw.archive_file_name("core"), "libcore.a");
         assert_eq!(mingw.shared_library_file_name("core"), "core.dll");
     }
+}
+
+/// The canonical spellings of every certified target, for diagnostics.
+pub fn certified_target_spellings() -> Vec<&'static str> {
+    TARGETS
+        .iter()
+        .filter(|facts| facts.tier == TargetTier::Certified)
+        .map(|facts| facts.rust_triple)
+        .collect()
 }
