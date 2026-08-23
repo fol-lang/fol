@@ -93,7 +93,7 @@ pub use build_graph::{
 };
 pub use build_native::{
     NativeArtifactDefinition, NativeArtifactKind, NativeArtifactSet, NativeIncludePath,
-    NativeLibraryPath, NativeLinkDirective, NativeLinkInput, NativeLinkMode, NativePlatform,
+    NativeLibraryPath, NativeLinkDirective, NativeLinkInput, NativeLinkMode,
     NativeSearchPathOrigin,
 };
 pub use build_option::{

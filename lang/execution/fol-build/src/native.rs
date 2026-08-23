@@ -61,13 +61,6 @@ pub struct NativeLinkDirective {
     pub mode: NativeLinkMode,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NativePlatform {
-    Linux,
-    MacOS,
-    Windows,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeArtifactDefinition {
     pub name: String,
@@ -76,24 +69,24 @@ pub struct NativeArtifactDefinition {
 }
 
 impl NativeArtifactDefinition {
-    pub fn canonical_file_name(&self, platform: NativePlatform) -> String {
+    /// The file name this native artifact takes on `target`.
+    ///
+    /// Reads the target's own naming rules rather than a platform enum of its
+    /// own. The enum this replaces mapped every Windows target to `{name}.lib`,
+    /// which is wrong for MinGW: it uses the ELF-style `lib{name}.a` with the
+    /// PE-style `{name}.dll`. Section 4.4 forbids a second target model for
+    /// exactly this reason.
+    pub fn canonical_file_name(&self, target: &fol_types::ResolvedTarget) -> String {
         match self.kind {
             NativeArtifactKind::Header => self.name.clone(),
-            NativeArtifactKind::Object => match platform {
-                NativePlatform::Windows => format!("{}.obj", self.name),
-                NativePlatform::Linux | NativePlatform::MacOS => format!("{}.o", self.name),
-            },
-            NativeArtifactKind::StaticLibrary => match platform {
-                NativePlatform::Windows => format!("{}.lib", self.name),
-                NativePlatform::Linux | NativePlatform::MacOS => {
-                    format!("lib{}.a", self.name)
+            NativeArtifactKind::Object => match target.object_format() {
+                fol_types::ObjectFormat::Pe => format!("{}.obj", self.name),
+                fol_types::ObjectFormat::Elf | fol_types::ObjectFormat::MachO => {
+                    format!("{}.o", self.name)
                 }
             },
-            NativeArtifactKind::SharedLibrary => match platform {
-                NativePlatform::Windows => format!("{}.dll", self.name),
-                NativePlatform::Linux => format!("lib{}.so", self.name),
-                NativePlatform::MacOS => format!("lib{}.dylib", self.name),
-            },
+            NativeArtifactKind::StaticLibrary => target.archive_file_name(&self.name),
+            NativeArtifactKind::SharedLibrary => target.shared_library_file_name(&self.name),
         }
     }
 }
@@ -121,7 +114,7 @@ impl NativeArtifactSet {
 mod tests {
     use super::{
         NativeArtifactDefinition, NativeArtifactKind, NativeArtifactSet, NativeIncludePath,
-        NativeLibraryPath, NativeLinkDirective, NativeLinkInput, NativeLinkMode, NativePlatform,
+        NativeLibraryPath, NativeLinkDirective, NativeLinkInput, NativeLinkMode,
         NativeSearchPathOrigin,
     };
 
@@ -222,21 +215,29 @@ mod tests {
         assert_eq!(directive.input, NativeLinkInput::Artifact(artifact));
     }
 
+    fn target(spelling: &str) -> fol_types::ResolvedTarget {
+        fol_types::ResolvedTarget::resolve(spelling).expect("a table target should resolve")
+    }
+
     #[test]
-    fn native_header_names_stay_plain_across_platforms() {
+    fn native_header_names_stay_plain_across_targets() {
         let header = NativeArtifactDefinition {
             name: "api.h".to_string(),
             kind: NativeArtifactKind::Header,
             relative_path: "include/api.h".to_string(),
         };
 
-        assert_eq!(header.canonical_file_name(NativePlatform::Linux), "api.h");
-        assert_eq!(header.canonical_file_name(NativePlatform::MacOS), "api.h");
-        assert_eq!(header.canonical_file_name(NativePlatform::Windows), "api.h");
+        for spelling in [
+            "x86_64-unknown-linux-gnu",
+            "aarch64-apple-darwin",
+            "x86_64-pc-windows-msvc",
+        ] {
+            assert_eq!(header.canonical_file_name(&target(spelling)), "api.h");
+        }
     }
 
     #[test]
-    fn native_library_names_follow_platform_conventions() {
+    fn native_library_names_follow_the_target_convention() {
         let static_lib = NativeArtifactDefinition {
             name: "ssl".to_string(),
             kind: NativeArtifactKind::StaticLibrary,
@@ -247,26 +248,29 @@ mod tests {
             kind: NativeArtifactKind::SharedLibrary,
             relative_path: "native/libcrypto.so".to_string(),
         };
+        let object = NativeArtifactDefinition {
+            name: "part".to_string(),
+            kind: NativeArtifactKind::Object,
+            relative_path: "native/part.o".to_string(),
+        };
 
-        assert_eq!(
-            static_lib.canonical_file_name(NativePlatform::Linux),
-            "libssl.a"
-        );
-        assert_eq!(
-            static_lib.canonical_file_name(NativePlatform::Windows),
-            "ssl.lib"
-        );
-        assert_eq!(
-            shared_lib.canonical_file_name(NativePlatform::Linux),
-            "libcrypto.so"
-        );
-        assert_eq!(
-            shared_lib.canonical_file_name(NativePlatform::MacOS),
-            "libcrypto.dylib"
-        );
-        assert_eq!(
-            shared_lib.canonical_file_name(NativePlatform::Windows),
-            "crypto.dll"
-        );
+        let linux = target("x86_64-unknown-linux-gnu");
+        assert_eq!(static_lib.canonical_file_name(&linux), "libssl.a");
+        assert_eq!(shared_lib.canonical_file_name(&linux), "libcrypto.so");
+        assert_eq!(object.canonical_file_name(&linux), "part.o");
+
+        let darwin = target("aarch64-apple-darwin");
+        assert_eq!(shared_lib.canonical_file_name(&darwin), "libcrypto.dylib");
+
+        let msvc = target("x86_64-pc-windows-msvc");
+        assert_eq!(static_lib.canonical_file_name(&msvc), "ssl.lib");
+        assert_eq!(shared_lib.canonical_file_name(&msvc), "crypto.dll");
+        assert_eq!(object.canonical_file_name(&msvc), "part.obj");
+
+        // MinGW mixes the two conventions. The platform enum this replaced
+        // mapped every Windows target to `ssl.lib`, which is wrong here.
+        let mingw = target("x86_64-pc-windows-gnu");
+        assert_eq!(static_lib.canonical_file_name(&mingw), "libssl.a");
+        assert_eq!(shared_lib.canonical_file_name(&mingw), "crypto.dll");
     }
 }

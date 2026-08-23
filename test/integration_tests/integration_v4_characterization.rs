@@ -65,14 +65,14 @@ fn library_only_package(fixture: &crate::fixture::TempFixture) -> PathBuf {
     root
 }
 
-/// M1 positive regression: a library-only graph reports a precise
-/// not-yet-supported error and never a binary success.
+/// M3 positive regression: a library-only graph builds a real library.
 ///
-/// M0 characterized this as reporting `build` is not a defined step -- true,
-/// and useless: the user had not forgotten to declare one, and V4 cannot build
-/// a library. M1 replaced that with a diagnostic naming the real cause.
+/// This began as an M0 characterization of a graph with no runnable route at
+/// all, became an M1 characterization of a precise not-yet-supported error, and
+/// is now the thing itself: the artifact is produced and installed under the
+/// frozen layout. `test/native_products.rs` proves a C program can link it.
 #[test]
-fn library_only_graph_reports_a_precise_not_yet_supported_error() {
+fn library_only_graph_builds_and_installs_a_real_library() {
     let fixture = unique_temp_root("v4_library_only_build");
     let package = library_only_package(&fixture);
 
@@ -92,21 +92,16 @@ fn library_only_graph_reports_a_precise_not_yet_supported_error() {
     ));
 
     assert!(
-        !output.status.success(),
-        "a library-only graph must not report success for `build`; got:\n{text}"
+        output.status.success(),
+        "a library-only graph should build; got:\n{text}"
     );
     assert!(
-        text.contains("declare no executable or test artifact"),
-        "expected the precise diagnostic, got:\n{text}"
+        text.contains("[static-library]"),
+        "the pre-build summary should name the product kind:\n{text}"
     );
     assert!(
-        text.contains("not yet supported"),
-        "the diagnostic must say building a library is unimplemented, not that a \
-         step is missing:\n{text}"
-    );
-    assert!(
-        text.contains("fol code check"),
-        "the diagnostic should point at what the user can do instead:\n{text}"
+        package.join(".fol/install/lib/liblibonly.a").is_file(),
+        "the archive did not install under the frozen layout:\n{text}"
     );
 }
 

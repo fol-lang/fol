@@ -1903,8 +1903,12 @@ Tasks:
   `Codegen`, and `Run` actions actually execute, closing the backend-only side
   channel M2 narrowed. Compilation then inherits the materializer's trust
   policy, missing-output rule, and atomic publication.
-- [ ] Replace `NativePlatform`/synthetic framework strings with target-aware
-  typed native inputs.
+- [x] Replace `NativePlatform`/synthetic framework strings with target-aware
+  typed native inputs. `NativePlatform` is deleted;
+  `NativeArtifactDefinition::canonical_file_name` takes a `ResolvedTarget` and
+  reads its naming rules. The enum was a third target model, which section 4.4
+  forbids, and it was wrong: it mapped every Windows target to `{name}.lib`,
+  while MinGW uses the ELF-style `lib{name}.a` with the PE-style `{name}.dll`.
 - [ ] Resolve local, dependency, exact-file, object, system-library, and
   framework handles into one ordered `NativeLinkPlan`.
 - [ ] Give dependency artifact exports exact role paths, target, content digest,

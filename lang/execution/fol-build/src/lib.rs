@@ -75,7 +75,7 @@ pub use graph::{
 };
 pub use native::{
     NativeArtifactDefinition, NativeArtifactKind, NativeArtifactSet, NativeIncludePath,
-    NativeLibraryPath, NativeLinkDirective, NativeLinkInput, NativeLinkMode, NativePlatform,
+    NativeLibraryPath, NativeLinkDirective, NativeLinkInput, NativeLinkMode,
     NativeSearchPathOrigin, SystemLibraryRequest,
 };
 pub use option::{
