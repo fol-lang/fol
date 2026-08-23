@@ -54,3 +54,38 @@ const _: () = assert!(
     gerc::GENERATION_SCHEMA_VERSION == 1,
     "the pinned GERC exposes generation schema version 1"
 );
+
+#[cfg(test)]
+mod certified_target_tests {
+    use super::{is_certified_interop_target, CERTIFIED_INTEROP_TARGETS};
+
+    /// The interop promotion list and `fol_types`' certified tier are two views
+    /// of one decision. They are separate constants because a target could in
+    /// principle be certified for FOL and not yet for interop, but today they
+    /// must agree, and a silent divergence is exactly the second target model
+    /// section 4.4 forbids.
+    #[test]
+    fn interop_promotion_list_matches_the_certified_tier() {
+        let certified: Vec<&str> = fol_types::TARGETS
+            .iter()
+            .filter(|facts| facts.tier == fol_types::TargetTier::Certified)
+            .map(|facts| facts.rust_triple)
+            .collect();
+
+        assert_eq!(
+            CERTIFIED_INTEROP_TARGETS.to_vec(),
+            certified,
+            "the interop promotion list drifted from fol_types::TargetTier::Certified"
+        );
+        for triple in certified {
+            assert!(is_certified_interop_target(triple));
+        }
+    }
+
+    #[test]
+    fn uncertified_targets_are_rejected_by_name() {
+        assert!(!is_certified_interop_target("aarch64-unknown-linux-gnu"));
+        assert!(!is_certified_interop_target("x86_64-apple-darwin"));
+        assert!(!is_certified_interop_target("mystery-vendor-os"));
+    }
+}

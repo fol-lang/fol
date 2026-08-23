@@ -1523,10 +1523,29 @@ Primary files and symbols:
 
 Tasks:
 
-- [ ] Extend the existing fallible `ResolvedTarget` with the architecture,
+- [x] Extend the existing fallible `ResolvedTarget` with the architecture,
   vendor, OS/environment, object format, pointer width, endianness, naming, and
   support-tier facts from Section 4.4; delete remaining duplicated target
   normalization.
+
+  `fol-types/src/target.rs` is now one `TARGETS` table with a row per target
+  and a column per fact; `ResolvedTarget` holds a `&'static TargetFacts`, so it
+  is still a thin `Clone + Hash + Ord` handle. The three parallel string
+  matches it used to carry -- `resolve`, `render`, and `host_rust_triple` --
+  all read the table instead. New public types: `TargetArch`, `TargetVendor`,
+  `TargetOs`, `TargetEnv`, `ObjectFormat`, `Endianness`, `TargetTier`,
+  `TargetNaming`, `TargetFacts`.
+
+  Naming is per-target rather than per-object-format, because MinGW keeps the
+  ELF-style `libcore.a` while using the PE-style `core.dll`; deriving it from
+  the object format would get that pair wrong.
+
+  Duplicated normalization deleted: `fol-interop`'s `certified_target` hardcoded
+  architecture, vendor, OS, object format, endianness, and pointer width, and
+  now derives all six from `ResolvedTarget`, keeping only the PARC-specific C
+  facts explicit. `CERTIFIED_INTEROP_TARGETS` stays a separate constant -- a
+  target could be certified for FOL before interop -- but
+  `interop_promotion_list_matches_the_certified_tier` fails if the two drift.
 - [ ] Preserve unknown-target rejection and explicit backend `--target` as
   locked regressions; reject invalid combinations and unsupported artifact/
   interop target use before output directories or commands are created.

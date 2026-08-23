@@ -8,7 +8,10 @@ pub mod target;
 // Basic types
 pub use r#mod::*;
 pub use scalar::{FloatWidth, IntWidth};
-pub use target::{ResolveTargetError, ResolvedTarget};
+pub use target::{
+    Endianness, ObjectFormat, ResolveTargetError, ResolvedTarget, TargetArch, TargetEnv,
+    TargetFacts, TargetNaming, TargetOs, TargetTier, TargetVendor, TARGETS,
+};
 
 pub fn canonical_identifier_key(name: &str) -> String {
     name.chars()

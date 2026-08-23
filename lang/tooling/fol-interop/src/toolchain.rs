@@ -169,28 +169,72 @@ impl From<linc::contract::ContractError> for InteropToolchainError {
     }
 }
 
-/// The certified `TargetSpec` for the selected triple. The libc decides the
-/// environment; everything else is identical because glibc and musl share the
-/// SysV AMD64 ABI.
+/// The certified `TargetSpec` for the selected triple.
+///
+/// The shared columns -- architecture, vendor, OS, environment, object format,
+/// endianness, pointer width -- are read from `fol_types::ResolvedTarget`
+/// rather than restated here, so FOL and PARC cannot disagree about the same
+/// target. What stays explicit is the part PARC has and FOL does not: the C
+/// data model, language standard, extension profile, and ABI flags. Section 4.4
+/// of plan/V4_PLAN.md requires exactly this split.
 fn certified_target(
     triple: &str,
     compiler: CompilerIdentity,
 ) -> Result<TargetSpec, InteropToolchainError> {
-    let environment = match triple {
-        "x86_64-unknown-linux-gnu" => Environment::Gnu,
-        "x86_64-unknown-linux-musl" => Environment::Musl,
-        other => return Err(InteropToolchainError::UnsupportedTarget(other.to_owned())),
+    let resolved = fol_types::ResolvedTarget::resolve(triple)
+        .map_err(|_| InteropToolchainError::UnsupportedTarget(triple.to_owned()))?;
+    if !crate::is_certified_interop_target(resolved.as_str()) {
+        return Err(InteropToolchainError::UnsupportedTarget(triple.to_owned()));
+    }
+
+    let architecture = match resolved.arch() {
+        fol_types::TargetArch::X86_64 => Architecture::X86_64,
+        fol_types::TargetArch::Aarch64 => Architecture::Aarch64,
     };
+    let operating_system = match resolved.os() {
+        fol_types::TargetOs::Linux => OperatingSystem::Linux,
+        other => {
+            return Err(InteropToolchainError::UnsupportedTarget(format!(
+                "{triple}: {other:?} is not a certified interop OS"
+            )))
+        }
+    };
+    let environment = match resolved.env() {
+        fol_types::TargetEnv::Gnu => Environment::Gnu,
+        fol_types::TargetEnv::Musl => Environment::Musl,
+        other => {
+            return Err(InteropToolchainError::UnsupportedTarget(format!(
+                "{triple}: {other:?} is not a certified interop environment"
+            )))
+        }
+    };
+    let object_format = match resolved.object_format() {
+        fol_types::ObjectFormat::Elf => ObjectFormat::Elf,
+        other => {
+            return Err(InteropToolchainError::UnsupportedTarget(format!(
+                "{triple}: {other:?} is not a certified interop object format"
+            )))
+        }
+    };
+    let endian = match resolved.endianness() {
+        fol_types::Endianness::Little => Endian::Little,
+        fol_types::Endianness::Big => Endian::Big,
+    };
+
     TargetSpec::try_new(TargetSpecParts {
-        triple: triple.to_owned(),
-        architecture: Architecture::X86_64,
-        vendor: Vendor::try_new("unknown")
-            .map_err(|error| InteropToolchainError::InvalidTarget(error.to_string()))?,
-        operating_system: OperatingSystem::Linux,
+        triple: resolved.as_str().to_owned(),
+        architecture,
+        vendor: Vendor::try_new(match resolved.vendor() {
+            fol_types::TargetVendor::Unknown => "unknown",
+            fol_types::TargetVendor::Pc => "pc",
+            fol_types::TargetVendor::Apple => "apple",
+        })
+        .map_err(|error| InteropToolchainError::InvalidTarget(error.to_string()))?,
+        operating_system,
         environment,
-        object_format: ObjectFormat::Elf,
-        endian: Endian::Little,
-        pointer_width: 64,
+        object_format,
+        endian,
+        pointer_width: resolved.pointer_width(),
         c_data_model: lp64_data_model(),
         language_standard: LanguageStandard::C17,
         extension_profile: ExtensionProfile::new(ExtensionFamily::Gnu, []),
