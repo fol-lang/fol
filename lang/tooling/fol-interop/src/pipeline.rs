@@ -38,6 +38,20 @@ use crate::{
 
 const MAX_TRANSITIVE_NATIVE_DEPENDENCIES: usize = 128;
 
+/// How a declared provider kind constrains resolution of what it pulls in.
+///
+/// A static provider must not acquire a dynamic dependency behind the author's
+/// back, and vice versa: the declared kind is a promise about the final link,
+/// not just about the one named file.
+fn library_preference(kind: BuildCImportProviderKind) -> LibraryPreference {
+    match kind {
+        BuildCImportProviderKind::Static => LibraryPreference::StaticOnly,
+        BuildCImportProviderKind::Object | BuildCImportProviderKind::Shared => {
+            LibraryPreference::DynamicOnly
+        }
+    }
+}
+
 /// Caller-owned paths and the authoritative evaluated graph for one H7 smoke
 /// import. No source, ABI, provider, or generation evidence can be supplied.
 #[derive(Debug, Clone)]
@@ -225,9 +239,7 @@ pub fn prepare_h7_interop(request: H7InteropRequest<'_>) -> Result<H7InteropBuil
     if c_imports.next().is_some() {
         return Err(H7InteropError::MultipleCImports);
     }
-    match c_import.provider_kind {
-        BuildCImportProviderKind::Object => {}
-    }
+    let provider_kind = c_import.provider_kind;
     if request
         .graph
         .artifact_inputs_for(request.artifact)
@@ -256,13 +268,20 @@ pub fn prepare_h7_interop(request: H7InteropRequest<'_>) -> Result<H7InteropBuil
     let policy = strict_compile_only_policy(temporary_parent)?;
     let toolchain = CertifiedCToolchain::observe(&artifact.target, compiler)?;
     let source = scan_complete_header(&package_root, &header, toolchain.target())?;
-    let native_inputs = [NativeInput::ObjectPath(provider.clone())];
+    // The provider kind is the author's declaration of what the file is;
+    // LINC inspects the file to confirm it. Handing it the wrong input variant
+    // would make a mismatch look like a missing symbol instead.
+    let native_inputs = [match provider_kind {
+        BuildCImportProviderKind::Object => NativeInput::ObjectPath(provider.clone()),
+        BuildCImportProviderKind::Static => NativeInput::StaticLibraryPath(provider.clone()),
+        BuildCImportProviderKind::Shared => NativeInput::DynamicLibraryPath(provider.clone()),
+    }];
     let analysis_request = AnalysisRequest::try_new(&source, &native_inputs, policy)?;
     let resolver = NativeResolver::new(
         NativeInspector::default(),
         ResolverConfiguration::new(
             Vec::new(),
-            LibraryPreference::DynamicOnly,
+            library_preference(provider_kind),
             MAX_TRANSITIVE_NATIVE_DEPENDENCIES,
         )?,
     )?;
@@ -806,9 +825,13 @@ mod tests {
         graph
             .add_c_import(
                 artifact,
-                "native/provider.h",
-                "native/provider.o",
-                BuildCImportProviderKind::Object,
+                fol_build::BuildCImportDeclaration {
+                    alias: "provider".to_string(),
+                    header: "native/provider.h".to_string(),
+                    provider: "native/provider.o".to_string(),
+                    provider_kind: Some(BuildCImportProviderKind::Object),
+                    ..fol_build::BuildCImportDeclaration::default()
+                },
             )
             .unwrap();
         (graph, artifact)

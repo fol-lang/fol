@@ -147,6 +147,31 @@ static REGISTRY: &[Explanation] = &[
         "A raw pointer crossing the C boundary is missing a fact a C caller cannot infer.\n\n         A raw address token carries four separate contracts, and none has a safe default:\n         - mutability: whether the callee may write through it\n         - nullability: `ptr[raw, T]` is non-null; `opt ptr[raw, T]` is the nullable form\n         - ownership: whether the receiver must release it, or must not\n         - escape: whether it may be retained past the call\n\n         When ownership transfers, the paired destroy routine is part of the contract too.\n         Guessing any of these produces a signature that compiles and leaks, double-frees, or\n         reads freed memory at runtime.\n\n         Section 4.8 of plan/V4_PLAN.md specifies the model."
     ),
     explanation!(
+        "A1004",
+        "invalid C import annotation overlay",
+        "The annotation file attached to a C import could not be read.\n\n         C cannot say which of its declarations are callable from FOL, what a return code\n         means, or whether a function may unwind. The overlay states those facts explicitly,\n         so it is strict: it must open with `version = 1`, every table must be\n         `[routine.<symbol>]`, and every key must be one this schema defines.\n\n         An unrecognized key is refused rather than ignored. A key nobody reads is a promise\n         the author believes was made and the compiler never saw, which is the failure mode\n         the strictness exists to prevent.\n\n         A routine using the `status` convention must give all three of `status_ok`,\n         `status_error`, and `out`: a partial mapping cannot say whether a call succeeded.\n         An `infallible` routine must give none of them.\n\n         Section 4.13 of plan/V4_PLAN.md specifies the overlay."
+    ),
+    explanation!(
+        "A1005",
+        "rejected C error convention",
+        "A C import declares an error convention V4 refuses to approximate.\n\n         The supported vocabulary is exactly two entries:\n         - `infallible`: the call cannot fail, and its C result is the FOL result\n         - `status`: an integer status plus a typed out-parameter, with enumerated success\n           and failure codes\n\n         Ambient `errno`, a platform last-error slot, an undocumented sentinel return, a\n         foreign exception, and `longjmp` are rejected. None of them can be checked at the\n         call boundary: `errno` is only meaningful if the callee promises to set it and the\n         caller reads it before anything else runs, a sentinel is indistinguishable from a\n         valid value without the provider's documentation, and an unwind or `longjmp` across\n         the FOL frame is undefined rather than recoverable.\n\n         Guessing any of them produces a program that compiles and silently treats failures\n         as successes. M7 may add a null-sentinel mapping, but only together with the\n         complete pointer and ownership contract that makes it checkable.\n\n         Section 4.13 of plan/V4_PLAN.md specifies the supported subset."
+    ),
+    explanation!(
+        "A1006",
+        "C declaration is not importable",
+        "A C declaration cannot become a callable FOL routine, because its measured shape has\n         no FOL counterpart.\n\n         Unlike an export, an import does not get to choose its signature: the provider's\n         signature is measured with the provider's own compiler, and FOL either accepts it or\n         says so. There is no adapter that can make a 24-bit integer or a `long double` into\n         something FOL has.\n\n         Common causes:\n         - an integer width other than 8, 16, 32, or 64 bits\n         - a float width other than 32 or 64 bits, which is what `long double` usually is\n         - a packed or over-aligned scalar, whose layout is not its FOL counterpart's\n         - a variadic parameter list, which FOL has no checked call form for\n         - a calling convention other than C\n\n         The declaration may stay in the header. It simply does not become a FOL symbol, and\n         removing it from the annotation overlay's selection is the fix.\n\n         Section 4.13 of plan/V4_PLAN.md lists the supported header subset."
+    ),
+    explanation!(
+        "A1007",
+        "C import annotation disagrees with the header",
+        "The annotation overlay and the measured C declaration describe different things.\n\n         The overlay is written by hand and the signature is measured from the header, so the\n         two can drift. This diagnostic is where they are made to agree, before any call is\n         eligible.\n\n         Causes:\n         - the overlay selects a symbol the entry headers do not declare\n         - a status mapping names an out-parameter the signature does not have\n         - a status mapping is attached to a routine that returns no integer status\n         - the named out-parameter is not a pointer FOL may write through\n\n         A status mapping whose out-parameter is `const` is the subtle one: FOL supplies the\n         storage and reads the result back out of it, which it cannot do through a pointer the\n         provider promised not to write.\n\n         Section 4.13 of plan/V4_PLAN.md specifies the mapping."
+    ),
+    explanation!(
+        "A1008",
+        "imported effect exceeds the capability model",
+        "An imported C routine declares an effect its artifact's capability model does not\n         permit.\n\n         The models are not advisory. A `core` artifact has no allocator, and a `memo`\n         artifact has no host I/O; a C function that allocates or opens a file does not become\n         reachable from one by being foreign. Section 4.13's rule is that an import is checked\n         against `core`/`memo`/effective `std` with no implicit upgrade -- the model is not\n         widened to fit the declaration.\n\n         The effect comes from the annotation overlay's `effects` key, not from inspection:\n         FOL cannot see what a provider does, so the header author states it. An effect that\n         is understated is a bug in the overlay, and one that is overstated only costs\n         reachability.\n\n         Either move the call to an artifact with the capability, or -- if the provider really\n         does neither -- correct the overlay."
+    ),
+    explanation!(
         "O1001",
         "ownership violation",
         "A value was used after its ownership moved, or while ownership rules made it inaccessible.\n\n\
@@ -791,7 +816,9 @@ mod tests {
     #[test]
     fn abi_codes_are_registered_with_construction_sites() {
         assert_eq!(family_for_code("A1001").0, "ABI");
-        for code in ["A1001", "A1002", "A1003"] {
+        for code in [
+            "A1001", "A1002", "A1003", "A1004", "A1005", "A1006", "A1007", "A1008",
+        ] {
             let explanation =
                 explanation(code).unwrap_or_else(|| panic!("{code} should be registered"));
             assert_eq!(explanation.code, code);
@@ -800,11 +827,16 @@ mod tests {
             // explanation.
             assert!(explanation.body.len() > explanation.title.len() * 4);
         }
-        // Nothing beyond the three with producers.
+        // Nothing beyond the codes with producers.
         let registered: Vec<&str> = registered_codes()
             .filter(|code| code.starts_with('A'))
             .collect();
-        assert_eq!(registered, vec!["A1001", "A1002", "A1003"]);
+        assert_eq!(
+            registered,
+            vec![
+                "A1001", "A1002", "A1003", "A1004", "A1005", "A1006", "A1007", "A1008"
+            ]
+        );
     }
 
     #[test]

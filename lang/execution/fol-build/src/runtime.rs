@@ -452,12 +452,14 @@ mod tests {
     #[test]
     fn runtime_artifacts_keep_exact_graph_identity_and_c_import_attachments() {
         let artifact_id = crate::graph::BuildArtifactId(7);
-        let c_import = crate::graph::BuildCImportAttachment {
-            artifact_id,
+        let c_import = crate::graph::BuildCImportDeclaration {
+            alias: "widget".to_string(),
             header: "native/widget.h".to_string(),
             provider: "native/widget.o".to_string(),
-            provider_kind: crate::graph::BuildCImportProviderKind::Object,
-        };
+            provider_kind: Some(crate::graph::BuildCImportProviderKind::Object),
+            ..crate::graph::BuildCImportDeclaration::default()
+        }
+        .into_attachment(artifact_id);
 
         let artifact = BuildRuntimeArtifact::new(
             artifact_id,

@@ -201,12 +201,31 @@ impl<'a> BuildApi<'a> {
     ) -> Result<crate::graph::BuildCImportAttachment, BuildApiError> {
         validate_c_import_source_path("header", &request.header.relative_path)?;
         validate_c_import_source_path("provider", &request.provider.relative_path)?;
+        if let Some(annotations) = request.annotations.as_ref() {
+            validate_c_import_source_path("annotations", &annotations.relative_path)?;
+        }
+        for root in &request.include_roots {
+            validate_c_import_source_path("include_roots", root)?;
+        }
         self.graph
             .add_c_import(
                 artifact_id,
-                request.header.relative_path,
-                request.provider.relative_path,
-                request.provider_kind,
+                crate::graph::BuildCImportDeclaration {
+                    alias: request.alias,
+                    header: request.header.relative_path,
+                    provider: request.provider.relative_path,
+                    provider_kind: Some(request.provider_kind),
+                    annotations: request
+                        .annotations
+                        .map(|handle| handle.relative_path),
+                    target: request.target,
+                    dialect: request.dialect,
+                    compiler: request.compiler,
+                    sysroot: request.sysroot,
+                    include_roots: request.include_roots,
+                    system_include_roots: request.system_include_roots,
+                    defines: request.defines,
+                },
             )
             .map_err(|error| BuildApiError::InvalidArtifactConfig(error.to_string()))
     }

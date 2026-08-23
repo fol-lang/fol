@@ -1233,11 +1233,16 @@ ABI export                     library.add_abi_export({              M5
                                    routine = "api::add",
                                    symbol = "fol_demo_add" })
 C import (H7 spine, accepted)  library.add_c_import({                M6
+                                   alias = "c_math",
                                    header = h, provider = p,
                                    provider_kind = "object" })
                                -- an ARTIFACT-handle method, not a graph
                                method; h and p are file handles from
                                graph.file_from_root("..."), not strings
+C import namespace alias       the required `alias` field; it is    M6
+                                   the FOL namespace the synthesized
+                                   foreign package mounts under, so
+                                   it must match [a-z][a-z0-9_]*
 C import, general fields       ... target, dialect, compiler,        M6
                                    sysroot, include_roots,
                                    system_include_roots, defines,
@@ -1260,10 +1265,13 @@ in examples, not two methods.
 
 Rules that hold for every row:
 
-- `provider_kind` accepts only `"object"` today; `"static"` and `"shared"` are
-  frozen names that reject until M3 builds real library artifacts.
+- `provider_kind` accepts `"object"`, `"static"`, and `"shared"`: M3 built real
+  library artifacts, so M6 promoted the two frozen names.
   `"import_library"` and `"framework"` reject until their lane is promoted, per
   section 4.5. `kind` on `add_native_file` takes the same vocabulary.
+- One artifact may attach more than one C import, but each needs a distinct
+  `alias`, because the alias is a namespace and two namespaces cannot share a
+  name. Reusing one is a `DuplicateAlias` rejection, not a merge.
 - A config record now rejects a field its shape does not declare. Before M0 an
   unknown field was read by nobody and reported by nobody, so `optimze` took
   the default in silence and no spelling could be frozen at all. Enforcement

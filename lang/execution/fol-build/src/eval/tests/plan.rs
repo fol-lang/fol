@@ -75,6 +75,7 @@ fn build_plan_rejects_c_imports_for_unknown_artifact_names() {
             kind: BuildEvaluationOperationKind::ArtifactAddCImport {
                 artifact: "missing".to_string(),
                 request: BuildCImportRequest {
+                    alias: "widget".to_string(),
                     header: SourceFileHandle {
                         relative_path: "native/widget.h".to_string(),
                     },
@@ -82,6 +83,7 @@ fn build_plan_rejects_c_imports_for_unknown_artifact_names() {
                         relative_path: "native/widget.o".to_string(),
                     },
                     provider_kind: crate::graph::BuildCImportProviderKind::Object,
+                    ..BuildCImportRequest::default()
                 },
             },
         }],

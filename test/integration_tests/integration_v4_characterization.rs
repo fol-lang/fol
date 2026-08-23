@@ -355,6 +355,33 @@ fn the_frozen_abi_export_spelling_is_implemented() {
     );
 }
 
+/// M0 froze the general C-import record while the evaluator rejected every
+/// field past `provider_kind`. M6 implements the whole record, so the same
+/// checked-in file is now accepted -- which is what the freeze was for.
+#[test]
+fn the_frozen_c_import_field_spelling_is_implemented() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("examples/fail_v4_contract_c_import_fields");
+    let output = run_fol_in_dir(
+        &root,
+        &[
+            "code",
+            "check",
+            "--package-store-root",
+            store_root().to_str().expect("store root should be utf-8"),
+        ],
+    );
+    let text = strip_ansi(&format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    ));
+    assert!(
+        output.status.success(),
+        "the frozen C-import field spelling should now be accepted:\n{text}"
+    );
+}
+
 /// The frozen `build.fol` spellings from `plan/V4_PLAN.md` section 4.15.
 ///
 /// Each fixture writes a spelling this plan has committed to and asserts what
@@ -374,11 +401,6 @@ fn frozen_build_api_spellings_keep_their_exact_names() {
             "fail_v4_contract_native_file",
             "unsupported build API call",
             "add_native_file",
-        ),
-        (
-            "fail_v4_contract_c_import_fields",
-            "unknown field 'target'; add_c_import accepts header, provider, provider_kind",
-            "add_c_import",
         ),
     ];
 

@@ -25,6 +25,82 @@ impl BuildBodyExecutor {
         Ok(())
     }
 
+    /// The alias names the FOL namespace the foreign package mounts under, so
+    /// it is validated here rather than at link time.
+    fn resolve_c_import_alias(
+        &self,
+        method: &str,
+        fields: &[fol_parser::ast::RecordInitField],
+    ) -> Result<String, BuildEvaluationError> {
+        let field = fields
+            .iter()
+            .find(|field| field.name == "alias")
+            .ok_or_else(|| {
+                self.invalid_config(method, "missing required string field 'alias'")
+            })?;
+        let alias = self
+            .resolve_string(&field.value)
+            .ok_or_else(|| self.invalid_config(method, "'alias' must be a string"))?;
+        Ok(alias)
+    }
+
+    fn resolve_optional_c_import_string(
+        &self,
+        method: &str,
+        fields: &[fol_parser::ast::RecordInitField],
+        field_name: &str,
+    ) -> Result<Option<String>, BuildEvaluationError> {
+        let Some(field) = fields.iter().find(|field| field.name == field_name) else {
+            return Ok(None);
+        };
+        self.resolve_string(&field.value)
+            .map(Some)
+            .ok_or_else(|| self.invalid_config(method, format!("'{field_name}' must be a string")))
+    }
+
+    /// A repeated field is written `{ "a", "b" }`, the container literal the
+    /// M0 fixture froze. Every element must be a plain string.
+    fn resolve_c_import_strings(
+        &self,
+        method: &str,
+        fields: &[fol_parser::ast::RecordInitField],
+        field_name: &str,
+    ) -> Result<Vec<String>, BuildEvaluationError> {
+        let Some(field) = fields.iter().find(|field| field.name == field_name) else {
+            return Ok(Vec::new());
+        };
+        let AstNode::ContainerLiteral { elements, .. } = &field.value else {
+            return Err(self.invalid_config(
+                method,
+                format!("'{field_name}' must be a container literal of strings"),
+            ));
+        };
+        elements
+            .iter()
+            .map(|element| {
+                self.resolve_string(element).ok_or_else(|| {
+                    self.invalid_config(
+                        method,
+                        format!("every '{field_name}' entry must be a string"),
+                    )
+                })
+            })
+            .collect()
+    }
+
+    fn resolve_optional_local_c_import_file(
+        &self,
+        method: &str,
+        fields: &[fol_parser::ast::RecordInitField],
+        field_name: &str,
+    ) -> Result<Option<SourceFileHandle>, BuildEvaluationError> {
+        if !fields.iter().any(|field| field.name == field_name) {
+            return Ok(None);
+        }
+        self.resolve_local_c_import_file(method, fields, field_name)
+            .map(Some)
+    }
+
     fn resolve_local_c_import_file(
         &self,
         method: &str,
@@ -740,8 +816,11 @@ impl BuildBodyExecutor {
                     return Err(self.invalid_config(method, "expected one config record"));
                 };
                 self.reject_unknown_config_fields(method, fields)?;
+                let alias = self.resolve_c_import_alias(method, fields)?;
                 let header = self.resolve_local_c_import_file(method, fields, "header")?;
                 let provider = self.resolve_local_c_import_file(method, fields, "provider")?;
+                let annotations =
+                    self.resolve_optional_local_c_import_file(method, fields, "annotations")?;
                 let provider_kind_field = fields
                     .iter()
                     .find(|field| field.name == "provider_kind")
@@ -757,17 +836,40 @@ impl BuildBodyExecutor {
                     .ok_or_else(|| {
                     self.invalid_config(
                         method,
-                        format!("'provider_kind' must be exactly 'object', got '{provider_kind}'"),
+                        format!(
+                            "'provider_kind' must be one of {}, got '{provider_kind}'",
+                            crate::graph::BuildCImportProviderKind::ACCEPTED.join(", ")
+                        ),
                     )
                 })?;
+                let target = self.resolve_field_string(fields, "target");
+                if target.is_none() && fields.iter().any(|field| field.name == "target") {
+                    return Err(self.invalid_config(method, "'target' must be a string or a target option handle"));
+                }
+                let dialect = self.resolve_optional_c_import_string(method, fields, "dialect")?;
+                let compiler = self.resolve_optional_c_import_string(method, fields, "compiler")?;
+                let sysroot = self.resolve_optional_c_import_string(method, fields, "sysroot")?;
+                let include_roots = self.resolve_c_import_strings(method, fields, "include_roots")?;
+                let system_include_roots =
+                    self.resolve_c_import_strings(method, fields, "system_include_roots")?;
+                let defines = self.resolve_c_import_strings(method, fields, "defines")?;
                 self.output.operations.push(BuildEvaluationOperation {
                     origin: None,
                     kind: BuildEvaluationOperationKind::ArtifactAddCImport {
                         artifact: artifact.name.clone(),
                         request: BuildCImportRequest {
+                            alias,
                             header,
                             provider,
                             provider_kind,
+                            annotations,
+                            target,
+                            dialect,
+                            compiler,
+                            sysroot,
+                            include_roots,
+                            system_include_roots,
+                            defines,
                         },
                     },
                 });

@@ -203,6 +203,16 @@ mod tests {
     use crate::FrontendConfig;
     use std::path::{Path, PathBuf};
 
+    fn provider_declaration() -> fol_package::BuildCImportDeclaration {
+        fol_package::BuildCImportDeclaration {
+            alias: "provider".to_owned(),
+            header: "native/provider.h".to_owned(),
+            provider: "native/provider.o".to_owned(),
+            provider_kind: Some(fol_package::BuildCImportProviderKind::Object),
+            ..fol_package::BuildCImportDeclaration::default()
+        }
+    }
+
     #[test]
     fn interop_configuration_paths_are_normalized_absolute() {
         assert!(normalized_absolute(Path::new("/tmp/fol-interop")));
@@ -226,9 +236,7 @@ mod tests {
         let c_import = graph
             .add_c_import(
                 artifact_id,
-                "native/provider.h",
-                "native/provider.o",
-                fol_package::BuildCImportProviderKind::Object,
+                provider_declaration(),
             )
             .unwrap();
         let selection = FrontendArtifactExecutionSelection {
@@ -278,9 +286,7 @@ mod tests {
             let c_import = graph
                 .add_c_import(
                     artifact_id,
-                    "native/provider.h",
-                    "native/provider.o",
-                    fol_package::BuildCImportProviderKind::Object,
+                    provider_declaration(),
                 )
                 .unwrap();
             let selection = FrontendArtifactExecutionSelection {

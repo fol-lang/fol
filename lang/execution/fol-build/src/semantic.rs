@@ -595,12 +595,24 @@ pub fn canonical_artifact_config_shapes() -> Vec<BuildSemanticRecordShape> {
                 BuildSemanticRecordField::required("symbol"),
             ],
         ),
+        // Section 4.15 freezes this record. Adding a field here means adding
+        // it to that table and to the `v4_contract_c_import_fields` fixture in
+        // the same change.
         BuildSemanticRecordShape::artifact(
             "CImportConfig",
             [
+                BuildSemanticRecordField::required("alias"),
                 BuildSemanticRecordField::required("header"),
                 BuildSemanticRecordField::required("provider"),
                 BuildSemanticRecordField::required("provider_kind"),
+                BuildSemanticRecordField::optional("annotations"),
+                BuildSemanticRecordField::optional("target"),
+                BuildSemanticRecordField::optional("dialect"),
+                BuildSemanticRecordField::optional("compiler"),
+                BuildSemanticRecordField::optional("sysroot"),
+                BuildSemanticRecordField::optional("include_roots"),
+                BuildSemanticRecordField::optional("system_include_roots"),
+                BuildSemanticRecordField::optional("defines"),
             ],
         ),
     ]
@@ -1286,7 +1298,13 @@ mod tests {
             .map(|field| field.name.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(required, vec!["header", "provider", "provider_kind"]);
+        // The alias joins the required set in M6: it names the FOL namespace
+        // the import mounts under, and there is no defaulting rule that could
+        // supply one without guessing.
+        assert_eq!(
+            required,
+            vec!["alias", "header", "provider", "provider_kind"]
+        );
     }
 
     #[test]
@@ -1425,14 +1443,24 @@ mod config_shape_tests {
                 "optimize".to_string(),
             ])
         );
-        // The H7 C-import spine, frozen by plan/V4_PLAN.md section 4.15. The
-        // general fields belong to M6 and are not accepted yet.
+        // The whole C-import record, frozen by plan/V4_PLAN.md section 4.15
+        // and implemented in M6. Adding a field here means adding it to that
+        // table and to the checked-in fixture in the same change.
         assert_eq!(
             config_shape_field_names("add_c_import"),
             Some(vec![
+                "alias".to_string(),
                 "header".to_string(),
                 "provider".to_string(),
                 "provider_kind".to_string(),
+                "annotations".to_string(),
+                "target".to_string(),
+                "dialect".to_string(),
+                "compiler".to_string(),
+                "sysroot".to_string(),
+                "include_roots".to_string(),
+                "system_include_roots".to_string(),
+                "defines".to_string(),
             ])
         );
     }

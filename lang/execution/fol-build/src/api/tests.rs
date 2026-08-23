@@ -322,6 +322,7 @@ fn build_api_add_c_import_records_an_authoritative_typed_graph_attachment() {
         .add_c_import(
             app.artifact_id,
             BuildCImportRequest {
+                alias: "widget".to_string(),
                 header: SourceFileHandle {
                     relative_path: "native/widget.h".to_string(),
                 },
@@ -329,6 +330,7 @@ fn build_api_add_c_import_records_an_authoritative_typed_graph_attachment() {
                     relative_path: "native/widget.o".to_string(),
                 },
                 provider_kind: BuildCImportProviderKind::Object,
+                ..BuildCImportRequest::default()
             },
         )
         .expect("local package-relative files should attach");
@@ -386,6 +388,7 @@ fn build_api_add_c_import_rejects_unsafe_or_dependency_paths_without_mutation() 
             .add_c_import(
                 app.artifact_id,
                 BuildCImportRequest {
+                    alias: "widget".to_string(),
                     header: SourceFileHandle {
                         relative_path: header.to_string(),
                     },
@@ -393,6 +396,7 @@ fn build_api_add_c_import_rejects_unsafe_or_dependency_paths_without_mutation() 
                         relative_path: provider.to_string(),
                     },
                     provider_kind: BuildCImportProviderKind::Object,
+                    ..BuildCImportRequest::default()
                 },
             )
             .expect_err("invalid C import paths must fail closed");
@@ -417,6 +421,7 @@ fn build_api_add_c_import_rejects_duplicate_and_unknown_artifact_attachments() {
         })
         .expect("executable should be created");
     let request = BuildCImportRequest {
+        alias: "widget".to_string(),
         header: SourceFileHandle {
             relative_path: "native/widget.h".to_string(),
         },
@@ -424,6 +429,7 @@ fn build_api_add_c_import_rejects_duplicate_and_unknown_artifact_attachments() {
             relative_path: "native/widget.o".to_string(),
         },
         provider_kind: BuildCImportProviderKind::Object,
+        ..BuildCImportRequest::default()
     };
     api.add_c_import(app.artifact_id, request.clone())
         .expect("first attachment should succeed");
@@ -440,7 +446,7 @@ fn build_api_add_c_import_rejects_duplicate_and_unknown_artifact_attachments() {
     );
     assert_eq!(api.graph().c_imports().len(), 1);
 
-    let multiple = api
+    let reused_alias = api
         .add_c_import(
             app.artifact_id,
             BuildCImportRequest {
@@ -450,14 +456,14 @@ fn build_api_add_c_import_rejects_duplicate_and_unknown_artifact_attachments() {
                 provider: SourceFileHandle {
                     relative_path: "native/other.o".to_string(),
                 },
-                provider_kind: BuildCImportProviderKind::Object,
+                ..request.clone()
             },
         )
-        .expect_err("more than one C import per artifact must fail closed");
+        .expect_err("two namespaces cannot share one alias");
     assert_eq!(
-        multiple,
+        reused_alias,
         BuildApiError::InvalidArtifactConfig(
-            "artifact 'artifact:0' cannot attach more than one C import".to_string()
+            "artifact 'artifact:0' already imports a C namespace aliased 'widget'".to_string()
         )
     );
     assert_eq!(api.graph().c_imports().len(), 1);

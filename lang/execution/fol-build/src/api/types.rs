@@ -307,11 +307,20 @@ pub struct BuildArtifactHandle {
     pub root_module_id: crate::graph::BuildModuleId,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BuildCImportRequest {
+    pub alias: String,
     pub header: SourceFileHandle,
     pub provider: SourceFileHandle,
     pub provider_kind: crate::graph::BuildCImportProviderKind,
+    pub annotations: Option<SourceFileHandle>,
+    pub target: Option<String>,
+    pub dialect: Option<String>,
+    pub compiler: Option<String>,
+    pub sysroot: Option<String>,
+    pub include_roots: Vec<String>,
+    pub system_include_roots: Vec<String>,
+    pub defines: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -462,7 +471,7 @@ pub struct GeneratedFileHandle {
     pub generated_file_id: crate::graph::BuildGeneratedFileId,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SourceFileHandle {
     pub relative_path: String,
 }

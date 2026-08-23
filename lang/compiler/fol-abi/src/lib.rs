@@ -5,16 +5,26 @@
 //! pulled in would become a dependency of both. Enforced by
 //! `crate_graph_tests`.
 
+pub mod annotation;
 pub mod compat;
+pub mod import;
 pub mod interface;
 pub mod manifest;
 pub mod metadata;
 pub mod types;
 pub mod verify;
 
+pub use annotation::{
+    AnnotationError, AnnotationOverlay, ImportEffects, ImportErrorConvention, RoutineAnnotation,
+    ANNOTATION_SCHEMA_VERSION,
+};
 pub use compat::{
     classify_duplicate_symbols, classify_external_symbol, is_reserved_c_identifier,
     AbiClassification, AbiRejection,
+};
+pub use import::{
+    scalar_for_measured_float, scalar_for_measured_integer, verify_effects, verify_status_mapping,
+    CapabilityModel, ImportRejection, ImportedInterface, ImportedRoutine,
 };
 pub use interface::{
     AbiCallingConvention, AbiDirection, AbiEffects, AbiErrorContract, AbiFacing, AbiParameter,

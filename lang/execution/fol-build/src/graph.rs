@@ -50,15 +50,22 @@ pub enum BuildArtifactKind {
     Object,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// How a C provider is linked. `import_library` and `framework` stay
+/// unspelled until their lane is certified, per section 4.5.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BuildCImportProviderKind {
+    #[default]
     Object,
+    Static,
+    Shared,
 }
 
 impl BuildCImportProviderKind {
     pub fn parse(raw: &str) -> Option<Self> {
         match raw {
             "object" => Some(Self::Object),
+            "static" => Some(Self::Static),
+            "shared" => Some(Self::Shared),
             _ => None,
         }
     }
@@ -66,8 +73,13 @@ impl BuildCImportProviderKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Object => "object",
+            Self::Static => "static",
+            Self::Shared => "shared",
         }
     }
+
+    /// The spellings this build accepts, for a diagnostic that lists them.
+    pub const ACCEPTED: &'static [&'static str] = &["object", "static", "shared"];
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,12 +140,82 @@ pub struct BuildArtifact {
     pub abi_exports: Vec<BuildAbiExport>,
 }
 
+/// One checked C import attached to one artifact.
+///
+/// Every field the section 4.13 pipeline needs lives here, because the
+/// attachment is the single object that binds the synthesized namespace to its
+/// provider plan. Splitting the target or the include roots into unrelated
+/// options would let an artifact link one provider while using an interface
+/// derived from another.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildCImportAttachment {
     pub artifact_id: BuildArtifactId,
+    /// The FOL namespace the synthesized foreign package is mounted under.
+    pub alias: String,
     pub header: String,
     pub provider: String,
     pub provider_kind: BuildCImportProviderKind,
+    /// The versioned annotation overlay, when the import declares one.
+    pub annotations: Option<String>,
+    /// The target this provider is for; `None` means every target.
+    pub target: Option<String>,
+    pub dialect: Option<String>,
+    pub compiler: Option<String>,
+    pub sysroot: Option<String>,
+    pub include_roots: Vec<String>,
+    pub system_include_roots: Vec<String>,
+    pub defines: Vec<String>,
+}
+
+/// One `add_c_import` record before the graph binds it to an artifact.
+///
+/// `Default` exists so a caller naming three fields does not have to spell the
+/// eight optional ones, which is what keeps the frozen record cheap to extend.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BuildCImportDeclaration {
+    pub alias: String,
+    pub header: String,
+    pub provider: String,
+    pub provider_kind: Option<BuildCImportProviderKind>,
+    pub annotations: Option<String>,
+    pub target: Option<String>,
+    pub dialect: Option<String>,
+    pub compiler: Option<String>,
+    pub sysroot: Option<String>,
+    pub include_roots: Vec<String>,
+    pub system_include_roots: Vec<String>,
+    pub defines: Vec<String>,
+}
+
+impl BuildCImportDeclaration {
+    /// Bind this declaration to an artifact without going through the graph.
+    ///
+    /// The graph's `add_c_import` is the checked path; this is the projection
+    /// on its own, for callers that already hold a validated declaration.
+    pub fn into_attachment(self, artifact_id: BuildArtifactId) -> BuildCImportAttachment {
+        BuildCImportAttachment {
+            artifact_id,
+            alias: self.alias,
+            header: self.header,
+            provider: self.provider,
+            provider_kind: self.provider_kind.unwrap_or(BuildCImportProviderKind::Object),
+            annotations: self.annotations,
+            target: self.target,
+            dialect: self.dialect,
+            compiler: self.compiler,
+            sysroot: self.sysroot,
+            include_roots: self.include_roots,
+            system_include_roots: self.system_include_roots,
+            defines: self.defines,
+        }
+    }
+}
+
+/// The alias becomes a FOL namespace, so it has to be spellable as one.
+fn is_valid_c_import_alias(alias: &str) -> bool {
+    let mut chars = alias.chars();
+    matches!(chars.next(), Some(first) if first.is_ascii_lowercase())
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -144,7 +226,11 @@ pub enum BuildCImportAttachmentError {
         header: String,
         provider: String,
     },
-    MultipleForArtifact(BuildArtifactId),
+    DuplicateAlias {
+        artifact_id: BuildArtifactId,
+        alias: String,
+    },
+    InvalidAlias(String),
 }
 
 impl std::fmt::Display for BuildCImportAttachmentError {
@@ -161,9 +247,13 @@ impl std::fmt::Display for BuildCImportAttachmentError {
                 f,
                 "artifact '{artifact_id}' already has C import header '{header}' with provider '{provider}'"
             ),
-            Self::MultipleForArtifact(artifact_id) => write!(
+            Self::DuplicateAlias { artifact_id, alias } => write!(
                 f,
-                "artifact '{artifact_id}' cannot attach more than one C import"
+                "artifact '{artifact_id}' already imports a C namespace aliased '{alias}'"
+            ),
+            Self::InvalidAlias(alias) => write!(
+                f,
+                "C import alias '{alias}' must match [a-z][a-z0-9_]*"
             ),
         }
     }
@@ -426,19 +516,15 @@ impl BuildGraph {
     pub fn add_c_import(
         &mut self,
         artifact_id: BuildArtifactId,
-        header: impl Into<String>,
-        provider: impl Into<String>,
-        provider_kind: BuildCImportProviderKind,
+        declaration: BuildCImportDeclaration,
     ) -> Result<BuildCImportAttachment, BuildCImportAttachmentError> {
         if self.artifact(artifact_id).is_none() {
             return Err(BuildCImportAttachmentError::UnknownArtifact(artifact_id));
         }
-        let attachment = BuildCImportAttachment {
-            artifact_id,
-            header: header.into(),
-            provider: provider.into(),
-            provider_kind,
-        };
+        if !is_valid_c_import_alias(&declaration.alias) {
+            return Err(BuildCImportAttachmentError::InvalidAlias(declaration.alias));
+        }
+        let attachment = declaration.into_attachment(artifact_id);
         if self.c_imports.contains(&attachment) {
             return Err(BuildCImportAttachmentError::Duplicate {
                 artifact_id,
@@ -449,11 +535,12 @@ impl BuildGraph {
         if self
             .c_imports
             .iter()
-            .any(|existing| existing.artifact_id == artifact_id)
+            .any(|existing| existing.artifact_id == artifact_id && existing.alias == attachment.alias)
         {
-            return Err(BuildCImportAttachmentError::MultipleForArtifact(
+            return Err(BuildCImportAttachmentError::DuplicateAlias {
                 artifact_id,
-            ));
+                alias: attachment.alias,
+            });
         }
         self.c_imports.push(attachment.clone());
         Ok(attachment)
@@ -877,8 +964,8 @@ use crate::native::{NativeLibraryPath, NativeLinkDirective, NativeSearchPathOrig
 mod tests {
     use super::{
         BuildArtifactDependency, BuildArtifactId, BuildArtifactInput, BuildArtifactKind,
-        BuildCImportAttachment, BuildCImportAttachmentError, BuildCImportProviderKind,
-        BuildGeneratedFileId, BuildGeneratedFileKind, BuildGraph, BuildGraphValidationError,
+        BuildCImportAttachment, BuildCImportAttachmentError, BuildCImportDeclaration,
+        BuildCImportProviderKind, BuildGeneratedFileId, BuildGeneratedFileKind, BuildGraph, BuildGraphValidationError,
         BuildGraphValidationErrorKind, BuildInstallId, BuildInstallKind, BuildInstallTarget,
         BuildModuleId, BuildModuleKind, BuildOptionId, BuildOptionKind, BuildStepDependency,
         BuildStepId, BuildStepKind,
@@ -970,21 +1057,25 @@ mod tests {
         let helper = graph.add_artifact(BuildArtifactKind::StaticLibrary, "helper");
 
         let attachment = graph
-            .add_c_import(
-                app,
-                "native/widget.h",
-                "native/widget.o",
-                BuildCImportProviderKind::Object,
-            )
+            .add_c_import(app, widget_declaration())
             .expect("known artifacts should accept exact object providers");
 
         assert_eq!(
             attachment,
             BuildCImportAttachment {
                 artifact_id: app,
+                alias: "widget".to_string(),
                 header: "native/widget.h".to_string(),
                 provider: "native/widget.o".to_string(),
                 provider_kind: BuildCImportProviderKind::Object,
+                annotations: None,
+                target: None,
+                dialect: None,
+                compiler: None,
+                sysroot: None,
+                include_roots: Vec::new(),
+                system_include_roots: Vec::new(),
+                defines: Vec::new(),
             }
         );
         assert_eq!(graph.c_imports(), std::slice::from_ref(&attachment));
@@ -1002,21 +1093,11 @@ mod tests {
         let mut graph = BuildGraph::new();
         let app = graph.add_artifact(BuildArtifactKind::Executable, "app");
         graph
-            .add_c_import(
-                app,
-                "native/widget.h",
-                "native/widget.o",
-                BuildCImportProviderKind::Object,
-            )
+            .add_c_import(app, widget_declaration())
             .expect("first attachment should succeed");
 
         assert!(matches!(
-            graph.add_c_import(
-                app,
-                "native/widget.h",
-                "native/widget.o",
-                BuildCImportProviderKind::Object,
-            ),
+            graph.add_c_import(app, widget_declaration()),
             Err(BuildCImportAttachmentError::Duplicate {
                 artifact_id,
                 ref header,
@@ -1027,28 +1108,74 @@ mod tests {
         ));
         assert_eq!(graph.c_imports().len(), 1);
 
+        // A second import under the same alias would give one artifact two
+        // namespaces with one name; a distinct alias is the supported form.
         assert_eq!(
             graph.add_c_import(
                 app,
-                "native/other.h",
-                "native/other.o",
-                BuildCImportProviderKind::Object,
+                BuildCImportDeclaration {
+                    header: "native/other.h".to_string(),
+                    provider: "native/other.o".to_string(),
+                    ..widget_declaration()
+                },
             ),
-            Err(BuildCImportAttachmentError::MultipleForArtifact(app))
+            Err(BuildCImportAttachmentError::DuplicateAlias {
+                artifact_id: app,
+                alias: "widget".to_string(),
+            })
         );
         assert_eq!(graph.c_imports().len(), 1);
 
+        graph
+            .add_c_import(
+                app,
+                BuildCImportDeclaration {
+                    alias: "other".to_string(),
+                    header: "native/other.h".to_string(),
+                    provider: "native/other.o".to_string(),
+                    ..widget_declaration()
+                },
+            )
+            .expect("a distinct alias should attach a second namespace");
+        assert_eq!(graph.c_imports().len(), 2);
+
         let unknown = BuildArtifactId(99);
         assert_eq!(
-            graph.add_c_import(
-                unknown,
-                "native/other.h",
-                "native/other.o",
-                BuildCImportProviderKind::Object,
-            ),
+            graph.add_c_import(unknown, widget_declaration()),
             Err(BuildCImportAttachmentError::UnknownArtifact(unknown))
         );
-        assert_eq!(graph.c_imports().len(), 1);
+        assert_eq!(graph.c_imports().len(), 2);
+    }
+
+    #[test]
+    fn c_import_aliases_must_be_spellable_as_fol_namespaces() {
+        let mut graph = BuildGraph::new();
+        let app = graph.add_artifact(BuildArtifactKind::Executable, "app");
+
+        for alias in ["Widget", "9widget", "wid-get", "", "widget::inner"] {
+            assert_eq!(
+                graph.add_c_import(
+                    app,
+                    BuildCImportDeclaration {
+                        alias: alias.to_string(),
+                        ..widget_declaration()
+                    },
+                ),
+                Err(BuildCImportAttachmentError::InvalidAlias(alias.to_string())),
+                "alias '{alias}' should be refused"
+            );
+        }
+        assert!(graph.c_imports().is_empty());
+    }
+
+    fn widget_declaration() -> BuildCImportDeclaration {
+        BuildCImportDeclaration {
+            alias: "widget".to_string(),
+            header: "native/widget.h".to_string(),
+            provider: "native/widget.o".to_string(),
+            provider_kind: Some(BuildCImportProviderKind::Object),
+            ..BuildCImportDeclaration::default()
+        }
     }
 
     #[test]
