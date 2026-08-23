@@ -1574,7 +1574,13 @@ Tasks:
 
   Already correct and left alone: `run` on a non-host target is refused before
   anything is created.
-- [ ] Define `ResolvedArtifactPlan` with every field listed in Section 4.3.
+- [x] Define `ResolvedArtifactPlan` with every field listed in Section 4.3.
+  `fol-build/src/plan.rs`. Identity, kind, provenance, root source, inputs
+  (module and generated), `fol_model`, validated target, profile, ABI surface,
+  ordered link plan with propagated interface, native attachments, role-tagged
+  outputs, and installs. `ResolvedArtifactKind` separates `Executable` from
+  `TestExecutable`, and `OutputRole` covers the nine roles in section 4.3, so
+  an artifact is a set of role-tagged outputs rather than one path.
 - [ ] Produce it once from the evaluated graph; remove or completely replace
   `project_graph_artifacts` instead of retaining a compatibility projection.
 - [ ] Carry the plan losslessly through package preparation and frontend
@@ -1589,10 +1595,21 @@ Tasks:
   levels through the CLI by reading which target directory the binary lands
   in, so an inversion that let an artifact target shadow an explicit
   `--target` now fails a test.
-- [ ] Include artifact kind, target, model/effective tier, profile, inputs,
+- [x] Include artifact kind, target, model/effective tier, profile, inputs,
   exports, link plan, and output roles in deterministic plan identity.
-- [ ] Redact/hash selected environment values in determinism data rather than
-  persisting secrets verbatim.
+  `plan::identity` renders a plan canonically and digests it with FNV-1a
+  rather than `Hash`, which is not stable across Rust versions or platforms --
+  a cache key that moves with the compiler is not a cache key.
+  `every_abi_affecting_field_changes_the_identity` asserts each field moves it;
+  that is the test whose absence let workspace identity ignore the build
+  profile. Input order is deliberately not significant and link order is,
+  because a static link is order-sensitive and a repeated archive is meaningful.
+- [x] Redact/hash selected environment values in determinism data rather than
+  persisting secrets verbatim. `EnvironmentValue` is `Public` or `Redacted`,
+  and `classify_environment` uses an **allowlist** of known-safe names rather
+  than a denylist of secret-looking ones: a denylist fails open, and the
+  failure is a leaked credential. Redaction hashes rather than drops, so two
+  builds that differ only in a secret still have different identities.
 
 Tests:
 

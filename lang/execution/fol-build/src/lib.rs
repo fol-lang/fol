@@ -12,6 +12,7 @@ pub mod executor;
 pub mod graph;
 pub mod native;
 pub mod option;
+pub mod plan;
 pub mod runtime;
 pub mod semantic;
 pub mod stdlib;
