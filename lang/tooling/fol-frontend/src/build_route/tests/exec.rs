@@ -35,12 +35,20 @@ fn emitted_main_rs_from_result(result: &crate::FrontendCommandResult) -> String 
     fs::read_to_string(crate_root.join("src/main.rs")).expect("generated main.rs")
 }
 
+/// A target that is not the host and that V4 still builds for.
+///
+/// It has to be buildable: this helper feeds tests about the run-on-host rule,
+/// and naming an experimental target instead would have them fail on the tier
+/// check and never reach the rule they are about.
 fn non_host_machine_target() -> String {
-    if FrontendConfig::host_rust_target_triple() == Some("aarch64-apple-darwin") {
-        "x86_64-unknown-linux-gnu".to_string()
-    } else {
-        "aarch64-apple-darwin".to_string()
-    }
+    let host = FrontendConfig::host_rust_target_triple();
+    fol_types::TARGETS
+        .iter()
+        .find(|facts| {
+            facts.tier == fol_types::TargetTier::Certified && Some(facts.rust_triple) != host
+        })
+        .map(|facts| facts.rust_triple.to_string())
+        .expect("a certified target other than the host should exist")
 }
 
 #[test]
