@@ -235,8 +235,8 @@ fn resolve_artifact_fields(
         ));
     }
 
-    let target = if let Some(target) = &request.inputs.target {
-        target.clone()
+    let (target, _target_source) = if let Some(target) = &request.inputs.target {
+        (target.clone(), TargetSource::CommandLine)
     } else if let Some(target) = target {
         let raw = resolved_artifact_value(
             target,
@@ -246,11 +246,13 @@ fn resolve_artifact_fields(
             options,
             origin.clone(),
         )?;
-        fol_types::ResolvedTarget::resolve(&raw)
-            .map_err(|error| evaluation_invalid_input(error.to_string(), origin.clone()))?
+        let resolved = fol_types::ResolvedTarget::resolve(&raw)
+            .map_err(|error| evaluation_invalid_input(error.to_string(), origin.clone()))?;
+        (resolved, TargetSource::Artifact)
     } else {
-        fol_types::ResolvedTarget::host()
-            .map_err(|error| evaluation_invalid_input(error.to_string(), origin.clone()))?
+        let host = fol_types::ResolvedTarget::host()
+            .map_err(|error| evaluation_invalid_input(error.to_string(), origin.clone()))?;
+        (host, TargetSource::Host)
     };
     let optimize = if let Some(optimize) = request.inputs.optimize {
         optimize
@@ -825,4 +827,72 @@ pub fn evaluate_build_plan(
         dependency_requests,
         graph,
     ))
+}
+
+/// Which level of section 4.4's target precedence supplied an artifact's
+/// target.
+///
+/// The order is fixed and total: an explicit command-line override wins, then
+/// the artifact's own target from evaluated `build.fol`, then the resolved
+/// host. The variants are ordered so that a lower discriminant outranks a
+/// higher one, which is what `wins_over` reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TargetSource {
+    CommandLine,
+    Artifact,
+    Host,
+}
+
+impl TargetSource {
+    pub const ORDER: &'static [Self] = &[Self::CommandLine, Self::Artifact, Self::Host];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::CommandLine => "command-line override",
+            Self::Artifact => "artifact target",
+            Self::Host => "resolved host",
+        }
+    }
+
+    /// Whether this source takes precedence over `other`.
+    pub fn wins_over(self, other: Self) -> bool {
+        self < other
+    }
+}
+
+#[cfg(test)]
+mod target_precedence_tests {
+    use super::TargetSource;
+
+    #[test]
+    fn precedence_is_command_line_then_artifact_then_host() {
+        assert_eq!(
+            TargetSource::ORDER,
+            &[
+                TargetSource::CommandLine,
+                TargetSource::Artifact,
+                TargetSource::Host
+            ]
+        );
+        assert!(TargetSource::CommandLine.wins_over(TargetSource::Artifact));
+        assert!(TargetSource::CommandLine.wins_over(TargetSource::Host));
+        assert!(TargetSource::Artifact.wins_over(TargetSource::Host));
+    }
+
+    #[test]
+    fn precedence_is_a_strict_total_order() {
+        for (index, higher) in TargetSource::ORDER.iter().enumerate() {
+            assert!(
+                !higher.wins_over(*higher),
+                "{higher:?} must not outrank itself"
+            );
+            for lower in &TargetSource::ORDER[index + 1..] {
+                assert!(higher.wins_over(*lower));
+                assert!(
+                    !lower.wins_over(*higher),
+                    "precedence must not be symmetric between {higher:?} and {lower:?}"
+                );
+            }
+        }
+    }
 }

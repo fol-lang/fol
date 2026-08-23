@@ -1581,7 +1581,14 @@ Tasks:
   artifact selection into a backend compile plan.
 - [ ] Split executable and test-executable identity; preserve object/static/
   shared kinds exactly.
-- [ ] Make CLI/artifact/host target precedence explicit and test it.
+- [x] Make CLI/artifact/host target precedence explicit and test it. The chain
+  in `eval/plan.rs` was an anonymous `if`/`else` that happened to be in the
+  right order; it now names the winning level as a `TargetSource`, whose
+  variants are ordered so `wins_over` is a strict total order.
+  `target_precedence_prefers_cli_then_artifact_then_host` proves all three
+  levels through the CLI by reading which target directory the binary lands
+  in, so an inversion that let an artifact target shadow an explicit
+  `--target` now fails a test.
 - [ ] Include artifact kind, target, model/effective tier, profile, inputs,
   exports, link plan, and output roles in deterministic plan identity.
 - [ ] Redact/hash selected environment values in determinism data rather than

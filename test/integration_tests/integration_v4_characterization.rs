@@ -497,3 +497,101 @@ fn an_experimental_target_still_typechecks() {
         "expected the tier diagnostic, got:\n{text}"
     );
 }
+
+/// Section 4.4 target precedence, end to end: command-line override, then the
+/// artifact's own target, then the resolved host.
+///
+/// The order was implemented but never asserted through the CLI, so nothing
+/// would have caught a change that let the artifact target shadow an explicit
+/// `--target`.
+#[test]
+fn target_precedence_prefers_cli_then_artifact_then_host() {
+    let fixture = unique_temp_root("v4_target_precedence");
+    let store = store_root();
+    let store = store.to_str().expect("store root should be utf-8");
+    let host = fol_types::ResolvedTarget::host().expect("host should resolve");
+    // A certified target that is not the host, so "which one won" is visible in
+    // the output path.
+    let cross = fol_types::TARGETS
+        .iter()
+        .find(|facts| {
+            facts.tier == fol_types::TargetTier::Certified && facts.rust_triple != host.as_str()
+        })
+        .expect("a certified non-host target should exist");
+
+    let build_package = |name: &str, artifact_target: Option<&str>| -> PathBuf {
+        let root = fixture.path().join(name);
+        std::fs::create_dir_all(root.join("src")).expect("package tree should be creatable");
+        let target_field = match artifact_target {
+            Some(triple) => format!("target = \"{triple}\""),
+            None => "target = target".to_string(),
+        };
+        std::fs::write(
+            root.join("build.fol"),
+            format!(
+                r#"pro[] build(): non = {{
+    var build = .build();
+    build.meta({{
+        name = "{name}", version = "0.1.0", kind = "exe",
+        description = "target precedence", license = "MIT",
+    }});
+    build.add_dep({{ alias = "std", source = "internal", target = "standard" }});
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+    var app = graph.add_exe({{
+        name = "{name}", root = "src/main.fol", fol_model = "memo",
+        {target_field}, optimize = optimize,
+    }});
+    graph.install(app);
+    return;
+}};
+"#
+            ),
+        )
+        .expect("build.fol should be writable");
+        std::fs::write(
+            root.join("src/main.fol"),
+            "use std: pkg = {\"std\"};\n\nfun[] main(): non = {\n    std::io::echo_str(\"ONE\");\n    return;\n};\n",
+        )
+        .expect("main.fol should be writable");
+        root
+    };
+
+    let built_target = |root: &PathBuf, args: &[&str]| -> String {
+        let mut argv = vec!["code", "build"];
+        argv.extend_from_slice(args);
+        argv.extend_from_slice(&["--package-store-root", store]);
+        let output = run_fol_in_dir(root, &argv);
+        let text = strip_ansi(&format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+        assert!(
+            output.status.success(),
+            "build should succeed; got:\n{text}"
+        );
+        // The binary lands under a directory named for the selected target.
+        fol_types::TARGETS
+            .iter()
+            .find(|facts| text.contains(&format!("/bin/{}/", facts.rust_triple)))
+            .map(|facts| facts.rust_triple.to_string())
+            .unwrap_or_else(|| panic!("no target directory in the build output:\n{text}"))
+    };
+
+    // Host, with no override anywhere.
+    let plain = build_package("plain", None);
+    assert_eq!(built_target(&plain, &[]), host.as_str());
+
+    // The artifact's own target beats the host.
+    let pinned = build_package("pinned", Some(cross.rust_triple));
+    assert_eq!(built_target(&pinned, &[]), cross.rust_triple);
+
+    // An explicit CLI override beats the artifact's own target.
+    assert_eq!(
+        built_target(&pinned, &["--target", host.as_str()]),
+        host.as_str(),
+        "an explicit --target must outrank the artifact's target"
+    );
+}
