@@ -120,6 +120,13 @@ fn intern(
     Some(abi.intern(AbiType::Scalar(scalar)))
 }
 
+/// A routine's parameters, result, and error type.
+pub type LoweredSignature = (
+    Vec<(String, LoweredTypeId)>,
+    Option<LoweredTypeId>,
+    Option<LoweredTypeId>,
+);
+
 /// Project a set of allowlisted routines into a foreign interface template.
 ///
 /// `resolve` maps a fully qualified FOL path to its lowered signature. The

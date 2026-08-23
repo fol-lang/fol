@@ -128,6 +128,11 @@ pub struct BackendConfig {
     /// Rendered to structured `rustc` arguments; never concatenated into a raw
     /// flag string. Absent on routes with no native inputs.
     pub native_link_plan: Option<fol_build::link_plan::NativeLinkPlan>,
+    /// The artifact's declared ABI version and export allowlist.
+    ///
+    /// Absent when the artifact declares none, which is the common case: a
+    /// library is not a C surface until an allowlist names what crosses.
+    pub abi_exports: Option<AbiExportRequestSet>,
 }
 
 impl Default for BackendConfig {
@@ -143,6 +148,7 @@ impl Default for BackendConfig {
             auxiliary_rust_plan: None,
             artifact_plan: None,
             native_link_plan: None,
+            abi_exports: None,
         }
     }
 }
@@ -459,4 +465,12 @@ mod product_kind_config_tests {
             BackendProductKind::Executable
         );
     }
+}
+
+/// What a build artifact declared about its C surface.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AbiExportRequestSet {
+    pub major: u32,
+    pub minor: u32,
+    pub exports: Vec<fol_lower::abi::AbiExportRequest>,
 }

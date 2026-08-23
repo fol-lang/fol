@@ -133,8 +133,13 @@ pub fn emit_lib_rs_for_config(
             .replace("src/main.rs", "src/lib.rs"),
         module_name: "lib".to_string(),
         contents: format!(
-            "{}\n\nmod packages;\n\n// A library product has no entry routine. The package modules above\n// carry the compiled FOL code; the C surface is added by the ABI export\n// milestone.\npub fn __fol_library_identity() -> &'static str {{\n    \"{entry_name}\"\n}}\n",
+            "{}\n\nmod packages;\n{}\n\n// A library product has no entry routine. The package modules above\n// carry the compiled FOL code; `abi_exports` carries the C surface, when\n// the artifact declares one.\npub fn __fol_library_identity() -> &'static str {{\n    \"{entry_name}\"\n}}\n",
             runtime_main_use_block(config.runtime_tier()),
+            if config.abi_exports.is_some() {
+                "pub mod abi_exports;"
+            } else {
+                ""
+            },
         ),
     })
 }
@@ -301,6 +306,23 @@ pub fn emit_generated_crate_skeleton_for_config(
     let mut files = Vec::new();
     files.push(emit_cargo_toml(session));
     files.push(emit_crate_root_for_config(session, config)?);
+    // The C surface, when the artifact declares one. Emitted before the
+    // package shells so a reader sees the whole boundary in one file.
+    if let Some(request) = &config.abi_exports {
+        let surface = crate::abi::surface::resolve_surface(
+            session,
+            &config
+                .artifact_plan
+                .as_ref()
+                .map(|plan| plan.name.clone())
+                .unwrap_or_else(|| "artifact".to_string()),
+            request.major,
+            request.minor,
+            &request.exports,
+            config.machine_target.clone(),
+        )?;
+        files.push(crate::abi::surface::emit_wrapper_module(session, &surface)?);
+    }
     files.extend(emit_package_module_shells(session));
     files.extend(emit_namespace_module_shells_for_config(session, config)?);
     // A namespace that owns child namespaces emits its own code at

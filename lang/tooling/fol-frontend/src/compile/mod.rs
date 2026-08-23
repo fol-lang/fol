@@ -835,6 +835,27 @@ pub(crate) fn build_selected_artifacts_for_profile_with_config(
                 ));
             }
             selected_backend_config.native_link_plan = Some(link_plan);
+
+            // The artifact's declared C surface. Absent unless the build
+            // program named an export allowlist: a library is not a C surface
+            // until something says what crosses.
+            if let Some(artifact) = binding.graph.artifacts().get(binding.artifact_id.index()) {
+                if !artifact.abi_exports.is_empty() {
+                    let (major, minor) = artifact.abi_version.unwrap_or((0, 0));
+                    selected_backend_config.abi_exports = Some(fol_backend::AbiExportRequestSet {
+                        major,
+                        minor,
+                        exports: artifact
+                            .abi_exports
+                            .iter()
+                            .map(|export| fol_lower::abi::AbiExportRequest {
+                                routine: export.routine.clone(),
+                                symbol: export.symbol.clone(),
+                            })
+                            .collect(),
+                    });
+                }
+            }
         }
         let backend_session = fol_backend::BackendSession::new(lowered);
         // Compilation runs as a declared graph action rather than beside the

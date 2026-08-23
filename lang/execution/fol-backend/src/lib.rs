@@ -47,8 +47,8 @@ pub use auxiliary::{
     BackendMainEntryResultObservation,
 };
 pub use config::{
-    BackendBuildProfile, BackendConfig, BackendFolModel, BackendMachineTarget, BackendMode,
-    BackendRuntimeTier, BackendTarget,
+    AbiExportRequestSet, BackendBuildProfile, BackendConfig, BackendFolModel, BackendMachineTarget,
+    BackendMode, BackendRuntimeTier, BackendTarget,
 };
 pub use control::render_terminator;
 pub use emit::{
