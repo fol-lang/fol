@@ -1564,6 +1564,14 @@ Tasks:
   naming the target and the expected path. Host builds skip the probe, so only
   cross builds pay for it.
 
+  Both checks sit in the frontend build path, not in build evaluation. Placing
+  them in evaluation was the first attempt and was wrong: `check` shares that
+  code, so `fol code check` began rejecting a package for naming a target it
+  had no reason to build. Typechecking is target-independent; only building is
+  not. Both halves are locked by
+  `an_experimental_target_is_refused_before_any_output_exists` and
+  `an_experimental_target_still_typechecks`.
+
   Already correct and left alone: `run` on a non-host target is refused before
   anything is created.
 - [ ] Define `ResolvedArtifactPlan` with every field listed in Section 4.3.

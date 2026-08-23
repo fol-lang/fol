@@ -436,3 +436,64 @@ fn an_experimental_target_is_refused_before_any_output_exists() {
         "the build left an output tree behind despite refusing the target"
     );
 }
+
+/// The other half of the target gate: naming an unbuildable target must not
+/// stop the package from typechecking.
+///
+/// The first version of this check ran during build evaluation, which `check`
+/// also uses, so `fol code check` started failing on a package it had no reason
+/// to reject. Typechecking is target-independent; only building is not.
+#[test]
+fn an_experimental_target_still_typechecks() {
+    let fixture = unique_temp_root("v4_experimental_target_check");
+    let root = fixture.path().join("targeted");
+    std::fs::create_dir_all(root.join("src")).expect("package tree should be creatable");
+    std::fs::write(
+        root.join("build.fol"),
+        r#"pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "targeted", version = "0.1.0", kind = "exe",
+        description = "an artifact naming an experimental target",
+        license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var optimize = graph.standard_optimize();
+    var app = graph.add_exe({
+        name = "targeted", root = "src/main.fol", fol_model = "memo",
+        target = "aarch64-apple-darwin", optimize = optimize,
+    });
+    graph.install(app);
+    return;
+};
+"#,
+    )
+    .expect("build.fol should be writable");
+    std::fs::write(
+        root.join("src/main.fol"),
+        "use std: pkg = {\"std\"};\n\nfun[] main(): non = {\n    std::io::echo_str(\"ONE\");\n    return;\n};\n",
+    )
+    .expect("main.fol should be writable");
+
+    let store = store_root();
+    let store = store.to_str().expect("store root should be utf-8");
+
+    let checked = run_fol_in_dir(&root, &["code", "check", "--package-store-root", store]);
+    assert!(
+        checked.status.success(),
+        "check should not care that the target is unbuildable; got:\n{}",
+        strip_ansi(&String::from_utf8_lossy(&checked.stderr))
+    );
+
+    let built = run_fol_in_dir(&root, &["code", "build", "--package-store-root", store]);
+    let text = strip_ansi(&String::from_utf8_lossy(&built.stderr));
+    assert!(
+        !built.status.success(),
+        "build should refuse it; got:\n{text}"
+    );
+    assert!(
+        text.contains("is experimental and is not built by V4"),
+        "expected the tier diagnostic, got:\n{text}"
+    );
+}

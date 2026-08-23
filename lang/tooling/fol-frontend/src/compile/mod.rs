@@ -764,6 +764,17 @@ pub(crate) fn build_selected_artifacts_for_profile_with_config(
         if lowered.entry_candidates().is_empty() {
             continue;
         }
+        // The artifact target, after section 4.4 precedence. Checked here rather
+        // than during evaluation so that `check` still typechecks a package
+        // naming a target it cannot build, and before interop preparation or
+        // emission so nothing is created for a target that will be refused.
+        selection.target.ensure_buildable().map_err(|error| {
+            FrontendError::new(FrontendErrorKind::InvalidInput, error.to_string())
+        })?;
+        fol_backend::preflight::ensure_target_toolchain_available(&selection.target).map_err(
+            |error| FrontendError::new(FrontendErrorKind::InvalidInput, error.to_string()),
+        )?;
+
         let prepared_interop =
             crate::interop::prepare_h7_interop_for_selection(selection, config, &output_root)?;
         let interop_report = prepared_interop.as_ref().map(|prepared| prepared.report);
