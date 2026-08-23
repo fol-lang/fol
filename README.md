@@ -48,6 +48,36 @@ $FOL_HOME/
 └── config                                     ← default toolchain
 ```
 
+### Nix
+
+The repository is a flake, so a checkout is not needed to use the compiler:
+
+```console
+$ nix run github:fol-lang/fol -- code run        # compile and run a package
+$ nix profile install github:fol-lang/fol        # put `folc` and `fol` on PATH
+```
+
+As an input to another flake:
+
+```nix
+{
+  inputs.fol.url = "github:fol-lang/fol";
+
+  outputs = { self, nixpkgs, fol }: {
+    devShells.x86_64-linux.default =
+      nixpkgs.legacyPackages.x86_64-linux.mkShell {
+        packages = [ fol.packages.x86_64-linux.default ];
+      };
+  };
+}
+```
+
+The derivation ships the toolchain the way `fol self install` lays one out —
+`folc` beside `std/` and `runtime/` — so a nix-installed compiler resolves
+packages exactly the way a self-installed one does, and needs no `FOL_HOME`
+to build. `rustc` and a C toolchain are wrapped in, because a FOL build shells
+out to both: `nix run` works in an empty environment.
+
 A project pins its language version on the first comment line of `build.fol`:
 
 ```fol

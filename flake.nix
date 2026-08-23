@@ -95,8 +95,103 @@
         muslCc = "${pkgs.pkgsMusl.stdenv.cc}/bin/cc";
         # Cargo spells its per-target overrides with an upper-snake triple.
         muslKey = builtins.replaceStrings [ "-" ] [ "_" ] (pkgs.lib.toUpper muslTarget);
+        # One source of truth for the package version: the workspace manifest.
+        # Parsed rather than duplicated, so a release cannot ship a package
+        # whose version disagrees with the crate it built.
+        folVersion = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
+
+        # The installable FOL toolchain.
+        #
+        # An installed toolchain finds its payloads next to the running binary:
+        # `<bin>/std` for the standard library and `<bin>/runtime` for the
+        # runtime crate the backend compiles against. That is the layout
+        # `fol self install` produces, so a nix-installed compiler resolves
+        # packages exactly the way a self-installed one does.
+        # Built with the pinned toolchain rather than nixpkgs' default rustc:
+        # the interop crates require 1.89, and a package that silently used a
+        # different compiler than `make verify` did would not be the same build.
+        folRustPlatform = pkgs.makeRustPlatform {
+          cargo = rustToolchain;
+          rustc = rustToolchain;
+        };
+
+        folPackage = folRustPlatform.buildRustPackage {
+          pname = "fol";
+          version = folVersion;
+          src = ./.;
+
+          cargoLock = {
+            lockFile = ./Cargo.lock;
+            # The interop stack is pinned by git revision rather than published
+            # to crates.io, so each git source needs its own fixed-output hash.
+            outputHashes = {
+              "follang-gerc-0.1.0" = "sha256-XHAQKb4T3qaQeqAmmy1XxgVIvXdNbGTDL4ZeYPaVoNY=";
+              "follang-linc-0.1.0" = "sha256-ccP8WlRkmTY13H1GWiXPYe70xkK53jDoOGg6eMb0VMk=";
+              "follang-parc-0.16.0" = "sha256-2XC1dyvnFGCUyV5ZbiirLR0l5jpru4VSwhKzFtBYnMU=";
+            };
+          };
+
+          # Only the two user-facing binaries. Building the whole workspace
+          # would also build every test-only target for no benefit here.
+          cargoBuildFlags = [ "--bin" "folc" "--bin" "fol" ];
+
+          # The suite drives rustc, a C toolchain, tree-sitter, and real
+          # filesystem fixtures. `make verify` is that gate; a package build is
+          # not the place for it.
+          doCheck = false;
+
+          # `fol-editor`'s build script regenerates the grammar, so the pinned
+          # tree-sitter CLI is a build dependency rather than a dev convenience.
+          nativeBuildInputs = [ pkgs.makeWrapper treeSitterCli ];
+
+          postInstall = ''
+            # The standard library, as the compiler's bundled-std lookup wants
+            # it: the `std` package itself, not the store root above it.
+            mkdir -p "$out/bin/std"
+            cp -r lang/library/std/. "$out/bin/std/"
+
+            # The runtime crate source. The backend compiles this with rustc on
+            # every FOL build, so it ships as source rather than as an rlib.
+            mkdir -p "$out/bin/runtime"
+            cp -r lang/execution/fol-runtime/. "$out/bin/runtime/"
+
+            # A FOL build shells out to rustc and a linker. Wrapping them in
+            # means `nix run` works without the caller assembling a toolchain.
+            for binary in folc fol; do
+              wrapProgram "$out/bin/$binary" \
+                --prefix PATH : "${pkgs.lib.makeBinPath [ rustToolchain pkgs.gcc ]}"
+            done
+          '';
+
+          meta = with pkgs.lib; {
+            description = "The FOL programming language compiler and toolchain";
+            homepage = "https://github.com/fol-lang/fol";
+            mainProgram = "folc";
+            platforms = platforms.linux;
+          };
+        };
       in
       {
+        packages.default = folPackage;
+        packages.fol = folPackage;
+
+        # `nix run github:fol-lang/fol` compiles a FOL package; `.#fol` is the
+        # toolchain manager.
+        apps.default = {
+          type = "app";
+          program = "${folPackage}/bin/folc";
+        };
+        apps.folc = self.apps.${system}.default;
+        apps.fol = {
+          type = "app";
+          program = "${folPackage}/bin/fol";
+        };
+
+        # `nix build .#checks.<system>.package` builds the toolchain; the real
+        # gate is `make verify` inside `nix develop`, which needs a writable
+        # tree and network-free fixtures a sandboxed check cannot provide.
+        checks.package = folPackage;
+
         devShells.default = pkgs.mkShell {
           strictDeps = true;
           packages = commonPackages;
