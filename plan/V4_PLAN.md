@@ -2174,16 +2174,31 @@ Required negative classifier cases:
 - duplicate/reserved/invalid external symbol
 - capability/effect stronger than artifact model
 
-Tests:
+Tests, all landed:
 
-- `int[u16]`, `int[32]`, `flt[32]`, and `chr[utf32]` survive every stage
-- source record order `z, a` remains `z, a`
-- entry order/tags remain stable across file/declaration reorder
-- internal lowered IDs change in a fixture without changing public symbol or
-  interface fingerprint
-- classifier walks nested aggregates and points to the exact bad field
-- manifest canonicalization is byte-identical across repeated clean runs
-- compiler rejects a foreign surface before backend if any contract is missing
+```text
+scalars survive           sized_scalars_and_encodings_survive_into_lowering
+                          (fol-lower, negative-controlled: erasing the width
+                          makes it report `int, int` where `u16, i32` belong)
+record order              a_record_lowers_its_fields_in_declaration_order
+                          (negative-controlled), and
+                          record_field_order_is_preserved_in_the_canonical_encoding
+                          for the manifest side
+entry order and tags      an_entry_lowers_its_variants_in_declaration_order_with_stable_tags,
+                          moving_an_entry_declaration_does_not_change_its_tags
+internal IDs              internal_type_ids_do_not_reach_compatibility_comparison
+                          -- an `AbiTypeId` is a position in a table, so
+                          inserting an unrelated type renumbers it; the public
+                          interface must not move because of that
+nested classifier path    the_verifier_points_at_the_exact_nested_field
+                          (`Outer.middle.items`), every_bad_field_is_reported
+byte-identical manifest   canonical_encoding_is_byte_identical_across_runs,
+                          reordering_routines_does_not_change_the_interface_fingerprint
+missing contract          an_incomplete_raw_pointer_contract_is_caught,
+                          an_export_set_is_verified_end_to_end -- the verifier
+                          runs before emission, so the backend never
+                          rediscovers ABI legality
+```
 
 Verification:
 

@@ -848,3 +848,43 @@ fn moving_an_entry_declaration_does_not_change_its_tags() {
 
     assert_eq!(entry_first, entry_second);
 }
+
+/// V4 M4: sized scalars and character encodings survive every stage.
+///
+/// A record's field types are checked at the lowered declaration, which is the
+/// last point before emission -- so a width or encoding that reached here is
+/// one the backend will see. Before the scalar work every sized spelling
+/// collapsed to `int`, and before the encoding work every `chr` collapsed to
+/// one type.
+#[test]
+fn sized_scalars_and_encodings_survive_into_lowering() {
+    let workspace = super::lower_fixture_workspace(
+        "typ Facts: rec = { a: int[u16], b: int[32], c: flt[32], d: chr[utf32] };\nfun[] main(): int = { return 0; };\n",
+    );
+
+    let table = workspace.type_table();
+    let spellings = workspace
+        .packages()
+        .flat_map(|package| package.type_decls.iter())
+        .find_map(|(_, decl)| match &decl.kind {
+            crate::model::LoweredTypeDeclKind::Record { fields } if fields.len() == 4 => Some(
+                fields
+                    .iter()
+                    .map(|field| table.render_type(field.type_id))
+                    .collect::<Vec<_>>(),
+            ),
+            _ => None,
+        })
+        .expect("the record declaration should be lowered");
+
+    assert_eq!(
+        spellings,
+        vec![
+            "u16".to_string(),
+            "i32".to_string(),
+            "f32".to_string(),
+            "chr".to_string()
+        ],
+        "a width or encoding was erased before lowering"
+    );
+}
