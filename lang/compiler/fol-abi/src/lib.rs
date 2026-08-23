@@ -8,7 +8,9 @@
 pub mod annotation;
 pub mod compat;
 pub mod import;
+pub mod import_manifest;
 pub mod interface;
+pub mod json;
 pub mod manifest;
 pub mod metadata;
 pub mod types;
@@ -26,6 +28,11 @@ pub use import::{
     scalar_for_measured_float, scalar_for_measured_integer, verify_effects, verify_status_mapping,
     CapabilityModel, ImportRejection, ImportedInterface, ImportedRoutine,
 };
+pub use import_manifest::{
+    canonical_import_interface_json, ImportManifest, ImportManifestError, ImportProvenance,
+    IMPORT_MANIFEST_SCHEMA, IMPORT_MANIFEST_SCHEMA_VERSION,
+};
+pub use json::{JsonError, JsonValue};
 pub use interface::{
     AbiCallingConvention, AbiDirection, AbiEffects, AbiErrorContract, AbiFacing, AbiParameter,
     AbiSourceOrigin, ExportSelection, ForeignInterface, ForeignInterfaceTemplate, ForeignRoutine,

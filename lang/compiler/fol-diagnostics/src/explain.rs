@@ -172,6 +172,11 @@ static REGISTRY: &[Explanation] = &[
         "An imported C routine declares an effect its artifact's capability model does not\n         permit.\n\n         The models are not advisory. A `core` artifact has no allocator, and a `memo`\n         artifact has no host I/O; a C function that allocates or opens a file does not become\n         reachable from one by being foreign. Section 4.13's rule is that an import is checked\n         against `core`/`memo`/effective `std` with no implicit upgrade -- the model is not\n         widened to fit the declaration.\n\n         The effect comes from the annotation overlay's `effects` key, not from inspection:\n         FOL cannot see what a provider does, so the header author states it. An effect that\n         is understated is a bug in the overlay, and one that is overstated only costs\n         reachability.\n\n         Either move the call to an artifact with the capability, or -- if the provider really\n         does neither -- correct the overlay."
     ),
     explanation!(
+        "A1009",
+        "unusable C import manifest",
+        "The checked import manifest could not be read, or no longer describes the provider.\n\n         `fol tool bind c` runs the C pipeline once and writes what it accepted to a\n         `.folabi.json` file, so ordinary compilation reads a file instead of invoking a C\n         preprocessor. That file is evidence, not a cache: the build re-runs the pipeline and\n         compares.\n\n         A stale manifest is the common case, and it is a real one -- it means the source was\n         type-checked against a surface the provider no longer has. Re-run `fol tool bind c`\n         and check the regenerated file in.\n\n         The manifest also records a fingerprint of its own contents. Editing the file by hand\n         breaks that check by design: the generated document is derived from the header, the\n         overlay, and the measurement, and a hand edit is a claim none of those three made.\n\n         Section 4.13 of plan/V4_PLAN.md specifies the manifest."
+    ),
+    explanation!(
         "O1001",
         "ownership violation",
         "A value was used after its ownership moved, or while ownership rules made it inaccessible.\n\n\
@@ -817,7 +822,7 @@ mod tests {
     fn abi_codes_are_registered_with_construction_sites() {
         assert_eq!(family_for_code("A1001").0, "ABI");
         for code in [
-            "A1001", "A1002", "A1003", "A1004", "A1005", "A1006", "A1007", "A1008",
+            "A1001", "A1002", "A1003", "A1004", "A1005", "A1006", "A1007", "A1008", "A1009",
         ] {
             let explanation =
                 explanation(code).unwrap_or_else(|| panic!("{code} should be registered"));
@@ -834,7 +839,7 @@ mod tests {
         assert_eq!(
             registered,
             vec![
-                "A1001", "A1002", "A1003", "A1004", "A1005", "A1006", "A1007", "A1008"
+                "A1001", "A1002", "A1003", "A1004", "A1005", "A1006", "A1007", "A1008", "A1009"
             ]
         );
     }
