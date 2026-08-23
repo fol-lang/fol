@@ -4,6 +4,7 @@
 default-members = [
     ".",
     "lang/compiler/fol-types",
+    "lang/compiler/fol-abi",
     "lang/compiler/fol-stream",
     "lang/compiler/fol-lexer",
     "lang/compiler/fol-parser",
@@ -24,6 +25,7 @@ default-members = [
 ]
 members = [
     "lang/compiler/fol-types",
+    "lang/compiler/fol-abi",
     "lang/compiler/fol-stream",
     "lang/compiler/fol-lexer",
     "lang/compiler/fol-parser",

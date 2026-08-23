@@ -132,6 +132,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "fol-abi"
+version = "0.2.6"
+dependencies = [
+ "fol-types",
+]
+
+[[package]]
 name = "fol-backend"
 version = "0.2.6"
 dependencies = [

@@ -1,0 +1,12 @@
+[package]
+name = "fol-abi"
+version.workspace = true
+authors = ["Trim Bresilla <trim.bresilla@gmail.com>"]
+edition = "2021"
+description = "The canonical FOL C ABI model: type table, foreign interfaces, manifests, and fingerprints"
+
+# Dependency-foundation crate. `fol-types` is the ONLY permitted dependency:
+# both the compiler and the interop stack consume this schema, so anything it
+# pulled in would become a dependency of both. `crate_graph_tests` enforces it.
+[dependencies]
+fol-types = { path = "../fol-types" }
