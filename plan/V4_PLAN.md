@@ -1959,29 +1959,42 @@ Tasks:
   an installed archive is `lib/libcore.a` rather than an extensionless
   `lib/core`.
 
-Tests:
+Tests, all landed. `make test-native` is the Make-owned gate; the link-plan
+tests live in `fol-build`:
 
-- host executable, static library, and shared library have the expected file
-  format and target
-- library-only artifact does not look for `main`
-- executable links a local static library without compiling the same source
-  twice
-- multi-level static closure uses stable dependent-before-provider order
-- shared library consumes its direct dependencies
-- dependency-exported archive really reaches the link command
-- wrong-target object/archive fails before the linker
-- system-library positives/negatives are target-specific; Apple framework
-  inputs fail early on the initial certified lane
-- Windows MSVC and GNU inputs fail early until their separate evidence lanes
-  exist and never share a naming/import-library branch
-- parallel builds of identical source for different kinds/targets do not collide
-- frontend JSON lists static/shared/object/import-library/debug-symbol roles
+```text
+file format and target    produced_files_have_the_expected_format_and_target
+                          -- checks `!<arch>` magic and the ELF e_type/e_machine
+                          fields, so an archive is an archive rather than
+                          something that merely satisfied the linker
+no `main` lookup          a_library_artifact_does_not_look_for_an_entry_routine
+local static link         an_executable_links_a_local_static_library
+multi-level closure       a_multi_level_static_closure_is_ordered,
+                          dependents_precede_providers_in_a_multi_level_closure,
+                          link_order_is_deterministic
+shared consumes deps      a_shared_library_consumes_its_direct_dependencies
+dependency export         a_dependency_export_reaches_the_link_command_by_exact_path
+                          -- by exact path, not a `-l` name that could resolve
+                          to a different file
+wrong target              a_wrong_target_input_fails_before_the_linker
+framework rejected        an_apple_framework_fails_on_the_certified_lane
+Windows lanes rejected    a_windows_import_library_fails_until_its_lane_is_promoted
+kinds do not collide      library_kinds_built_from_one_source_do_not_collide,
+                          cache_directories_are_isolated_by_kind_and_target
+frontend roles            frontend_json_lists_the_library_role
+```
 
 Verification:
 
 - `make test`
 - new mandatory `make test-native`
 - `make docs TYPE=mdbook`
+
+> **M3 complete 2026-08-23.** `make verify` at exit 0: 4,538 tests, no
+> failures, every stage including `test-native` and `test-interop`. The STOP
+> below is met -- `a_c_program_links_and_runs_against_a_fol_static_library` and
+> its shared-library twin build real FOL library shells, hand them to `clang`,
+> and run the resulting program.
 
 **STOP:** no M4 foreign surface is user-visible until a tiny real C program can
 link and run against empty/scalar-free static and shared FOL library shells on

@@ -269,3 +269,83 @@ fn library_kinds_built_from_one_source_do_not_collide() {
         vec!["lib/libbothshared.so".to_string()]
     );
 }
+
+/// The produced files are the formats they claim to be, for the right target.
+///
+/// Linking proves an archive is usable; this proves it is an archive rather
+/// than, say, an executable that happened to satisfy the linker.
+#[test]
+fn produced_files_have_the_expected_format_and_target() {
+    let fixture = fol_testkit::TempFixture::new("fol_native_format");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root should be creatable");
+
+    build_library(fixture.path(), "fmtstatic", "add_static_lib");
+    build_library(fixture.path(), "fmtshared", "add_shared_lib");
+
+    let archive = fixture
+        .path()
+        .join("fmtstatic/.fol/install/lib/libfmtstatic.a");
+    let shared = fixture
+        .path()
+        .join("fmtshared/.fol/install/lib/libfmtshared.so");
+
+    // An `ar` archive begins with this exact magic.
+    let archive_bytes = std::fs::read(&archive).expect("the archive should be readable");
+    assert!(
+        archive_bytes.starts_with(b"!<arch>\n"),
+        "the static library is not an ar archive"
+    );
+
+    // ELF magic, 64-bit, little-endian, and the x86-64 machine field.
+    let shared_bytes = std::fs::read(&shared).expect("the shared library should be readable");
+    assert_eq!(&shared_bytes[0..4], b"\x7fELF", "not an ELF file");
+    assert_eq!(shared_bytes[4], 2, "not 64-bit");
+    assert_eq!(shared_bytes[5], 1, "not little-endian");
+    // e_type 3 is a shared object; an executable would be 2.
+    assert_eq!(
+        u16::from_le_bytes([shared_bytes[16], shared_bytes[17]]),
+        3,
+        "the shared library is not an ELF shared object"
+    );
+    // e_machine 0x3e is x86-64.
+    assert_eq!(
+        u16::from_le_bytes([shared_bytes[18], shared_bytes[19]]),
+        0x3e,
+        "the shared library is not built for x86-64"
+    );
+}
+
+/// The frontend reports a library under its own role, not as a binary.
+///
+/// Everything used to be `binary`, so a static library and an executable were
+/// indistinguishable to any consumer of the summary or its JSON.
+#[test]
+fn frontend_json_lists_the_library_role() {
+    let fixture = fol_testkit::TempFixture::new("fol_native_json");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root should be creatable");
+
+    let root = fixture.path().join("jsonlib");
+    library_package(&root, "jsonlib", "add_static_lib");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_folc"))
+        .args(["--output", "json", "code", "build", "--package-store-root"])
+        .arg(store_root())
+        .current_dir(&root)
+        .output()
+        .expect("the build should run");
+    let text = strip_ansi(&String::from_utf8_lossy(&output.stdout));
+    assert!(
+        output.status.success(),
+        "the JSON build failed:\n{}",
+        strip_ansi(&String::from_utf8_lossy(&output.stderr))
+    );
+
+    assert!(
+        text.contains("static-library"),
+        "the JSON output does not name the static-library role:\n{text}"
+    );
+    assert!(
+        !text.contains("\"kind\":\"binary\"") && !text.contains("\"kind\": \"binary\""),
+        "a library was reported as a binary:\n{text}"
+    );
+}
