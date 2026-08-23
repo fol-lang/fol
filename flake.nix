@@ -118,7 +118,26 @@
         folPackage = folRustPlatform.buildRustPackage {
           pname = "fol";
           version = folVersion;
-          src = ./.;
+
+          # Only what the build reads. A bare `./.` copies the working tree
+          # into the store, and a developer checkout carries a `target/`
+          # directory that can reach tens of gigabytes -- fine for a `github:`
+          # input, where nix sees only tracked files, and ruinous for a
+          # `path:` one, where it sees everything.
+          src = pkgs.lib.fileset.toSource {
+            root = ./.;
+            fileset = pkgs.lib.fileset.unions [
+              ./Cargo.toml
+              ./Cargo.lock
+              # Everything the workspace compiles, including the standard
+              # library and the tree-sitter grammar the editor's build script
+              # regenerates from.
+              ./lang
+              # `fol-editor` embeds this showcase with `include_str!`, so it is
+              # a compile-time input rather than a test fixture.
+              ./test/apps/showcases/full_v1_showcase/app/main.fol
+            ];
+          };
 
           cargoLock = {
             lockFile = ./Cargo.lock;
