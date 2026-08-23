@@ -1581,12 +1581,24 @@ Tasks:
   outputs, and installs. `ResolvedArtifactKind` separates `Executable` from
   `TestExecutable`, and `OutputRole` covers the nine roles in section 4.3, so
   an artifact is a set of role-tagged outputs rather than one path.
-- [ ] Produce it once from the evaluated graph; remove or completely replace
+- [x] Produce it once from the evaluated graph; remove or completely replace
   `project_graph_artifacts` instead of retaining a compatibility projection.
+  `plan::resolve_graph_artifacts` replaces it and `project_graph_artifacts` is
+  deleted, not deprecated -- no compatibility projection remains. It had one
+  non-test consumer, `fol-package/src/build_dependency.rs`, now repointed.
+
+  Two of M0's characterizations are fixed by this and were converted to
+  positive regressions, as M0 said they would be: generated-file inputs and
+  install destinations both reach the plan. The include-path characterization
+  still holds and was repointed at the resolver -- the plan carries the field
+  honestly empty because nothing anywhere can populate it.
 - [ ] Carry the plan losslessly through package preparation and frontend
   artifact selection into a backend compile plan.
-- [ ] Split executable and test-executable identity; preserve object/static/
-  shared kinds exactly.
+- [x] Split executable and test-executable identity; preserve object/static/
+  shared kinds exactly. `ResolvedArtifactKind` has five variants and
+  `BuildArtifactKind::Test` maps to `TestExecutable`, so a test bundle is no
+  longer an executable wearing a label. Two artifacts differing only in kind
+  get different plan identities.
 - [x] Make CLI/artifact/host target precedence explicit and test it. The chain
   in `eval/plan.rs` was an anonymous `if`/`else` that happened to be in the
   right order; it now names the winning level as a `TargetSource`, whose

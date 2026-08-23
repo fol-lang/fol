@@ -30,11 +30,10 @@ pub use api::{
     UserOptionRequest,
 };
 pub use artifact::{
-    project_graph_artifacts, BuildArtifactDefinition, BuildArtifactFolModel, BuildArtifactLinkage,
-    BuildArtifactModelKind, BuildArtifactModuleConfig, BuildArtifactOutput,
-    BuildArtifactPipelinePlan, BuildArtifactPipelineStage, BuildArtifactReport,
-    BuildArtifactRootSource, BuildArtifactSet, BuildArtifactTargetConfig,
-    BuildArtifactTargetConfigError,
+    BuildArtifactDefinition, BuildArtifactFolModel, BuildArtifactLinkage, BuildArtifactModelKind,
+    BuildArtifactModuleConfig, BuildArtifactOutput, BuildArtifactPipelinePlan,
+    BuildArtifactPipelineStage, BuildArtifactReport, BuildArtifactRootSource, BuildArtifactSet,
+    BuildArtifactTargetConfig, BuildArtifactTargetConfigError,
 };
 pub use codegen::{
     materialize_generated_action_plan, CodegenKind, CodegenRequest, CodegenResult,

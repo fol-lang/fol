@@ -171,61 +171,6 @@ pub struct BuildArtifactNativeAttachmentSet {
     pub link_inputs: Vec<crate::native::NativeLinkDirective>,
 }
 
-pub fn project_graph_artifacts(graph: &BuildGraph) -> Vec<BuildArtifactDefinition> {
-    graph
-        .artifacts()
-        .iter()
-        .map(|artifact| BuildArtifactDefinition {
-            name: artifact.name.clone(),
-            kind: match artifact.kind {
-                BuildArtifactKind::Executable => BuildArtifactModelKind::Executable,
-                BuildArtifactKind::StaticLibrary => BuildArtifactModelKind::StaticLibrary,
-                BuildArtifactKind::SharedLibrary => BuildArtifactModelKind::SharedLibrary,
-                BuildArtifactKind::Test => BuildArtifactModelKind::TestBundle,
-                BuildArtifactKind::Object => BuildArtifactModelKind::Object,
-            },
-            root_source: BuildArtifactRootSource {
-                path: artifact.root_module.clone(),
-            },
-            modules: BuildArtifactModuleConfig {
-                roots: graph
-                    .artifact_inputs_for(artifact.id)
-                    .filter_map(|input| match input {
-                        crate::graph::BuildArtifactInput::Module(module_id) => graph
-                            .modules()
-                            .get(module_id.index())
-                            .map(|module| module.name.clone()),
-                        crate::graph::BuildArtifactInput::GeneratedFile(_) => None,
-                    })
-                    .collect(),
-            },
-            output_name: artifact.name.clone(),
-            linkage: match artifact.kind {
-                BuildArtifactKind::Executable => BuildArtifactLinkage::Executable,
-                BuildArtifactKind::StaticLibrary => BuildArtifactLinkage::Static,
-                BuildArtifactKind::SharedLibrary | BuildArtifactKind::Object => {
-                    if artifact.kind == BuildArtifactKind::Object {
-                        BuildArtifactLinkage::Object
-                    } else {
-                        BuildArtifactLinkage::Shared
-                    }
-                }
-                BuildArtifactKind::Test => BuildArtifactLinkage::Executable,
-            },
-            target: BuildArtifactTargetConfig {
-                fol_model: artifact.fol_model,
-                target: artifact.target.clone(),
-                optimize: artifact.optimize,
-            },
-            native_attachments: BuildArtifactNativeAttachmentSet {
-                include_paths: Vec::new(),
-                library_paths: artifact.library_paths.clone(),
-                link_inputs: artifact.link_inputs.clone(),
-            },
-        })
-        .collect()
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildArtifactDefinition {
     pub name: String,
@@ -257,17 +202,15 @@ impl BuildArtifactSet {
     }
 }
 
-use crate::graph::{BuildArtifactKind, BuildGraph};
 use crate::option::ResolvedBuildOptionSet;
 
 #[cfg(test)]
 mod tests {
     use super::{
-        project_graph_artifacts, BuildArtifactDefinition, BuildArtifactFolModel,
-        BuildArtifactLinkage, BuildArtifactModelKind, BuildArtifactModuleConfig,
-        BuildArtifactNativeAttachmentSet, BuildArtifactOutput, BuildArtifactPipelinePlan,
-        BuildArtifactPipelineStage, BuildArtifactReport, BuildArtifactRootSource, BuildArtifactSet,
-        BuildArtifactTargetConfig,
+        BuildArtifactDefinition, BuildArtifactFolModel, BuildArtifactLinkage,
+        BuildArtifactModelKind, BuildArtifactModuleConfig, BuildArtifactNativeAttachmentSet,
+        BuildArtifactOutput, BuildArtifactPipelinePlan, BuildArtifactPipelineStage,
+        BuildArtifactReport, BuildArtifactRootSource, BuildArtifactSet, BuildArtifactTargetConfig,
     };
     use crate::graph::{BuildArtifactKind, BuildGraph, BuildModuleKind};
     use crate::native::{
@@ -585,7 +528,7 @@ mod tests {
     }
 
     #[test]
-    fn graph_artifact_projection_maps_build_graph_nodes_into_artifact_definitions() {
+    fn graph_artifact_resolution_maps_build_graph_nodes_into_resolved_plans() {
         let mut graph = BuildGraph::new();
         let main = graph.add_module(BuildModuleKind::Source, "src/main.fol");
         let exe = graph.add_configured_artifact(
@@ -638,25 +581,28 @@ mod tests {
             },
         );
 
-        let projected = project_graph_artifacts(&graph);
+        use crate::plan::{ResolvedArtifactKind, ResolvedInput};
+        let projected = crate::plan::resolve_graph_artifacts(
+            &graph,
+            &crate::plan::ResolvedProvenance::default(),
+        );
 
         assert_eq!(projected.len(), 4);
-        assert_eq!(projected[0].kind, BuildArtifactModelKind::Executable);
-        assert_eq!(projected[0].root_source.path, "src/main.fol");
-        assert_eq!(projected[1].kind, BuildArtifactModelKind::StaticLibrary);
-        assert_eq!(projected[1].modules.roots, vec!["src/main.fol".to_string()]);
-        assert_eq!(projected[2].kind, BuildArtifactModelKind::TestBundle);
-        assert_eq!(projected[2].linkage, BuildArtifactLinkage::Executable);
-        assert_eq!(projected[2].root_source.path, "test/app.fol");
-        assert_eq!(projected[2].target.fol_model, BuildArtifactFolModel::Core);
+        assert_eq!(projected[0].kind, ResolvedArtifactKind::Executable);
+        assert_eq!(projected[0].root_source, "src/main.fol");
+        assert_eq!(projected[1].kind, ResolvedArtifactKind::StaticLibrary);
         assert_eq!(
-            projected[2].target.target.as_str(),
-            "aarch64-unknown-linux-gnu"
+            projected[1].inputs,
+            vec![ResolvedInput::Module("src/main.fol".to_string())]
         );
-        assert_eq!(projected[2].target.optimize, BuildOptimizeMode::ReleaseFast);
-        assert_eq!(projected[3].kind, BuildArtifactModelKind::Object);
-        assert_eq!(projected[3].linkage, BuildArtifactLinkage::Object);
-        assert_eq!(projected[3].root_source.path, "src/support.fol");
+        // A test artifact is its own kind, not an executable wearing a label.
+        assert_eq!(projected[2].kind, ResolvedArtifactKind::TestExecutable);
+        assert_eq!(projected[2].root_source, "test/app.fol");
+        assert_eq!(projected[2].fol_model, BuildArtifactFolModel::Core);
+        assert_eq!(projected[2].target.as_str(), "aarch64-unknown-linux-gnu");
+        assert_eq!(projected[2].optimize, BuildOptimizeMode::ReleaseFast);
+        assert_eq!(projected[3].kind, ResolvedArtifactKind::Object);
+        assert_eq!(projected[3].root_source, "src/support.fol");
 
         let executable = &projected[0].native_attachments;
         assert_eq!(
@@ -673,13 +619,7 @@ mod tests {
                 mode: NativeLinkMode::Dynamic,
             }]
         );
-        assert_eq!(
-            projected[3].target.target.as_str(),
-            "x86_64-unknown-linux-musl"
-        );
-        assert_eq!(
-            projected[3].target.optimize,
-            BuildOptimizeMode::ReleaseSmall
-        );
+        assert_eq!(projected[3].target.as_str(), "x86_64-unknown-linux-musl");
+        assert_eq!(projected[3].optimize, BuildOptimizeMode::ReleaseSmall);
     }
 }

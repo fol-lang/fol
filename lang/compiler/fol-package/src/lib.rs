@@ -46,7 +46,7 @@ pub use build_api::{
     StepHandle, StepRequest, TestArtifactRequest, UserOption, UserOptionRequest,
 };
 pub use build_artifact::{
-    project_graph_artifacts, BuildArtifactDefinition, BuildArtifactLinkage, BuildArtifactModelKind,
+    BuildArtifactDefinition, BuildArtifactLinkage, BuildArtifactModelKind,
     BuildArtifactModuleConfig, BuildArtifactOutput, BuildArtifactPipelinePlan,
     BuildArtifactPipelineStage, BuildArtifactReport, BuildArtifactRootSource, BuildArtifactSet,
     BuildArtifactTargetConfig, BuildArtifactTargetConfigError,

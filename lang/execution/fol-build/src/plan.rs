@@ -385,6 +385,104 @@ pub mod identity {
 }
 
 #[cfg(test)]
+mod resolve_tests {
+    use super::*;
+    use crate::graph::{
+        BuildArtifactKind, BuildGeneratedFileKind, BuildGraph, BuildInstallKind,
+        BuildInstallTarget, BuildModuleKind,
+    };
+
+    fn provenance() -> ResolvedProvenance {
+        ResolvedProvenance {
+            package_name: "demo".to_string(),
+            package_version: "0.1.0".to_string(),
+            build_source: "/demo/build.fol".to_string(),
+        }
+    }
+
+    /// The three things `project_graph_artifacts` dropped, all now carried.
+    #[test]
+    fn resolving_keeps_generated_inputs_and_installs() {
+        let mut graph = BuildGraph::new();
+        let module = graph.add_module(BuildModuleKind::Source, "src/main.fol");
+        let generated =
+            graph.add_generated_file(BuildGeneratedFileKind::Write, "src/generated.fol");
+        let artifact = graph.add_artifact(BuildArtifactKind::Executable, "app");
+        graph.add_artifact_module_input(artifact, module);
+        graph.add_artifact_generated_file_input(artifact, generated);
+        graph.add_install_with_target(
+            BuildInstallKind::Artifact,
+            "install-app",
+            Some(BuildInstallTarget::Artifact(artifact)),
+            "bin/app",
+        );
+
+        let plans = resolve_graph_artifacts(&graph, &provenance());
+        assert_eq!(plans.len(), 1);
+        let plan = &plans[0];
+
+        assert!(plan
+            .inputs
+            .contains(&ResolvedInput::Module("src/main.fol".to_string())));
+        assert!(
+            plan.inputs
+                .contains(&ResolvedInput::Generated("src/generated.fol".to_string())),
+            "the generated input was dropped, which is the bug this replaces"
+        );
+        assert_eq!(
+            plan.installs,
+            vec![ResolvedInstall {
+                role: OutputRole::Executable,
+                destination: "bin/app".to_string(),
+            }],
+            "the install destination must travel with its artifact"
+        );
+    }
+
+    /// A test artifact resolves to its own kind rather than collapsing into
+    /// `Executable`.
+    #[test]
+    fn a_test_artifact_keeps_its_own_kind() {
+        let mut graph = BuildGraph::new();
+        graph.add_artifact(BuildArtifactKind::Executable, "app");
+        graph.add_artifact(BuildArtifactKind::Test, "app_test");
+        graph.add_artifact(BuildArtifactKind::Object, "part");
+        graph.add_artifact(BuildArtifactKind::StaticLibrary, "core");
+        graph.add_artifact(BuildArtifactKind::SharedLibrary, "sdk");
+
+        let kinds: Vec<ResolvedArtifactKind> = resolve_graph_artifacts(&graph, &provenance())
+            .iter()
+            .map(|plan| plan.kind)
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                ResolvedArtifactKind::Executable,
+                ResolvedArtifactKind::TestExecutable,
+                ResolvedArtifactKind::Object,
+                ResolvedArtifactKind::StaticLibrary,
+                ResolvedArtifactKind::SharedLibrary,
+            ]
+        );
+    }
+
+    /// Two artifacts that differ only in kind must not share an identity.
+    #[test]
+    fn resolved_plans_of_different_kinds_have_different_identities() {
+        let mut graph = BuildGraph::new();
+        graph.add_artifact(BuildArtifactKind::Executable, "same");
+        graph.add_artifact(BuildArtifactKind::Test, "same");
+
+        let plans = resolve_graph_artifacts(&graph, &provenance());
+        let environment = std::collections::BTreeMap::new();
+        assert_ne!(
+            super::identity::plan_identity(&plans[0], &environment),
+            super::identity::plan_identity(&plans[1], &environment)
+        );
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::identity::{
         classify_environment, plan_identity, EnvironmentValue, PUBLIC_ENVIRONMENT_NAMES,
@@ -591,4 +689,103 @@ mod tests {
             ResolvedArtifactKind::TestExecutable.as_str()
         );
     }
+}
+
+/// Produce one resolved plan per graph artifact.
+///
+/// This replaces `project_graph_artifacts`, which dropped three things it was
+/// handed: generated-file inputs became `None`, include paths were hardcoded
+/// empty, and installs never reached the artifact at all. A plan carries all
+/// three, so a downstream layer no longer has to reconstruct them or do without.
+pub fn resolve_graph_artifacts(
+    graph: &crate::graph::BuildGraph,
+    provenance: &ResolvedProvenance,
+) -> Vec<ResolvedArtifactPlan> {
+    graph
+        .artifacts()
+        .iter()
+        .map(|artifact| {
+            let kind = match artifact.kind {
+                crate::graph::BuildArtifactKind::Executable => ResolvedArtifactKind::Executable,
+                crate::graph::BuildArtifactKind::Test => ResolvedArtifactKind::TestExecutable,
+                crate::graph::BuildArtifactKind::StaticLibrary => {
+                    ResolvedArtifactKind::StaticLibrary
+                }
+                crate::graph::BuildArtifactKind::SharedLibrary => {
+                    ResolvedArtifactKind::SharedLibrary
+                }
+                crate::graph::BuildArtifactKind::Object => ResolvedArtifactKind::Object,
+            };
+
+            // Both input kinds survive. The projection kept only modules.
+            let inputs = graph
+                .artifact_inputs_for(artifact.id)
+                .filter_map(|input| match input {
+                    crate::graph::BuildArtifactInput::Module(id) => graph
+                        .modules()
+                        .get(id.index())
+                        .map(|module| ResolvedInput::Module(module.name.clone())),
+                    crate::graph::BuildArtifactInput::GeneratedFile(id) => graph
+                        .generated_files()
+                        .get(id.index())
+                        .map(|file| ResolvedInput::Generated(file.name.clone())),
+                })
+                .collect();
+
+            let mut plan = ResolvedArtifactPlan {
+                name: artifact.name.clone(),
+                kind,
+                provenance: provenance.clone(),
+                root_source: artifact.root_module.clone(),
+                inputs,
+                fol_model: artifact.fol_model,
+                target: artifact.target.clone(),
+                optimize: artifact.optimize,
+                // ABI exports and imports arrive with M5 and M6; the build API
+                // that declares them is frozen in section 4.15 and still
+                // rejected.
+                abi: ResolvedAbiSurface::default(),
+                link_plan: ResolvedLinkPlan {
+                    directives: artifact.link_inputs.clone(),
+                    linked_artifacts: graph
+                        .artifact_links_for(artifact.id)
+                        .filter_map(|id| graph.artifacts().get(id.index()).map(|a| a.name.clone()))
+                        .collect(),
+                    // Interface propagation is M3, when a library is a real
+                    // output rather than a graph declaration.
+                    propagated_interface: Vec::new(),
+                },
+                native_attachments: BuildArtifactNativeAttachmentSet {
+                    // Include paths still have no producer anywhere; see
+                    // section 3.2. Empty here is the honest value, not a drop.
+                    include_paths: Vec::new(),
+                    library_paths: artifact.library_paths.clone(),
+                    link_inputs: artifact.link_inputs.clone(),
+                },
+                outputs: Vec::new(),
+                installs: Vec::new(),
+            };
+
+            plan.outputs = vec![ResolvedOutput {
+                role: plan.primary_output_role(),
+                relative_path: plan.primary_output_file_name(),
+            }];
+            plan.installs = graph
+                .installs()
+                .iter()
+                .filter(|install| {
+                    matches!(
+                        install.target,
+                        Some(crate::graph::BuildInstallTarget::Artifact(id))
+                            if id == artifact.id
+                    )
+                })
+                .map(|install| ResolvedInstall {
+                    role: plan.primary_output_role(),
+                    destination: install.projected_destination.clone(),
+                })
+                .collect();
+            plan
+        })
+        .collect()
 }

@@ -119,24 +119,26 @@ pub fn project_dependency_surface(
     projected_modules.sort_by(|left, right| left.name.cmp(&right.name));
     projected_modules.dedup_by(|left, right| left.name == right.name);
 
-    let mut projected_artifacts = fol_build::project_graph_artifacts(&plan.graph)
-        .into_iter()
-        .map(|artifact| DependencyArtifactSurface {
-            name: artifact.name,
-            artifact_kind: match artifact.kind {
-                fol_build::BuildArtifactModelKind::Executable => "exe".to_string(),
-                fol_build::BuildArtifactModelKind::StaticLibrary => "static-lib".to_string(),
-                fol_build::BuildArtifactModelKind::SharedLibrary => "shared-lib".to_string(),
-                fol_build::BuildArtifactModelKind::TestBundle => "test".to_string(),
-                fol_build::BuildArtifactModelKind::Object => "object".to_string(),
-                fol_build::BuildArtifactModelKind::GeneratedSourceBundle => {
-                    "generated-source".to_string()
-                }
-                fol_build::BuildArtifactModelKind::DocsBundle => "docs".to_string(),
-            },
-            fol_model: artifact.target.fol_model.as_str().to_string(),
-        })
-        .collect::<Vec<_>>();
+    let provenance = fol_build::plan::ResolvedProvenance::default();
+    let mut projected_artifacts =
+        fol_build::plan::resolve_graph_artifacts(&plan.graph, &provenance)
+            .into_iter()
+            .map(|artifact| DependencyArtifactSurface {
+                artifact_kind: match artifact.kind {
+                    fol_build::plan::ResolvedArtifactKind::Executable => "exe".to_string(),
+                    fol_build::plan::ResolvedArtifactKind::StaticLibrary => {
+                        "static-lib".to_string()
+                    }
+                    fol_build::plan::ResolvedArtifactKind::SharedLibrary => {
+                        "shared-lib".to_string()
+                    }
+                    fol_build::plan::ResolvedArtifactKind::TestExecutable => "test".to_string(),
+                    fol_build::plan::ResolvedArtifactKind::Object => "object".to_string(),
+                },
+                fol_model: artifact.fol_model.as_str().to_string(),
+                name: artifact.name,
+            })
+            .collect::<Vec<_>>();
     projected_artifacts.sort_by(|left, right| left.name.cmp(&right.name));
     projected_artifacts.dedup_by(|left, right| left.name == right.name);
 
