@@ -2065,8 +2065,17 @@ Tasks:
   no foreign surface exists until M6. The backend also refuses to *render* one:
   inventing a `Box` or an `Rc` there would silently give it ownership semantics
   it does not have.
-- [ ] Add foreign import/export metadata, external name, calling convention,
+- [x] Add foreign import/export metadata, external name, calling convention,
   ownership/nullability/escape/destructor facts, effects, and source origin.
+  `ForeignRoutine` carries the FOL path, the exact external symbol, `AbiFacing`,
+  `AbiCallingConvention`, parameter directions, the error contract,
+  `ExportSelection`, `AbiEffects`, and `AbiSourceOrigin`. `AbiType::Pointer`
+  carries mutability, nullability, ownership, escape, and the paired
+  destructor.
+
+  `AbiCallingConvention` has one variant today. It exists so a future
+  convention is a new variant rather than a new field everywhere, and so a
+  manifest records the convention explicitly instead of leaving it implied.
 - [x] Create/register `fol-abi` as the dependency-foundation crate described in
   Section 4.1 without changing any workspace/package version field; enforce its
   dependency prohibition in a crate-graph test. `fol-types` is its only
@@ -2102,7 +2111,13 @@ Tasks:
   give paths like `Outer.middle.items` and `p.*`. By-value recursion is caught
   by an active-name stack rather than a depth limit, so it terminates with a
   named reason instead of a stack overflow.
-- [ ] Keep package visibility separate from ABI export selection.
+- [x] Keep package visibility separate from ABI export selection.
+  `ExportSelection` holds both, and `emits_native_symbol` requires both:
+  `[exp]` makes a declaration *selectable* and never exports a native symbol on
+  its own, so collapsing the two would export every public routine in the
+  package. Selecting a package-private routine is refused for the mirror
+  reason -- it would export something the package does not consider part of its
+  own surface.
 - [x] Add stable ABI diagnostics with primary declaration, related offending
   field/native attachment, note, help, and exact code; register explanations
   only for codes with construction sites. `A1001` (type cannot cross the C
@@ -2133,8 +2148,16 @@ Tasks:
   `a_compiler_upgrade_moves_only_the_build_fingerprint` asserts a toolchain
   change moves the build one and not the interface one, which is what keeps an
   upgrade from reading as an ABI break.
-- [ ] Add compiler metadata APIs used by LSP/build completion; do not duplicate
-  type matrices in editor code.
+- [x] Add compiler metadata APIs used by LSP/build completion; do not duplicate
+  type matrices in editor code. `fol-abi/src/metadata.rs` serves the section 4.6
+  matrix and the section 4.7 status values from one place. The projection column
+  is built from `AbiScalar::c_type`, the same function that emits it, so the
+  two cannot drift.
+
+  Unsupported spellings are listed *with a reason* rather than omitted, so an
+  editor can say why `arch` or `utf8` does not cross instead of showing
+  nothing. `every_row_is_actionable` asserts each row is either supported with
+  a projection or unsupported with a reason.
 
 Required negative classifier cases:
 

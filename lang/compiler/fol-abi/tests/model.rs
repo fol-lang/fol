@@ -36,6 +36,11 @@ fn add_routine(table: &mut AbiTypeTable, symbol: &str) -> ForeignRoutine {
         ],
         result: int,
         error: AbiErrorContract::Infallible,
+        selection: ExportSelection {
+            package_visible: true,
+            abi_selected: true,
+        },
+        effects: AbiEffects::default(),
         origin: AbiSourceOrigin::default(),
     }
 }
@@ -283,4 +288,49 @@ fn exported_symbols_are_sorted() {
         surface.exported_symbols(),
         vec!["fol_demo_add", "fol_demo_sub"]
     );
+}
+
+/// Package visibility and ABI selection are separate facts.
+///
+/// Section 4.10: `[exp]` makes a declaration *selectable* and never exports a
+/// native symbol on its own. Collapsing the two would export every public
+/// routine in the package.
+#[test]
+fn package_visibility_is_separate_from_abi_selection() {
+    // Package-visible and not selected: the common case, and not an export.
+    assert_eq!(
+        ExportSelection::PACKAGE_ONLY,
+        ExportSelection {
+            package_visible: true,
+            abi_selected: false,
+        }
+    );
+    assert!(!ExportSelection::PACKAGE_ONLY.emits_native_symbol());
+
+    let selected = ExportSelection {
+        package_visible: true,
+        abi_selected: true,
+    };
+    assert!(selected.emits_native_symbol());
+
+    // Selecting something the package keeps private would export a symbol the
+    // package does not consider part of its own surface.
+    let private_but_selected = ExportSelection {
+        package_visible: false,
+        abi_selected: true,
+    };
+    assert!(!private_but_selected.emits_native_symbol());
+}
+
+/// A routine carries its effects, so the classifier can compare them against
+/// the artifact's capability model.
+#[test]
+fn a_routine_carries_its_effects() {
+    let mut table = AbiTypeTable::new();
+    let mut routine = add_routine(&mut table, "fol_demo_add");
+    assert_eq!(routine.effects, AbiEffects::default());
+
+    routine.effects.allocates = true;
+    assert!(routine.effects.allocates);
+    assert!(!routine.effects.may_panic);
 }

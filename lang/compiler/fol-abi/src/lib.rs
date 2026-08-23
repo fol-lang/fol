@@ -8,6 +8,7 @@
 pub mod compat;
 pub mod interface;
 pub mod manifest;
+pub mod metadata;
 pub mod types;
 pub mod verify;
 
@@ -16,12 +17,16 @@ pub use compat::{
     AbiClassification, AbiRejection,
 };
 pub use interface::{
-    AbiCallingConvention, AbiDirection, AbiErrorContract, AbiFacing, AbiParameter, AbiSourceOrigin,
-    ForeignInterface, ForeignInterfaceTemplate, ForeignRoutine, ResolvedAbiSurface,
+    AbiCallingConvention, AbiDirection, AbiEffects, AbiErrorContract, AbiFacing, AbiParameter,
+    AbiSourceOrigin, ExportSelection, ForeignInterface, ForeignInterfaceTemplate, ForeignRoutine,
+    ResolvedAbiSurface,
 };
 pub use manifest::{
     canonical_interface_json, canonical_type_table_json, compare_surfaces, digest,
     AbiCompatibility, AbiManifest, BuildProvenance, MANIFEST_SCHEMA, MANIFEST_SCHEMA_VERSION,
+};
+pub use metadata::{
+    aggregate_matrix, c_projection_for, full_matrix, scalar_matrix, AbiTypeMatrixRow, STATUS_VALUES,
 };
 pub use types::{
     AbiEscape, AbiField, AbiMutability, AbiNullability, AbiOwnership, AbiScalar, AbiType,

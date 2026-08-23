@@ -92,6 +92,11 @@ pub struct ForeignRoutine {
     /// The success value, or `Void`.
     pub result: AbiTypeId,
     pub error: AbiErrorContract,
+    /// Visibility and ABI selection, kept separate per section 4.10.
+    pub selection: ExportSelection,
+    /// What the routine is permitted to do, checked against the artifact's
+    /// capability model.
+    pub effects: AbiEffects,
     pub origin: AbiSourceOrigin,
 }
 
@@ -165,4 +170,49 @@ impl ResolvedAbiSurface {
         symbols.sort_unstable();
         symbols
     }
+}
+
+/// Whether a declaration is visible outside its package, and separately whether
+/// it was selected for the C ABI.
+///
+/// Section 4.10: `[exp]` is necessary for a declaration to be *selectable* and
+/// never sufficient to export a native symbol. Keeping the two on one value
+/// makes the distinction impossible to lose -- a package-public routine is not
+/// an ABI export until an allowlist entry names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ExportSelection {
+    /// `[exp]`: visible to other FOL packages.
+    pub package_visible: bool,
+    /// Named by the artifact's ABI export allowlist.
+    pub abi_selected: bool,
+}
+
+impl ExportSelection {
+    /// Visible to FOL, not exported to C. The common case.
+    pub const PACKAGE_ONLY: Self = Self {
+        package_visible: true,
+        abi_selected: false,
+    };
+
+    /// Whether a native symbol should be emitted.
+    ///
+    /// Both halves are required: selecting a package-private routine would
+    /// export something the package itself does not consider part of its
+    /// surface.
+    pub const fn emits_native_symbol(self) -> bool {
+        self.package_visible && self.abi_selected
+    }
+}
+
+/// Effects a foreign declaration is permitted to have.
+///
+/// Recorded on the routine because the artifact's capability model constrains
+/// them: a `core` artifact cannot export something that allocates, and the
+/// classifier reports that as `CapabilityTooStrong` rather than letting it fail
+/// at link time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+pub struct AbiEffects {
+    pub allocates: bool,
+    pub may_panic: bool,
+    pub reports_error: bool,
 }
