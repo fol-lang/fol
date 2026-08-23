@@ -59,7 +59,7 @@ pub use eval::{
     BuildEvaluationInstallArtifactRequest, BuildEvaluationOperation, BuildEvaluationOperationKind,
     BuildEvaluationRequest, BuildEvaluationResult, BuildEvaluationRunRequest,
     BuildEvaluationStepRequest, BuildRuntimeCapabilityModel, EvaluatedBuildSource,
-    ForbiddenBuildTimeOperation,
+    ForbiddenBuildTimeOperation, TargetSource,
 };
 pub use graph::{
     BuildArtifact, BuildArtifactDependency, BuildArtifactId, BuildArtifactInput, BuildArtifactKind,

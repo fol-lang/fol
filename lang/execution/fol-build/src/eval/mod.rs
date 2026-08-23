@@ -15,7 +15,7 @@ pub use error::{
     forbidden_capability_error, forbidden_capability_message, BuildEvaluationError,
     BuildEvaluationErrorKind,
 };
-pub use plan::evaluate_build_plan;
+pub use plan::{evaluate_build_plan, TargetSource};
 pub use source::evaluate_build_source;
 pub use types::{
     BuildEnvironmentSelectionPolicy, BuildEvaluationInputEnvelope, BuildEvaluationInputs,
