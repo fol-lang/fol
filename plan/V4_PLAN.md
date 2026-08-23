@@ -2280,19 +2280,30 @@ Tasks:
   `SymbolAllowlist`; lumping them under `installed` would leave a consumer of
   the JSON unable to find the header without guessing at paths.
 
-Real consumer tests:
+Real consumer tests, all landed. `make test-v4-c` is the gate; every test in it
+builds a FOL library, installs it, and compiles a C program against the
+**installed** prefix using the **generated** header:
 
-- C calls each scalar export through static library
-- C calls the same API through shared library
-- scalar `core` and std-free `memo` libraries build without declaring bundled
-  `std`; a hosted export is rejected until the explicit `standard` dependency
-  is present
-- invalid boolean and Unicode inputs return `-1`
-- FOL recoverable report returns `1` and initializes only the error out
-- FOL panic returns `-2` and does not unwind into C
-- null required out pointer returns `-1`
-- exact symbol inspection finds all and only allowlisted exports
-- two clean builds produce the same header/manifest/interface fingerprint
+```text
+static library        c_calls_every_scalar_export_through_a_static_library
+shared library        c_calls_the_same_api_through_a_shared_library
+std-free export       a_std_free_library_exports_without_bundled_std -- the
+                      scalar slice touches no hosted capability, so requiring a
+                      `standard` dependency would make every C export drag in
+                      the standard library
+invalid bool/Unicode  asserted inside consumer.c: 2 and 255 as booleans, and
+                      0xD800 and 0x110000 as characters, all return -1
+report returns 1      the success out is seeded with a sentinel and asserted
+                      untouched on the report path
+panic returns -2      and the consumer keeps running afterward, which is what
+                      proves the panic did not unwind through its frame
+null out pointer      returns -1, checked before any work runs
+symbol inspection     the_built_symbol_set_matches_the_allowlist_exactly runs
+                      `nm` over the built archive: all and only
+reproducibility       two_clean_builds_agree_on_header_manifest_and_fingerprint
+header vs manifest    the_header_and_manifest_describe_the_same_symbols
+frontend roles        the_frontend_reports_every_abi_role
+```
 
 Verification:
 
