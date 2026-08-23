@@ -234,7 +234,7 @@ fn publish(staging: &Path, published_root: &Path) -> Result<(), MaterializeError
             fs::create_dir_all(parent),
         )?;
     }
-    let previous = published_root.with_extension("previous");
+    let previous = previous_tree_path(published_root);
     if previous.exists() {
         io(
             "clearing a stale previous tree",
@@ -268,6 +268,22 @@ fn publish(staging: &Path, published_root: &Path) -> Result<(), MaterializeError
     }
 }
 
+/// The sibling path a superseded published tree is moved to.
+///
+/// Built by appending to the final component. `Path::with_extension` would
+/// *replace* one instead: a root named `app.debug` becomes `app.previous`,
+/// which collides with what `app.release` would compute, and `publish` removes
+/// that path -- so one build's publication could delete the tree another build
+/// was holding as its rollback copy.
+fn previous_tree_path(published_root: &Path) -> PathBuf {
+    let mut name = published_root
+        .file_name()
+        .map(|name| name.to_os_string())
+        .unwrap_or_else(|| std::ffi::OsString::from("published"));
+    name.push(".fol-previous");
+    published_root.with_file_name(name)
+}
+
 fn run_action(
     action: &BuildAction,
     workspace: &Path,
@@ -284,7 +300,17 @@ fn run_action(
                     context: format!("action '{}' source '{source}'", action.name),
                     error: reason,
                 })?;
-            let from = workspace.join(&relative);
+            // A copy source is either a workspace file that existed before the
+            // build or a file an earlier action produced, which lives in the
+            // staging tree. The staged one wins when both exist: if an action
+            // produced it this run, that is the current version, and reading
+            // the workspace copy would silently use a stale one.
+            let staged = staging.join(&relative);
+            let from = if staged.exists() {
+                staged
+            } else {
+                workspace.join(&relative)
+            };
             let contents = io("reading a copy source", fs::read(&from))?;
             let target = staged_output(action, staging)?;
             write_file_checked(staging, &target, &contents)
@@ -577,6 +603,53 @@ mod tests {
         );
     }
 
+    /// A copy whose source was produced by an earlier action reads the
+    /// produced file, not a workspace file of the same name.
+    ///
+    /// Reading the workspace copy would silently use a stale version when both
+    /// exist, and fail outright when only the produced one does.
+    #[test]
+    fn a_copy_reads_a_produced_source_rather_than_a_stale_workspace_file() {
+        let root = fixture("copy_produced");
+        fs::create_dir_all(root.path().join("out")).unwrap();
+        // A stale workspace file at the same relative path as the produced one.
+        fs::write(root.path().join("out/seed.txt"), b"stale").unwrap();
+
+        let mut graph = BuildActionGraph::new();
+        let produce = write_action(&mut graph, "produce", "out/seed.txt", "fresh");
+        let copy = graph.add_action(
+            "copy-seed",
+            BuildActionPayload::Copy {
+                source: "out/seed.txt".to_string(),
+            },
+        );
+        graph
+            .action_mut(copy)
+            .unwrap()
+            .inputs
+            .push(BuildActionInput {
+                path: "out/seed.txt".to_string(),
+                produced_by: Some(produce),
+            });
+        graph
+            .action_mut(copy)
+            .unwrap()
+            .outputs
+            .push(BuildActionOutput {
+                path: "out/copied.txt".to_string(),
+                role: OutputRole::Object,
+            });
+
+        let published = root.path().join("published");
+        materialize(&graph, &["out"], &[], root.path(), &published).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(published.join("out/copied.txt")).unwrap(),
+            "fresh",
+            "the copy used the stale workspace file instead of the produced one"
+        );
+    }
+
     /// A tool that exits successfully without writing what it declared is an
     /// error. Reporting success here would let a later step read a stale file
     /// and fail far from the cause.
@@ -681,7 +754,7 @@ mod tests {
             "second"
         );
         assert!(
-            !published.with_extension("previous").exists(),
+            !super::previous_tree_path(&published).exists(),
             "the superseded tree should be cleaned up after a successful publish"
         );
     }
@@ -828,6 +901,27 @@ mod escape_and_concurrency_tests {
                 "unexpected failure: {error}"
             ),
         }
+    }
+
+    /// Two published roots that differ only in an extension must not share a
+    /// rollback path.
+    ///
+    /// `Path::with_extension` replaces rather than appends, so `app.debug` and
+    /// `app.release` both mapped to `app.previous`. Since `publish` removes
+    /// that path, one build's publication could delete the tree another build
+    /// was holding as its rollback copy.
+    #[test]
+    fn superseded_tree_paths_do_not_collide_between_published_roots() {
+        let debug = super::previous_tree_path(Path::new("/out/app.debug"));
+        let release = super::previous_tree_path(Path::new("/out/app.release"));
+        assert_ne!(debug, release);
+        assert_eq!(debug, Path::new("/out/app.debug.fol-previous"));
+
+        // A root with no extension keeps working.
+        assert_eq!(
+            super::previous_tree_path(Path::new("/out/published")),
+            Path::new("/out/published.fol-previous")
+        );
     }
 
     /// Independent plans materialize concurrently; two builds of the same plan
