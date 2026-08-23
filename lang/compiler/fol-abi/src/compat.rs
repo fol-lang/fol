@@ -44,6 +44,22 @@ pub enum AbiRejection {
 }
 
 impl AbiRejection {
+    /// The diagnostic code this rejection is reported under.
+    ///
+    /// Returned as a string rather than a `DiagnosticCode` because `fol-abi`
+    /// may depend only on `fol-types`; the diagnostic layer builds the code
+    /// from this. Every code here is registered in `fol-diagnostics`, and the
+    /// registry guard requires the reverse -- a registered code with no
+    /// producer documents a diagnostic that cannot happen.
+    pub const fn diagnostic_code(&self) -> &'static str {
+        match self {
+            Self::InvalidExternalSymbol { .. } => "A1002",
+            Self::IncompletePointerContract { .. } => "A1003",
+            // Everything else is a type that cannot cross the boundary.
+            _ => "A1001",
+        }
+    }
+
     /// A short, stable reason code for diagnostics and tests.
     pub const fn reason(&self) -> &'static str {
         match self {

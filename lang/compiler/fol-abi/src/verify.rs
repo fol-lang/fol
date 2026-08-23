@@ -259,3 +259,45 @@ pub fn verify_export_set(exports: &[(String, String, CandidateType)]) -> Vec<Abi
     found.extend(crate::compat::classify_duplicate_symbols(&symbols));
     found
 }
+
+#[cfg(test)]
+mod code_tests {
+    use crate::compat::AbiRejection;
+
+    /// Every rejection reports under a registered code, and each of the three
+    /// codes has at least one producer.
+    #[test]
+    fn every_rejection_maps_to_a_registered_code() {
+        let cases = [
+            (
+                AbiRejection::InternalContainer {
+                    spelling: String::new(),
+                },
+                "A1001",
+            ),
+            (
+                AbiRejection::Generic {
+                    name: String::new(),
+                },
+                "A1001",
+            ),
+            (AbiRejection::AnonymousAggregate, "A1001"),
+            (
+                AbiRejection::InvalidExternalSymbol {
+                    symbol: String::new(),
+                    reason: String::new(),
+                },
+                "A1002",
+            ),
+            (
+                AbiRejection::IncompletePointerContract {
+                    missing: String::new(),
+                },
+                "A1003",
+            ),
+        ];
+        for (rejection, expected) in cases {
+            assert_eq!(rejection.diagnostic_code(), expected);
+        }
+    }
+}
