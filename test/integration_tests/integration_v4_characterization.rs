@@ -327,9 +327,7 @@ fn the_frozen_abi_export_spelling_is_implemented() {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/fail_v4_contract_abi_export");
     let root = fixture.path().join("abi_export");
     std::fs::create_dir_all(root.join("src")).expect("package tree");
-    for name in ["build.fol"] {
-        std::fs::copy(source.join(name), root.join(name)).expect("copy");
-    }
+    std::fs::copy(source.join("build.fol"), root.join("build.fol")).expect("copy");
     std::fs::copy(source.join("src/lib.fol"), root.join("src/lib.fol")).expect("copy");
 
     let output = run_fol_in_dir(
