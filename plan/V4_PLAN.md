@@ -1716,15 +1716,28 @@ Tasks:
   `build-other` is not inside `build` -- a prefix comparison would say it was.
   Checked on the string rather than the filesystem, because an output is
   validated before it exists.
-- [~] Execute only the requested step closure in deterministic order.
-  `closure_for` and `execution_order` are landed and tested: ties break by
-  action id rather than discovery order, so two runs of one graph execute in
-  the same sequence. The materializer that consumes them is the next slice.
-- [ ] Materialize in a per-plan temporary directory with a process lock and
+- [x] Execute only the requested step closure in deterministic order.
+  `closure_for` and `execution_order` in `action_graph.rs`, consumed by
+  `materialize`. Ties break by action id rather than discovery order, so two
+  runs of one graph execute in the same sequence -- a build that reorders
+  itself cannot be reproducible.
+- [x] Materialize in a per-plan temporary directory with a process lock and
   atomic final publication; parallel builds must not delete each other's
-  generated crate/output directories.
-- [ ] Treat a successful tool process that omitted a declared output as an
-  error.
+  generated crate/output directories. `fol-build/src/materialize.rs`. Staging
+  is `.fol/staging/<plan-identity>`, so two plans cannot write into each
+  other's tree, and the lock is `.fol/locks/<plan-identity>.lock` taken with
+  `create_new`, whose check-and-create is one filesystem operation. The lock
+  releases in `Drop`, so a panic does not wedge the next run.
+
+  Publication moves the previous tree aside, renames the staged tree into
+  place, and only then removes the old one; a failed rename puts the previous
+  tree back. An interruption therefore leaves one complete tree rather than a
+  half-written mixture.
+- [x] Treat a successful tool process that omitted a declared output as an
+  error. A silent version of this is worse than a crash: the build reports
+  success and a later step reads a stale file or fails far from the cause.
+  Negative-controlled -- removing the check makes
+  `a_successful_tool_that_omits_its_output_fails` fail.
 - [ ] Implement actual install/copy behavior with target-specific roles and
   collision checks.
 - [ ] Fingerprint tools and inputs without printing secret environment values.

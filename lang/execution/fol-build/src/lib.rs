@@ -12,6 +12,7 @@ pub mod dependency;
 pub mod eval;
 pub mod executor;
 pub mod graph;
+pub mod materialize;
 pub mod native;
 pub mod option;
 pub mod plan;
