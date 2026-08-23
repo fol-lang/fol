@@ -774,6 +774,46 @@ impl BuildBodyExecutor {
                 Ok(Some(receiver))
             }
 
+            ExecValue::Artifact(artifact) if method == "set_abi_version" => {
+                let [AstNode::RecordInit { fields, .. }] = args else {
+                    return Err(self.invalid_config(method, "expected one config record"));
+                };
+                self.reject_unknown_config_fields(method, fields)?;
+                let major = self.resolve_field_u32(method, fields, "major")?;
+                let minor = self.resolve_field_u32(method, fields, "minor")?;
+                self.output.operations.push(BuildEvaluationOperation {
+                    origin: None,
+                    kind: BuildEvaluationOperationKind::ArtifactSetAbiVersion {
+                        artifact: artifact.name.clone(),
+                        major,
+                        minor,
+                    },
+                });
+                Ok(Some(receiver))
+            }
+
+            ExecValue::Artifact(artifact) if method == "add_abi_export" => {
+                let [AstNode::RecordInit { fields, .. }] = args else {
+                    return Err(self.invalid_config(method, "expected one config record"));
+                };
+                self.reject_unknown_config_fields(method, fields)?;
+                let routine = self
+                    .resolve_field_string(fields, "routine")
+                    .ok_or_else(|| self.invalid_config(method, "missing string field 'routine'"))?;
+                let symbol = self
+                    .resolve_field_string(fields, "symbol")
+                    .ok_or_else(|| self.invalid_config(method, "missing string field 'symbol'"))?;
+                self.output.operations.push(BuildEvaluationOperation {
+                    origin: None,
+                    kind: BuildEvaluationOperationKind::ArtifactAddAbiExport {
+                        artifact: artifact.name.clone(),
+                        routine,
+                        symbol,
+                    },
+                });
+                Ok(Some(receiver))
+            }
+
             ExecValue::Artifact { .. } => Err(self.unsupported(method)),
 
             // Run handle methods

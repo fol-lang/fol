@@ -122,6 +122,10 @@ pub struct BuildArtifact {
     pub optimize: crate::option::BuildOptimizeMode,
     pub library_paths: Vec<NativeLibraryPath>,
     pub link_inputs: Vec<NativeLinkDirective>,
+    /// The declared ABI major/minor, when the artifact declares one.
+    pub abi_version: Option<(u32, u32)>,
+    /// The export allowlist, in declaration order.
+    pub abi_exports: Vec<BuildAbiExport>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -172,6 +176,19 @@ pub struct BuildModule {
     pub id: BuildModuleId,
     pub kind: BuildModuleKind,
     pub name: String,
+}
+
+/// One entry of a library artifact's ABI export allowlist.
+///
+/// `[exp]` makes a routine selectable and never exports a native symbol on its
+/// own (section 4.10), so this is the second half: the artifact naming exactly
+/// which routines become C symbols, and under exactly which names.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct BuildAbiExport {
+    /// Fully qualified FOL routine, e.g. `api::add`.
+    pub routine: String,
+    /// The exact external C symbol. Never mangled, never inferred.
+    pub symbol: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -388,6 +405,8 @@ impl BuildGraph {
             optimize,
             library_paths: Vec::new(),
             link_inputs: Vec::new(),
+            abi_version: None,
+            abi_exports: Vec::new(),
         });
         id
     }
@@ -570,6 +589,20 @@ impl BuildGraph {
         {
             self.artifact_links
                 .push(BuildArtifactLink { artifact, linked });
+        }
+    }
+
+    /// Declare the artifact's ABI major/minor.
+    pub fn set_artifact_abi_version(&mut self, artifact: BuildArtifactId, major: u32, minor: u32) {
+        if let Some(artifact) = self.artifact_mut(artifact) {
+            artifact.abi_version = Some((major, minor));
+        }
+    }
+
+    /// Add one entry to the artifact's export allowlist.
+    pub fn add_artifact_abi_export(&mut self, artifact: BuildArtifactId, export: BuildAbiExport) {
+        if let Some(artifact) = self.artifact_mut(artifact) {
+            artifact.abi_exports.push(export);
         }
     }
 

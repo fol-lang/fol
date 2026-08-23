@@ -7,6 +7,7 @@
 //! host-compatible artifact can run without that dependency, while executing
 //! a cross-target artifact requires an external runner.
 
+pub mod abi;
 mod auxiliary;
 mod config;
 mod control;

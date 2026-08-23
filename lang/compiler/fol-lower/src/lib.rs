@@ -1,6 +1,7 @@
 //! Lowering from typed FOL workspaces into the backend-oriented IR used by the
 //! shipped V1, V2, and V3 language surfaces.
 
+pub mod abi;
 mod boundaries;
 pub mod control;
 pub mod decls;

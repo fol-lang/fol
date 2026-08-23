@@ -211,6 +211,32 @@ impl BuildBodyExecutor {
         Ok(Some(args))
     }
 
+    /// A non-negative integer config field.
+    ///
+    /// An ABI major or minor is a version component, so a negative or
+    /// fractional value is a mistake rather than something to coerce.
+    pub(super) fn resolve_field_u32(
+        &self,
+        method: &str,
+        fields: &[fol_parser::ast::RecordInitField],
+        name: &str,
+    ) -> Result<u32, BuildEvaluationError> {
+        let field = fields
+            .iter()
+            .find(|field| field.name == name)
+            .ok_or_else(|| self.invalid_config(method, format!("missing field '{name}'")))?;
+        match &field.value {
+            fol_parser::ast::AstNode::Literal(fol_parser::ast::Literal::Integer(value))
+                if *value >= 0 && *value <= i64::from(u32::MAX) =>
+            {
+                Ok(*value as u32)
+            }
+            _ => {
+                Err(self.invalid_config(method, format!("'{name}' must be a non-negative integer")))
+            }
+        }
+    }
+
     pub(super) fn resolve_field_string_list(
         &self,
         fields: &[RecordInitField],

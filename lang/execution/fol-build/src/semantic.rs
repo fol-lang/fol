@@ -582,6 +582,20 @@ pub fn canonical_artifact_config_shapes() -> Vec<BuildSemanticRecordShape> {
         BuildSemanticRecordShape::artifact("SharedLibConfig", base_fields.clone()),
         BuildSemanticRecordShape::artifact("TestConfig", base_fields),
         BuildSemanticRecordShape::artifact(
+            "AbiVersionConfig",
+            [
+                BuildSemanticRecordField::required("major"),
+                BuildSemanticRecordField::required("minor"),
+            ],
+        ),
+        BuildSemanticRecordShape::artifact(
+            "AbiExportConfig",
+            [
+                BuildSemanticRecordField::required("routine"),
+                BuildSemanticRecordField::required("symbol"),
+            ],
+        ),
+        BuildSemanticRecordShape::artifact(
             "CImportConfig",
             [
                 BuildSemanticRecordField::required("header"),
@@ -1349,6 +1363,8 @@ pub fn config_shape_for_method(method: &str) -> Option<BuildSemanticRecordShape>
         "add_shared_lib" => "SharedLibConfig",
         "add_test" => "TestConfig",
         "add_c_import" => "CImportConfig",
+        "set_abi_version" => "AbiVersionConfig",
+        "add_abi_export" => "AbiExportConfig",
         _ => return None,
     };
     canonical_artifact_config_shapes()

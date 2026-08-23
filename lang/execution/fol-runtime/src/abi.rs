@@ -170,3 +170,30 @@ mod tests {
         );
     }
 }
+
+/// Split a recoverable result for a generated C wrapper.
+///
+/// The stable substrate a wrapper is allowed to call. `FolRecover` itself stays
+/// internal -- section 4.7 says the internal tagged result never crosses the
+/// boundary -- so a wrapper gets a plain `Result` and writes exactly one out
+/// parameter from it.
+pub fn split_recoverable<T, E>(value: FolRecover<T, E>) -> Result<T, E> {
+    match value {
+        FolRecover::Ok(value) => Ok(value),
+        FolRecover::Err(error) => Err(error),
+    }
+}
+
+#[cfg(test)]
+mod abi_split_tests {
+    use super::{split_recoverable, FolRecover};
+
+    #[test]
+    fn a_recoverable_result_splits_into_one_side_only() {
+        let ok: FolRecover<i64, i64> = FolRecover::Ok(7);
+        assert_eq!(split_recoverable(ok), Ok(7));
+
+        let err: FolRecover<i64, i64> = FolRecover::Err(9);
+        assert_eq!(split_recoverable(err), Err(9));
+    }
+}

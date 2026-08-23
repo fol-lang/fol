@@ -209,6 +209,16 @@ pub enum BuildEvaluationOperationKind {
         artifact: String,
         request: BuildCImportRequest,
     },
+    ArtifactSetAbiVersion {
+        artifact: String,
+        major: u32,
+        minor: u32,
+    },
+    ArtifactAddAbiExport {
+        artifact: String,
+        routine: String,
+        symbol: String,
+    },
     RunAddArg {
         run_name: String,
         kind: BuildEvaluationRunArgKind,

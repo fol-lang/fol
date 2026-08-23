@@ -142,6 +142,7 @@ dependencies = [
 name = "fol-backend"
 version = "0.2.6"
 dependencies = [
+ "fol-abi",
  "fol-build",
  "fol-intrinsics",
  "fol-lexer",
@@ -245,6 +246,7 @@ dependencies = [
 name = "fol-lower"
 version = "0.2.6"
 dependencies = [
+ "fol-abi",
  "fol-diagnostics",
  "fol-intrinsics",
  "fol-lexer",

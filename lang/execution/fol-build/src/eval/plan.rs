@@ -709,6 +709,45 @@ pub fn evaluate_build_plan(
                 api.add_c_import(artifact_id, request.clone())
                     .map_err(|error| evaluation_api_error(error, operation.origin.clone()))?;
             }
+            BuildEvaluationOperationKind::ArtifactSetAbiVersion {
+                artifact,
+                major,
+                minor,
+            } => {
+                let artifact_id = artifact_names
+                    .get(artifact)
+                    .map(|handle: &crate::api::BuildArtifactHandle| handle.artifact_id)
+                    .ok_or_else(|| {
+                        evaluation_invalid_input(
+                            format!("unknown artifact '{artifact}' in artifact.set_abi_version"),
+                            operation.origin.clone(),
+                        )
+                    })?;
+                api.graph_mut()
+                    .set_artifact_abi_version(artifact_id, *major, *minor);
+            }
+            BuildEvaluationOperationKind::ArtifactAddAbiExport {
+                artifact,
+                routine,
+                symbol,
+            } => {
+                let artifact_id = artifact_names
+                    .get(artifact)
+                    .map(|handle: &crate::api::BuildArtifactHandle| handle.artifact_id)
+                    .ok_or_else(|| {
+                        evaluation_invalid_input(
+                            format!("unknown artifact '{artifact}' in artifact.add_abi_export"),
+                            operation.origin.clone(),
+                        )
+                    })?;
+                api.graph_mut().add_artifact_abi_export(
+                    artifact_id,
+                    crate::graph::BuildAbiExport {
+                        routine: routine.clone(),
+                        symbol: symbol.clone(),
+                    },
+                );
+            }
             BuildEvaluationOperationKind::RunAddArg {
                 run_name,
                 kind,
