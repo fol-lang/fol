@@ -50,33 +50,98 @@ $FOL_HOME/
 
 ### Nix
 
-The repository is a flake, so a checkout is not needed to use the compiler:
+The repository is a flake, so using the compiler needs no checkout, no
+`FOL_HOME`, and no separately installed Rust or C toolchain — `rustc` and a
+linker are wrapped into the binaries, because a FOL build shells out to both.
 
 ```console
-$ nix run github:fol-lang/fol -- code run        # compile and run a package
-$ nix profile install github:fol-lang/fol        # put `folc` and `fol` on PATH
+$ nix run github:fol-lang/fol -- code run   # compile and run a package
+$ nix profile install github:fol-lang/fol    # put `folc` on PATH
 ```
 
-As an input to another flake:
+Under Nix you talk to **`folc`** directly. `fol`, the toolchain manager
+described above, is packaged too, but nix is already doing its job: pinning
+the flake input selects the version, so there is nothing for `fol self` to
+install or choose between. A `//fol` pin in `build.fol` is likewise inert
+here — the input decides.
+
+#### As an input to another flake
+
+The usual case: a project that is written in FOL and wants the compiler in its
+dev shell.
 
 ```nix
 {
-  inputs.fol.url = "github:fol-lang/fol";
-
-  outputs = { self, nixpkgs, fol }: {
-    devShells.x86_64-linux.default =
-      nixpkgs.legacyPackages.x86_64-linux.mkShell {
-        packages = [ fol.packages.x86_64-linux.default ];
-      };
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+    fol.url = "github:fol-lang/fol";
+    # Optional, and recommended: one nixpkgs instead of two.
+    fol.inputs.nixpkgs.follows = "nixpkgs";
   };
+
+  outputs = { self, nixpkgs, fol }:
+    let
+      system = "x86_64-linux";
+      pkgs = nixpkgs.legacyPackages.${system};
+    in
+    {
+      devShells.${system}.default = pkgs.mkShell {
+        packages = [ fol.packages.${system}.default ];
+      };
+    };
 }
 ```
 
-The derivation ships the toolchain the way `fol self install` lays one out —
-`folc` beside `std/` and `runtime/` — so a nix-installed compiler resolves
-packages exactly the way a self-installed one does, and needs no `FOL_HOME`
-to build. `rustc` and a C toolchain are wrapped in, because a FOL build shells
-out to both: `nix run` works in an empty environment.
+Then `nix develop` puts `folc` on `PATH` and `folc code run` builds the
+project.
+
+To track this repository during development, point at a checkout instead. Use
+`git+file:` rather than `path:` — a `path:` input copies the *working tree*
+into the store, including a `target/` directory that reaches tens of gigabytes
+in a real checkout, while `git+file:` sees tracked files only.
+
+```nix
+fol.url = "git+file:///home/you/src/fol?ref=develop";
+```
+
+#### Outputs
+
+```text
+packages.default   the toolchain: folc, fol, std/, runtime/   (= packages.fol)
+apps.default       folc                                       (= apps.folc)
+apps.fol           the toolchain manager (needs FOL_HOME; see above)
+checks.package     builds the toolchain
+devShells.default  the contributor shell: rustc, tree-sitter, gcc, clang, musl
+devShells.release  the musl static-release shell
+```
+
+Linux only for now: `meta.platforms` is `platforms.linux`, matching the
+certified lanes in `plan/V4_PLAN.md` section 16.3. The flake still evaluates
+on darwin so `nix flake show` works everywhere.
+
+#### What the derivation contains
+
+```text
+$out/bin/folc      the compiler, wrapped with rustc + gcc on PATH
+$out/bin/fol       the toolchain manager, wrapped the same way
+$out/bin/std/      the standard library, as FOL source
+$out/bin/runtime/  the fol-runtime crate source, compiled on every FOL build
+```
+
+That is the layout `fol self install` produces, so a nix-installed compiler
+resolves `use std: pkg = {"std"}` exactly the way a self-installed one does.
+The version comes from `[workspace.package]` in `Cargo.toml`, so a release
+cannot ship a package whose version disagrees with the crate it built.
+
+Two pins are deliberate and load-bearing. The package is built through
+`makeRustPlatform` with the same Rust the contributor shell uses, because the
+interop crates require 1.89 and nixpkgs' default is older — a package built by
+a different compiler than `make verify` proves would not be the same build.
+And the `tree-sitter` CLI is a build input rather than a dev convenience,
+because `fol-editor`'s build script regenerates the grammar with it.
+
+`doCheck` is off: the suite drives `rustc`, a C toolchain, `tree-sitter`, and
+real filesystem fixtures. `make verify` inside `nix develop` is that gate.
 
 A project pins its language version on the first comment line of `build.fol`:
 
