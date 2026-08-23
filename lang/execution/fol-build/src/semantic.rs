@@ -1253,7 +1253,14 @@ mod tests {
 
         for shape in shapes
             .into_iter()
-            .filter(|shape| shape.name != "CImportConfig")
+            // The attachment configs -- C import and the two ABI records --
+            // are not artifact constructors and share none of the base fields.
+            .filter(|shape| {
+                !matches!(
+                    shape.name.as_str(),
+                    "CImportConfig" | "AbiVersionConfig" | "AbiExportConfig"
+                )
+            })
         {
             assert!(shape
                 .fields
@@ -1288,7 +1295,14 @@ mod tests {
 
         for shape in shapes
             .into_iter()
-            .filter(|shape| shape.name != "CImportConfig")
+            // The attachment configs -- C import and the two ABI records --
+            // are not artifact constructors and share none of the base fields.
+            .filter(|shape| {
+                !matches!(
+                    shape.name.as_str(),
+                    "CImportConfig" | "AbiVersionConfig" | "AbiExportConfig"
+                )
+            })
         {
             assert!(shape
                 .fields
