@@ -72,6 +72,12 @@ path = "test/run_tests.rs"
 name = "native"
 path = "test/native_products.rs"
 
+# M5's scalar C export slice. Builds a FOL library, installs it, and compiles a
+# C program against the installed prefix using the generated header.
+[[test]]
+name = "v4_c_export"
+path = "test/v4_c_export.rs"
+
 [dev-dependencies]
 fol-types = { path = "lang/compiler/fol-types" }
 fol-stream = { path = "lang/compiler/fol-stream" }

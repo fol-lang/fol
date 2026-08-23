@@ -1,0 +1,56 @@
+// The M5 scalar export slice. Each routine is ordinary FOL: nothing here is
+// C-aware, because the generated wrapper owns the whole boundary contract.
+
+fun[exp] add_i8(a: i8, b: i8): i8 = {
+    return a + b;
+};
+
+fun[exp] add_i16(a: i16, b: i16): i16 = {
+    return a + b;
+};
+
+fun[exp] add_i32(a: i32, b: i32): i32 = {
+    return a + b;
+};
+
+fun[exp] add_i64(a: i64, b: i64): i64 = {
+    return a + b;
+};
+
+fun[exp] add_u8(a: u8, b: u8): u8 = {
+    return a + b;
+};
+
+fun[exp] add_u16(a: u16, b: u16): u16 = {
+    return a + b;
+};
+
+fun[exp] add_u32(a: u32, b: u32): u32 = {
+    return a + b;
+};
+
+fun[exp] add_u64(a: u64, b: u64): u64 = {
+    return a + b;
+};
+
+fun[exp] scale_f32(value: f32, factor: f32): f32 = {
+    return value * factor;
+};
+
+fun[exp] scale_f64(value: f64, factor: f64): f64 = {
+    return value * factor;
+};
+
+fun[exp] negate(value: bol): bol = {
+    return not value;
+};
+
+fun[exp] code_point(value: chr): int = {
+    return .chr_to_int(value);
+};
+
+// A no-value result still returns a status through the uniform contract.
+pro[exp] touch(value: int): non = {
+    var seen: int = value;
+    return;
+};

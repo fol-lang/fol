@@ -1,0 +1,32 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "v4_c_export_scalar", version = "0.1.0", kind = "lib",
+        description = "the M5 scalar C export slice: every width, bool, char, void, and a report",
+        license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+    var lib = graph.add_static_lib({
+        name = "v4_c_export_scalar", root = "src/lib.fol", fol_model = "memo",
+        target = target, optimize = optimize,
+    });
+    lib.set_abi_version({ major = 1, minor = 0 });
+    lib.add_abi_export({ routine = "add_i8", symbol = "fol_slice_add_i8" });
+    lib.add_abi_export({ routine = "add_i16", symbol = "fol_slice_add_i16" });
+    lib.add_abi_export({ routine = "add_i32", symbol = "fol_slice_add_i32" });
+    lib.add_abi_export({ routine = "add_i64", symbol = "fol_slice_add_i64" });
+    lib.add_abi_export({ routine = "add_u8", symbol = "fol_slice_add_u8" });
+    lib.add_abi_export({ routine = "add_u16", symbol = "fol_slice_add_u16" });
+    lib.add_abi_export({ routine = "add_u32", symbol = "fol_slice_add_u32" });
+    lib.add_abi_export({ routine = "add_u64", symbol = "fol_slice_add_u64" });
+    lib.add_abi_export({ routine = "scale_f32", symbol = "fol_slice_scale_f32" });
+    lib.add_abi_export({ routine = "scale_f64", symbol = "fol_slice_scale_f64" });
+    lib.add_abi_export({ routine = "negate", symbol = "fol_slice_negate" });
+    lib.add_abi_export({ routine = "code_point", symbol = "fol_slice_code_point" });
+    lib.add_abi_export({ routine = "touch", symbol = "fol_slice_touch" });
+    graph.install(lib);
+    return;
+};
