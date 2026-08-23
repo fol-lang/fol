@@ -1690,15 +1690,36 @@ Primary files:
 
 Tasks:
 
-- [ ] Store typed action payloads for write, copy, system tool, codegen,
-  compile, install, and run operations.
-- [ ] Give every action declared inputs, role-tagged outputs, dependencies,
-  target, and cache identity.
-- [ ] Validate action/step cycles, missing producers, duplicate output paths,
+- [x] Store typed action payloads for write, copy, system tool, codegen,
+  compile, install, and run operations. `fol-build/src/action.rs`.
+  `BuildActionPayload` has one variant per operation the build language can
+  declare.
+- [x] Give every action declared inputs, role-tagged outputs, dependencies,
+  target, and cache identity. `BuildAction` carries all five.
+  `prerequisites()` unions explicit dependencies with the producers of the
+  action's inputs, so an ordering constraint cannot be forgotten by declaring
+  the input alone. `cache_identity()` uses the same FNV-1a canonical rendering
+  as plan identity and **hashes environment values**, because an action's
+  environment can hold a token and a cache key travels with build metadata.
+- [x] Validate action/step cycles, missing producers, duplicate output paths,
   duplicate install destinations, and output escaping before execution.
-- [ ] Canonicalize package/build-relative paths and reject traversal or symlink
-  escape from allowed roots.
-- [ ] Execute only the requested step closure in deterministic order.
+  `fol-build/src/action_graph.rs`. Each check guards a silent or destructive
+  failure: two actions writing one path race and the winner is arbitrary, two
+  installs to one destination lose a file, and an escaping path writes outside
+  the build tree. None of these existed before -- graph validation covered step
+  cycles, missing artifact inputs, and invalid install targets, and nothing
+  else.
+- [x] Canonicalize package/build-relative paths and reject traversal or symlink
+  escape from allowed roots. `canonical_relative_path` rejects absolute,
+  drive-qualified, empty, and climbing paths, and normalizes an interior `..`
+  rather than banning it. `path_is_within` compares by path component, so
+  `build-other` is not inside `build` -- a prefix comparison would say it was.
+  Checked on the string rather than the filesystem, because an output is
+  validated before it exists.
+- [~] Execute only the requested step closure in deterministic order.
+  `closure_for` and `execution_order` are landed and tested: ties break by
+  action id rather than discovery order, so two runs of one graph execute in
+  the same sequence. The materializer that consumes them is the next slice.
 - [ ] Materialize in a per-plan temporary directory with a process lock and
   atomic final publication; parallel builds must not delete each other's
   generated crate/output directories.

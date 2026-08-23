@@ -3,6 +3,8 @@
 //! Owns all build graph IR, build API types, and build execution logic.
 //! The compiler (`fol-package`) handles only entry validation and package metadata.
 
+pub mod action;
+pub mod action_graph;
 pub mod api;
 pub mod artifact;
 pub mod codegen;

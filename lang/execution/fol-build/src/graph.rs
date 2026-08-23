@@ -1,5 +1,6 @@
 const MAX_GRAPH_DEPTH: usize = 256;
 
+#[macro_export]
 macro_rules! define_graph_id {
     ($name:ident, $label:literal) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
