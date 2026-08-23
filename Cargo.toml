@@ -63,6 +63,13 @@ fol-frontend = { path = "lang/tooling/fol-frontend" }
 name = "integration"
 path = "test/run_tests.rs"
 
+# M3 native products. Separate from `integration` because these hand real
+# archives to a C compiler: a failure means a library FOL claims to produce is
+# not one a consumer can link.
+[[test]]
+name = "native"
+path = "test/native_products.rs"
+
 [dev-dependencies]
 fol-types = { path = "lang/compiler/fol-types" }
 fol-stream = { path = "lang/compiler/fol-stream" }

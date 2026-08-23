@@ -584,6 +584,40 @@ fn synthesized_default_steps(
     evaluated: &fol_package::build_eval::EvaluatedBuildProgram,
 ) -> Vec<FrontendMemberPlannedStep> {
     let mut steps = Vec::new();
+
+    // A library is buildable, so it gets a `build` step. Before M3 only
+    // executables and tests did, which is why a library-only graph had no
+    // runnable route at all.
+    let library_count = artifact_count(
+        evaluated,
+        fol_package::build_runtime::BuildRuntimeArtifactKind::StaticLibrary,
+    ) + artifact_count(
+        evaluated,
+        fol_package::build_runtime::BuildRuntimeArtifactKind::SharedLibrary,
+    );
+    if library_count > 0 {
+        for kind in [
+            fol_package::build_runtime::BuildRuntimeArtifactKind::StaticLibrary,
+            fol_package::build_runtime::BuildRuntimeArtifactKind::SharedLibrary,
+        ] {
+            if artifact_count(evaluated, kind) == 0 {
+                continue;
+            }
+            let selection = single_selection(member, graph, evaluated, kind);
+            steps.push(FrontendMemberPlannedStep {
+                fan_out_selections: all_selections(member, graph, evaluated, kind),
+                name: "build".to_string(),
+                description: Some("Build default library artifacts".to_string()),
+                default_kind: Some(fol_package::BuildDefaultStepKind::Build),
+                execution: Some(FrontendStepExecutionKind::Build),
+                selection,
+                ambiguous_selection: false,
+                available_models: artifact_models(evaluated, kind),
+            });
+            break;
+        }
+    }
+
     let executable_count = artifact_count(
         evaluated,
         fol_package::build_runtime::BuildRuntimeArtifactKind::Executable,

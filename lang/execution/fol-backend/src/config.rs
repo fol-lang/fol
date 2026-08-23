@@ -371,3 +371,86 @@ mod artifact_kind_layer_tests {
         );
     }
 }
+
+impl BackendConfig {
+    /// What this invocation is producing.
+    ///
+    /// Read from the resolved plan M1 threads in. Without a plan the backend is
+    /// on a route that has no evaluated graph -- a direct compile, an emit --
+    /// and those only ever produce an executable.
+    pub fn product_kind(&self) -> crate::model::BackendProductKind {
+        use crate::model::BackendProductKind;
+        use fol_build::plan::ResolvedArtifactKind;
+        match self.artifact_plan.as_ref().map(|plan| plan.kind) {
+            Some(ResolvedArtifactKind::TestExecutable) => BackendProductKind::TestExecutable,
+            Some(ResolvedArtifactKind::StaticLibrary) => BackendProductKind::StaticLibrary,
+            Some(ResolvedArtifactKind::SharedLibrary) => BackendProductKind::SharedLibrary,
+            Some(ResolvedArtifactKind::Object) => BackendProductKind::Object,
+            Some(ResolvedArtifactKind::Executable) | None => BackendProductKind::Executable,
+        }
+    }
+}
+
+#[cfg(test)]
+mod product_kind_config_tests {
+    use super::BackendConfig;
+    use crate::model::BackendProductKind;
+    use fol_build::plan::ResolvedArtifactKind;
+
+    fn plan_with(kind: ResolvedArtifactKind) -> fol_build::plan::ResolvedArtifactPlan {
+        fol_build::plan::ResolvedArtifactPlan {
+            name: "core".to_string(),
+            kind,
+            provenance: Default::default(),
+            root_source: "src/lib.fol".to_string(),
+            inputs: Vec::new(),
+            fol_model: Default::default(),
+            target: fol_types::ResolvedTarget::resolve("x86_64-unknown-linux-gnu").unwrap(),
+            optimize: fol_build::option::BuildOptimizeMode::Debug,
+            abi: Default::default(),
+            link_plan: Default::default(),
+            native_attachments: Default::default(),
+            outputs: Vec::new(),
+            installs: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn the_product_kind_follows_the_resolved_plan() {
+        for (resolved, expected) in [
+            (
+                ResolvedArtifactKind::Executable,
+                BackendProductKind::Executable,
+            ),
+            (
+                ResolvedArtifactKind::TestExecutable,
+                BackendProductKind::TestExecutable,
+            ),
+            (
+                ResolvedArtifactKind::StaticLibrary,
+                BackendProductKind::StaticLibrary,
+            ),
+            (
+                ResolvedArtifactKind::SharedLibrary,
+                BackendProductKind::SharedLibrary,
+            ),
+            (ResolvedArtifactKind::Object, BackendProductKind::Object),
+        ] {
+            let config = BackendConfig {
+                artifact_plan: Some(plan_with(resolved)),
+                ..BackendConfig::default()
+            };
+            assert_eq!(config.product_kind(), expected);
+        }
+    }
+
+    /// A route with no evaluated graph builds an executable, which is what
+    /// those routes have always produced.
+    #[test]
+    fn a_planless_config_produces_an_executable() {
+        assert_eq!(
+            BackendConfig::default().product_kind(),
+            BackendProductKind::Executable
+        );
+    }
+}

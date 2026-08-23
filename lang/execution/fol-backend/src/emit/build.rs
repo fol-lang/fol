@@ -210,6 +210,7 @@ pub(crate) fn configure_generated_crate_rustc_command(
     binary_path: &Path,
     machine_target: &BackendMachineTarget,
     profile: BackendBuildProfile,
+    product_kind: crate::model::BackendProductKind,
 ) -> BackendResult<Command> {
     configure_generated_crate_rustc_command_with_args(
         crate_root,
@@ -219,9 +220,11 @@ pub(crate) fn configure_generated_crate_rustc_command(
         machine_target,
         profile,
         &[],
+        product_kind,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn configure_generated_crate_rustc_command_with_args(
     crate_root: &Path,
     main_rs: &Path,
@@ -230,6 +233,7 @@ pub(crate) fn configure_generated_crate_rustc_command_with_args(
     machine_target: &BackendMachineTarget,
     profile: BackendBuildProfile,
     additional_rustc_args: &[OsString],
+    product_kind: crate::model::BackendProductKind,
 ) -> BackendResult<Command> {
     configure_generated_crate_rustc_command_impl(
         crate_root,
@@ -240,6 +244,7 @@ pub(crate) fn configure_generated_crate_rustc_command_with_args(
         profile,
         None,
         additional_rustc_args,
+        product_kind,
     )
 }
 
@@ -257,6 +262,7 @@ pub(crate) fn configure_generated_crate_rustc_command_with_auxiliary(
     entry_rlib: &Path,
     auxiliary_build_dir: &Path,
     additional_rustc_args: &[OsString],
+    product_kind: crate::model::BackendProductKind,
 ) -> BackendResult<Command> {
     configure_generated_crate_rustc_command_impl(
         crate_root,
@@ -267,6 +273,7 @@ pub(crate) fn configure_generated_crate_rustc_command_with_auxiliary(
         profile,
         Some((entry_crate_name, entry_rlib, auxiliary_build_dir)),
         additional_rustc_args,
+        product_kind,
     )
 }
 
@@ -280,6 +287,7 @@ fn configure_generated_crate_rustc_command_impl(
     profile: BackendBuildProfile,
     auxiliary_entry: Option<(&str, &Path, &Path)>,
     additional_rustc_args: &[OsString],
+    product_kind: crate::model::BackendProductKind,
 ) -> BackendResult<Command> {
     let mut command = Command::new("rustc");
     command
@@ -290,6 +298,24 @@ fn configure_generated_crate_rustc_command_impl(
     command
         .arg("--target")
         .arg(machine_target.rust_target_triple());
+    // Explicit rather than inferred from the crate root: a `staticlib` and a
+    // `cdylib` are both built from `lib.rs`, so the file cannot say which.
+    match product_kind.rustc_crate_type() {
+        Some(crate_type) => {
+            command.arg("--crate-type").arg(crate_type);
+        }
+        None => {
+            return Err(BackendError::new(
+                BackendErrorKind::BuildFailure,
+                format!(
+                    "{} output is not implemented: it is only correct alongside a \
+                     complete link-interface sidecar enumerating what the final link \
+                     still needs, and V4 refuses to emit one without it",
+                    product_kind.as_str()
+                ),
+            ))
+        }
+    }
     command
         .arg(main_rs)
         .arg("--extern")
@@ -468,14 +494,18 @@ fn built_binary_output_path(
     crate_root: &Path,
     machine_target: &BackendMachineTarget,
     profile: BackendBuildProfile,
+    product_kind: crate::model::BackendProductKind,
 ) -> BackendResult<PathBuf> {
     let package_name = package_name_for_generated_crate(crate_root)?;
     let target_dir = machine_target.rust_target_directory_name();
+    // A library's file name is a target convention, not the crate name: the
+    // same crate is `libcore.a` on ELF and `core.lib` on MSVC.
+    let file_name = product_kind.output_file_name(package_name, machine_target);
     Ok(crate_root
         .join("target")
         .join(target_dir)
         .join(profile.as_str())
-        .join(package_name))
+        .join(file_name))
 }
 
 fn wait_for_emitted_path(path: &Path) -> bool {
@@ -542,8 +572,16 @@ pub fn build_generated_crate_with_rustc(
     paths: &BackendBuildPaths,
     machine_target: &BackendMachineTarget,
     profile: BackendBuildProfile,
+    product_kind: crate::model::BackendProductKind,
 ) -> BackendResult<PathBuf> {
-    build_generated_crate_with_rustc_args(crate_root, paths, machine_target, profile, &[])
+    build_generated_crate_with_rustc_args(
+        crate_root,
+        paths,
+        machine_target,
+        profile,
+        &[],
+        product_kind,
+    )
 }
 
 /// Build a generated FOL binary while appending opaque Rust compiler arguments
@@ -559,6 +597,7 @@ pub fn build_generated_crate_with_rustc_args(
     machine_target: &BackendMachineTarget,
     profile: BackendBuildProfile,
     additional_rustc_args: &[OsString],
+    product_kind: crate::model::BackendProductKind,
 ) -> BackendResult<PathBuf> {
     build_generated_crate_with_rustc_impl(
         crate_root,
@@ -567,6 +606,7 @@ pub fn build_generated_crate_with_rustc_args(
         profile,
         None,
         additional_rustc_args,
+        product_kind,
     )
 }
 
@@ -578,6 +618,7 @@ pub fn build_generated_crate_with_auxiliary_plan(
     machine_target: &BackendMachineTarget,
     profile: BackendBuildProfile,
     plan: &BackendAuxiliaryRustPlan,
+    product_kind: crate::model::BackendProductKind,
 ) -> BackendResult<PathBuf> {
     build_generated_crate_with_rustc_impl(
         crate_root,
@@ -586,6 +627,7 @@ pub fn build_generated_crate_with_auxiliary_plan(
         profile,
         Some(plan),
         plan.final_rustc_argv(),
+        product_kind,
     )
 }
 
@@ -596,6 +638,7 @@ fn build_generated_crate_with_rustc_impl(
     profile: BackendBuildProfile,
     auxiliary_plan: Option<&BackendAuxiliaryRustPlan>,
     additional_rustc_args: &[OsString],
+    product_kind: crate::model::BackendProductKind,
 ) -> BackendResult<PathBuf> {
     // Complete all plan, source, dependency-order, target, and profile checks
     // before creating outputs or launching the runtime rustc command.
@@ -655,8 +698,10 @@ fn build_generated_crate_with_rustc_impl(
     let built_auxiliary = auxiliary_plan
         .map(|plan| build_auxiliary_rust_plan(crate_root, machine_target, profile, plan))
         .transpose()?;
-    let main_rs = crate_root.join("src").join("main.rs");
-    let binary_path = built_binary_output_path(crate_root, machine_target, profile)?;
+    let main_rs = crate_root
+        .join("src")
+        .join(product_kind.crate_root_file_name());
+    let binary_path = built_binary_output_path(crate_root, machine_target, profile, product_kind)?;
     if let Some(parent) = binary_path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
             BackendError::new(
@@ -680,6 +725,7 @@ fn build_generated_crate_with_rustc_impl(
             &auxiliary.entry_rlib,
             &auxiliary.build_dir,
             additional_rustc_args,
+            product_kind,
         )?,
         None => configure_generated_crate_rustc_command_with_args(
             crate_root,
@@ -689,6 +735,7 @@ fn build_generated_crate_with_rustc_impl(
             machine_target,
             profile,
             additional_rustc_args,
+            product_kind,
         )?,
     };
     let output = command.output().map_err(|error| {
@@ -766,12 +813,14 @@ pub fn emit_backend_artifact(
                 &config.machine_target,
                 config.build_profile,
                 plan,
+                config.product_kind(),
             )?,
             None => build_generated_crate_with_rustc(
                 &crate_root,
                 &paths,
                 &config.machine_target,
                 config.build_profile,
+                config.product_kind(),
             )?,
         },
     };

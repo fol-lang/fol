@@ -1867,13 +1867,31 @@ Primary files:
 
 Tasks:
 
-- [ ] Add backend product kinds and role-tagged `ProducedArtifact` output sets.
-- [ ] Generate `src/main.rs` only for executable/test products and private
-  `src/lib.rs` only for library/object products.
-- [ ] Keep/demote `BackendArtifact::RustSourceCrate` as a private materializer
+- [x] Add backend product kinds and role-tagged `ProducedArtifact` output sets.
+  `BackendProductKind` in `fol-backend/src/model.rs`, deliberately separate from
+  `ResolvedArtifactKind`: that one is the build graph's view, this one decides
+  emitter and `rustc` behaviour, so a graph kind cannot reach a rustc flag
+  without a written-down translation. `ProducedArtifact` carries role-tagged
+  outputs and does **not** list its generated Rust crate among them.
+- [x] Generate `src/main.rs` only for executable/test products and private
+  `src/lib.rs` only for library/object products. `emit_crate_root_for_config`
+  dispatches on the product kind. The library path never calls
+  `select_buildable_entry_candidate`, and the frontend's entry check is now
+  conditional too -- a library legitimately has no `main`, and looking for one
+  turned a correct artifact into `does not expose a runnable entry`.
+- [x] Keep/demote `BackendArtifact::RustSourceCrate` as a private materializer
   input only; it never becomes a frontend, install, package, or release role.
-- [ ] Drive rustc with the correct `bin`, `staticlib`, and `cdylib` crate types;
+  `ProducedArtifact` keeps the crate directory in its own `crate_root` field,
+  outside `outputs`, and
+  `a_produced_artifact_never_lists_its_rust_crate_as_an_output` asserts it does
+  not leak into a role.
+- [x] Drive rustc with the correct `bin`, `staticlib`, and `cdylib` crate types;
   implement object output only with its complete link-interface sidecar.
+  `--crate-type` is passed explicitly rather than inferred, because a
+  `staticlib` and a `cdylib` are both built from `lib.rs` and the file cannot
+  say which. `Object` returns no crate type and the backend refuses it by name:
+  emitting a relocatable object is only correct alongside a sidecar enumerating
+  what the final link still needs, and V4 will not fake one.
 - [ ] Derive all certified output names from `ResolvedTarget`; Windows runtime,
   import-library, and platform debug-symbol roles remain rejected until their
   sibling lanes are promoted.

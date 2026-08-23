@@ -958,6 +958,7 @@ fn targeted_mixed_artifacts_compile_only_their_source_directory() {
         Some("memo/main.fol"),
         BackendFolModel::Memo,
         &super::declared_artifact_capabilities_for_package(&app),
+        true,
     )
     .expect("memo artifact must not absorb the unrelated illegal core source");
     assert_eq!(
@@ -973,6 +974,7 @@ fn targeted_mixed_artifacts_compile_only_their_source_directory() {
         Some("core/main.fol"),
         BackendFolModel::Core,
         &super::declared_artifact_capabilities_for_package(&app),
+        true,
     )
     .expect_err("the selected core artifact must retain core legality");
     assert!(core_error
@@ -1028,6 +1030,7 @@ fn targeted_mixed_artifacts_reject_overlapping_source_directories() {
         Some("src/memo.fol"),
         BackendFolModel::Memo,
         &super::declared_artifact_capabilities_for_package(&app),
+        true,
     )
     .expect_err("different models cannot share one recursively parsed source directory");
     assert!(error.message().contains("overlaps core artifact root"));
@@ -1084,6 +1087,7 @@ fn targeted_entry_filter_uses_the_exact_canonical_root() {
             Some(root_spelling),
             BackendFolModel::Memo,
             &capabilities,
+            true,
         )
         .expect("canonical root spelling must select exactly one entry");
         assert_eq!(

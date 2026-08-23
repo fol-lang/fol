@@ -19,7 +19,7 @@ $(info Project: $(PROJECT_NAME))
 $(info Version: $(CURRENT_VERSION))
 $(info ------------------------------------------)
 
-.PHONY: build b compile c fmt f fmt-changed fmt-check lint run r test t test-network print-version tree tree-test interop-check interop-locked test-interop test-build-actions verify verify-all help h clean docs release
+.PHONY: build b compile c fmt f fmt-changed fmt-check lint run r test t test-network print-version tree tree-test interop-check interop-locked test-interop test-build-actions test-native verify verify-all help h clean docs release
 
 SHELL := /bin/bash
 
@@ -128,6 +128,13 @@ test-build-actions:
 			cargo test -p fol-build "$$module::" || exit 1; \
 		done
 
+# The M3 native-product gate: builds real static and shared libraries and links
+# a C program against them. Separate from `test` because a failure here means a
+# library FOL claims to produce is not one a C consumer can link -- worth naming
+# rather than burying in a workspace-wide run.
+test-native:
+	@cargo test -p fol --test native -- --nocapture
+
 # The only #[ignore]d tests in the tree fetch real repositories over the
 # network, so they stay out of `verify` and run on demand (and nightly in CI).
 test-network:
@@ -138,7 +145,7 @@ print-version:
 
 t: test
 
-verify: fmt-check lint test test-build-actions interop-check test-interop
+verify: fmt-check lint test test-build-actions test-native interop-check test-interop
 
 verify-all: verify test-network
 

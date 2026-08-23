@@ -74,7 +74,10 @@ pub use mangle::{
     escape_rust_field_ident, mangle_global_name, mangle_local_name, mangle_package_module_name,
     mangle_routine_name, mangle_type_name, sanitize_backend_ident,
 };
-pub use model::{BackendArtifact, BackendBuildPaths, EmittedRustFile};
+pub use model::{
+    BackendArtifact, BackendBuildPaths, BackendProductKind, EmittedRustFile, ProducedArtifact,
+    ProducedOutput,
+};
 pub use session::BackendSession;
 pub use signatures::{
     render_global_declaration, render_routine_definition, render_routine_shell,

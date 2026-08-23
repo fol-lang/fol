@@ -24,6 +24,16 @@ pub(crate) struct FrontendArtifactExecutionSelection {
 }
 
 impl FrontendArtifactExecutionSelection {
+    /// Whether this selection produces something with a `main`.
+    ///
+    /// A library or object has none, and looking for one turns a correct
+    /// artifact into a build error.
+    pub(crate) fn requires_entry_point(&self) -> bool {
+        self.resolved_plan()
+            .map(|plan| plan.kind.is_executable())
+            .unwrap_or(true)
+    }
+
     /// The resolved plan for this selection.
     ///
     /// Derived from the graph binding on demand rather than stored beside it,
@@ -778,8 +788,9 @@ pub(crate) fn build_selected_artifacts_for_profile_with_config(
             selection.root_module.as_deref(),
             selection.fol_model,
             &selection.artifact_capabilities,
+            selection.requires_entry_point(),
         )?;
-        if lowered.entry_candidates().is_empty() {
+        if lowered.entry_candidates().is_empty() && selection.requires_entry_point() {
             continue;
         }
         // The artifact target, after section 4.4 precedence. Checked here rather
@@ -1529,6 +1540,7 @@ fn compile_member_workspace_targeted(
     root_module: Option<&str>,
     fol_model: fol_backend::BackendFolModel,
     artifact_capabilities: &[DeclaredArtifactCapability],
+    requires_entry: bool,
 ) -> FrontendResult<fol_lower::LoweredWorkspace> {
     let Some(root_module) = root_module else {
         return compile_member_workspace_for_model(workspace, config, package_root, fol_model);
@@ -1555,7 +1567,7 @@ fn compile_member_workspace_targeted(
         })
         .cloned()
         .collect::<Vec<_>>();
-    if matching_candidates.is_empty() {
+    if matching_candidates.is_empty() && requires_entry {
         return Err(FrontendError::new(
             FrontendErrorKind::InvalidInput,
             format!(
@@ -1565,6 +1577,8 @@ fn compile_member_workspace_targeted(
             ),
         ));
     }
+    // A library legitimately has no entry routine, so an empty candidate set is
+    // the correct answer rather than a failure.
     Ok(lowered.with_entry_candidates(matching_candidates))
 }
 

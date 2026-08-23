@@ -497,15 +497,27 @@ impl<'a> BuildApi<'a> {
         let Some(artifact) = self.graph.artifacts().get(artifact_id.index()) else {
             return self.install_prefix.clone();
         };
-        let dir = match artifact.kind {
-            crate::graph::BuildArtifactKind::Executable | crate::graph::BuildArtifactKind::Test => {
-                "bin"
+        // The destination is the role's frozen layout from section 4.16, and
+        // the file name is a target convention: `lib/libcore.a` on ELF,
+        // `lib/core.lib` on MSVC. Using the bare artifact name here dropped the
+        // extension entirely, so an installed library was not a library file.
+        let role = match artifact.kind {
+            crate::graph::BuildArtifactKind::Executable => crate::plan::OutputRole::Executable,
+            crate::graph::BuildArtifactKind::Test => crate::plan::OutputRole::TestExecutable,
+            crate::graph::BuildArtifactKind::StaticLibrary => {
+                crate::plan::OutputRole::StaticArchive
             }
-            crate::graph::BuildArtifactKind::StaticLibrary
-            | crate::graph::BuildArtifactKind::SharedLibrary
-            | crate::graph::BuildArtifactKind::Object => "lib",
+            crate::graph::BuildArtifactKind::SharedLibrary => {
+                crate::plan::OutputRole::SharedLibrary
+            }
+            crate::graph::BuildArtifactKind::Object => crate::plan::OutputRole::Object,
         };
-        self.project_prefixed_path(&format!("{dir}/{}", artifact.name))
+        let destination =
+            crate::plan::install_destination_for_role(role, &artifact.name, &artifact.target)
+                // An object is a build input rather than a consumable artifact
+                // and has no install role, so it keeps its plain path.
+                .unwrap_or_else(|| format!("lib/{}", artifact.name));
+        self.project_prefixed_path(&destination)
     }
 
     pub fn add_module(&mut self, request: AddModuleRequest) -> Result<ModuleHandle, BuildApiError> {

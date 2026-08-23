@@ -107,6 +107,50 @@ pub fn emit_main_rs(session: &BackendSession) -> BackendResult<EmittedRustFile> 
     emit_main_rs_for_config(session, &BackendConfig::default())
 }
 
+/// The crate root for a library or object product.
+///
+/// A library has no `main`, and -- the point of this function -- no entry
+/// routine is looked for. `emit_main_rs_for_config` calls
+/// `select_buildable_entry_candidate`, which fails when nothing is a valid
+/// entry; for a library that absence is correct, not an error.
+///
+/// The shell is deliberately bare. What makes a library useful from C is its
+/// `extern "C"` exports, and those arrive with the ABI export surface in M5.
+/// Until then this links and exports nothing, which is exactly what M3's STOP
+/// asks a C program to link against.
+pub fn emit_lib_rs_for_config(
+    session: &BackendSession,
+    config: &BackendConfig,
+) -> BackendResult<EmittedRustFile> {
+    if let Some(plan) = &config.auxiliary_rust_plan {
+        plan.validate_for_build(&config.machine_target, config.build_profile)?;
+    }
+    let layout = plan_generated_crate_layout(session);
+    let entry_name = &session.entry_identity().display_name;
+    Ok(EmittedRustFile {
+        path: layout
+            .main_rs_path
+            .replace("src/main.rs", "src/lib.rs"),
+        module_name: "lib".to_string(),
+        contents: format!(
+            "{}\n\nmod packages;\n\n// A library product has no entry routine. The package modules above\n// carry the compiled FOL code; the C surface is added by the ABI export\n// milestone.\npub fn __fol_library_identity() -> &'static str {{\n    \"{entry_name}\"\n}}\n",
+            runtime_main_use_block(config.runtime_tier()),
+        ),
+    })
+}
+
+/// The crate root for whatever `config` is producing.
+pub fn emit_crate_root_for_config(
+    session: &BackendSession,
+    config: &BackendConfig,
+) -> BackendResult<EmittedRustFile> {
+    if config.product_kind().has_entry_point() {
+        emit_main_rs_for_config(session, config)
+    } else {
+        emit_lib_rs_for_config(session, config)
+    }
+}
+
 pub fn emit_package_module_shells(session: &BackendSession) -> Vec<EmittedRustFile> {
     let package_plans = plan_package_layouts(session);
     let namespace_plans = plan_namespace_layouts(session);
@@ -256,7 +300,7 @@ pub fn emit_generated_crate_skeleton_for_config(
     let layout = plan_generated_crate_layout(session);
     let mut files = Vec::new();
     files.push(emit_cargo_toml(session));
-    files.push(emit_main_rs_for_config(session, config)?);
+    files.push(emit_crate_root_for_config(session, config)?);
     files.extend(emit_package_module_shells(session));
     files.extend(emit_namespace_module_shells_for_config(session, config)?);
     // A namespace that owns child namespaces emits its own code at
