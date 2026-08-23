@@ -1447,9 +1447,12 @@ fn rustc_generated_crate_builder_produces_runnable_release_binary() {
     let output = Command::new(&binary).output().expect("run rustc binary");
 
     assert!(binary.exists());
+    // The output directory is keyed by product kind as well as target and
+    // profile, so a static and a shared library built from one source for one
+    // target cannot overwrite each other's intermediate output.
     assert!(binary
         .to_string_lossy()
-        .contains(&format!("/target/{}/release/", host.as_str())));
+        .contains(&format!("/target/executable/{}/release/", host.as_str())));
     assert!(output.status.code().is_some());
 
     let _ = fs::remove_dir_all(&temp_root);
@@ -1608,7 +1611,7 @@ fn target_scoped_runtime_and_binary_outputs_use_resolved_machine_target_dirs() {
     assert!(runtime_dir.ends_with("fol-backend/runtime/x86_64-unknown-linux-gnu/release"));
     assert!(binary
         .to_string_lossy()
-        .contains("/target/x86_64-unknown-linux-gnu/release/"));
+        .contains("/target/executable/x86_64-unknown-linux-gnu/release/"));
     let BackendArtifact::CompiledBinary { binary_path, .. } = emitted else {
         panic!("expected compiled binary artifact");
     };
