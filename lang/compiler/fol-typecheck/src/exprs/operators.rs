@@ -785,6 +785,7 @@ pub(crate) fn type_ownership_op(
                 shared,
                 weak,
                 sync,
+                ..
             }) => Some((*target, *shared, *weak, *sync)),
             _ => None,
         };
@@ -803,6 +804,8 @@ pub(crate) fn type_ownership_op(
                 shared: false,
                 weak: true,
                 sync,
+                raw: false,
+                mutable: false,
             });
             return Ok(TypedExpr::value(weak_ptr));
         }
@@ -820,6 +823,8 @@ pub(crate) fn type_ownership_op(
             shared: true,
             weak: false,
             sync,
+            raw: false,
+            mutable: false,
         });
         let optional = typed
             .type_table_mut()
@@ -1351,6 +1356,8 @@ pub(crate) fn type_unary_op(
                 shared,
                 weak: false,
                 sync,
+                raw: false,
+                mutable: false,
             });
             Ok(TypedExpr::value(pointer))
         }

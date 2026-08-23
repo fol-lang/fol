@@ -3372,6 +3372,8 @@ fn lower_pointer_address(
                 shared: false,
                 weak: false,
                 sync: false,
+                raw: false,
+                mutable: false,
             })
         })
         .ok_or_else(|| {

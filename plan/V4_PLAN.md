@@ -2051,8 +2051,20 @@ Tasks:
   order would silently change what an existing byte means. Pinned by
   `an_entry_lowers_its_variants_in_declaration_order_with_stable_tags` and
   `moving_an_entry_declaration_does_not_change_its_tags`.
-- [ ] Add raw-pointer checked/lowered variants with raw-ness and mutability;
-  optional wrapping remains the nullability marker.
+- [x] Add raw-pointer checked/lowered variants with raw-ness and mutability;
+  optional wrapping remains the nullability marker. `CheckedType::Pointer` and
+  `LoweredType::Pointer` carry `raw` and `mutable`, and both cross the
+  typecheck-to-lowering translation rather than being defaulted there.
+  `ptr[raw, mut, T]` parses as its own `PointerQualifier::RawMut`, separate from
+  `Raw` so a match cannot forget to distinguish them -- constness is an ABI fact
+  a C caller cannot infer. Nullability is deliberately *not* a field:
+  `opt ptr[raw, T]` is the nullable form, per section 4.8.
+
+  Writing `ptr[raw, ...]` in ordinary FOL source stays rejected, because
+  section 4.8 permits a raw address token only inside a foreign declaration and
+  no foreign surface exists until M6. The backend also refuses to *render* one:
+  inventing a `Box` or an `Rc` there would silently give it ownership semantics
+  it does not have.
 - [ ] Add foreign import/export metadata, external name, calling convention,
   ownership/nullability/escape/destructor facts, effects, and source origin.
 - [x] Create/register `fol-abi` as the dependency-foundation crate described in

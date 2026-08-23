@@ -452,6 +452,8 @@ fn translate_checked_type(
             shared,
             weak,
             sync,
+            raw,
+            mutable,
         } => {
             let target = match program.type_table().get(target).cloned() {
                 Some(CheckedType::Declared { symbol, name, .. }) => {
@@ -465,11 +467,15 @@ fn translate_checked_type(
                     translate_checked_type(lowered_types, cache, package_identity, program, target)?
                 }
             };
+            // Raw-ness and mutability cross with the type. Defaulting them
+            // here would erase an ABI fact the checked type had recorded.
             lowered_types.intern(LoweredType::Pointer {
                 target,
                 shared,
                 weak,
                 sync,
+                raw,
+                mutable,
             })
         }
         CheckedType::Set { member_types } => {

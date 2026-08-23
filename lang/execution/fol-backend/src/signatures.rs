@@ -732,6 +732,8 @@ mod tests {
             shared: false,
             weak: false,
             sync: false,
+            raw: false,
+            mutable: false,
         });
         let borrowed = table.intern(LoweredType::Borrowed {
             inner: int_id,
@@ -742,6 +744,8 @@ mod tests {
             shared: true,
             weak: false,
             sync: false,
+            raw: false,
+            mutable: false,
         });
         for (type_id, expected) in [
             (unique, "move-only values"),
@@ -819,6 +823,8 @@ mod tests {
             shared: false,
             weak: false,
             sync: false,
+            raw: false,
+            mutable: false,
         });
         let signature_id = table.intern(LoweredType::Routine(LoweredRoutineType {
             params: vec![pointer_id],

@@ -3145,28 +3145,36 @@ fn lower_type_inner(
             }))
         }
         FolType::Pointer { qualifier, target } => {
-            if matches!(qualifier, fol_parser::ast::PointerQualifier::Raw) {
+            use fol_parser::ast::PointerQualifier;
+            // The checked and lowered types can *represent* a raw pointer, so
+            // the ABI model can describe one, and the backend refuses to render
+            // one. Writing `ptr[raw, ...]` in ordinary FOL source stays
+            // rejected: section 4.8 permits a raw address token only inside a
+            // foreign declaration, and no foreign surface exists until M6.
+            if matches!(qualifier, PointerQualifier::Raw | PointerQualifier::RawMut) {
+                let message = "raw pointers are a V4 interop surface";
                 return Err(match type_origin(resolved, typ) {
                     Some(origin) => TypecheckError::with_origin(
                         TypecheckErrorKind::Unsupported,
-                        "raw pointers are a V4 interop surface",
+                        message,
                         origin,
                     ),
-                    None => TypecheckError::new(
-                        TypecheckErrorKind::Unsupported,
-                        "raw pointers are a V4 interop surface",
-                    ),
+                    None => TypecheckError::new(TypecheckErrorKind::Unsupported, message),
                 });
             }
-            let weak = matches!(qualifier, fol_parser::ast::PointerQualifier::Weak);
-            let sync = matches!(qualifier, fol_parser::ast::PointerQualifier::SharedSync);
-            let shared = sync || matches!(qualifier, fol_parser::ast::PointerQualifier::Shared);
+            let raw = matches!(qualifier, PointerQualifier::Raw | PointerQualifier::RawMut);
+            let mutable = matches!(qualifier, PointerQualifier::RawMut);
+            let weak = matches!(qualifier, PointerQualifier::Weak);
+            let sync = matches!(qualifier, PointerQualifier::SharedSync);
+            let shared = sync || matches!(qualifier, PointerQualifier::Shared);
             let target = lower_type(typed, resolved, scope_id, target)?;
             Ok(typed.type_table_mut().intern(CheckedType::Pointer {
                 target,
                 weak,
                 shared,
                 sync,
+                raw,
+                mutable,
             }))
         }
         FolType::Set { types } => {
@@ -4111,6 +4119,8 @@ pub(crate) fn substitute_generic_checked_type(
             shared,
             weak,
             sync,
+            raw,
+            mutable,
         } => {
             let target = substitute_generic_checked_type(typed, target, bindings, origin)?;
             Ok(typed.type_table_mut().intern(CheckedType::Pointer {
@@ -4118,6 +4128,8 @@ pub(crate) fn substitute_generic_checked_type(
                 shared,
                 weak,
                 sync,
+                raw,
+                mutable,
             }))
         }
         CheckedType::Error { inner } => {

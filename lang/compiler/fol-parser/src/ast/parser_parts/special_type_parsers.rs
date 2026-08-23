@@ -193,6 +193,12 @@ impl AstParser {
                     [FolType::Named { name, .. }, target] if name == "weak" => {
                         (crate::ast::PointerQualifier::Weak, target.clone())
                     }
+                    // `ptr[raw, mut, T]` — a writable foreign address token.
+                    [FolType::Named { name: raw, .. }, FolType::Named { name: mutable, .. }, target]
+                        if raw == "raw" && mutable == "mut" =>
+                    {
+                        (crate::ast::PointerQualifier::RawMut, target.clone())
+                    }
                     // `ptr[shared, sync, T]` — the Arc-backed thread-safe shared
                     // pointer that may cross task boundaries (V3_MEM §8.3).
                     [FolType::Named { name: shared, .. }, FolType::Named { name: sync, .. }, target]
@@ -205,7 +211,7 @@ impl AstParser {
                         return Err(ParseError::from_token(
                             &token,
                             format!(
-                                "Unknown pointer qualifier '{name}'; expected 'shared', 'shared, sync', 'weak', or 'raw'"
+                                "Unknown pointer qualifier '{name}'; expected 'shared', 'shared, sync', 'weak', 'raw', or 'raw, mut'"
                             ),
                         ));
                     }

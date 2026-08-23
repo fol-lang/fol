@@ -196,6 +196,8 @@ fn aggregate_constructors_move_unique_elements_and_values() {
         shared: false,
         weak: false,
         sync: false,
+        raw: false,
+        mutable: false,
     });
     let array_id = table.intern(LoweredType::Array {
         element_type: pointer_id,
@@ -288,6 +290,8 @@ fn aggregate_and_container_rendering_emits_runtime_index_helpers() {
         shared: false,
         weak: false,
         sync: false,
+        raw: false,
+        mutable: false,
     });
     let move_only_record = table.intern(fol_lower::LoweredType::Record {
         fields: BTreeMap::from([("pointer".to_string(), unique_pointer)]),
@@ -439,6 +443,8 @@ fn slice_rendering_rejects_move_only_results_before_clone_emission() {
         shared: false,
         weak: false,
         sync: false,
+        raw: false,
+        mutable: false,
     });
     let scalar_vec = table.intern(LoweredType::Vector {
         element_type: int_id,

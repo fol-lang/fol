@@ -65,11 +65,23 @@ pub fn render_rust_type_in_workspace(
             if *mutable { "mut " } else { "" },
             render_rust_type_in_workspace(workspace, type_table, *inner)?
         )),
+        // A raw pointer is a foreign address token with no managed Rust
+        // representation. It exists in the type model so the ABI can describe
+        // one; reaching codegen means it was used somewhere the C boundary does
+        // not cover, and inventing a `Box` or an `Rc` here would silently give
+        // it ownership semantics it does not have.
+        LoweredType::Pointer { raw: true, .. } => Err(BackendError::new(
+            BackendErrorKind::InvalidInput,
+            "a raw pointer has no Rust representation outside a C ABI projection; \
+             it can be received, compared, and passed to an approved adapter, and \
+             not dereferenced or stored in ordinary code",
+        )),
         LoweredType::Pointer {
             target,
             shared,
             weak,
             sync,
+            ..
         } => Ok(format!(
             "{}<{}>",
             if *weak && *sync {

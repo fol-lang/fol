@@ -358,6 +358,7 @@ pub fn render_type_default_expr_in_workspace(
             shared,
             weak,
             sync,
+            ..
         } => {
             if *weak {
                 // An empty weak handle; upgrading it yields `None`.

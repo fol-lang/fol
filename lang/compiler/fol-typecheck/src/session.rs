@@ -651,6 +651,7 @@ impl TypecheckSession {
                 shared,
                 weak,
                 sync,
+                ..
             } => {
                 let target = self.import_type_id(
                     target_program,
@@ -667,6 +668,8 @@ impl TypecheckSession {
                         shared,
                         weak,
                         sync,
+                        raw: false,
+                        mutable: false,
                     })
             }
             CheckedType::Error { inner } => {

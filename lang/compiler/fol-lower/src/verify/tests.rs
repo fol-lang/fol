@@ -370,6 +370,8 @@ fn verifier_rejects_reading_move_only_aggregates_out_of_borrows() {
         shared: false,
         weak: false,
         sync: false,
+        raw: false,
+        mutable: false,
     });
     let record_type = type_table.intern(crate::types::LoweredType::Record {
         fields: BTreeMap::from([("pointer".to_string(), pointer_type)]),

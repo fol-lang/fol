@@ -152,6 +152,8 @@ fn runtime_shaped_echo_moves_a_unique_value() {
         shared: false,
         weak: false,
         sync: false,
+        raw: false,
+        mutable: false,
     });
     let mut routine = LoweredRoutine::new(LoweredRoutineId(81), "main", LoweredBlockId(0));
     let pointer = routine.locals.push(LoweredLocal {
@@ -376,6 +378,8 @@ fn runtime_shaped_error_shell_moves_a_unique_payload() {
         shared: false,
         weak: false,
         sync: false,
+        raw: false,
+        mutable: false,
     });
     let error_id = table.intern(fol_lower::LoweredType::Error {
         inner: Some(pointer_id),
@@ -423,6 +427,8 @@ fn runtime_shaped_instruction_rendering_emits_shell_unwraps_for_optional_and_err
         shared: false,
         weak: false,
         sync: false,
+        raw: false,
+        mutable: false,
     });
     let unique_optional_id = table.intern(fol_lower::LoweredType::Optional { inner: pointer_id });
     let mut routine = LoweredRoutine::new(LoweredRoutineId(14), "main", LoweredBlockId(0));

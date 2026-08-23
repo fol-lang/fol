@@ -48,6 +48,10 @@ pub enum LoweredType {
         /// A `ptr[shared, sync, T]` uses `std::sync::Arc` (thread-safe) instead
         /// of `std::rc::Rc`, so it may cross task boundaries (V3_MEM §8.3).
         sync: bool,
+        /// A foreign address token rather than a managed pointer.
+        raw: bool,
+        /// Whether the pointee may be written through.
+        mutable: bool,
     },
     Array {
         element_type: LoweredTypeId,
@@ -204,6 +208,7 @@ impl LoweredTypeTable {
                 shared,
                 weak,
                 sync,
+                ..
             }) => {
                 if *weak {
                     format!("ptr[weak, {}]", nested(*target))
@@ -815,12 +820,16 @@ mod tests {
             shared: false,
             weak: false,
             sync: false,
+            raw: false,
+            mutable: false,
         });
         let shared = table.intern(LoweredType::Pointer {
             target: int_id,
             shared: true,
             weak: false,
             sync: false,
+            raw: false,
+            mutable: false,
         });
         let unique_record = table.intern(LoweredType::Record {
             fields: BTreeMap::from([("value".to_string(), unique)]),
@@ -869,6 +878,8 @@ mod tests {
             shared: true,
             weak: false,
             sync: false,
+            raw: false,
+            mutable: false,
         });
         let nested = table.intern(LoweredType::Record {
             fields: BTreeMap::from([
@@ -988,12 +999,16 @@ mod render_type_tests {
             shared: false,
             weak: true,
             sync: false,
+            raw: false,
+            mutable: false,
         });
         let sync = table.intern(LoweredType::Pointer {
             target: int_id,
             shared: true,
             weak: false,
             sync: true,
+            raw: false,
+            mutable: false,
         });
         assert_eq!(table.render_type(shared), "bor[int]");
         assert_eq!(table.render_type(unique), "bor[mut, int]");

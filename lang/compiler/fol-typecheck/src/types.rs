@@ -227,6 +227,15 @@ pub enum CheckedType {
         /// A `ptr[shared, sync, T]` uses an `Arc` and is thread-safe, so it may
         /// cross task boundaries; `Rc`-backed shared/weak pointers cannot.
         sync: bool,
+        /// A `ptr[raw, T]` or `ptr[raw, mut, T]`: a foreign address token
+        /// rather than a managed pointer. Section 4.8 keeps it non-owning.
+        raw: bool,
+        /// Whether the pointee may be written through. Constness is an ABI fact
+        /// a C caller cannot infer, so it is carried rather than defaulted.
+        ///
+        /// Nullability is *not* here: section 4.8 makes optional wrapping the
+        /// nullability marker, so `opt ptr[raw, T]` is the nullable form.
+        mutable: bool,
     },
     Error {
         inner: Option<CheckedTypeId>,
@@ -332,6 +341,7 @@ impl TypeTable {
                 shared,
                 weak,
                 sync,
+                ..
             }) => {
                 if *weak {
                     format!("ptr[weak, {}]", self.render_type(*target))
@@ -558,5 +568,48 @@ mod tests {
             env_lifetime: false,
         }));
         assert_eq!(table.render_type(routine_id), "fun(int, str): int");
+    }
+}
+
+#[cfg(test)]
+mod raw_pointer_tests {
+    use super::{CheckedType, TypeTable};
+
+    /// `ptr[raw, T]` and `ptr[raw, mut, T]` are distinct types.
+    ///
+    /// Constness is an ABI fact a C caller cannot infer, so it is part of type
+    /// identity rather than a note somewhere.
+    #[test]
+    fn raw_and_raw_mut_are_distinct_types() {
+        let mut table = TypeTable::new();
+        let int = table.intern_builtin(crate::BuiltinType::Int(fol_types::IntWidth::DEFAULT));
+
+        let read_only = table.intern(CheckedType::Pointer {
+            target: int,
+            shared: false,
+            weak: false,
+            sync: false,
+            raw: true,
+            mutable: false,
+        });
+        let writable = table.intern(CheckedType::Pointer {
+            target: int,
+            shared: false,
+            weak: false,
+            sync: false,
+            raw: true,
+            mutable: true,
+        });
+        let managed = table.intern(CheckedType::Pointer {
+            target: int,
+            shared: false,
+            weak: false,
+            sync: false,
+            raw: false,
+            mutable: false,
+        });
+
+        assert_ne!(read_only, writable, "constness must change type identity");
+        assert_ne!(read_only, managed, "raw-ness must change type identity");
     }
 }

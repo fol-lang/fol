@@ -78,7 +78,14 @@ pub enum PointerQualifier {
     /// (`send`/`share`), so it may cross task boundaries — unlike `Rc`-backed
     /// `ptr[shared, T]` (V3_MEM §8.3).
     SharedSync,
+    /// `ptr[raw, T]`: a non-null, read-only foreign address token.
     Raw,
+    /// `ptr[raw, mut, T]`: a non-null, writable foreign address token.
+    ///
+    /// Separate from `Raw` rather than a flag on it, so a match on the
+    /// qualifier cannot forget to distinguish them -- constness is an ABI fact
+    /// a C caller cannot infer.
+    RawMut,
     /// `ptr[weak, T]`: a weak handle to a shared (`ptr[shared, T]`) allocation,
     /// created with `[weak]` and upgraded with `[upg]` (managed pointer family).
     Weak,

@@ -81,6 +81,8 @@ fn core_loads_take_move_only_slots_for_later_reinitialization() {
         shared: false,
         weak: false,
         sync: false,
+        raw: false,
+        mutable: false,
     });
     let mut routine = LoweredRoutine::new(LoweredRoutineId(0), "main", LoweredBlockId(0));
     let source = routine.locals.push(LoweredLocal {
@@ -117,12 +119,16 @@ fn consuming_pointer_deref_moves_pointee_and_replaces_owner() {
         shared: false,
         weak: false,
         sync: false,
+        raw: false,
+        mutable: false,
     });
     let outer_pointer_id = table.intern(LoweredType::Pointer {
         target: inner_pointer_id,
         shared: false,
         weak: false,
         sync: false,
+        raw: false,
+        mutable: false,
     });
     let mut routine = LoweredRoutine::new(LoweredRoutineId(0), "main", LoweredBlockId(0));
     let outer = routine.locals.push(LoweredLocal {
@@ -162,6 +168,8 @@ fn borrowed_pointer_deref_reads_through_both_indirections() {
         shared: false,
         weak: false,
         sync: false,
+        raw: false,
+        mutable: false,
     });
     let borrowed_pointer_id = table.intern(LoweredType::Borrowed {
         inner: pointer_id,
@@ -205,6 +213,8 @@ fn core_loads_clone_mutex_handles_with_move_only_inner_values() {
         shared: false,
         weak: false,
         sync: false,
+        raw: false,
+        mutable: false,
     });
     let mut routine = LoweredRoutine::new(LoweredRoutineId(0), "forward", LoweredBlockId(0));
     let source = routine.locals.push(LoweredLocal {
@@ -341,6 +351,8 @@ fn mutex_wrapping_preserves_move_only_argument_transfer() {
         shared: false,
         weak: false,
         sync: false,
+        raw: false,
+        mutable: false,
     });
     let mut caller = LoweredRoutine::new(LoweredRoutineId(30), "main", LoweredBlockId(0));
     let pointer_arg = caller.locals.push(LoweredLocal {
@@ -460,6 +472,8 @@ fn core_instruction_rendering_takes_unique_record_fields() {
         shared: false,
         weak: false,
         sync: false,
+        raw: false,
+        mutable: false,
     });
     let mut routine = LoweredRoutine::new(LoweredRoutineId(41), "main", LoweredBlockId(0));
     let base = routine.locals.push(LoweredLocal {
@@ -500,6 +514,8 @@ fn core_instruction_rendering_rejects_unique_fields_from_borrowed_bases() {
         shared: false,
         weak: false,
         sync: false,
+        raw: false,
+        mutable: false,
     });
     let borrowed_id = table.intern(LoweredType::Borrowed {
         inner: int_id,
@@ -692,6 +708,8 @@ fn field_stores_move_unique_values_and_global_storage_rejects_them() {
         shared: false,
         weak: false,
         sync: false,
+        raw: false,
+        mutable: false,
     });
     let mut routine = LoweredRoutine::new(LoweredRoutineId(16), "main", LoweredBlockId(0));
     let base = routine.locals.push(LoweredLocal {

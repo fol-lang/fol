@@ -731,6 +731,7 @@ fn substitute_type(
             shared,
             weak,
             sync,
+            ..
         } => {
             let target = substitute_type(type_table, bindings, memo, target)?;
             type_table.intern(LoweredType::Pointer {
@@ -738,6 +739,8 @@ fn substitute_type(
                 shared,
                 weak,
                 sync,
+                raw: false,
+                mutable: false,
             })
         }
         LoweredType::Array { element_type, size } => {
