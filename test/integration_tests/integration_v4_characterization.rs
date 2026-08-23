@@ -315,6 +315,48 @@ fn workspace_identity_ignores_the_build_profile() {
     );
 }
 
+/// The ABI export spelling frozen in section 4.15, now implemented.
+///
+/// M0 checked the fixture in while the evaluator rejected it. M5 made it real,
+/// so the same file now builds and produces a C surface -- which is a stronger
+/// guarantee than the rejection was.
+#[test]
+fn the_frozen_abi_export_spelling_is_implemented() {
+    let fixture = unique_temp_root("v4_frozen_abi_export");
+    let source =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/fail_v4_contract_abi_export");
+    let root = fixture.path().join("abi_export");
+    std::fs::create_dir_all(root.join("src")).expect("package tree");
+    for name in ["build.fol"] {
+        std::fs::copy(source.join(name), root.join(name)).expect("copy");
+    }
+    std::fs::copy(source.join("src/lib.fol"), root.join("src/lib.fol")).expect("copy");
+
+    let output = run_fol_in_dir(
+        &root,
+        &[
+            "code",
+            "build",
+            "--package-store-root",
+            store_root().to_str().expect("store root should be utf-8"),
+        ],
+    );
+    let text = strip_ansi(&format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    ));
+    assert!(
+        output.status.success(),
+        "the frozen ABI export spelling should now build:\n{text}"
+    );
+    assert!(
+        root.join(".fol/install/include/fail_v4_contract_abi_export.h")
+            .is_file(),
+        "the export produced no header:\n{text}"
+    );
+}
+
 /// The frozen `build.fol` spellings from `plan/V4_PLAN.md` section 4.15.
 ///
 /// Each fixture writes a spelling this plan has committed to and asserts what
@@ -326,11 +368,10 @@ fn frozen_build_api_spellings_keep_their_exact_names() {
     let store = store_root();
     let store = store.to_str().expect("store root should be utf-8");
     let cases = [
-        (
-            "fail_v4_contract_abi_export",
-            "unsupported build API call",
-            "set_abi_version",
-        ),
+        // `set_abi_version` and `add_abi_export` are implemented as of M5, so
+        // this fixture now *builds*. It stays in the freeze set because the
+        // point was never the rejection -- it is that the spelling is checked
+        // in, so renaming the method breaks a file rather than passing quietly.
         (
             "fail_v4_contract_native_file",
             "unsupported build API call",
