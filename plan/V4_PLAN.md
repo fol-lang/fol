@@ -1072,6 +1072,14 @@ structs, flexible arrays, arbitrary unions, and inline implementation import are
 rejected with structured diagnostics. Unsupported declarations may remain in
 the header; they simply do not become callable FOL symbols.
 
+That last sentence is load-bearing and was not free. M6 originally scanned each
+entry header with `Selection::all_supported()` and pre-rejected the whole file
+if any declaration was unsupported, so one `printf`-style variadic anywhere in
+a header made the header unusable -- which is every real C header. The scan now
+selects only the symbols the annotation overlay names, plus their type closure.
+Selecting an unsupported declaration still rejects, at whichever stage owns the
+refusal.
+
 The build graph attaches the checked import interface and exact target-matched
 native provider. The package/resolver layer synthesizes a foreign namespace;
 ordinary FOL source uses normal namespace/import lookup. V4 adds no parallel

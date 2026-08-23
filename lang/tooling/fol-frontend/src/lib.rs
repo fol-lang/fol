@@ -4,6 +4,7 @@
 //! above `fol-package` and the compiler pipeline.
 
 pub(crate) mod ansi;
+mod bind;
 mod build_route;
 mod clean;
 mod cli;
@@ -64,6 +65,7 @@ pub use discovery::{
     discover_root_from_explicit_path, discover_root_upward, require_discovered_root,
     DiscoveredRoot, PackageRoot, WorkspaceRoot, PACKAGE_FILE_NAME, WORKSPACE_FILE_NAME,
 };
+pub use bind::{bind_c_command, default_manifest_path};
 pub use editor::{
     editor_completion_command, editor_format_command, editor_highlight_command, editor_lsp_command,
     editor_lsp_stdio, editor_parse_command, editor_references_command, editor_rename_command,

@@ -1345,6 +1345,7 @@ fn parse_tool_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
             ToolSubcommand::SemanticTokens(parse_editor_path_command(cursor, &sub)?)
         }
         "tree" => ToolSubcommand::Tree(parse_tree_command(cursor)?),
+        "bind" => ToolSubcommand::Bind(parse_bind_command(cursor, output.clone())?),
         "clean" | "cl" | "purge" => ToolSubcommand::Clean(UnitCommand),
         "completion" | "completions" | "comp" => {
             ToolSubcommand::Completion(parse_completion_command(cursor)?)
@@ -1361,6 +1362,77 @@ fn parse_tool_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
         output,
         command: subcommand,
     }))
+}
+
+fn parse_bind_command(
+    cursor: &mut ArgCursor,
+    output: FrontendOutputArgs,
+) -> Result<BindCommand, ParseError> {
+    let language = cursor
+        .advance()
+        .ok_or_else(|| ParseError::help(bind_usage()))?
+        .to_string();
+    if language != "c" {
+        return Err(ParseError::invalid_subcommand(format!(
+            "unknown bind language: {language}; V4 exposes exactly one foreign contract, C"
+        )));
+    }
+
+    let mut command = BindCCommand {
+        provider_kind: "object".to_string(),
+        ..BindCCommand::default()
+    };
+    while let Some(token) = cursor.peek() {
+        if token == "--help" || token == "-h" {
+            return Err(ParseError::help(bind_usage()));
+        }
+        if !is_flag(token) {
+            break;
+        }
+        let token = cursor.advance().unwrap().to_string();
+        let (key, _) = split_eq(&token);
+        let value = cursor.take_value(&token, key.trim_start_matches("--"))?;
+        match key {
+            "--alias" => command.alias = value,
+            "--target" => command.target = Some(value),
+            "--header" => command.header = value,
+            "--provider" => command.provider = value,
+            "--provider-kind" => command.provider_kind = value,
+            "--annotations" => command.annotations = Some(value),
+            "--out" => command.out = value,
+            "--fol-model" => command.fol_model = Some(value),
+            _ => {
+                return Err(ParseError::invalid(format!(
+                    "unknown flag for tool bind c: {key}"
+                )))
+            }
+        }
+    }
+
+    for (value, flag) in [
+        (&command.alias, "--alias"),
+        (&command.header, "--header"),
+        (&command.provider, "--provider"),
+        (&command.out, "--out"),
+    ] {
+        if value.is_empty() {
+            return Err(ParseError::missing(format!(
+                "tool bind c requires {flag}; nothing is discovered from the environment"
+            )));
+        }
+    }
+
+    Ok(BindCommand {
+        output,
+        command: BindSubcommand::C(command),
+    })
+}
+
+fn bind_usage() -> String {
+    "Usage: fol tool bind c --alias <NAME> --header <PATH> --provider <PATH> \
+     --out <PATH> [--target <TRIPLE>] [--provider-kind object|static|shared] \
+     [--annotations <PATH>] [--fol-model core|memo|std]"
+        .to_string()
 }
 
 fn parse_editor_path_command(

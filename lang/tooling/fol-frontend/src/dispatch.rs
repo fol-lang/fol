@@ -105,6 +105,9 @@ pub fn dispatch_cli(
             ToolSubcommand::Completion(command) => {
                 crate::completion_command(parse_completion_shell(command.shell))
             }
+            ToolSubcommand::Bind(command) => match &command.command {
+                cli::BindSubcommand::C(command) => crate::bind_c_command(command, config),
+            },
             ToolSubcommand::Clean(_) => {
                 let discovered = discovered_root_for_command(cmd, &config.working_directory)?;
                 let workspace = crate::load_frontend_workspace(&discovered, config)?;
@@ -287,7 +290,8 @@ pub fn dispatch_workspace_command(
             | ToolSubcommand::Rename(_)
             | ToolSubcommand::Complete(_)
             | ToolSubcommand::SemanticTokens(_)
-            | ToolSubcommand::Tree(_) => Err(FrontendError::new(
+            | ToolSubcommand::Tree(_)
+            | ToolSubcommand::Bind(_) => Err(FrontendError::new(
                 FrontendErrorKind::Internal,
                 "unexpected editor command reached workspace dispatcher",
             )),

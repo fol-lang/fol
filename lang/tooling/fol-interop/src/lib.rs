@@ -8,6 +8,7 @@
 
 mod analysis;
 mod anchor;
+mod bind;
 mod generation;
 mod interface;
 mod identity;
@@ -18,6 +19,7 @@ mod source;
 mod toolchain;
 
 pub use analysis::InteropAnalysisPolicyError;
+pub use bind::{bind_c, BindCError, BindCRequest};
 pub use interface::project_imported_interface;
 pub use anchor::H7InteropAnchorError;
 pub use lock::{LOCKED_GERC_REVISION, LOCKED_LINC_REVISION, LOCKED_PARC_REVISION};

@@ -5,6 +5,7 @@ pub mod parser;
 mod tests;
 
 pub use args::{
+    BindCCommand, BindSubcommand,
     BuildCommand, BuildOptionArgs, BuildStepArgs, CheckCommand, CodeCommand, CodeSubcommand,
     CompileRootArgs, CompleteCommand, CompletionCommand, CompletionShellArg, EditorPathCommand,
     EditorReferenceCommand, EditorRenameCommand, EmitCommand, EmitLoweredCommand, EmitRustCommand,

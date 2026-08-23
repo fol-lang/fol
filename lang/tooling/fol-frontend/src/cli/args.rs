@@ -269,6 +269,41 @@ pub enum ToolSubcommand {
     Tree(TreeCommand),
     Clean(UnitCommand),
     Completion(CompletionCommand),
+    Bind(BindCommand),
+}
+
+/// `fol tool bind c` and any future language lane.
+///
+/// Spelled as a subcommand rather than a `--language` flag because section
+/// 4.13 makes the C lane deliberately C-specific: another language would need
+/// its own options, not a different value for one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BindSubcommand {
+    C(BindCCommand),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BindCommand {
+    pub output: FrontendOutputArgs,
+    pub command: BindSubcommand,
+}
+
+/// Every fact the checked C pipeline needs, stated explicitly.
+///
+/// Nothing here is discovered from the environment: section 4.13 disables
+/// ambient target, `CPATH`, SDK, compiler, and sysroot discovery in
+/// reproducible mode, and this command is the reproducible mode.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BindCCommand {
+    pub alias: String,
+    pub target: Option<String>,
+    pub header: String,
+    pub provider: String,
+    pub provider_kind: String,
+    pub annotations: Option<String>,
+    pub out: String,
+    /// The capability model the import is checked against.
+    pub fol_model: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
