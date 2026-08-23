@@ -19,7 +19,7 @@ $(info Project: $(PROJECT_NAME))
 $(info Version: $(CURRENT_VERSION))
 $(info ------------------------------------------)
 
-.PHONY: build b compile c fmt f fmt-changed fmt-check lint run r test t test-network print-version tree tree-test interop-check interop-locked test-interop verify verify-all help h clean docs release
+.PHONY: build b compile c fmt f fmt-changed fmt-check lint run r test t test-network print-version tree tree-test interop-check interop-locked test-interop test-build-actions verify verify-all help h clean docs release
 
 SHELL := /bin/bash
 
@@ -118,6 +118,16 @@ TEST_ARGS ?=
 test:
 	@cargo test --workspace $(TEST_ARGS)
 
+# The action graph and materializer gate. Separate from `test` because these
+# exercise filesystem publication, process locks, and tool execution: a failure
+# here means a build could publish a partial tree or run an untrusted binary,
+# which is worth naming rather than burying in a workspace-wide run.
+test-build-actions:
+	@set -eu; \
+		for module in action_graph action_trust materialize plan; do \
+			cargo test -p fol-build "$$module::" || exit 1; \
+		done
+
 # The only #[ignore]d tests in the tree fetch real repositories over the
 # network, so they stay out of `verify` and run on demand (and nightly in CI).
 test-network:
@@ -128,7 +138,7 @@ print-version:
 
 t: test
 
-verify: fmt-check lint test interop-check test-interop
+verify: fmt-check lint test test-build-actions interop-check test-interop
 
 verify-all: verify test-network
 

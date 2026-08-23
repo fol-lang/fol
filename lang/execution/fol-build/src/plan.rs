@@ -789,3 +789,108 @@ pub fn resolve_graph_artifacts(
         })
         .collect()
 }
+
+/// Where each output role installs, per section 4.16.
+///
+/// The destination is a function of the role and the target, not of the file
+/// name: a static archive is `lib/libcore.a` on ELF and `lib/core.lib` on MSVC,
+/// and reading the extension to decide would get that backwards on MinGW, which
+/// mixes the two conventions.
+pub fn install_destination_for_role(
+    role: OutputRole,
+    artifact: &str,
+    target: &fol_types::ResolvedTarget,
+) -> Option<String> {
+    Some(match role {
+        OutputRole::Executable | OutputRole::TestExecutable => {
+            format!("bin/{}", target.executable_file_name(artifact))
+        }
+        OutputRole::StaticArchive => format!("lib/{}", target.archive_file_name(artifact)),
+        OutputRole::SharedLibrary => {
+            format!("lib/{}", target.shared_library_file_name(artifact))
+        }
+        OutputRole::CHeader => format!("include/{artifact}.h"),
+        OutputRole::AbiManifest => format!("share/fol/abi/{artifact}.folabi.json"),
+        // An object and its link-interface sidecar are build inputs for a later
+        // link, not consumable installed artifacts. Debug symbols follow the
+        // binary and are placed by the target's own convention, which V4 has
+        // not specified.
+        OutputRole::Object | OutputRole::NativeLinkInterface | OutputRole::DebugSymbols => {
+            return None
+        }
+    })
+}
+
+#[cfg(test)]
+mod install_role_tests {
+    use super::{install_destination_for_role, OutputRole};
+
+    #[test]
+    fn install_destinations_match_the_frozen_layout() {
+        let linux = fol_types::ResolvedTarget::resolve("x86_64-unknown-linux-gnu").unwrap();
+        assert_eq!(
+            install_destination_for_role(OutputRole::Executable, "app", &linux),
+            Some("bin/app".to_string())
+        );
+        assert_eq!(
+            install_destination_for_role(OutputRole::StaticArchive, "core", &linux),
+            Some("lib/libcore.a".to_string())
+        );
+        assert_eq!(
+            install_destination_for_role(OutputRole::SharedLibrary, "core", &linux),
+            Some("lib/libcore.so".to_string())
+        );
+        assert_eq!(
+            install_destination_for_role(OutputRole::CHeader, "core", &linux),
+            Some("include/core.h".to_string())
+        );
+        assert_eq!(
+            install_destination_for_role(OutputRole::AbiManifest, "core", &linux),
+            Some("share/fol/abi/core.folabi.json".to_string())
+        );
+    }
+
+    /// The destination follows the target, not the file name.
+    #[test]
+    fn install_destinations_follow_the_target_convention() {
+        let msvc = fol_types::ResolvedTarget::resolve("x86_64-pc-windows-msvc").unwrap();
+        assert_eq!(
+            install_destination_for_role(OutputRole::Executable, "app", &msvc),
+            Some("bin/app.exe".to_string())
+        );
+        assert_eq!(
+            install_destination_for_role(OutputRole::StaticArchive, "core", &msvc),
+            Some("lib/core.lib".to_string())
+        );
+
+        // MinGW mixes conventions: ELF-style archive, PE-style shared library.
+        // Deriving either from the other would be wrong here.
+        let mingw = fol_types::ResolvedTarget::resolve("x86_64-pc-windows-gnu").unwrap();
+        assert_eq!(
+            install_destination_for_role(OutputRole::StaticArchive, "core", &mingw),
+            Some("lib/libcore.a".to_string())
+        );
+        assert_eq!(
+            install_destination_for_role(OutputRole::SharedLibrary, "core", &mingw),
+            Some("lib/core.dll".to_string())
+        );
+    }
+
+    /// Roles that are build inputs rather than consumable artifacts do not
+    /// install, and say so by returning nothing.
+    #[test]
+    fn build_input_roles_do_not_install() {
+        let linux = fol_types::ResolvedTarget::resolve("x86_64-unknown-linux-gnu").unwrap();
+        for role in [
+            OutputRole::Object,
+            OutputRole::NativeLinkInterface,
+            OutputRole::DebugSymbols,
+        ] {
+            assert_eq!(
+                install_destination_for_role(role, "core", &linux),
+                None,
+                "{role:?} must not install"
+            );
+        }
+    }
+}

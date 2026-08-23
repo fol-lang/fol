@@ -5,6 +5,7 @@
 
 pub mod action;
 pub mod action_graph;
+pub mod action_trust;
 pub mod api;
 pub mod artifact;
 pub mod codegen;

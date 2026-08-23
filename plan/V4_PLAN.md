@@ -1738,11 +1738,31 @@ Tasks:
   success and a later step reads a stale file or fails far from the cause.
   Negative-controlled -- removing the check makes
   `a_successful_tool_that_omits_its_output_fails` fail.
-- [ ] Implement actual install/copy behavior with target-specific roles and
-  collision checks.
-- [ ] Fingerprint tools and inputs without printing secret environment values.
-- [ ] Keep dependency-provided executable tools disabled until a separate trust
-  policy exists.
+- [x] Implement actual install/copy behavior with target-specific roles and
+  collision checks. `materialize` executes `Copy` and `Install` for real, and
+  `plan::install_destination_for_role` maps a role plus a target to a
+  destination. The destination is a function of the role and the target, never
+  of the file name: reading an extension to decide would get MinGW backwards,
+  since it uses an ELF-style `libcore.a` with a PE-style `core.dll`. Roles that
+  are build inputs rather than consumable artifacts -- object, link-interface
+  sidecar, debug symbols -- return no destination rather than a guessed one.
+  Collisions are caught by `DuplicateInstallDestination` before execution.
+- [x] Fingerprint tools and inputs without printing secret environment values.
+  `fol-build/src/action_trust.rs`. A `ToolFingerprint` records the path, a
+  content digest, the size, and the **names** of the environment variables the
+  action set -- never their values, because a build fingerprint is written into
+  metadata that travels with the artifact. `BuildAction::cache_identity` hashes
+  values where they must affect identity, so two builds differing only in a
+  secret still differ.
+- [x] Keep dependency-provided executable tools disabled until a separate trust
+  policy exists. `check_tool_is_runnable` refuses a dependency-provided tool
+  and explains why -- running one lets a transitively chosen package execute
+  code on the build machine, and V4 has no way to say which packages may. It
+  also refuses a bare tool name, which would resolve through `PATH` at
+  execution time and make the build depend on the caller's environment.
+
+  The check runs inside `run_tool`, at the point of execution, so no code path
+  can reach an exec without passing it.
 
 Tests:
 

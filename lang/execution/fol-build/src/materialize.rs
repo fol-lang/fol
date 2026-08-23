@@ -33,6 +33,11 @@ pub enum MaterializeError {
         action: String,
         path: String,
     },
+    /// A tool may not be run: dependency-provided, or not an absolute path.
+    ToolRefused {
+        action: String,
+        reason: crate::action_trust::ToolTrustError,
+    },
     /// A tool exited with a failing status.
     ToolFailed {
         action: String,
@@ -64,6 +69,9 @@ impl std::fmt::Display for MaterializeError {
                 f,
                 "action '{action}' succeeded without producing its declared output '{path}'"
             ),
+            Self::ToolRefused { action, reason } => {
+                write!(f, "action '{action}' cannot run: {reason}")
+            }
             Self::ToolFailed {
                 action,
                 status,
@@ -326,6 +334,14 @@ fn run_tool(
     env: &[(String, String)],
     capture_stdout: Option<&str>,
 ) -> Result<(), MaterializeError> {
+    // Checked here rather than at declaration time so no path can reach an
+    // exec without passing the policy.
+    crate::action_trust::check_tool_is_runnable(tool, crate::action_trust::ToolProvenance::System)
+        .map_err(|reason| MaterializeError::ToolRefused {
+            action: action.name.clone(),
+            reason,
+        })?;
+
     let mut command = std::process::Command::new(tool);
     command.args(args).current_dir(staging);
     for (name, value) in env {
@@ -396,6 +412,17 @@ mod tests {
     use super::*;
     use crate::action::{BuildActionInput, BuildActionOutput, BuildActionPayload};
     use crate::plan::OutputRole;
+
+    /// A no-op tool by absolute path. The trust policy refuses a bare name,
+    /// because it would resolve through `PATH` at execution time.
+    fn absolute_true() -> String {
+        for candidate in ["/bin/true", "/usr/bin/true"] {
+            if std::path::Path::new(candidate).exists() {
+                return candidate.to_string();
+            }
+        }
+        panic!("no absolute `true` found; the test environment moved");
+    }
 
     fn fixture(label: &str) -> fol_testkit::TempFixture {
         fol_testkit::TempFixture::new(&format!("fol_materialize_{label}"))
@@ -516,7 +543,7 @@ mod tests {
         let id = graph.add_action(
             "quiet-tool",
             BuildActionPayload::SystemTool {
-                tool: "true".to_string(),
+                tool: absolute_true(),
                 args: Vec::new(),
                 env: Vec::new(),
                 capture_stdout: None,
@@ -631,6 +658,41 @@ mod tests {
             report.outputs
         };
         assert_eq!(build("repro_one"), build("repro_two"));
+    }
+
+    /// The trust policy is enforced at the point of execution, so no code path
+    /// can reach an exec without passing it.
+    #[test]
+    fn a_tool_that_fails_the_trust_policy_never_runs() {
+        let root = fixture("trust");
+        let mut graph = BuildActionGraph::new();
+        let id = graph.add_action(
+            "bare-name-tool",
+            BuildActionPayload::SystemTool {
+                // A bare name would resolve through PATH at execution time.
+                tool: "true".to_string(),
+                args: Vec::new(),
+                env: Vec::new(),
+                capture_stdout: None,
+            },
+        );
+        graph
+            .action_mut(id)
+            .unwrap()
+            .outputs
+            .push(BuildActionOutput {
+                path: "out/result.txt".to_string(),
+                role: OutputRole::Object,
+            });
+
+        let published = root.path().join("published");
+        let error = materialize(&graph, &["out"], &[], root.path(), &published)
+            .expect_err("the tool should be refused");
+        assert!(
+            matches!(error, MaterializeError::ToolRefused { .. }),
+            "expected a trust refusal, got: {error}"
+        );
+        assert!(!published.exists(), "nothing may be published");
     }
 
     /// Only the requested closure runs.
