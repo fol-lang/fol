@@ -129,7 +129,23 @@ macro_rules! explanation {
 /// - `K10*` — `fol-package` (`PackageErrorKind`)
 /// - `K11*` — `fol-build` (`BuildEvaluationErrorKind`)
 /// - `F*`  — `fol-frontend` (`FrontendErrorKind`)
+/// - `A*`  — `fol-abi` (`AbiRejection`), the C ABI boundary
 static REGISTRY: &[Explanation] = &[
+    explanation!(
+        "A1001",
+        "type cannot cross the C boundary",
+        "A declaration selected for C export or import uses a type with no canonical C\n         projection.\n\n         The diagnostic names the exact nested field rather than the declaration alone: for a\n         record of a record of a `vec`, `Outer.middle.items` is what has to change, and\n         \"this type is not projectable\" is not actionable.\n\n         Common causes, each with its own reason in the message:\n         - an internal container (`str`, `vec`, `map`, `opt`, `seq`) with no explicit projection\n         - a generic declaration or an unsubstituted parameter; wrap it in a non-generic form\n         - an anonymous aggregate, which has no name to give the generated C type\n         - `i128`/`u128`, which have no portable C counterpart\n         - `arch`/`uarch`, which are target-dependent by construction\n         - a character encoding other than `utf32`\n         - a routine, protocol, closure, channel, eventual, mutex, or task object\n         - an aggregate that contains itself by value\n\n         Section 4.6 of plan/V4_PLAN.md is the full matrix of what does cross."
+    ),
+    explanation!(
+        "A1002",
+        "invalid external symbol",
+        "An ABI export names an external C symbol that cannot be used.\n\n         An external name is exact: it is never mangled and never inferred from the FOL path.\n         It must be a nonempty ASCII C identifier, must not be reserved in C, and must be unique\n         within the artifact's export set.\n\n         C reserves more than its keywords: any identifier containing a double underscore, and\n         any identifier beginning with an underscore followed by an uppercase letter, belongs to\n         the implementation in every scope. A symbol that collides with one is allowed to break\n         in a future toolchain release without that being a bug.\n\n         A duplicate is reported rather than resolved by order, because which definition a linker\n         picks is not what the author wrote down."
+    ),
+    explanation!(
+        "A1003",
+        "incomplete raw pointer contract",
+        "A raw pointer crossing the C boundary is missing a fact a C caller cannot infer.\n\n         A raw address token carries four separate contracts, and none has a safe default:\n         - mutability: whether the callee may write through it\n         - nullability: `ptr[raw, T]` is non-null; `opt ptr[raw, T]` is the nullable form\n         - ownership: whether the receiver must release it, or must not\n         - escape: whether it may be retained past the call\n\n         When ownership transfers, the paired destroy routine is part of the contract too.\n         Guessing any of these produces a signature that compiles and leaks, double-frees, or\n         reads freed memory at runtime.\n\n         Section 4.8 of plan/V4_PLAN.md specifies the model."
+    ),
     explanation!(
         "O1001",
         "ownership violation",
@@ -766,15 +782,29 @@ mod tests {
         assert_eq!(family_for_code("a1001").0, "ABI");
     }
 
-    /// The ABI family is reserved, not populated. M0 adds the label so V4
-    /// producers have a family to emit into; a code only becomes real when
-    /// something constructs it, so registering one now would document a
-    /// diagnostic that cannot be produced.
+    /// The ABI family now carries registered codes.
+    ///
+    /// M0 reserved the family and asserted the registry stayed empty of it,
+    /// because registering a code with no construction site documents a
+    /// diagnostic that cannot be produced. M4 gave each of these a producer in
+    /// `fol-abi`, so the guard becomes the opposite assertion.
     #[test]
-    fn abi_family_is_reserved_without_registered_codes() {
+    fn abi_codes_are_registered_with_construction_sites() {
         assert_eq!(family_for_code("A1001").0, "ABI");
-        assert!(explanation("A1001").is_none());
-        assert!(!registered_codes().any(|code| code.starts_with('A')));
+        for code in ["A1001", "A1002", "A1003"] {
+            let explanation =
+                explanation(code).unwrap_or_else(|| panic!("{code} should be registered"));
+            assert_eq!(explanation.code, code);
+            assert!(!explanation.title.is_empty());
+            // An explanation that only restates the title is not an
+            // explanation.
+            assert!(explanation.body.len() > explanation.title.len() * 4);
+        }
+        // Nothing beyond the three with producers.
+        let registered: Vec<&str> = registered_codes()
+            .filter(|code| code.starts_with('A'))
+            .collect();
+        assert_eq!(registered, vec!["A1001", "A1002", "A1003"]);
     }
 
     #[test]

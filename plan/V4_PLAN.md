@@ -2074,22 +2074,65 @@ Tasks:
   transitively by `the_prohibition_holds_through_fol_types`;
   `fol_abi_is_a_workspace_default_member` also asserts the workspace version
   did not move.
-- [ ] Define `AbiTypeId`, `AbiTypeTable`, canonical shapes from Section 4.6,
+- [~] Define `AbiTypeId`, `AbiTypeTable`, canonical shapes from Section 4.6,
   `ForeignInterfaceTemplate`, `ForeignInterface`, `ResolvedAbiSurface`,
   manifests, canonical encoding, fingerprints, and compatibility types in
   `fol-abi`; make `LoweredWorkspace` carry those canonical types rather than a
-  compiler-local copy.
-- [ ] Add a verifier that rejects every non-projectable type before backend
+  compiler-local copy. All of the types exist in `fol-abi`.
+
+  Canonical encoding is written by hand rather than through a serializer,
+  because section 4.11 requires sorted keys, semantic arrays in defined order,
+  and byte-identical output, and a derived serializer guarantees none of those.
+  Record fields and routine parameters keep declaration order because it is an
+  ABI fact; routines are sorted by symbol because their declaration order is
+  not. Compatibility compares types *structurally*, since an `AbiTypeId` is a
+  position in a table and inserting an unrelated type renumbers it.
+
+  `LoweredWorkspace` does not yet carry the interface: nothing constructs one
+  until an export surface exists, which is M5.
+- [x] Add a verifier that rejects every non-projectable type before backend
   emission and reports the complete path to the offending nested field.
+  `fol-abi/src/verify.rs`. It walks a caller-supplied `CandidateType` rather
+  than a compiler type, because `fol-abi` may not depend on `fol-typecheck` or
+  `fol-lower`: the compiler describes what it has, and this crate decides
+  whether it is legal.
+
+  It reports *every* problem rather than the first, so one build round fixes
+  all of them, and it follows a pointer's target and an aggregate's fields to
+  give paths like `Outer.middle.items` and `p.*`. By-value recursion is caught
+  by an active-name stack rather than a depth limit, so it terminates with a
+  named reason instead of a stack overflow.
 - [ ] Keep package visibility separate from ABI export selection.
-- [ ] Add stable ABI diagnostics with primary declaration, related offending
+- [x] Add stable ABI diagnostics with primary declaration, related offending
   field/native attachment, note, help, and exact code; register explanations
-  only for codes with construction sites.
-- [ ] Implement only lossless numeric `as`; remove every remaining `cast`
-  spelling and keep pointer/ownership/transmute conversions rejected.
-- [ ] Remove `.de_alloc`; model paired destroy routines instead.
-- [ ] Serialize the deterministic manifest model and compute separate interface
-  and build fingerprints.
+  only for codes with construction sites. `A1001` (type cannot cross the C
+  boundary), `A1002` (invalid external symbol), and `A1003` (incomplete raw
+  pointer contract) are registered, each with a producer in `fol-abi`.
+  `AbiClassification` supplies the related field path.
+
+  M0's guard asserted the registry stayed empty of `A*` codes, because
+  registering one with no construction site documents a diagnostic that cannot
+  be produced. It is now the opposite assertion, and still checks that nothing
+  beyond the three producers is registered.
+- [x] Implement only lossless numeric `as`; remove every remaining `cast`
+  spelling and keep pointer/ownership/transmute conversions rejected. Done
+  before M4: `cast` is deleted, and `plan/V4_SCALAR_WIDTHS.md` chose
+  `.widen`/`.narrow` over `as` as the spelling -- section 4.9 records the
+  revalidation. Widening is infallible, narrowing returns `/ E`, the surface is
+  integer widths only, and pointer, ownership, bit-reinterpretation, and
+  container conversions all stay rejected.
+- [x] Remove `.de_alloc`; model paired destroy routines instead. Removed in
+  M0, with guard tests asserting the name resolves to nothing. The paired
+  destroy routine is now modelled: `AbiType::Pointer` carries a `destructor`,
+  and the verifier rejects an ownership transfer that names none -- a leak the
+  signature could not otherwise express.
+- [x] Serialize the deterministic manifest model and compute separate interface
+  and build fingerprints. `AbiManifest::canonical_json` embeds the interface
+  document verbatim, so the bytes hashed by `interface_fingerprint` appear
+  unchanged inside the full manifest. The two fingerprints are independent:
+  `a_compiler_upgrade_moves_only_the_build_fingerprint` asserts a toolchain
+  change moves the build one and not the interface one, which is what keeps an
+  upgrade from reading as an ABI break.
 - [ ] Add compiler metadata APIs used by LSP/build completion; do not duplicate
   type matrices in editor code.
 

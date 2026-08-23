@@ -9,6 +9,7 @@ pub mod compat;
 pub mod interface;
 pub mod manifest;
 pub mod types;
+pub mod verify;
 
 pub use compat::{
     classify_duplicate_symbols, classify_external_symbol, is_reserved_c_identifier,
@@ -26,3 +27,4 @@ pub use types::{
     AbiEscape, AbiField, AbiMutability, AbiNullability, AbiOwnership, AbiScalar, AbiType,
     AbiTypeId, AbiTypeTable, AbiVariant,
 };
+pub use verify::{verify_export_set, verify_type, CandidateType};
