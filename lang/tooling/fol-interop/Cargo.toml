@@ -10,6 +10,7 @@ name = "fol_interop"
 path = "src/lib.rs"
 
 [dependencies]
+fol-abi = { path = "../../compiler/fol-abi" }
 fol-build = { path = "../../execution/fol-build" }
 fol-types = { path = "../../compiler/fol-types" }
 # Pinned by git revision, not by sibling path: a fresh clone must be able to

@@ -223,6 +223,7 @@ dependencies = [
 name = "fol-interop"
 version = "0.2.6"
 dependencies = [
+ "fol-abi",
  "fol-build",
  "fol-testkit",
  "fol-types",
