@@ -1639,16 +1639,28 @@ Tasks:
   failure is a leaked credential. Redaction hashes rather than drops, so two
   builds that differ only in a secret still have different identities.
 
-Tests:
+Tests, all landed:
 
-- mixed-target and mixed-profile artifacts retain independent values
-- a library-only graph reaches a library backend plan or gives a precise
-  not-yet-supported error; it never reports a binary success
-- object remains object through every layer
-- existing unknown-target regression proves no external process launched and no
-  mislabeled output appeared
-- serialized/equality round-trip covers every ABI-affecting field
-- frontend summaries show selected kind/target/model before compilation
+```text
+mixed target/profile      mixed_target_and_profile_artifacts_keep_independent_values
+                          -- and asserts the two get different identities, or a
+                          cache would serve one artifact's output for the other
+library-only graph        library_only_graph_reports_a_precise_not_yet_supported_error
+                          -- M0 characterized the old "no such step" message;
+                          the diagnostic now names the real cause and points at
+                          `fol code check`
+no unreachable route      the_library_only_diagnostic_advertises_no_unreachable_step
+                          -- the old message offered `install`, which `fol code`
+                          cannot run
+object stays object       object_remains_object_from_graph_to_backend_config
+                          -- including that it never becomes a test bundle
+unknown target            an_experimental_target_is_refused_before_any_output_exists
+                          -- asserts no `.fol` tree and no leaked rustc error
+ABI-affecting fields      every_abi_affecting_field_changes_the_identity, plus
+                          a_resolved_plan_survives_into_the_backend_config_unchanged
+                          for the equality round-trip
+pre-build summary         the_frontend_announces_kind_target_and_model_before_compiling
+```
 
 Verification:
 

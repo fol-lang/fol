@@ -274,3 +274,100 @@ mod artifact_plan_tests {
         assert!(BackendConfig::default().artifact_plan.is_none());
     }
 }
+
+#[cfg(test)]
+mod artifact_kind_layer_tests {
+    use super::BackendConfig;
+    use fol_build::graph::{BuildArtifactKind, BuildGraph};
+    use fol_build::plan::{
+        resolve_graph_artifacts, OutputRole, ResolvedArtifactKind, ResolvedProvenance,
+    };
+
+    /// Object remains object through every layer it passes.
+    ///
+    /// M1 requires this specifically because an object is the kind most easily
+    /// mistaken for something else: it is not executable, not a library, and
+    /// section 4.3 forbids it ever mapping to a test bundle.
+    #[test]
+    fn object_remains_object_from_graph_to_backend_config() {
+        let mut graph = BuildGraph::new();
+        graph.add_artifact(BuildArtifactKind::Object, "part");
+
+        let plan = resolve_graph_artifacts(&graph, &ResolvedProvenance::default())
+            .into_iter()
+            .next()
+            .expect("the graph declares one artifact");
+        assert_eq!(plan.kind, ResolvedArtifactKind::Object);
+        assert_eq!(plan.primary_output_role(), OutputRole::Object);
+        assert_eq!(plan.primary_output_file_name(), "part.o");
+        assert!(!plan.kind.is_executable());
+
+        let config = BackendConfig {
+            artifact_plan: Some(plan.clone()),
+            ..BackendConfig::default()
+        };
+        let carried = config.artifact_plan.expect("the plan should reach here");
+        assert_eq!(carried.kind, ResolvedArtifactKind::Object);
+        assert_ne!(
+            carried.kind,
+            ResolvedArtifactKind::TestExecutable,
+            "section 4.3: an object must never map to a test bundle"
+        );
+        assert_eq!(
+            carried.outputs.first().map(|output| output.role),
+            Some(OutputRole::Object)
+        );
+    }
+
+    /// Mixed-target and mixed-profile artifacts keep independent values.
+    ///
+    /// One graph can declare artifacts for different targets and profiles, and
+    /// each plan has to keep its own rather than adopting a shared default.
+    #[test]
+    fn mixed_target_and_profile_artifacts_keep_independent_values() {
+        use fol_build::option::BuildOptimizeMode;
+
+        let mut graph = BuildGraph::new();
+        graph.add_configured_artifact(
+            BuildArtifactKind::Executable,
+            "gnu_debug",
+            "src/main.fol",
+            fol_build::artifact::BuildArtifactFolModel::Memo,
+            fol_types::ResolvedTarget::resolve("x86_64-unknown-linux-gnu").unwrap(),
+            BuildOptimizeMode::Debug,
+        );
+        graph.add_configured_artifact(
+            BuildArtifactKind::StaticLibrary,
+            "musl_release",
+            "src/lib.fol",
+            fol_build::artifact::BuildArtifactFolModel::Core,
+            fol_types::ResolvedTarget::resolve("x86_64-unknown-linux-musl").unwrap(),
+            BuildOptimizeMode::ReleaseFast,
+        );
+
+        let plans = resolve_graph_artifacts(&graph, &ResolvedProvenance::default());
+        assert_eq!(plans.len(), 2);
+
+        assert_eq!(plans[0].target.as_str(), "x86_64-unknown-linux-gnu");
+        assert_eq!(plans[0].optimize, BuildOptimizeMode::Debug);
+        assert_eq!(
+            plans[0].fol_model,
+            fol_build::artifact::BuildArtifactFolModel::Memo
+        );
+
+        assert_eq!(plans[1].target.as_str(), "x86_64-unknown-linux-musl");
+        assert_eq!(plans[1].optimize, BuildOptimizeMode::ReleaseFast);
+        assert_eq!(
+            plans[1].fol_model,
+            fol_build::artifact::BuildArtifactFolModel::Core
+        );
+
+        // Independent values must also produce independent identities, or a
+        // cache would serve one artifact's output for the other.
+        let environment = std::collections::BTreeMap::new();
+        assert_ne!(
+            fol_build::plan::identity::plan_identity(&plans[0], &environment),
+            fol_build::plan::identity::plan_identity(&plans[1], &environment)
+        );
+    }
+}

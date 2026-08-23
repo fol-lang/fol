@@ -65,12 +65,14 @@ fn library_only_package(fixture: &crate::fixture::TempFixture) -> PathBuf {
     root
 }
 
-/// A library-only graph does not report a binary success, which is the outcome
-/// M1 is written to prevent. What it reports instead is that `build` is not a
-/// defined step -- correct as far as it goes, and silent about the fact that
-/// building a library is unimplemented rather than unrequested.
+/// M1 positive regression: a library-only graph reports a precise
+/// not-yet-supported error and never a binary success.
+///
+/// M0 characterized this as reporting `build` is not a defined step -- true,
+/// and useless: the user had not forgotten to declare one, and V4 cannot build
+/// a library. M1 replaced that with a diagnostic naming the real cause.
 #[test]
-fn library_only_graph_reports_a_missing_step_not_a_binary_success() {
+fn library_only_graph_reports_a_precise_not_yet_supported_error() {
     let fixture = unique_temp_root("v4_library_only_build");
     let package = library_only_package(&fixture);
 
@@ -94,23 +96,30 @@ fn library_only_graph_reports_a_missing_step_not_a_binary_success() {
         "a library-only graph must not report success for `build`; got:\n{text}"
     );
     assert!(
-        text.contains("does not define step 'build'"),
-        "expected the missing-step diagnostic, got:\n{text}"
+        text.contains("declare no executable or test artifact"),
+        "expected the precise diagnostic, got:\n{text}"
     );
-    // The failure is framed as an absent step rather than as an unsupported
-    // artifact kind. M1 replaces this with a precise not-yet-supported error
-    // that names the library.
     assert!(
-        !text.contains("static library") && !text.contains("not yet supported"),
-        "the diagnostic already names the real cause; convert this test at M1:\n{text}"
+        text.contains("not yet supported"),
+        "the diagnostic must say building a library is unimplemented, not that a \
+         step is missing:\n{text}"
+    );
+    assert!(
+        text.contains("fol code check"),
+        "the diagnostic should point at what the user can do instead:\n{text}"
     );
 }
 
-/// The missing-step diagnostic advertises `install` as an available step, and
-/// `fol code` has no `install` subcommand. The only route a library-only
-/// package is offered cannot be taken.
+/// M1 positive regression: the library-only diagnostic must not advertise a
+/// step the CLI cannot run.
+///
+/// M0 characterized the old message listing "known steps: check, install" while
+/// `fol code` has no `install` subcommand -- the one route a library-only
+/// package was offered could not be taken. The precise diagnostic no longer
+/// lists steps, and this fails if a step catalog comes back with `install` in
+/// it while the subcommand still does not exist.
 #[test]
-fn advertised_install_step_has_no_subcommand_to_run_it() {
+fn the_library_only_diagnostic_advertises_no_unreachable_step() {
     let fixture = unique_temp_root("v4_library_only_install");
     let package = library_only_package(&fixture);
     let store = store_root();
@@ -118,23 +127,24 @@ fn advertised_install_step_has_no_subcommand_to_run_it() {
 
     let advertised = run_fol_in_dir(&package, &["code", "build", "--package-store-root", store]);
     let advertised_text = strip_ansi(&String::from_utf8_lossy(&advertised.stderr));
-    assert!(
-        advertised_text.contains("install"),
-        "expected the diagnostic to list `install` among known steps, got:\n{advertised_text}"
-    );
 
     let attempted = run_fol_in_dir(
         &package,
         &["code", "install", "--package-store-root", store],
     );
     let attempted_text = strip_ansi(&String::from_utf8_lossy(&attempted.stderr));
+
     assert!(
         !attempted.status.success(),
-        "`fol code install` unexpectedly ran; the advertised step became real"
+        "`fol code install` now runs; drop this guard and test the step instead"
     );
     assert!(
         attempted_text.contains("unknown code subcommand: install"),
         "expected the subcommand to be rejected outright, got:\n{attempted_text}"
+    );
+    assert!(
+        !advertised_text.contains("install"),
+        "the build diagnostic offers `install`, which no subcommand can run:\n{advertised_text}"
     );
 }
 
@@ -593,5 +603,73 @@ fn target_precedence_prefers_cli_then_artifact_then_host() {
         built_target(&pinned, &["--target", host.as_str()]),
         host.as_str(),
         "an explicit --target must outrank the artifact's target"
+    );
+}
+
+/// M1: the frontend says what it selected before it compiles it.
+///
+/// The existing summary reports the model and target after the build, and never
+/// reports the artifact kind. On a slow build that is too late to notice a
+/// wrong selection.
+#[test]
+fn the_frontend_announces_kind_target_and_model_before_compiling() {
+    let fixture = unique_temp_root("v4_pre_build_summary");
+    let root = fixture.path().join("announced");
+    std::fs::create_dir_all(root.join("src")).expect("package tree should be creatable");
+    std::fs::write(
+        root.join("build.fol"),
+        r#"pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "announced", version = "0.1.0", kind = "exe",
+        description = "pre-build summary", license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+    var app = graph.add_exe({
+        name = "announced", root = "src/main.fol", fol_model = "memo",
+        target = target, optimize = optimize,
+    });
+    graph.install(app);
+    return;
+};
+"#,
+    )
+    .expect("build.fol should be writable");
+    std::fs::write(
+        root.join("src/main.fol"),
+        "use std: pkg = {\"std\"};\n\nfun[] main(): non = {\n    std::io::echo_str(\"ONE\");\n    return;\n};\n",
+    )
+    .expect("main.fol should be writable");
+
+    let host = fol_types::ResolvedTarget::host().expect("host should resolve");
+    let output = run_fol_in_dir(
+        &root,
+        &[
+            "code",
+            "build",
+            "--package-store-root",
+            store_root().to_str().expect("store root should be utf-8"),
+        ],
+    );
+    let text = strip_ansi(&String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "build should succeed; got:\n{text}"
+    );
+
+    let announcement = text
+        .lines()
+        .find(|line| line.starts_with("building announced"))
+        .unwrap_or_else(|| panic!("no pre-build announcement in:\n{text}"));
+    assert!(
+        announcement.contains("[executable]"),
+        "the announcement should name the artifact kind: {announcement}"
+    );
+    assert!(
+        announcement.contains(host.as_str()),
+        "the announcement should name the target: {announcement}"
     );
 }

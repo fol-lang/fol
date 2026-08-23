@@ -982,6 +982,27 @@ fn unknown_workspace_build_step_error(
         .iter()
         .map(|member| member.package_name.as_str())
         .collect::<Vec<_>>();
+
+    // A graph that declares only libraries has no `build` step because
+    // `synthesized_default_steps` emits steps for executables and tests only.
+    // Reporting that as a missing step is true and useless: the user did not
+    // forget to declare one, and V4 cannot build a library yet. Say that.
+    if matches!(requested_step, "build" | "run" | "test")
+        && declares_no_runnable_artifact(member_plans)
+    {
+        {
+            return FrontendError::new(
+                FrontendErrorKind::InvalidInput,
+                format!(
+                    "workspace members {} declare no executable or test artifact, so there \
+                     is no '{requested_step}' step to run. Building a library artifact is \
+                     not yet supported. Add an executable artifact, or use 'fol code check'",
+                    members.join(", ")
+                ),
+            );
+        }
+    }
+
     let known_steps = render_known_workspace_steps(member_plans);
     FrontendError::new(
         FrontendErrorKind::InvalidInput,
@@ -991,6 +1012,25 @@ fn unknown_workspace_build_step_error(
             known_steps
         ),
     )
+}
+
+/// Whether the route offers no step that builds or runs something.
+///
+/// `synthesized_default_steps` emits `build`/`run` for executables and `test`
+/// for tests, so their total absence means the graph declares neither. That is
+/// the library-only case, and it is a different failure from asking for a step
+/// nobody defined.
+fn declares_no_runnable_artifact(member_plans: &[FrontendMemberExecutionPlan]) -> bool {
+    !member_plans.iter().any(|plan| {
+        plan.steps.iter().any(|step| {
+            matches!(
+                step.default_kind,
+                Some(fol_package::BuildDefaultStepKind::Build)
+                    | Some(fol_package::BuildDefaultStepKind::Run)
+                    | Some(fol_package::BuildDefaultStepKind::Test)
+            )
+        })
+    })
 }
 
 fn render_known_workspace_steps(member_plans: &[FrontendMemberExecutionPlan]) -> String {

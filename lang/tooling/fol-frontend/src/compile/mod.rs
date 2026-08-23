@@ -806,7 +806,9 @@ pub(crate) fn build_selected_artifacts_for_profile_with_config(
             prepared_interop.map(|prepared| prepared.backend_plan);
         // The plan reaches the backend whole, rather than as the three fields
         // `backend_config` copies out of it.
-        selected_backend_config.artifact_plan = selection.resolved_plan();
+        let resolved_plan = selection.resolved_plan();
+        announce_selected_artifact(config, selection, resolved_plan.as_ref());
+        selected_backend_config.artifact_plan = resolved_plan;
         let backend_session = fol_backend::BackendSession::new(lowered);
         let artifact = fol_backend::emit_backend_artifact(
             &backend_session,
@@ -1751,4 +1753,34 @@ fn selected_workspace_members(
             }),
         None => Ok(workspace.members.clone()),
     }
+}
+
+/// Print what is about to be built, before it is built.
+///
+/// A build that takes a while should say which artifact, target, and model it
+/// selected while there is still time to notice it picked the wrong one. The
+/// existing summary reports the same facts after the fact, and never reports
+/// the artifact kind at all.
+///
+/// Human mode only: the machine-readable modes carry the same facts in their
+/// structured result, and a stray line would corrupt them.
+fn announce_selected_artifact(
+    config: &FrontendConfig,
+    selection: &FrontendArtifactExecutionSelection,
+    plan: Option<&fol_package::ResolvedArtifactPlan>,
+) {
+    if config.output.mode != crate::output::OutputMode::Human {
+        return;
+    }
+    let kind = plan.map(|plan| plan.kind.as_str()).unwrap_or("package");
+    let model = match selection.fol_model {
+        fol_backend::BackendFolModel::Core => "core",
+        fol_backend::BackendFolModel::Memo => "memo",
+        fol_backend::BackendFolModel::Std => "std",
+    };
+    eprintln!(
+        "building {} [{kind}] for {} ({model})",
+        selection.label,
+        selection.target.as_str()
+    );
 }
