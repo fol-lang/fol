@@ -472,21 +472,6 @@ mod tests {
     use crate::action::{BuildActionInput, BuildActionOutput, BuildActionPayload};
     use crate::plan::OutputRole;
 
-    /// A no-op tool by absolute path. The trust policy refuses a bare name,
-    /// because it would resolve through `PATH` at execution time.
-    fn absolute_true() -> String {
-        for candidate in ["/bin/true", "/usr/bin/true"] {
-            if std::path::Path::new(candidate).exists() {
-                return candidate.to_string();
-            }
-        }
-        panic!("no absolute `true` found; the test environment moved");
-    }
-
-    fn fixture(label: &str) -> fol_testkit::TempFixture {
-        fol_testkit::TempFixture::new(&format!("fol_materialize_{label}"))
-    }
-
     fn write_action(
         graph: &mut BuildActionGraph,
         name: &str,
