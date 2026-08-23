@@ -7,6 +7,17 @@ pub enum FrontendArtifactKind {
     BuildRoot,
     CacheRoot,
     Binary,
+    /// A `.a`/`.lib` static archive.
+    StaticLibrary,
+    /// A `.so`/`.dylib`/`.dll` shared library.
+    SharedLibrary,
+    /// A relocatable object plus its required link-interface sidecar.
+    Object,
+    /// A Windows import library. Rejected until an MSVC or MinGW lane is
+    /// promoted; the variant exists so a diagnostic can name the role.
+    ImportLibrary,
+    /// Platform debug symbols, where the target produces a separate file.
+    DebugSymbols,
     Installed,
     EmittedRust,
     LoweredSnapshot,
@@ -21,6 +32,11 @@ impl FrontendArtifactKind {
             Self::BuildRoot => "build-root",
             Self::CacheRoot => "cache-root",
             Self::Binary => "binary",
+            Self::StaticLibrary => "static-library",
+            Self::SharedLibrary => "shared-library",
+            Self::Object => "object",
+            Self::ImportLibrary => "import-library",
+            Self::DebugSymbols => "debug-symbols",
             Self::Installed => "installed",
             Self::EmittedRust => "emitted-rust",
             Self::LoweredSnapshot => "lowered-snapshot",

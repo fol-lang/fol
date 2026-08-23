@@ -820,6 +820,22 @@ pub(crate) fn build_selected_artifacts_for_profile_with_config(
         let resolved_plan = selection.resolved_plan();
         announce_selected_artifact(config, selection, resolved_plan.as_ref());
         selected_backend_config.artifact_plan = resolved_plan;
+        // Resolve and validate the native link plan before anything is built:
+        // a wrong-target archive must fail here, not inside `ld`.
+        if let Some(binding) = &selection.graph_binding {
+            let link_plan =
+                fol_package::resolve_link_plan(&binding.graph, binding.artifact_id, &[]).map_err(
+                    |error| FrontendError::new(FrontendErrorKind::InvalidInput, error.to_string()),
+                )?;
+            let errors = link_plan.validate();
+            if let Some(first) = errors.first() {
+                return Err(FrontendError::new(
+                    FrontendErrorKind::InvalidInput,
+                    format!("native link plan is invalid: {first}"),
+                ));
+            }
+            selected_backend_config.native_link_plan = Some(link_plan);
+        }
         let backend_session = fol_backend::BackendSession::new(lowered);
         let artifact = fol_backend::emit_backend_artifact(
             &backend_session,
@@ -845,8 +861,11 @@ pub(crate) fn build_selected_artifacts_for_profile_with_config(
                 Some(crate_root),
             ));
         }
+        // Report the product's real role. Everything used to be `Binary`, so a
+        // static library and an executable were indistinguishable to any
+        // consumer of the frontend summary or its JSON.
         result.artifacts.push(FrontendArtifactSummary::new(
-            FrontendArtifactKind::Binary,
+            frontend_role_for_product(selected_backend_config.product_kind()),
             selection.label.clone(),
             Some(std::path::PathBuf::from(binary_path.clone())),
         ));
@@ -1797,4 +1816,15 @@ fn announce_selected_artifact(
         selection.label,
         selection.target.as_str()
     );
+}
+
+/// The frontend role a backend product is reported under.
+fn frontend_role_for_product(kind: fol_backend::BackendProductKind) -> FrontendArtifactKind {
+    match kind {
+        fol_backend::BackendProductKind::Executable
+        | fol_backend::BackendProductKind::TestExecutable => FrontendArtifactKind::Binary,
+        fol_backend::BackendProductKind::StaticLibrary => FrontendArtifactKind::StaticLibrary,
+        fol_backend::BackendProductKind::SharedLibrary => FrontendArtifactKind::SharedLibrary,
+        fol_backend::BackendProductKind::Object => FrontendArtifactKind::Object,
+    }
 }

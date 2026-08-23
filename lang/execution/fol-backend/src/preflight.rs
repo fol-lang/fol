@@ -80,6 +80,72 @@ pub fn ensure_target_toolchain_available(
     Ok(())
 }
 
+/// A native tool the link step needs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeTool {
+    Linker,
+    Archiver,
+    CCompiler,
+    SymbolReader,
+}
+
+impl NativeTool {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Linker => "linker",
+            Self::Archiver => "archiver",
+            Self::CCompiler => "C compiler",
+            Self::SymbolReader => "symbol reader",
+        }
+    }
+
+    /// Candidate program names, most specific first.
+    pub const fn candidates(self) -> &'static [&'static str] {
+        match self {
+            Self::Linker => &["ld", "ld.lld", "lld"],
+            Self::Archiver => &["ar", "llvm-ar"],
+            Self::CCompiler => &["cc", "clang", "gcc"],
+            Self::SymbolReader => &["nm", "llvm-nm"],
+        }
+    }
+}
+
+/// Verify the native tools a link step needs are present.
+///
+/// Runs before compilation for the same reason the standard-library probe
+/// does: discovering a missing archiver from `rustc`'s own error leaves a
+/// half-built tree and reports someone else's diagnostic.
+///
+/// Only checked for products that actually reach a native link. An executable
+/// built entirely by `rustc` needs no separate archiver.
+pub fn ensure_native_tools_available(
+    tools: &[NativeTool],
+) -> Result<Vec<(NativeTool, String)>, TargetToolchainError> {
+    let mut found = Vec::new();
+    for tool in tools {
+        let resolved = tool.candidates().iter().find(|candidate| {
+            Command::new(candidate)
+                .arg("--version")
+                .output()
+                .is_ok_and(|out| out.status.success())
+        });
+        match resolved {
+            Some(name) => found.push((*tool, (*name).to_string())),
+            None => {
+                return Err(TargetToolchainError::ProbeFailed {
+                    target: tool.as_str().to_string(),
+                    detail: format!(
+                        "no {} found; tried {}",
+                        tool.as_str(),
+                        tool.candidates().join(", ")
+                    ),
+                })
+            }
+        }
+    }
+    Ok(found)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{ensure_target_toolchain_available, TargetToolchainError};
@@ -113,5 +179,37 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The tools a native link step needs resolve on the certified lane.
+    #[test]
+    fn native_link_tools_resolve_or_say_what_they_tried() {
+        use super::{ensure_native_tools_available, NativeTool};
+        match ensure_native_tools_available(&[NativeTool::Archiver, NativeTool::CCompiler]) {
+            Ok(found) => assert_eq!(found.len(), 2),
+            Err(error) => {
+                // Outside `nix develop` a tool can genuinely be absent. What
+                // must hold is that the diagnostic names the tool and the
+                // candidates tried, rather than surfacing someone else's error.
+                let text = error.to_string();
+                assert!(text.contains("tried"), "unhelpful diagnostic: {text}");
+            }
+        }
+    }
+
+    #[test]
+    fn every_native_tool_has_candidates_and_a_name() {
+        use super::NativeTool;
+        for tool in [
+            NativeTool::Linker,
+            NativeTool::Archiver,
+            NativeTool::CCompiler,
+            NativeTool::SymbolReader,
+        ] {
+            assert!(!tool.candidates().is_empty(), "{tool:?} has no candidates");
+            assert!(!tool.as_str().is_empty());
+        }
+        assert!(NativeTool::Archiver.candidates().contains(&"ar"));
+        assert_eq!(NativeTool::CCompiler.as_str(), "C compiler");
     }
 }

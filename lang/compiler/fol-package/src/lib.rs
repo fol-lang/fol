@@ -17,6 +17,7 @@ pub mod build_dependency;
 pub mod build_entry;
 pub mod build_eval;
 pub mod build_graph;
+pub mod build_link_plan;
 pub mod build_native;
 pub mod build_option;
 pub mod build_plan;
@@ -90,6 +91,10 @@ pub use build_graph::{
     BuildGraphValidationError, BuildGraphValidationErrorKind, BuildInstall, BuildInstallId,
     BuildInstallKind, BuildInstallTarget, BuildModule, BuildModuleId, BuildModuleKind, BuildOption,
     BuildOptionId, BuildOptionKind, BuildStep, BuildStepDependency, BuildStepId, BuildStepKind,
+};
+pub use build_link_plan::{
+    order_dependents_before_providers, resolve_link_plan, DependencyArtifactExport, LinkAtomOrigin,
+    LinkPlanError, LinkPlanErrorKind, NativeLinkAtom, NativeLinkPlan,
 };
 pub use build_native::{
     NativeArtifactDefinition, NativeArtifactKind, NativeArtifactSet, NativeIncludePath,

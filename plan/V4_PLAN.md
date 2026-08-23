@@ -1892,13 +1892,18 @@ Tasks:
   say which. `Object` returns no crate type and the backend refuses it by name:
   emitting a relocatable object is only correct alongside a sidecar enumerating
   what the final link still needs, and V4 will not fake one.
-- [ ] Derive all certified output names from `ResolvedTarget`; Windows runtime,
+- [x] Derive all certified output names from `ResolvedTarget`; Windows runtime,
   import-library, and platform debug-symbol roles remain rejected until their
-  sibling lanes are promoted.
-- [ ] Preflight rustc target availability, linker, archiver, sysroot, C compiler,
-  and symbol tools before compilation. Rustc target availability already has
-  `fol_backend::preflight::ensure_target_toolchain_available` from M1; extend it
-  rather than adding a second probe.
+  sibling lanes are promoted. `BackendProductKind::output_file_name` and the
+  install layout both read the target's naming rules; `LinkPlanErrorKind`
+  carries `ImportLibraryNotSupported` and `FrameworkNotSupported`, and
+  `FrontendArtifactKind` has `ImportLibrary`/`DebugSymbols` variants so a
+  diagnostic can name a role that is not yet produced.
+- [x] Preflight rustc target availability, linker, archiver, sysroot, C compiler,
+  and symbol tools before compilation. `ensure_native_tools_available` extends
+  the M1 probe rather than adding a second one, and reports which candidates it
+  tried -- discovering a missing archiver from `rustc`'s own error leaves a
+  half-built tree and someone else's diagnostic.
 - [ ] Route `compile/mod.rs` through `fol_build::materialize` so `Compile`,
   `Codegen`, and `Run` actions actually execute, closing the backend-only side
   channel M2 narrowed. Compilation then inherits the materializer's trust
@@ -1909,18 +1914,39 @@ Tasks:
   reads its naming rules. The enum was a third target model, which section 4.4
   forbids, and it was wrong: it mapped every Windows target to `{name}.lib`,
   while MinGW uses the ELF-style `lib{name}.a` with the PE-style `{name}.dll`.
-- [ ] Resolve local, dependency, exact-file, object, system-library, and
+- [x] Resolve local, dependency, exact-file, object, system-library, and
   framework handles into one ordered `NativeLinkPlan`.
-- [ ] Give dependency artifact exports exact role paths, target, content digest,
-  provenance, and transitive link interface.
-- [ ] Validate cycles, self-links, incompatible artifact kinds, target/object
+  `fol-build/src/link_plan.rs`. Nothing deduplicates or sorts atoms: a static
+  link genuinely needs an archive twice sometimes, and dependents must precede
+  providers.
+- [x] Give dependency artifact exports exact role paths, target, content digest,
+  provenance, and transitive link interface. `DependencyArtifactExport` carries
+  all five, and reaches the link command by **exact path** rather than a `-l`
+  name that could resolve to a different file.
+- [x] Validate cycles, self-links, incompatible artifact kinds, target/object
   format, missing roles, duplicate symbols/providers where knowable, and
-  framework platform.
-- [ ] Translate the plan to structured rustc/linker arguments; never concatenate
-  user-provided raw flag strings.
-- [ ] Include toolchain/native inputs/link order in the build fingerprint and
+  framework platform. All nine `LinkPlanErrorKind` variants, run in the frontend
+  before anything is built, so a wrong-target archive fails in FOL's own
+  diagnostic rather than inside `ld`. A repeated *identical* atom is not a
+  duplicate provider; two different origins for one name are.
+- [x] Translate the plan to structured rustc/linker arguments; never concatenate
+  user-provided raw flag strings. `to_rustc_args` emits every element as its own
+  argv item, so a path containing a space or a comma cannot split itself into
+  two arguments. Pinned by
+  `arguments_are_structured_never_concatenated`.
+- [x] Include toolchain/native inputs/link order in the build fingerprint and
   isolate output/cache directories by artifact kind and target.
-- [ ] Report and install every produced role through the frontend.
+  `identity::build_fingerprint` is section 4.11's *build* half -- it moves with
+  the rustc version, product kind, target, profile, and link order, while
+  `stable_workspace_hash` stays the interface half. `identity::cache_segment`
+  keys the output directory by kind as well as target and profile.
+- [x] Report and install every produced role through the frontend.
+  `FrontendArtifactKind` gained `StaticLibrary`, `SharedLibrary`, `Object`,
+  `ImportLibrary`, and `DebugSymbols`; everything used to be `Binary`, so a
+  static library and an executable were indistinguishable in the summary and
+  its JSON. Install destinations come from the frozen section 4.16 layout, so
+  an installed archive is `lib/libcore.a` rather than an extensionless
+  `lib/core`.
 
 Tests:
 

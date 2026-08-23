@@ -215,6 +215,7 @@ fn build_and_run_fixture_with_rustc(source: &str) -> std::process::Output {
         &BackendMachineTarget::host().unwrap(),
         BackendBuildProfile::Release,
         crate::model::BackendProductKind::Executable,
+        &[],
     )
     .expect("rustc build");
     let output = Command::new(&binary)
@@ -1043,6 +1044,7 @@ fn generated_crate_rustc_command_uses_target_for_cross_builds() {
         &BackendMachineTarget::resolve("x86_64-linux-gnu").unwrap(),
         BackendBuildProfile::Release,
         crate::model::BackendProductKind::Executable,
+        &[],
     )
     .expect("generated rustc command");
     let args = command
@@ -1069,6 +1071,7 @@ fn generated_crate_rustc_command_uses_concrete_target_for_host_builds() {
         &BackendMachineTarget::host().unwrap(),
         BackendBuildProfile::Debug,
         crate::model::BackendProductKind::Executable,
+        &[],
     )
     .expect("generated rustc command");
     let args = command
@@ -1105,6 +1108,7 @@ fn generated_crate_rustc_command_appends_typed_link_argv_without_reparsing() {
         BackendBuildProfile::Debug,
         &link_args,
         crate::model::BackendProductKind::Executable,
+        &[],
     )
     .expect("generated rustc command with typed native argv");
     let actual = command
@@ -1135,6 +1139,7 @@ fn generated_crate_rustc_command_preserves_non_utf8_native_argv_units() {
         BackendBuildProfile::Debug,
         &link_args,
         crate::model::BackendProductKind::Executable,
+        &[],
     )
     .expect("generated rustc command with non-UTF8 native argv");
     let actual = command
@@ -1223,6 +1228,7 @@ fn final_rustc_command_adds_exact_anchor_extern_before_opaque_argv() {
         &auxiliary_dir,
         &opaque_argv,
         crate::model::BackendProductKind::Executable,
+        &[],
     )
     .expect("generated command with auxiliary entry");
     let args = command
@@ -1348,6 +1354,7 @@ fn auxiliary_plan_builds_ordered_rlibs_and_runnable_final_binary() {
         profile,
         &plan,
         crate::model::BackendProductKind::Executable,
+        &[],
     )
     .unwrap()
     .is_file());
@@ -1434,6 +1441,7 @@ fn rustc_generated_crate_builder_produces_runnable_release_binary() {
         &host,
         BackendBuildProfile::Release,
         crate::model::BackendProductKind::Executable,
+        &[],
     )
     .expect("rustc build");
     let output = Command::new(&binary).output().expect("run rustc binary");
@@ -1467,6 +1475,7 @@ fn rustc_generated_crate_builder_sanitizes_hyphenated_crate_dir_names() {
         &BackendMachineTarget::host().unwrap(),
         BackendBuildProfile::Release,
         crate::model::BackendProductKind::Executable,
+        &[],
     )
     .expect("rustc build");
 
@@ -1581,6 +1590,7 @@ fn target_scoped_runtime_and_binary_outputs_use_resolved_machine_target_dirs() {
         &machine_target,
         BackendBuildProfile::Release,
         crate::model::BackendProductKind::Executable,
+        &[],
     )
     .expect("rustc build");
     let emitted = emit_backend_artifact(

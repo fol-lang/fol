@@ -123,6 +123,11 @@ pub struct BackendConfig {
     /// filename. `fol_model`, `machine_target`, and `build_profile` above stay
     /// for the routes that have no graph.
     pub artifact_plan: Option<fol_build::plan::ResolvedArtifactPlan>,
+    /// The ordered native link plan for this artifact.
+    ///
+    /// Rendered to structured `rustc` arguments; never concatenated into a raw
+    /// flag string. Absent on routes with no native inputs.
+    pub native_link_plan: Option<fol_build::link_plan::NativeLinkPlan>,
 }
 
 impl Default for BackendConfig {
@@ -137,6 +142,7 @@ impl Default for BackendConfig {
             keep_build_dir: false,
             auxiliary_rust_plan: None,
             artifact_plan: None,
+            native_link_plan: None,
         }
     }
 }

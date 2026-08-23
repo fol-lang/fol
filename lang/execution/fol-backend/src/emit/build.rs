@@ -203,6 +203,7 @@ pub(crate) fn configure_runtime_rustc_command(
 }
 
 #[cfg(test)]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn configure_generated_crate_rustc_command(
     crate_root: &Path,
     main_rs: &Path,
@@ -211,6 +212,7 @@ pub(crate) fn configure_generated_crate_rustc_command(
     machine_target: &BackendMachineTarget,
     profile: BackendBuildProfile,
     product_kind: crate::model::BackendProductKind,
+    native_link_args: &[OsString],
 ) -> BackendResult<Command> {
     configure_generated_crate_rustc_command_with_args(
         crate_root,
@@ -221,6 +223,7 @@ pub(crate) fn configure_generated_crate_rustc_command(
         profile,
         &[],
         product_kind,
+        native_link_args,
     )
 }
 
@@ -234,6 +237,7 @@ pub(crate) fn configure_generated_crate_rustc_command_with_args(
     profile: BackendBuildProfile,
     additional_rustc_args: &[OsString],
     product_kind: crate::model::BackendProductKind,
+    native_link_args: &[OsString],
 ) -> BackendResult<Command> {
     configure_generated_crate_rustc_command_impl(
         crate_root,
@@ -245,6 +249,7 @@ pub(crate) fn configure_generated_crate_rustc_command_with_args(
         None,
         additional_rustc_args,
         product_kind,
+        native_link_args,
     )
 }
 
@@ -263,6 +268,7 @@ pub(crate) fn configure_generated_crate_rustc_command_with_auxiliary(
     auxiliary_build_dir: &Path,
     additional_rustc_args: &[OsString],
     product_kind: crate::model::BackendProductKind,
+    native_link_args: &[OsString],
 ) -> BackendResult<Command> {
     configure_generated_crate_rustc_command_impl(
         crate_root,
@@ -274,6 +280,7 @@ pub(crate) fn configure_generated_crate_rustc_command_with_auxiliary(
         Some((entry_crate_name, entry_rlib, auxiliary_build_dir)),
         additional_rustc_args,
         product_kind,
+        native_link_args,
     )
 }
 
@@ -288,6 +295,7 @@ fn configure_generated_crate_rustc_command_impl(
     auxiliary_entry: Option<(&str, &Path, &Path)>,
     additional_rustc_args: &[OsString],
     product_kind: crate::model::BackendProductKind,
+    native_link_args: &[OsString],
 ) -> BackendResult<Command> {
     let mut command = Command::new("rustc");
     command
@@ -344,6 +352,7 @@ fn configure_generated_crate_rustc_command_impl(
                 auxiliary_build_dir,
             ));
     }
+    command.args(native_link_args);
     command.args(additional_rustc_args);
     Ok(command)
 }
@@ -497,14 +506,19 @@ fn built_binary_output_path(
     product_kind: crate::model::BackendProductKind,
 ) -> BackendResult<PathBuf> {
     let package_name = package_name_for_generated_crate(crate_root)?;
-    let target_dir = machine_target.rust_target_directory_name();
     // A library's file name is a target convention, not the crate name: the
     // same crate is `libcore.a` on ELF and `core.lib` on MSVC.
     let file_name = product_kind.output_file_name(package_name, machine_target);
+    // Isolated by kind as well as target and profile, so a static and a shared
+    // library built from one source for one target cannot overwrite each
+    // other's intermediate output.
     Ok(crate_root
         .join("target")
-        .join(target_dir)
-        .join(profile.as_str())
+        .join(crate::identity::cache_segment(
+            product_kind,
+            machine_target,
+            profile,
+        ))
         .join(file_name))
 }
 
@@ -573,6 +587,7 @@ pub fn build_generated_crate_with_rustc(
     machine_target: &BackendMachineTarget,
     profile: BackendBuildProfile,
     product_kind: crate::model::BackendProductKind,
+    native_link_args: &[OsString],
 ) -> BackendResult<PathBuf> {
     build_generated_crate_with_rustc_args(
         crate_root,
@@ -581,6 +596,7 @@ pub fn build_generated_crate_with_rustc(
         profile,
         &[],
         product_kind,
+        native_link_args,
     )
 }
 
@@ -598,6 +614,7 @@ pub fn build_generated_crate_with_rustc_args(
     profile: BackendBuildProfile,
     additional_rustc_args: &[OsString],
     product_kind: crate::model::BackendProductKind,
+    native_link_args: &[OsString],
 ) -> BackendResult<PathBuf> {
     build_generated_crate_with_rustc_impl(
         crate_root,
@@ -607,6 +624,7 @@ pub fn build_generated_crate_with_rustc_args(
         None,
         additional_rustc_args,
         product_kind,
+        native_link_args,
     )
 }
 
@@ -619,6 +637,7 @@ pub fn build_generated_crate_with_auxiliary_plan(
     profile: BackendBuildProfile,
     plan: &BackendAuxiliaryRustPlan,
     product_kind: crate::model::BackendProductKind,
+    native_link_args: &[OsString],
 ) -> BackendResult<PathBuf> {
     build_generated_crate_with_rustc_impl(
         crate_root,
@@ -628,9 +647,11 @@ pub fn build_generated_crate_with_auxiliary_plan(
         Some(plan),
         plan.final_rustc_argv(),
         product_kind,
+        native_link_args,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_generated_crate_with_rustc_impl(
     crate_root: &Path,
     paths: &BackendBuildPaths,
@@ -639,6 +660,7 @@ fn build_generated_crate_with_rustc_impl(
     auxiliary_plan: Option<&BackendAuxiliaryRustPlan>,
     additional_rustc_args: &[OsString],
     product_kind: crate::model::BackendProductKind,
+    native_link_args: &[OsString],
 ) -> BackendResult<PathBuf> {
     // Complete all plan, source, dependency-order, target, and profile checks
     // before creating outputs or launching the runtime rustc command.
@@ -726,6 +748,7 @@ fn build_generated_crate_with_rustc_impl(
             &auxiliary.build_dir,
             additional_rustc_args,
             product_kind,
+            native_link_args,
         )?,
         None => configure_generated_crate_rustc_command_with_args(
             crate_root,
@@ -736,6 +759,7 @@ fn build_generated_crate_with_rustc_impl(
             profile,
             additional_rustc_args,
             product_kind,
+            native_link_args,
         )?,
     };
     let output = command.output().map_err(|error| {
@@ -804,6 +828,14 @@ pub fn emit_backend_artifact(
         });
     }
 
+    // Rendered once, before either driver: the plan is validated at the graph
+    // layer, and what reaches rustc is a structured argv rather than a flag
+    // string anyone could have concatenated.
+    let native_link_args: Vec<OsString> = config
+        .native_link_plan
+        .as_ref()
+        .map(|plan| plan.to_rustc_args())
+        .unwrap_or_default();
     let built_binary = match config.mode {
         BackendMode::EmitSource => unreachable!("emit source handled above"),
         BackendMode::BuildArtifact => match &config.auxiliary_rust_plan {
@@ -814,6 +846,7 @@ pub fn emit_backend_artifact(
                 config.build_profile,
                 plan,
                 config.product_kind(),
+                &native_link_args,
             )?,
             None => build_generated_crate_with_rustc(
                 &crate_root,
@@ -821,6 +854,7 @@ pub fn emit_backend_artifact(
                 &config.machine_target,
                 config.build_profile,
                 config.product_kind(),
+                &native_link_args,
             )?,
         },
     };

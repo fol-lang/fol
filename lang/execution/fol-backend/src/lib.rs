@@ -64,7 +64,9 @@ pub use emit::{
     ENTRY_ARG_USAGE_EXIT_STATUS,
 };
 pub use error::{BackendError, BackendErrorKind};
-pub use identity::{stable_workspace_hash, BackendWorkspaceIdentity};
+pub use identity::{
+    build_fingerprint, cache_segment, stable_workspace_hash, BackendWorkspaceIdentity,
+};
 pub use instructions::{render_core_instruction, render_core_instruction_in_workspace};
 pub use layout::{
     plan_generated_crate_layout, plan_namespace_layouts, plan_package_layouts,
