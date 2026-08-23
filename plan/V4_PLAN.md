@@ -1784,13 +1784,45 @@ interrupted run           a_failed_run_leaves_the_previous_tree_intact
 reproducibility           two_clean_materializations_agree_on_every_output_hash
 ```
 
-**Not yet wired.** The action graph and materializer are built, tested, and
-gated, and they are not yet the execution path for a real `fol code build`:
-compilation still runs through the backend session, so the `Codegen`,
-`Compile`, and `Run` payloads are declared and ordered but not driven. The
-side channel M2 exists to remove is therefore narrowed rather than closed. M3
-is where compilation moves onto the graph, and the STOP below is what forces
-it.
+> **Verified 2026-08-23**, `make verify` at exit 0: 4,474 tests, no failures,
+> all six stages including `interop-check` and `test-interop`.
+>
+> Two defects were found by reading the committed materializer while the build
+> environment was down, fixed in `0eccf87f`, and each negative-controlled once
+> the environment returned:
+>
+> 1. `publish` used `Path::with_extension("previous")`, which *replaces* an
+>    extension rather than appending. Published roots `app.debug` and
+>    `app.release` both resolved to `/out/app.previous` -- confirmed by
+>    reverting the fix -- and `publish` calls `remove_dir_all` on that path, so
+>    one build could delete the rollback tree another was holding. That
+>    contradicts M2's own parallel-safety requirement; the existing parallel
+>    test missed it because its roots had no extensions.
+>    Now `previous_tree_path`, guarded by
+>    `superseded_tree_paths_do_not_collide_between_published_roots`.
+> 2. A `Copy` action always read from the workspace, so copying a file an
+>    earlier action produced used a stale version -- reverting the fix makes the
+>    copy return `"stale"` instead of `"fresh"`. Now the staged source wins,
+>    guarded by
+>    `a_copy_reads_a_produced_source_rather_than_a_stale_workspace_file`.
+
+**Scope note: compilation is declared here and driven in M3.** The action graph
+and materializer are not the execution path for a real `fol code build`;
+compilation still runs through the backend session, so the `Codegen`, `Compile`,
+and `Run` payloads are declared and ordered but not executed.
+
+That is M3's work, not an unfinished M2 task. M2's ten tasks ask to *store*
+typed payloads, give them inputs/outputs/dependencies/identity, validate them,
+and execute a requested step closure into an atomically published tree -- all of
+which is done. M3 is "Real Backend Artifact Families and Native Link Plans", and
+moving compilation onto the graph is exactly that. M2's STOP is a gate on M3 and
+reads on the graph's *capability*: it can now own, cache, report, and install an
+output, so the gate is satisfied.
+
+The goal sentence above says "compilation ... real graph actions", which is the
+milestone pair's aim rather than M2's checklist. Recording it here so the
+distinction is not rediscovered as a defect: **the backend-only side channel is
+narrowed by M2 and closed by M3.**
 
 Verification:
 
@@ -1806,6 +1838,23 @@ graph still cannot own, cache, report, and install them.
 
 Goal: make the artifact kinds already named by `build.fol` operational before
 exposing foreign language syntax/semantics.
+
+> **Carried in from M2.** M2 built the action graph and materializer
+> (`fol-build/src/{action,action_graph,action_trust,materialize}.rs`) and left
+> compilation running through the backend session, so the `Codegen`, `Compile`,
+> and `Run` payloads are declared and ordered but never executed. Closing the
+> backend-only side channel means routing `compile/mod.rs` through
+> `materialize`, which is why it is an M3 task below rather than an M2 one:
+> compilation cannot move onto the graph until the backend produces real
+> role-tagged artifacts for the graph to own.
+>
+> Two consequences to keep in view while doing it. `materialize` already
+> enforces the trust policy, the missing-declared-output rule, and atomic
+> publication, so routing through it inherits all three -- a compile that
+> silently fails to emit its binary becomes an error rather than a success.
+> And `BackendConfig::artifact_plan` (M1) already carries the resolved plan into
+> the backend, so the `Compile` action has the kind, target, and output roles it
+> needs without reconstructing them.
 
 Primary files:
 
@@ -1829,7 +1878,13 @@ Tasks:
   import-library, and platform debug-symbol roles remain rejected until their
   sibling lanes are promoted.
 - [ ] Preflight rustc target availability, linker, archiver, sysroot, C compiler,
-  and symbol tools before compilation.
+  and symbol tools before compilation. Rustc target availability already has
+  `fol_backend::preflight::ensure_target_toolchain_available` from M1; extend it
+  rather than adding a second probe.
+- [ ] Route `compile/mod.rs` through `fol_build::materialize` so `Compile`,
+  `Codegen`, and `Run` actions actually execute, closing the backend-only side
+  channel M2 narrowed. Compilation then inherits the materializer's trust
+  policy, missing-output rule, and atomic publication.
 - [ ] Replace `NativePlatform`/synthetic framework strings with target-aware
   typed native inputs.
 - [ ] Resolve local, dependency, exact-file, object, system-library, and
