@@ -10,6 +10,8 @@
 //! This crate intentionally does not perform name resolution for ordinary source code.
 
 pub mod build;
+pub mod build_action;
+pub mod build_action_graph;
 pub mod build_api;
 pub mod build_artifact;
 pub mod build_codegen;
@@ -18,6 +20,7 @@ pub mod build_entry;
 pub mod build_eval;
 pub mod build_graph;
 pub mod build_link_plan;
+pub mod build_materialize;
 pub mod build_native;
 pub mod build_option;
 pub mod build_plan;

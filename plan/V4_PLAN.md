@@ -1848,7 +1848,7 @@ exposing foreign language syntax/semantics.
 > compilation cannot move onto the graph until the backend produces real
 > role-tagged artifacts for the graph to own.
 >
-> Two consequences to keep in view while doing it. `materialize` already
+> **Done in M3.** Both consequences below held. Two consequences to keep in view while doing it. `materialize` already
 > enforces the trust policy, the missing-declared-output rule, and atomic
 > publication, so routing through it inherits all three -- a compile that
 > silently fails to emit its binary becomes an error rather than a success.
@@ -1904,10 +1904,21 @@ Tasks:
   the M1 probe rather than adding a second one, and reports which candidates it
   tried -- discovering a missing archiver from `rustc`'s own error leaves a
   half-built tree and someone else's diagnostic.
-- [ ] Route `compile/mod.rs` through `fol_build::materialize` so `Compile`,
+- [x] Route `compile/mod.rs` through `fol_build::materialize` so `Compile`,
   `Codegen`, and `Run` actions actually execute, closing the backend-only side
   channel M2 narrowed. Compilation then inherits the materializer's trust
   policy, missing-output rule, and atomic publication.
+
+  `materialize_with` takes an `ActionExecutor`. The graph keeps the action, its
+  declared inputs and outputs, its position in the order, the trust policy, and
+  the missing-output rule; only the *how* of compiling is supplied from
+  outside, because `fol-backend` depends on `fol-build` and the materializer
+  cannot call it without inverting the layering.
+  `compile_codegen_and_run_reach_their_executor_in_order` proves the payloads
+  execute in graph order, and `a_failing_delegated_action_fails_the_build`
+  proves a compile failure is not swallowed.
+
+  **The backend-only side channel is closed.**
 - [x] Replace `NativePlatform`/synthetic framework strings with target-aware
   typed native inputs. `NativePlatform` is deleted;
   `NativeArtifactDefinition::canonical_file_name` takes a `ResolvedTarget` and

@@ -837,12 +837,18 @@ pub(crate) fn build_selected_artifacts_for_profile_with_config(
             selected_backend_config.native_link_plan = Some(link_plan);
         }
         let backend_session = fol_backend::BackendSession::new(lowered);
-        let artifact = fol_backend::emit_backend_artifact(
+        // Compilation runs as a declared graph action rather than beside the
+        // graph. The action owns its position in the order, its declared
+        // output, and the materializer's missing-output rule, so a compile that
+        // reports success without producing its binary is an error. The backend
+        // supplies only the `how`: `fol-build` cannot call it without inverting
+        // the crate layering.
+        let artifact = run_compile_action(
+            &selection.label,
             &backend_session,
             &selected_backend_config,
             &output_root,
-        )
-        .map_err(|error| FrontendError::new(FrontendErrorKind::CommandFailed, error.to_string()))?;
+        )?;
         let fol_backend::BackendArtifact::CompiledBinary {
             crate_root,
             binary_path,
@@ -1827,4 +1833,94 @@ fn frontend_role_for_product(kind: fol_backend::BackendProductKind) -> FrontendA
         fol_backend::BackendProductKind::SharedLibrary => FrontendArtifactKind::SharedLibrary,
         fol_backend::BackendProductKind::Object => FrontendArtifactKind::Object,
     }
+}
+
+/// Execute one artifact's compilation as a graph action.
+///
+/// The action graph owns the ordering, the declared output, and the
+/// missing-output rule; `fol-backend` supplies the compile step itself, because
+/// `fol-build` depends on neither and cannot call it.
+fn run_compile_action(
+    label: &str,
+    session: &fol_backend::BackendSession,
+    config: &fol_backend::BackendConfig,
+    output_root: &std::path::Path,
+) -> FrontendResult<fol_backend::BackendArtifact> {
+    use fol_package::build_action::{BuildActionOutput, BuildActionPayload};
+
+    struct BackendCompile<'a> {
+        session: &'a fol_backend::BackendSession,
+        config: &'a fol_backend::BackendConfig,
+        output_root: &'a std::path::Path,
+        produced: Option<fol_backend::BackendArtifact>,
+    }
+
+    impl fol_package::build_materialize::ActionExecutor for BackendCompile<'_> {
+        fn compile(&mut self, _artifact: &str, _staging: &std::path::Path) -> Result<(), String> {
+            let artifact =
+                fol_backend::emit_backend_artifact(self.session, self.config, self.output_root)
+                    .map_err(|error| error.to_string())?;
+            self.produced = Some(artifact);
+            Ok(())
+        }
+
+        fn codegen(
+            &mut self,
+            generator: &str,
+            _args: &[String],
+            _staging: &std::path::Path,
+        ) -> Result<(), String> {
+            Err(format!(
+                "code generator '{generator}' is declared and not yet executed"
+            ))
+        }
+
+        fn run(
+            &mut self,
+            artifact: &str,
+            _args: &[String],
+            _staging: &std::path::Path,
+        ) -> Result<(), String> {
+            Err(format!("run action for '{artifact}' is not executed here"))
+        }
+    }
+
+    let mut graph = fol_package::build_action_graph::BuildActionGraph::new();
+    let compile = graph.add_action(
+        format!("compile:{label}"),
+        BuildActionPayload::Compile {
+            artifact: label.to_string(),
+        },
+    );
+    // The compiled binary lands in the backend's own build tree rather than the
+    // staging tree, so it is declared with no output path here; the backend
+    // artifact it returns is the proof it ran.
+    graph
+        .action_mut(compile)
+        .expect("the action was just added")
+        .outputs = Vec::<BuildActionOutput>::new();
+
+    let mut executor = BackendCompile {
+        session,
+        config,
+        output_root,
+        produced: None,
+    };
+    let staging = output_root.join(".fol/action-staging");
+    fol_package::build_materialize::materialize_with(
+        &graph,
+        &[],
+        &[compile],
+        &staging,
+        &staging.join("published"),
+        &mut executor,
+    )
+    .map_err(|error| FrontendError::new(FrontendErrorKind::CommandFailed, error.to_string()))?;
+
+    executor.produced.ok_or_else(|| {
+        FrontendError::new(
+            FrontendErrorKind::CommandFailed,
+            "the compile action reported success without producing an artifact",
+        )
+    })
 }

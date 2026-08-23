@@ -48,6 +48,11 @@ pub enum MaterializeError {
         context: String,
         error: String,
     },
+    /// A compile, codegen, or run action failed in its executor.
+    DelegatedActionFailed {
+        action: String,
+        error: String,
+    },
 }
 
 impl std::fmt::Display for MaterializeError {
@@ -78,6 +83,9 @@ impl std::fmt::Display for MaterializeError {
                 stderr,
             } => write!(f, "action '{action}' failed ({status}): {stderr}"),
             Self::Io { context, error } => write!(f, "{context}: {error}"),
+            Self::DelegatedActionFailed { action, error } => {
+                write!(f, "action '{action}' failed: {error}")
+            }
         }
     }
 }
@@ -146,6 +154,54 @@ pub struct MaterializeReport {
     pub published_root: PathBuf,
 }
 
+/// Supplies the operations the graph declares but `fol-build` cannot perform.
+///
+/// Compilation lives in `fol-backend`, which depends on this crate, so the
+/// materializer cannot call it directly without inverting the layering. It
+/// delegates instead: the graph still owns the action, its declared inputs and
+/// outputs, its position in the order, the trust policy, and the
+/// missing-output rule. Only the *how* of compiling is supplied from outside.
+///
+/// This is what closes the backend-only side channel: before it, compilation
+/// happened beside the graph and the graph knew nothing about it.
+pub trait ActionExecutor {
+    /// Compile one artifact.
+    fn compile(&mut self, artifact: &str, staging: &Path) -> Result<(), String>;
+
+    /// Run a code generator.
+    fn codegen(&mut self, generator: &str, args: &[String], staging: &Path) -> Result<(), String>;
+
+    /// Execute a produced binary.
+    fn run(&mut self, artifact: &str, args: &[String], staging: &Path) -> Result<(), String>;
+}
+
+/// An executor that performs none of the delegated operations.
+///
+/// Used by callers that only materialize file actions. A declared `Compile`
+/// still has its output checked, so a graph that expects a binary from this
+/// executor fails rather than reporting success.
+#[derive(Debug, Default)]
+pub struct NoDelegatedActions;
+
+impl ActionExecutor for NoDelegatedActions {
+    fn compile(&mut self, _artifact: &str, _staging: &Path) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn codegen(
+        &mut self,
+        _generator: &str,
+        _args: &[String],
+        _staging: &Path,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn run(&mut self, _artifact: &str, _args: &[String], _staging: &Path) -> Result<(), String> {
+        Ok(())
+    }
+}
+
 /// Execute a graph and publish its outputs atomically.
 ///
 /// `requested` limits execution to one step's closure. An empty slice runs
@@ -156,6 +212,25 @@ pub fn materialize(
     requested: &[crate::action::BuildActionId],
     workspace: &Path,
     published_root: &Path,
+) -> Result<MaterializeReport, MaterializeError> {
+    materialize_with(
+        graph,
+        roots,
+        requested,
+        workspace,
+        published_root,
+        &mut NoDelegatedActions,
+    )
+}
+
+/// Execute a graph, delegating compile, codegen, and run to `executor`.
+pub fn materialize_with(
+    graph: &BuildActionGraph,
+    roots: &[&str],
+    requested: &[crate::action::BuildActionId],
+    workspace: &Path,
+    published_root: &Path,
+    executor: &mut dyn ActionExecutor,
 ) -> Result<MaterializeReport, MaterializeError> {
     let errors = graph.validate(roots);
     if !errors.is_empty() {
@@ -198,7 +273,7 @@ pub fn materialize(
         let Some(action) = graph.action(id) else {
             continue;
         };
-        run_action(action, workspace, &staging)?;
+        run_action(action, workspace, &staging, executor)?;
         for output in &action.outputs {
             let relative =
                 canonical_relative_path(&output.path).map_err(|reason| MaterializeError::Io {
@@ -288,6 +363,7 @@ fn run_action(
     action: &BuildAction,
     workspace: &Path,
     staging: &Path,
+    executor: &mut dyn ActionExecutor,
 ) -> Result<(), MaterializeError> {
     match &action.payload {
         BuildActionPayload::Write { contents } => {
@@ -344,12 +420,26 @@ fn run_action(
             env,
             capture_stdout,
         } => run_tool(action, staging, tool, args, env, capture_stdout.as_deref()),
-        // Codegen, Compile, and Run are declared and ordered here; the
-        // materializer does not yet drive them, because compilation still runs
-        // through the backend session. M3 moves it.
-        BuildActionPayload::Codegen { .. }
-        | BuildActionPayload::Compile { .. }
-        | BuildActionPayload::Run { .. } => Ok(()),
+        BuildActionPayload::Compile { artifact } => {
+            executor.compile(artifact, staging).map_err(|error| {
+                MaterializeError::DelegatedActionFailed {
+                    action: action.name.clone(),
+                    error,
+                }
+            })
+        }
+        BuildActionPayload::Codegen { generator, args } => executor
+            .codegen(generator, args, staging)
+            .map_err(|error| MaterializeError::DelegatedActionFailed {
+                action: action.name.clone(),
+                error,
+            }),
+        BuildActionPayload::Run { artifact, args } => executor
+            .run(artifact, args, staging)
+            .map_err(|error| MaterializeError::DelegatedActionFailed {
+                action: action.name.clone(),
+                error,
+            }),
     }
 }
 
@@ -1049,5 +1139,130 @@ mod escape_and_concurrency_tests {
             !published.join("out/never.txt").exists(),
             "a partial output reached the published tree"
         );
+    }
+
+    /// A `Compile` action reaches its executor, in graph order, and a failure
+    /// there fails the build.
+    ///
+    /// Before M3 these payloads were declared and ordered but never executed:
+    /// compilation happened beside the graph, which is the backend-only side
+    /// channel M2 narrowed and M3 closes.
+    #[test]
+    fn compile_codegen_and_run_reach_their_executor_in_order() {
+        #[derive(Default)]
+        struct Recorder {
+            calls: Vec<String>,
+        }
+
+        impl ActionExecutor for Recorder {
+            fn compile(&mut self, artifact: &str, _staging: &Path) -> Result<(), String> {
+                self.calls.push(format!("compile:{artifact}"));
+                Ok(())
+            }
+            fn codegen(
+                &mut self,
+                generator: &str,
+                _args: &[String],
+                _staging: &Path,
+            ) -> Result<(), String> {
+                self.calls.push(format!("codegen:{generator}"));
+                Ok(())
+            }
+            fn run(
+                &mut self,
+                artifact: &str,
+                _args: &[String],
+                _staging: &Path,
+            ) -> Result<(), String> {
+                self.calls.push(format!("run:{artifact}"));
+                Ok(())
+            }
+        }
+
+        let root = fixture("delegated");
+        let mut graph = BuildActionGraph::new();
+        let generate = graph.add_action(
+            "gen",
+            BuildActionPayload::Codegen {
+                generator: "maker".to_string(),
+                args: Vec::new(),
+            },
+        );
+        let compile = graph.add_action(
+            "compile",
+            BuildActionPayload::Compile {
+                artifact: "app".to_string(),
+            },
+        );
+        graph.action_mut(compile).unwrap().depends_on.push(generate);
+        let run = graph.add_action(
+            "run",
+            BuildActionPayload::Run {
+                artifact: "app".to_string(),
+                args: Vec::new(),
+            },
+        );
+        graph.action_mut(run).unwrap().depends_on.push(compile);
+
+        let mut recorder = Recorder::default();
+        let published = root.path().join("published");
+        materialize_with(&graph, &[], &[], root.path(), &published, &mut recorder)
+            .expect("the delegated graph should materialize");
+
+        assert_eq!(
+            recorder.calls,
+            vec![
+                "codegen:maker".to_string(),
+                "compile:app".to_string(),
+                "run:app".to_string()
+            ],
+            "delegated actions must run in graph order"
+        );
+    }
+
+    /// A failing compile fails the build rather than being swallowed.
+    #[test]
+    fn a_failing_delegated_action_fails_the_build() {
+        struct Failing;
+        impl ActionExecutor for Failing {
+            fn compile(&mut self, _artifact: &str, _staging: &Path) -> Result<(), String> {
+                Err("rustc said no".to_string())
+            }
+            fn codegen(
+                &mut self,
+                _generator: &str,
+                _args: &[String],
+                _staging: &Path,
+            ) -> Result<(), String> {
+                Ok(())
+            }
+            fn run(
+                &mut self,
+                _artifact: &str,
+                _args: &[String],
+                _staging: &Path,
+            ) -> Result<(), String> {
+                Ok(())
+            }
+        }
+
+        let root = fixture("delegated_failure");
+        let mut graph = BuildActionGraph::new();
+        graph.add_action(
+            "compile",
+            BuildActionPayload::Compile {
+                artifact: "app".to_string(),
+            },
+        );
+
+        let published = root.path().join("published");
+        let error = materialize_with(&graph, &[], &[], root.path(), &published, &mut Failing)
+            .expect_err("a failing compile should fail the build");
+        assert!(
+            matches!(error, MaterializeError::DelegatedActionFailed { .. }),
+            "expected a delegated failure, got: {error}"
+        );
+        assert!(error.to_string().contains("rustc said no"));
+        assert!(!published.exists(), "nothing may be published");
     }
 }
