@@ -1764,14 +1764,33 @@ Tasks:
   The check runs inside `run_tool`, at the point of execution, so no code path
   can reach an exec without passing it.
 
-Tests:
+Tests, all landed in `fol-build` and gated by `make test-build-actions`:
 
-- existing generated/write/copy/install examples create their declared files
-- missing output, duplicate destination, traversal, and symlink escape fail
-- parallel independent actions succeed; colliding actions fail deterministically
-- interrupted action never publishes a partial final output
-- two clean materializations produce identical manifests/hashes when the
-  underlying toolchain claims reproducibility
+```text
+declared files            declared_files_are_created_and_published,
+                          copy_and_install_place_their_files
+missing output            a_successful_tool_that_omits_its_output_fails
+                          (negative-controlled)
+duplicate destination     two_installs_may_not_share_a_destination
+traversal                 traversal_and_absolute_paths_are_rejected,
+                          an_action_path_outside_every_root_is_rejected
+symlink escape            a_symlink_out_of_the_staging_root_is_refused
+parallel / colliding      independent_plans_materialize_in_parallel_and_colliding_ones_do_not,
+                          a_held_lock_refuses_a_second_materialization
+                          (both negative-controlled)
+interrupted run           a_failed_run_leaves_the_previous_tree_intact
+                          (negative-controlled: publishing before executing
+                          makes it fail)
+reproducibility           two_clean_materializations_agree_on_every_output_hash
+```
+
+**Not yet wired.** The action graph and materializer are built, tested, and
+gated, and they are not yet the execution path for a real `fol code build`:
+compilation still runs through the backend session, so the `Codegen`,
+`Compile`, and `Run` payloads are declared and ordered but not driven. The
+side channel M2 exists to remove is therefore narrowed rather than closed. M3
+is where compilation moves onto the graph, and the STOP below is what forces
+it.
 
 Verification:
 

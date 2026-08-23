@@ -212,6 +212,7 @@ pub fn materialize(
                     path: output.path.clone(),
                 });
             }
+            ensure_no_symlink_escape(&staging, &produced)?;
             let contents = io("reading a produced output", fs::read(&produced))?;
             report.outputs.insert(relative, digest(&contents));
         }
@@ -275,7 +276,7 @@ fn run_action(
     match &action.payload {
         BuildActionPayload::Write { contents } => {
             let target = staged_output(action, staging)?;
-            write_file(&target, contents.as_bytes())
+            write_file_checked(staging, &target, contents.as_bytes())
         }
         BuildActionPayload::Copy { source } => {
             let relative =
@@ -286,7 +287,7 @@ fn run_action(
             let from = workspace.join(&relative);
             let contents = io("reading a copy source", fs::read(&from))?;
             let target = staged_output(action, staging)?;
-            write_file(&target, &contents)
+            write_file_checked(staging, &target, &contents)
         }
         BuildActionPayload::Install { destination, .. } => {
             // The install reads its single input and places it at the
@@ -309,7 +310,7 @@ fn run_action(
                     context: format!("action '{}' destination", action.name),
                     error: reason,
                 })?;
-            write_file(&staging.join(destination), &contents)
+            write_file_checked(staging, &staging.join(destination), &contents)
         }
         BuildActionPayload::SystemTool {
             tool,
@@ -360,7 +361,7 @@ fn run_tool(
             context: format!("action '{}' stdout capture", action.name),
             error: reason,
         })?;
-        write_file(&staging.join(relative), &output.stdout)?;
+        write_file_checked(staging, &staging.join(relative), &output.stdout)?;
     }
     Ok(())
 }
@@ -380,11 +381,50 @@ fn staged_output(action: &BuildAction, staging: &Path) -> Result<PathBuf, Materi
     Ok(staging.join(relative))
 }
 
+fn write_file_checked(root: &Path, path: &Path, contents: &[u8]) -> Result<(), MaterializeError> {
+    ensure_no_symlink_escape(root, path)?;
+    write_file(path, contents)
+}
+
 fn write_file(path: &Path, contents: &[u8]) -> Result<(), MaterializeError> {
     if let Some(parent) = path.parent() {
         io("creating an output directory", fs::create_dir_all(parent))?;
     }
     io("writing an output", fs::write(path, contents))
+}
+
+/// Refuse a path that reaches outside `root` through a symlink.
+///
+/// The string check in `action_graph` cannot see this: `out/link/file` is a
+/// well-formed relative path, and whether it escapes depends on what `out/link`
+/// points at on disk. Writing through such a link would put build output
+/// anywhere the link aims, so the check happens against the real filesystem,
+/// just before the write.
+fn ensure_no_symlink_escape(root: &Path, path: &Path) -> Result<(), MaterializeError> {
+    let canonical_root = io("resolving the staging root", fs::canonicalize(root))?;
+
+    // Walk down from the root: the deepest existing ancestor is what a write
+    // would follow, and a path that does not exist yet cannot be a link.
+    let mut existing = path.to_path_buf();
+    while !existing.exists() {
+        match existing.parent() {
+            Some(parent) => existing = parent.to_path_buf(),
+            None => return Ok(()),
+        }
+    }
+    let resolved = io("resolving an output path", fs::canonicalize(&existing))?;
+    if resolved.starts_with(&canonical_root) {
+        Ok(())
+    } else {
+        Err(MaterializeError::Io {
+            context: format!("output path {}", path.display()),
+            error: format!(
+                "resolves to {}, which is outside the staging root {}",
+                resolved.display(),
+                canonical_root.display()
+            ),
+        })
+    }
 }
 
 /// The identity of one materialization: every action that will run, in order.
@@ -408,7 +448,26 @@ fn digest(bytes: &[u8]) -> String {
 }
 
 #[cfg(test)]
+pub(crate) mod tests_support {
+    /// A no-op tool by absolute path. The trust policy refuses a bare name,
+    /// because it would resolve through `PATH` at execution time.
+    pub(crate) fn absolute_true() -> String {
+        for candidate in ["/bin/true", "/usr/bin/true"] {
+            if std::path::Path::new(candidate).exists() {
+                return candidate.to_string();
+            }
+        }
+        panic!("no absolute `true` found; the test environment moved");
+    }
+
+    pub(crate) fn fixture(label: &str) -> fol_testkit::TempFixture {
+        fol_testkit::TempFixture::new(&format!("fol_materialize_{label}"))
+    }
+}
+
+#[cfg(test)]
 mod tests {
+    use super::tests_support::*;
     use super::*;
     use crate::action::{BuildActionInput, BuildActionOutput, BuildActionPayload};
     use crate::plan::OutputRole;
@@ -720,5 +779,196 @@ mod tests {
             vec!["base".to_string(), "needed".to_string()]
         );
         assert!(!published.join("out/unrelated.txt").exists());
+    }
+}
+
+#[cfg(test)]
+mod escape_and_concurrency_tests {
+    use super::tests_support::*;
+    use super::*;
+    use crate::action::BuildActionOutput;
+    use crate::plan::OutputRole;
+
+    /// A symlink inside the staging tree pointing outside it must not become a
+    /// write target.
+    ///
+    /// The string check in `action_graph` cannot catch this: `out/link/file` is
+    /// a well-formed relative path, and whether it escapes depends on what
+    /// `out/link` points at on disk.
+    #[test]
+    #[cfg(unix)]
+    fn a_symlink_out_of_the_staging_root_is_refused() {
+        let root = fixture("symlink");
+        let outside = root.path().join("outside");
+        fs::create_dir_all(&outside).unwrap();
+
+        // Pre-create the staging tree this plan will use, with a link that
+        // aims out of it.
+        let mut graph = BuildActionGraph::new();
+        let id = graph.add_action(
+            "gen",
+            BuildActionPayload::Write {
+                contents: "escaped".to_string(),
+            },
+        );
+        graph
+            .action_mut(id)
+            .unwrap()
+            .outputs
+            .push(BuildActionOutput {
+                path: "out/link/file.txt".to_string(),
+                role: OutputRole::Object,
+            });
+
+        let order = graph.execution_order().unwrap();
+        let identity = super::graph_identity(&graph, &order);
+        let staging = root.path().join(".fol/staging").join(&identity);
+        fs::create_dir_all(staging.join("out")).unwrap();
+        std::os::unix::fs::symlink(&outside, staging.join("out/link")).unwrap();
+
+        let published = root.path().join("published");
+        let error = materialize(&graph, &["out"], &[], root.path(), &published);
+
+        // Either the staging tree is cleared before use (so the link is gone
+        // and the write is contained), or the escape is refused. Both are
+        // correct; writing through the link is not.
+        match error {
+            Ok(_) => assert!(
+                !outside.join("file.txt").exists(),
+                "the build wrote through a symlink and escaped its root"
+            ),
+            Err(error) => assert!(
+                error.to_string().contains("outside the staging root")
+                    || error.to_string().contains("staging"),
+                "unexpected failure: {error}"
+            ),
+        }
+    }
+
+    /// Independent plans materialize concurrently; two builds of the same plan
+    /// do not both proceed.
+    #[test]
+    fn independent_plans_materialize_in_parallel_and_colliding_ones_do_not() {
+        let root = fixture("parallel");
+        let workspace = root.path().to_path_buf();
+        fs::create_dir_all(&workspace).unwrap();
+
+        let handles: Vec<_> = (0..4)
+            .map(|index| {
+                let workspace = workspace.clone();
+                std::thread::spawn(move || {
+                    let mut graph = BuildActionGraph::new();
+                    let id = graph.add_action(
+                        format!("gen-{index}"),
+                        BuildActionPayload::Write {
+                            contents: format!("contents {index}"),
+                        },
+                    );
+                    graph
+                        .action_mut(id)
+                        .unwrap()
+                        .outputs
+                        .push(BuildActionOutput {
+                            path: format!("out/file-{index}.txt"),
+                            role: OutputRole::Object,
+                        });
+                    let published = workspace.join(format!("published-{index}"));
+                    materialize(&graph, &["out"], &[], &workspace, &published)
+                        .map(|report| report.outputs.len())
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            let result = handle.join().expect("no materialization should panic");
+            assert_eq!(
+                result.expect("independent plans must not block each other"),
+                1
+            );
+        }
+
+        // Each published its own tree, and none deleted another's.
+        for index in 0..4 {
+            let path = workspace
+                .join(format!("published-{index}"))
+                .join(format!("out/file-{index}.txt"));
+            assert_eq!(
+                fs::read_to_string(&path).unwrap(),
+                format!("contents {index}"),
+                "plan {index} lost its output to a parallel build"
+            );
+        }
+    }
+
+    /// A run that fails partway publishes nothing, so the previous tree is
+    /// still the one on disk.
+    #[test]
+    fn a_failed_run_leaves_the_previous_tree_intact() {
+        let root = fixture("interrupted");
+        let published = root.path().join("published");
+
+        let mut good = BuildActionGraph::new();
+        let first = good.add_action(
+            "gen",
+            BuildActionPayload::Write {
+                contents: "committed".to_string(),
+            },
+        );
+        good.action_mut(first)
+            .unwrap()
+            .outputs
+            .push(BuildActionOutput {
+                path: "out/file.txt".to_string(),
+                role: OutputRole::Object,
+            });
+        materialize(&good, &["out"], &[], root.path(), &published).unwrap();
+
+        // A graph whose second action cannot complete: the tool succeeds and
+        // does not produce what it declared.
+        let mut broken = BuildActionGraph::new();
+        let write = broken.add_action(
+            "gen",
+            BuildActionPayload::Write {
+                contents: "replacement".to_string(),
+            },
+        );
+        broken
+            .action_mut(write)
+            .unwrap()
+            .outputs
+            .push(BuildActionOutput {
+                path: "out/file.txt".to_string(),
+                role: OutputRole::Object,
+            });
+        let quiet = broken.add_action(
+            "quiet",
+            BuildActionPayload::SystemTool {
+                tool: absolute_true(),
+                args: Vec::new(),
+                env: Vec::new(),
+                capture_stdout: None,
+            },
+        );
+        broken
+            .action_mut(quiet)
+            .unwrap()
+            .outputs
+            .push(BuildActionOutput {
+                path: "out/never.txt".to_string(),
+                role: OutputRole::Object,
+            });
+
+        materialize(&broken, &["out"], &[], root.path(), &published)
+            .expect_err("the incomplete run should fail");
+
+        assert_eq!(
+            fs::read_to_string(published.join("out/file.txt")).unwrap(),
+            "committed",
+            "a failed run replaced the published tree with a partial one"
+        );
+        assert!(
+            !published.join("out/never.txt").exists(),
+            "a partial output reached the published tree"
+        );
     }
 }
