@@ -288,3 +288,145 @@ fn the_header_and_manifest_describe_the_same_symbols() {
         );
     }
 }
+
+/// The frontend reports each ABI output under its own role.
+///
+/// Lumping them under `installed` would leave a consumer of the JSON unable to
+/// find the header without guessing at paths.
+#[test]
+fn the_frontend_reports_every_abi_role() {
+    let fixture = fol_testkit::TempFixture::new("fol_v4_c_roles");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root");
+    let source = repo_root().join("examples/v4_c_export_scalar");
+    let root = fixture.path().join("slice");
+    copy_dir(&source, &root);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_folc"))
+        .args(["--output", "json", "code", "build", "--package-store-root"])
+        .arg(store_root())
+        .current_dir(&root)
+        .output()
+        .expect("the build should run");
+    let text = strip_ansi(&String::from_utf8_lossy(&output.stdout));
+    assert!(
+        output.status.success(),
+        "the JSON build failed:\n{}",
+        strip_ansi(&String::from_utf8_lossy(&output.stderr))
+    );
+
+    for role in [
+        "c-header",
+        "abi-manifest",
+        "symbol-allowlist",
+        "static-library",
+    ] {
+        assert!(
+            text.contains(role),
+            "the JSON output does not list the {role} role:\n{text}"
+        );
+    }
+}
+
+/// A std-free library exports C symbols without declaring bundled `std`.
+///
+/// The scalar slice touches no hosted capability, so requiring a `standard`
+/// dependency for it would make every C export drag in the standard library.
+#[test]
+fn a_std_free_library_exports_without_bundled_std() {
+    let Some(cc) = c_compiler() else {
+        eprintln!("skipping: no C compiler on PATH");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("fol_v4_c_stdfree");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root");
+    let root = fixture.path().join("stdfree");
+    std::fs::create_dir_all(root.join("src")).expect("package tree");
+
+    // No `build.add_dep` for `std` at all.
+    std::fs::write(
+        root.join("build.fol"),
+        r#"pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "stdfree", version = "0.1.0", kind = "lib",
+        description = "a scalar export with no bundled std", license = "MIT",
+    });
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+    var lib = graph.add_static_lib({
+        name = "stdfree", root = "src/lib.fol", fol_model = "memo",
+        target = target, optimize = optimize,
+    });
+    lib.set_abi_version({ major = 1, minor = 0 });
+    lib.add_abi_export({ routine = "triple", symbol = "fol_stdfree_triple" });
+    graph.install(lib);
+    return;
+};
+"#,
+    )
+    .expect("build.fol should be writable");
+    std::fs::write(
+        root.join("src/lib.fol"),
+        "fun[exp] triple(value: int): int = {\n    return value * 3;\n};\n",
+    )
+    .expect("lib.fol should be writable");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_folc"))
+        .args(["code", "build", "--package-store-root"])
+        .arg(store_root())
+        .current_dir(&root)
+        .output()
+        .expect("the build should run");
+    let text = strip_ansi(&format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    ));
+    assert!(
+        output.status.success(),
+        "a std-free library should build:\n{text}"
+    );
+
+    let prefix = root.join(".fol/install");
+    let library = prefix.join("lib/libstdfree.a");
+    assert!(library.is_file(), "the library did not install:\n{text}");
+
+    let consumer = fixture.path().join("consumer.c");
+    std::fs::write(
+        &consumer,
+        "#include \"stdfree.h\"\n\
+         #include <stdio.h>\n\
+         int main(void) {\n\
+         \x20   int64_t out = 0;\n\
+         \x20   if (fol_stdfree_triple(14, &out) != FOL_STATUS_OK) { return 1; }\n\
+         \x20   printf(\"%lld\\n\", (long long)out);\n\
+         \x20   return out == 42 ? 0 : 2;\n\
+         }\n",
+    )
+    .expect("the consumer should be writable");
+
+    let binary = fixture.path().join("stdfree_consumer");
+    let link = Command::new(&cc)
+        .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-I"])
+        .arg(prefix.join("include"))
+        .arg(&consumer)
+        .arg(&library)
+        .args(["-lpthread", "-ldl", "-lm", "-o"])
+        .arg(&binary)
+        .output()
+        .expect("the C compiler should run");
+    assert!(
+        link.status.success(),
+        "the std-free consumer failed to link:\n{}",
+        String::from_utf8_lossy(&link.stderr)
+    );
+    let run = Command::new(&binary)
+        .output()
+        .expect("the consumer should run");
+    assert!(
+        run.status.success(),
+        "the std-free consumer failed at runtime"
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "42");
+}

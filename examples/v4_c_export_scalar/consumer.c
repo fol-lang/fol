@@ -53,6 +53,25 @@ int main(void) {
     /* A null required out pointer is refused. */
     CHECK(fol_slice_add_i64(1, 2, NULL) == FOL_STATUS_INVALID_ARGUMENT);
 
+    /* A recoverable report returns 1 and initializes ONLY the error out.
+       The success out is seeded with a sentinel the callee must not touch. */
+    int64_t quotient = -12345;
+    int64_t error = 0;
+    CHECK(fol_slice_checked_div(84, 2, &quotient, &error) == FOL_STATUS_OK);
+    CHECK(quotient == 42);
+
+    quotient = -12345;
+    CHECK(fol_slice_checked_div(1, 0, &quotient, &error) == FOL_STATUS_REPORT);
+    CHECK(error == 7);
+    CHECK(quotient == -12345); /* untouched on the report path */
+
+    /* A panic is contained and reported, never unwound into C. */
+    int64_t unused = 0;
+    CHECK(fol_slice_always_panics(1, &unused) == FOL_STATUS_PANIC);
+
+    /* Reaching here proves the panic did not unwind through this frame. */
+    CHECK(fol_slice_add_i64(1, 1, &i64) == FOL_STATUS_OK && i64 == 2);
+
     printf("all scalar exports ok\n");
     return 0;
 }

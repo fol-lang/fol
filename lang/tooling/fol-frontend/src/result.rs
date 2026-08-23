@@ -18,6 +18,12 @@ pub enum FrontendArtifactKind {
     ImportLibrary,
     /// Platform debug symbols, where the target produces a separate file.
     DebugSymbols,
+    /// A generated C header.
+    CHeader,
+    /// A `.folabi.json` ABI manifest.
+    AbiManifest,
+    /// The exported-symbol allowlist.
+    SymbolAllowlist,
     Installed,
     EmittedRust,
     LoweredSnapshot,
@@ -37,6 +43,9 @@ impl FrontendArtifactKind {
             Self::Object => "object",
             Self::ImportLibrary => "import-library",
             Self::DebugSymbols => "debug-symbols",
+            Self::CHeader => "c-header",
+            Self::AbiManifest => "abi-manifest",
+            Self::SymbolAllowlist => "symbol-allowlist",
             Self::Installed => "installed",
             Self::EmittedRust => "emitted-rust",
             Self::LoweredSnapshot => "lowered-snapshot",

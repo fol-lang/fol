@@ -935,17 +935,17 @@ pub(crate) fn build_selected_artifacts_for_profile_with_config(
             );
             for (role, relative, contents) in [
                 (
-                    FrontendArtifactKind::Installed,
+                    FrontendArtifactKind::CHeader,
                     format!("include/{}.h", selection.label),
                     outputs.header.clone(),
                 ),
                 (
-                    FrontendArtifactKind::Installed,
+                    FrontendArtifactKind::AbiManifest,
                     format!("share/fol/abi/{}.folabi.json", selection.label),
                     outputs.manifest.clone(),
                 ),
                 (
-                    FrontendArtifactKind::Installed,
+                    FrontendArtifactKind::SymbolAllowlist,
                     format!("share/fol/abi/{}.symbols", selection.label),
                     outputs.symbol_allowlist.clone(),
                 ),

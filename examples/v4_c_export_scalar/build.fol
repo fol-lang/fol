@@ -27,6 +27,8 @@ pro[] build(): non = {
     lib.add_abi_export({ routine = "negate", symbol = "fol_slice_negate" });
     lib.add_abi_export({ routine = "code_point", symbol = "fol_slice_code_point" });
     lib.add_abi_export({ routine = "touch", symbol = "fol_slice_touch" });
+    lib.add_abi_export({ routine = "checked_div", symbol = "fol_slice_checked_div" });
+    lib.add_abi_export({ routine = "always_panics", symbol = "fol_slice_always_panics" });
     graph.install(lib);
     return;
 };

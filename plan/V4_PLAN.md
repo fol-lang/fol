@@ -2238,23 +2238,47 @@ Primary files:
 
 Tasks:
 
-- [ ] Emit private internal Rust functions plus public `extern "C"` wrappers
-  using exact allowlisted symbols and target calling convention.
-- [ ] Use explicit representation types and `#[repr(C)]` only on private
+- [x] Emit private internal Rust functions plus public `extern "C"` wrappers
+  using exact allowlisted symbols and target calling convention. The FOL routine
+  keeps its ID-mangled private name and the wrapper carries the public one, so
+  no exported symbol contains an internal ID.
+- [x] Use explicit representation types and `#[repr(C)]` only on private
   generated Rust C-ABI representation records; never blanket-mark internal FOL
-  records.
-- [ ] Use the Rust edition's required unsafe-attribute spelling for exported
+  records. The scalar slice needs no representation record, and nothing marks
+  one: a wrapper takes `u8` for a boolean and `u32` for a character because
+  those are what cross, and converts.
+- [x] Use the Rust edition's required unsafe-attribute spelling for exported
   names (`#[unsafe(no_mangle)]`/`export_name` where applicable) and pin generated
-  edition/toolchain semantics.
-- [ ] Validate all inbound scalar bit patterns before conversion.
-- [ ] Catch/translate panics and implement the status/out initialization rules.
-- [ ] Generate header and manifest from the exact same resolved surface.
-- [ ] Generate export controls and inspect the built symbol set.
-- [ ] Compile the header as C11 and include it from a C++ translation unit only
-  as an `extern "C"` header smoke test; this is not C++ ABI support.
-- [ ] Install and consume the artifact from its installed layout, not only its
-  build directory.
-- [ ] Add frontend human/plain/JSON output for every role.
+  edition/toolchain semantics. The generated crate passes `--edition=2021`
+  explicitly, so the spelling does not depend on the caller's default.
+- [x] Validate all inbound scalar bit patterns before conversion. A boolean and
+  a character are the two scalars where C can hand over a bit pattern FOL has no
+  value for, so both are checked rather than transmuted: anything but 0 or 1,
+  and any surrogate or out-of-range code point, returns
+  `FOL_STATUS_INVALID_ARGUMENT`. The C consumer exercises all four cases.
+- [x] Catch/translate panics and implement the status/out initialization rules.
+  The call runs inside `catch_unwind`, because unwinding across an `extern "C"`
+  frame is undefined. A report writes **only** the error out; the C consumer
+  seeds the success out with a sentinel and asserts it survives untouched.
+- [x] Generate header and manifest from the exact same resolved surface.
+  `render_surface_outputs` produces the header, the manifest, and the symbol
+  allowlist from one `ResolvedAbiSurface`, and
+  `the_header_and_manifest_describe_the_same_symbols` fails if a future change
+  generates them from two.
+- [x] Generate export controls and inspect the built symbol set. The allowlist
+  installs as `share/fol/abi/<artifact>.symbols`, and
+  `the_built_symbol_set_matches_the_allowlist_exactly` runs `nm` over the built
+  archive and asserts the two sets are equal -- all and only.
+- [x] Compile the header as C11 and include it from a C++ translation unit only
+  as an `extern "C"` header smoke test; this is not C++ ABI support. Both under
+  `-Werror`.
+- [x] Install and consume the artifact from its installed layout, not only its
+  build directory. Every C test compiles against `<prefix>/include` and links
+  `<prefix>/lib`, per the section 4.16 layout.
+- [x] Add frontend human/plain/JSON output for every role.
+  `FrontendArtifactKind` gained `CHeader`, `AbiManifest`, and
+  `SymbolAllowlist`; lumping them under `installed` would leave a consumer of
+  the JSON unable to find the header without guessing at paths.
 
 Real consumer tests:
 

@@ -54,3 +54,19 @@ pro[exp] touch(value: int): non = {
     var seen: int = value;
     return;
 };
+
+// A recoverable routine: the wrapper returns FOL_STATUS_REPORT and initializes
+// only the error out, leaving the success out untouched.
+fun[exp] checked_div(numerator: int, denominator: int): int / int = {
+    when(denominator == 0) {
+        case(true) { report 7; }
+        * { return numerator / denominator; }
+    }
+};
+
+// A panic must be contained: unwinding across an `extern "C"` frame is
+// undefined, so the wrapper catches it and returns FOL_STATUS_PANIC.
+fun[exp] always_panics(value: int): int = {
+    panic "the C boundary must contain this";
+    return value;
+};
