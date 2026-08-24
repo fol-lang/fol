@@ -148,6 +148,50 @@ jobs:
             > "SHA256SUMS-${{ matrix.target }}"
           cat "SHA256SUMS-${{ matrix.target }}"
 
+      # An ABI release archive already carries provenance and an SBOM; a
+      # toolchain release published checksums alone, which says the bytes are
+      # intact and nothing about what produced them or what is inside.
+      - name: Publish provenance and SBOM
+        working-directory: fol
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          TARGET="${{ matrix.target }}"
+          {
+            echo "component: fol-toolchain"
+            echo "version: ${VERSION}"
+            echo "target: ${TARGET}"
+            echo "triple: ${{ matrix.triple }}"
+            echo "repository: ${GITHUB_REPOSITORY}"
+            echo "revision: ${GITHUB_SHA}"
+            echo "ref: ${GITHUB_REF_NAME}"
+            echo "workflow: ${GITHUB_WORKFLOW}"
+            echo "run-id: ${GITHUB_RUN_ID}"
+            echo "runner: ${{ matrix.runner }}"
+            # The toolchain is built only inside the pinned dev shell, so the
+            # flake lock is what actually determined the compiler.
+            echo "nixpkgs-locked: $(nix flake metadata --json 2>/dev/null \
+              | tr ',' '\n' | grep -m1 -o '"lastModified":[0-9]*' || echo unknown)"
+            echo "rustc: $(nix develop .#release --command rustc --version 2>/dev/null || echo unknown)"
+          } > "PROVENANCE-${TARGET}"
+          cat "PROVENANCE-${TARGET}"
+          {
+            echo "component: fol-toolchain"
+            echo "version: ${VERSION}"
+            echo "type: compiler-toolchain"
+            echo "target: ${TARGET}"
+            echo "contains: folc"
+            echo "contains: std"
+            echo "contains: runtime"
+            # The three C-interop components are pinned by revision and are
+            # what a consumer would have to match to reproduce a C surface.
+            # Read from Cargo.lock, which is what cargo actually resolved --
+            # lock.rs only carries them as build-time environment values.
+            awk '/^name = "follang-(parc|linc|gerc)"/{n=$3}
+                 /^source = /{if(n!=""){gsub(/.*#/,"",$3); gsub(/"/,"",$3);
+                 gsub(/"/,"",n); print "component: " n "@" $3; n=""}}' Cargo.lock
+          } > "SBOM-${TARGET}"
+          cat "SBOM-${TARGET}"
+
       - name: Upload release assets
         working-directory: fol
         env:
@@ -159,4 +203,6 @@ jobs:
             "fol-compiler-and-lib-v${VERSION}-${{ matrix.target }}.tar.gz" \
             "fol-v${VERSION}-${{ matrix.target }}" \
             "SHA256SUMS-${{ matrix.target }}" \
+            "PROVENANCE-${{ matrix.target }}" \
+            "SBOM-${{ matrix.target }}" \
             --clobber
