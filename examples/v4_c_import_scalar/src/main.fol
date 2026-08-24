@@ -1,0 +1,25 @@
+// FOL calling a checked C provider through an ordinary namespace import.
+//
+// There is no `extern` declaration anywhere in this package. `c_math` is a
+// namespace the compiler synthesized from the checked manifest that
+// `fol tool bind c` wrote, so the calls below go through normal name
+// resolution exactly like calls into any other package.
+use std: pkg = {"std"};
+use math: pkg = {"c_math"};
+
+// `add_one` is annotated infallible, so it returns its value directly.
+fun[] describe_add_one(value: int[32]): str = {
+    // The C `int` is measured as 32 bits on this target, so the comparison
+    // operand is bound at that width rather than at FOL's default `int`.
+    var expected: int[32] = 42;
+    var actual: int[32] = math::add_one(value);
+    when(.eq(actual, expected)) {
+        case(true) { return "add_one(41) = 42"; }
+        * { return "add_one(41) WRONG"; }
+    }
+};
+
+fun[] main(): non = {
+    std::io::echo_str(describe_add_one(41));
+    return;
+};

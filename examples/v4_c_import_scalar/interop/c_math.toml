@@ -1,0 +1,14 @@
+version = 1
+
+# Only the declarations named here become callable FOL routines.
+
+[routine.c_math_add_one]
+fol_name = "add_one"
+error = "infallible"
+
+[routine.c_math_checked_div]
+fol_name = "checked_div"
+error = "status"
+status_ok = [0]
+status_error = [1]
+out = "result"

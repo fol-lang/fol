@@ -1491,14 +1491,17 @@ fn compile_member_source_scope_for_model(
         syntax,
     );
 
-    let resolved = fol_resolver::resolve_prepared_workspace_with_config(
-        prepared,
-        resolver_config(workspace, config),
-    )
-    .map_err(FrontendError::from_errors)?;
+    // The C imports this package declares are mounted as namespaces before
+    // resolution, so ordinary `use ...: pkg` lookup reaches them.
+    let c_imports = package_c_import_interfaces(package_root, config)?;
+    let mut resolver_config = resolver_config(workspace, config);
+    resolver_config.c_imports = c_imports.clone();
+    let resolved = fol_resolver::resolve_prepared_workspace_with_config(prepared, resolver_config)
+        .map_err(FrontendError::from_errors)?;
     let typed = fol_typecheck::Typechecker::with_config(fol_typecheck::TypecheckConfig {
         capability_model: typecheck_capability_model(fol_model),
     })
+    .with_c_imports(c_imports)
     .check_resolved_workspace(resolved)
     .map_err(FrontendError::from_errors)?;
     fol_lower::Lowerer::new()
@@ -1737,6 +1740,35 @@ fn resolver_config(
     config: &FrontendConfig,
 ) -> fol_resolver::ResolverConfig {
     crate::roots::workspace_resolver_config(config, workspace)
+}
+
+/// The checked import interfaces this package's `build.fol` attaches.
+///
+/// A package with no `build.fol` and a package that attaches no C import both
+/// yield an empty list, which is what keeps every ordinary compilation from
+/// paying for this.
+fn package_c_import_interfaces(
+    package_root: &Path,
+    config: &FrontendConfig,
+) -> FrontendResult<Vec<fol_abi::ImportedInterface>> {
+    let Some(evaluated) = evaluate_package_build(package_root, config)? else {
+        return Ok(Vec::new());
+    };
+    let mut aliases: Vec<String> = evaluated
+        .result
+        .graph
+        .c_imports()
+        .iter()
+        .map(|attachment| attachment.alias.clone())
+        .collect();
+    if aliases.is_empty() {
+        return Ok(Vec::new());
+    }
+    // Two artifacts in one package may import the same namespace; it is one
+    // manifest either way.
+    aliases.sort();
+    aliases.dedup();
+    crate::bind::load_c_import_interfaces(package_root, &aliases)
 }
 
 pub(crate) fn typecheck_capability_model(

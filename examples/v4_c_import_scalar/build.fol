@@ -1,0 +1,29 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "v4_c_import_scalar", version = "0.1.0", kind = "exe",
+        description = "FOL calls a checked C scalar library",
+        license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+    var app = graph.add_exe({
+        name = "v4_c_import_scalar", root = "src/main.fol",
+        fol_model = "memo", target = target, optimize = optimize,
+    });
+    var header = graph.file_from_root("native/c_math.h");
+    var provider = graph.file_from_root("native/libc_math.a");
+    var overlay = graph.file_from_root("interop/c_math.toml");
+    app.add_c_import({
+        alias = "c_math",
+        header = header,
+        provider = provider,
+        provider_kind = "static",
+        annotations = overlay,
+    });
+    graph.install(app);
+    graph.add_run(app);
+    return;
+};

@@ -31,7 +31,7 @@ mod ui;
 mod work;
 mod workspace;
 
-pub use bind::{bind_c_command, default_manifest_path};
+pub use bind::{bind_c_command, default_manifest_path, load_c_import_interfaces};
 pub use build_route::{
     execute_workspace_build_route, plan_workspace_build_route, requested_workspace_step,
     FrontendBuildStep, FrontendBuildWorkflowMode, FrontendMemberBuildRoute,

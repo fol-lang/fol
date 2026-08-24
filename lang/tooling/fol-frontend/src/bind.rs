@@ -135,3 +135,53 @@ pub fn default_manifest_path(package_root: &Path, alias: &str) -> PathBuf {
         .join("build/interop")
         .join(format!("{alias}.folabi.json"))
 }
+
+/// Load the checked import manifests for one package's C imports.
+///
+/// Compilation reads these rather than invoking a C preprocessor: section 4.13
+/// splits the expensive pipeline into `fol tool bind c`, whose checked-in
+/// output this consumes. A missing manifest is a refusal that names the
+/// command to run, not a silent skip -- the alternative is a `use` of a
+/// namespace that then has no routines in it.
+pub fn load_c_import_interfaces(
+    package_root: &Path,
+    aliases: &[String],
+) -> FrontendResult<Vec<fol_abi::ImportedInterface>> {
+    let mut interfaces = Vec::with_capacity(aliases.len());
+    for alias in aliases {
+        let path = default_manifest_path(package_root, alias);
+        let text = std::fs::read_to_string(&path).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                invalid(format!(
+                    "C import '{alias}' has no checked manifest at '{}'; run \
+                     `fol tool bind c --alias {alias} ...` and check the result in",
+                    path.display()
+                ))
+            } else {
+                FrontendError::new(
+                    FrontendErrorKind::CommandFailed,
+                    format!("could not read {}: {error}", path.display()),
+                )
+            }
+        })?;
+        let manifest = fol_abi::ImportManifest::parse(&text).map_err(|error| {
+            FrontendError::new(
+                FrontendErrorKind::InvalidInput,
+                format!("{}: {error}", path.display()),
+            )
+            .with_note(format!(
+                "run `fol code explain {}` for what this manifest must contain",
+                error.diagnostic_code()
+            ))
+        })?;
+        if &manifest.interface.alias != alias {
+            return Err(invalid(format!(
+                "the manifest at '{}' declares alias '{}', but the build attaches it as '{alias}'",
+                path.display(),
+                manifest.interface.alias
+            )));
+        }
+        interfaces.push(manifest.interface);
+    }
+    Ok(interfaces)
+}
