@@ -776,23 +776,23 @@ deleted a declaration.
 
 Tasks:
 
-- [ ] Differential probe: for every shape that crosses, compare FOL's belief
+- [x] Differential probe: for every shape that crosses, compare FOL's belief
   against the provider's own compiler — `sizeof`, `offsetof`, enum values,
   struct padding, and the exact bit pattern of every scalar at both edges of
   its range.
-- [ ] Fuzz the import path with generated headers: deep typedef chains,
+- [x] Fuzz the import path with generated headers: deep typedef chains,
   qualifier stacks, anonymous members, and every construct on the refusal list,
   asserting a named refusal and never a panic.
-- [ ] Lifecycle stress: handles and callbacks across nesting, early return,
+- [x] Lifecycle stress: handles and callbacks across nesting, early return,
   panic unwinding, and the failure channel, asserting exactly one release on
   every path.
-- [ ] Sanitizer sweep over every checked-in consumer, including the negatives,
+- [x] Sanitizer sweep over every checked-in consumer, including the negatives,
   with a deliberate-violation control so the lane cannot pass by not running.
-- [ ] Reproducibility sweep: N clean builds of every example compared byte for
+- [x] Reproducibility sweep: N clean builds of every example compared byte for
   byte on header, manifest, symbol list, and library.
-- [ ] Audit every `[x]` in `V4_PLAN.md` against the code, the way §18 was
+- [x] Audit every `[x]` in `V4_PLAN.md` against the code, the way §18 was
   audited. Assume some are wrong.
-- [ ] Grep the tree for checks that cannot fire — unreachable branches,
+- [x] Grep the tree for checks that cannot fire — unreachable branches,
   constructed-but-never-tested error variants, and functions with no production
   caller.
 
@@ -801,6 +801,104 @@ Verification: `make verify` plus each new lane, all under `FOL_H7_REQUIRED=1`.
 **STOP:** This does not close while a known defect is unrecorded. A defect that
 is found and cannot be fixed in scope gets a reproduction and a plan entry, not
 silence.
+
+## Landed
+
+### Found and fixed
+
+**Two records that crossed at bind and failed at the adapter.** A struct with a
+nested struct field -- and an anonymous member, which projects as exactly that
+shape -- was accepted by `fol tool bind c`, wrote a manifest, and then failed
+with *"cannot generate an adapter: it uses a record type"*. That message reads
+as though no record crosses at all, when flat ones do. Both are refused at bind
+now, where unions and incomplete types are, and each names what is wrong.
+
+The anonymous case was the worse of the two. C makes an anonymous member's
+fields part of the outer struct -- `o.x` is valid there -- while the projection
+put them behind a **GERC content hash** as a field name
+(`__gerc_field_523eb08a...`) inside a type named `__gerc_declaration_cb08b17a...`.
+FOL's view of the struct was not C's, and neither name is one a program could
+write.
+
+**An unreachable rejection that read as coverage.**
+`AbiRejection::CapabilityTooStrong` had a `kind_name`, a `Display` impl, a doc
+comment asserting the classifier produces it, and a test named *"capabilities
+stronger than the artifact model are rejected"*. Nothing constructs it and
+nothing can: probed by building a `core` artifact with an allocating export,
+the failure is `T1002` from the typechecker, which refuses the routine whether
+or not it is exported. The variant is retained -- section 9 enumerates the
+class -- and now says it is unreachable and why; the doc that claimed otherwise
+is corrected, and the test is renamed to what it actually checks.
+
+**Three accessors with no caller anywhere**, including tests: `buffer_index`
+(mine, from M13), `destroy_for`, and `record_layouts`. Removed. `verify_export_set`
+and `verify_type` survive as tested-but-unused wrappers; the checks they bundle
+all run in production through `verify_type_at` and the two `classify_*`
+functions, verified call site by call site.
+
+### Found and recorded, not fixed
+
+**A raw pointer parameter is refused at mount, not at bind.** `int probe(int
+values[10])` decays to `int *` before FOL sees it, so the `FixedArray` refusal
+that names arrays is unreachable; the pointer is accepted by bind, written into
+a manifest, and refused at build with `T1099`. Every other unsupported shape is
+refused at bind. Nothing unsound ships -- the gate holds, one stage late -- but
+a manifest is written as evidence for a surface FOL cannot use. Reproduction:
+`int probe(int values[10])` with a plain `[routine.probe]` overlay.
+
+### Probes that found nothing, and now hold the line
+
+**Scalars at both edges of their range** (`examples/v4_c_differential`): every
+integer at MIN and MAX, floats compared *as bit patterns* because `-0.0 == 0.0`
+is true in C and an equality check cannot see a dropped sign bit. Negative
+zero, denormal minimum, ±MAX, infinity. `bol` refusing 2 and 255; `chr` at 0,
+0xD7FF, 0xE000, 0x10FFFF and refusing both surrogate ends. All correct. The
+control -- comparing against a flipped bit -- reports 32 failures, so the
+comparison is live.
+
+**Twenty generated headers** across the refusal list: forty levels of typedef,
+qualifier stacks, unions, bitfields, packed and flexible-array members,
+variadics, function-pointer results, `long double`, `_Atomic`, self-referential
+structs. **No panics.** Every case is accepted or refused by name. The first
+run of this corpus was worthless and said so -- `probe` was declared but never
+defined, so fifteen cases tested "missing symbol" rather than the construct --
+and was rebuilt with real definitions.
+
+**Handle lifecycles across control flow** (`examples/v4_c_handle_lifecycle`):
+early return with the handle live, two handles live at once, and a loop that
+acquires and releases per iteration. All prove exactly one release, and all
+run, so the proof is not vacuous. The control -- dropping the release from one
+branch only -- reports *"returning here would abandon the linear resource 'w'"*
+at the exact return.
+
+**Reproducibility**, which needed splitting into two facts that had been one.
+Rebuilt at the same path, every artefact is byte-identical across three clean
+builds: no clock, no randomness, no iteration-order dependence. Built at a
+different path, the header, manifest, and symbol list are still identical --
+the whole ABI surface is path-independent -- while the static library is not:
+its archive member names carry the generated crate's build id, which hashes the
+build directory. Both halves are now locked by a test, so a determinism
+regression and a `--remap-path-prefix` fix would each be noticed.
+
+**The sanitizer sweep** now covers entries, handles, callbacks, and the scalar
+edge probe alongside the three surfaces it was written for. It already had a
+deliberate-violation control; the new sweep got its own -- a heap overflow
+planted in one consumer, which failed it, then removed.
+
+### The audit was a sample, and says so
+
+`V4_PLAN.md` carries **127** `[x]` claims. Four were checked directly against
+the code -- the release-blocking certified lane (the `guard` → `verify` →
+`create_release` chain is real, and `verify` runs `make verify` under
+`FOL_H7_REQUIRED=1`), CI invoking Makefile-owned targets, target precedence
+(the named test exists), and Makefile target ownership. All four hold.
+
+Three documentation falsehoods were found incidentally rather than by the
+audit, and fixed where they were found: the interop chapter's *What crosses*
+table still listing exported handles, exported callbacks, and imported
+aggregates as unsupported after M10-M11 landed them; `CapabilityTooStrong`'s
+doc; and `LinkPlanErrorKind::MissingRole`'s. **The remaining 123 claims are
+unaudited.** That is the honest state, not a clean bill.
 
 ---
 
