@@ -2350,34 +2350,60 @@ Primary files:
 
 Tasks:
 
-- [ ] Load a checked ABI manifest into a synthetic foreign namespace with
+- [x] Load a checked ABI manifest into a synthetic foreign namespace with
   stable source/header origins for diagnostics/navigation.
-- [ ] Extend the existing H7 `artifact.add_c_import` attachment in place with
+- [x] Extend the existing H7 `artifact.add_c_import` attachment in place with
   the M0-frozen alias, scalar annotation/manifest, and static/shared provider
   forms needed by this slice; bind namespace and provider plan atomically.
-- [ ] Add `ForeignCall` IR distinct from internal `LoweredRoutineId` calls.
-- [ ] Require LINC's checked analysis to resolve every imported symbol to
+- [x] Add `ForeignCall` IR distinct from internal `LoweredRoutineId` calls.
+- [x] Require LINC's checked analysis to resolve every imported symbol to
   exactly one target-compatible provider and ordered link role before
   lowering/backend execution; FOL verifies and carries that result but does not
   run another resolver.
-- [ ] Compile GERC's typed unsafe extern module as the only raw import layer;
+- [x] Compile GERC's typed unsafe extern module as the only raw import layer;
   FOL-generated safe adapters own language policy, validation, and capability
   checks without re-emitting the extern declaration.
-- [ ] Enforce foreign effects against `core`/`memo`/effective `std` without
+- [x] Enforce foreign effects against `core`/`memo`/effective `std` without
   implicit upgrades.
-- [ ] Implement the Section 4.13 imported-error subset: explicitly infallible
+- [x] Implement the Section 4.13 imported-error subset: explicitly infallible
   direct results and explicit integer-status/typed-out mappings into ordinary
   or recoverable FOL results. Never reuse the FOL-export `fol_status_t`
   convention implicitly.
-- [ ] Reject unannotated error conventions, ambient `errno`/last-error,
+- [x] Reject unannotated error conventions, ambient `errno`/last-error,
   undocumented sentinels, unwind, and `longjmp` before the call becomes
   eligible.
-- [ ] Keep unknown/unsafe raw declarations uncallable.
+- [x] Keep unknown/unsafe raw declarations uncallable.
 - [ ] Prove local exact-file, dependency-provided archive, dynamic library,
   system library, and target-specific missing-provider diagnostics.
 - [ ] Report missing symbol/library, wrong architecture/object format, duplicate
   provider, and link cycle before or with structured related-site diagnostics;
   do not expose a raw linker dump as the primary error.
+
+Landed for the nine checked items: `fol tool bind c` runs the pipeline once and
+writes `interop/<alias>.folabi.json`; the compiler mounts that manifest as a
+namespace (`fol-resolver/src/c_import.rs`), types it
+(`fol-typecheck/src/c_import.rs`), lowers calls to `ForeignCall`, and emits
+them against generated adapters (`fol-interop/src/adapter.rs`). Proven by
+`make test-v4-c-import`, which builds a real `.a`, binds it, compiles a FOL
+program, runs it, and checks all three outcomes -- infallible value, status
+success, and status failure.
+
+The two open items are the provider-form matrix and the structured link
+diagnostics. Only the local static archive is proven today; the dependency,
+dynamic, and system-library forms and their failure diagnostics are not.
+
+The dynamic form has a specific, measured blocker worth writing down rather
+than rediscovering. A `.so` carries a `DT_NEEDED` on `libc.so.6`, and FOL's
+analysis policy is `ResolutionPolicy::ExactPathsOnly` with no toolchain search
+paths -- deliberately, because section 4.13 disables ambient discovery. LINC
+therefore refuses with `native provider "libc.so.6" was not found`, which is
+correct behaviour for the policy it was given. Making the dynamic form work
+needs *declared* library search paths on the import record, which is not a
+policy relaxation and not discovery. The frozen record in section 4.15 has
+`sysroot` and the include roots but no library search path, and adding one is
+an M0-table change. M8's third task already owns completing that record for
+bounded general header intake, so the dynamic and system-library forms land
+there rather than being forced here.
 
 Real consumer tests:
 
@@ -2431,6 +2457,20 @@ the listed order; omit a later slice rather than weakening an earlier contract.
 
 Gate: C compiler measurements and private backend layout probes agree for the
 certified target.
+
+Starting state, measured before beginning: `fol-lower/src/abi.rs` projects
+every record as `CandidateType::Record { fields: Vec::new() }` -- the fields
+are not populated at all, so no record has ever crossed the boundary. The
+reason is upstream: `LoweredType::Record` holds its fields in a
+`BTreeMap<String, LoweredTypeId>`, which is alphabetical, and a C struct's
+field order decides every offset. `fol-abi` already models fields as an ordered
+`Vec`, so the ABI layer is ready and the lowered IR is the blocker.
+
+The change is to `LoweredType::Record`'s representation rather than a
+side-table of declaration order: carrying order in a second field beside the
+map would be redundant state that can disagree with itself, and a record whose
+two halves disagree produces a struct whose offsets are silently wrong. One
+ordered representation with a lookup helper cannot desync.
 
 ## 12.2 Entries and recoverable errors
 

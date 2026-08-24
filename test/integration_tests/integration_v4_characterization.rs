@@ -356,8 +356,16 @@ fn the_frozen_abi_export_spelling_is_implemented() {
 }
 
 /// M0 froze the general C-import record while the evaluator rejected every
-/// field past `provider_kind`. M6 implements the whole record, so the same
-/// checked-in file is now accepted -- which is what the freeze was for.
+/// field past `provider_kind`. M6 implements the whole record, so every field
+/// is now read rather than refused -- which is what the freeze was for.
+///
+/// This fixture is a *spelling* freeze, not a working import: it names header
+/// and provider files that do not exist, because its whole job is to hold the
+/// record's field names steady. So the assertion is precise about what
+/// changed. Before M6 the build stopped at `unknown field 'target'`. Now every
+/// field is accepted and the build gets all the way to loading the checked
+/// manifest, which this fixture deliberately does not have. Reaching that
+/// error *is* the proof that the spelling was accepted.
 #[test]
 fn the_frozen_c_import_field_spelling_is_implemented() {
     let root =
@@ -376,9 +384,29 @@ fn the_frozen_c_import_field_spelling_is_implemented() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     ));
+
     assert!(
-        output.status.success(),
-        "the frozen C-import field spelling should now be accepted:\n{text}"
+        !text.contains("unknown field"),
+        "no field of the frozen record may be refused any more:\n{text}"
+    );
+    for field in [
+        "alias",
+        "annotations",
+        "dialect",
+        "compiler",
+        "sysroot",
+        "include_roots",
+        "system_include_roots",
+        "defines",
+    ] {
+        assert!(
+            !text.contains(&format!("unknown field '{field}'")),
+            "the frozen field '{field}' must be accepted:\n{text}"
+        );
+    }
+    assert!(
+        text.contains("has no checked manifest"),
+        "the build should now get as far as loading the import manifest:\n{text}"
     );
 }
 
