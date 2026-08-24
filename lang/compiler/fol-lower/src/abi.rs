@@ -383,6 +383,23 @@ pub fn describe(
             name: Some(name.clone()),
             fields: Vec::new(),
         },
+        // A routine *value* in an exported signature is what C supplies as a
+        // function pointer. Whether that is legal depends on the position, and
+        // the verifier decides; a routine that reports has no C shape at all,
+        // because a callback has one result channel and no way to use another.
+        Some(LoweredType::Routine(signature)) if signature.error_type.is_none() => {
+            CandidateType::Callback {
+                parameters: signature
+                    .params
+                    .iter()
+                    .map(|param| describe(table, records, *param))
+                    .collect(),
+                result: Box::new(match signature.return_type {
+                    Some(return_type) => describe(table, records, return_type),
+                    None => CandidateType::Void,
+                }),
+            }
+        }
         Some(LoweredType::Routine(_)) => CandidateType::RoutineObject {
             spelling: table.render_type(id),
         },
@@ -453,6 +470,17 @@ fn intern(
         LoweredType::Builtin(LoweredBuiltinType::Bool) => AbiScalar::Bool,
         LoweredType::Builtin(LoweredBuiltinType::Char(_)) => AbiScalar::Char,
         LoweredType::Builtin(LoweredBuiltinType::Never) => return Some(abi.intern(AbiType::Void)),
+        LoweredType::Routine(signature) if signature.error_type.is_none() => {
+            let mut parameters = Vec::new();
+            for param in &signature.params {
+                parameters.push(intern(abi, table, records, *param)?);
+            }
+            let result = match signature.return_type {
+                Some(return_type) => intern(abi, table, records, return_type)?,
+                None => abi.intern(AbiType::Void),
+            };
+            return Some(abi.intern(AbiType::Callback { parameters, result }));
+        }
         LoweredType::Builtin(LoweredBuiltinType::Str) => {
             return Some(abi.intern(AbiType::BorrowedString))
         }

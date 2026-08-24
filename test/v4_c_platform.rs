@@ -692,3 +692,39 @@ fn a_produced_handle_without_a_destroy_is_refused() {
         "the refusal should name what is missing:\n{text}"
     );
 }
+
+/// C supplies a routine and FOL invokes it during the call.
+///
+/// The context is the load-bearing part: it is how C carries state into a
+/// callback, and counting the invocations through it is what proves FOL really
+/// called back rather than computing the answer some other way.
+#[test]
+fn c_supplies_a_callback_that_fol_invokes() {
+    let Some(cc) = c_compiler() else {
+        skip("no C compiler; cannot link a consumer");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("v4-export-callback");
+    let prefix = build_kind_named(fixture.path(), "v4_c_export_callback", "add_static_lib");
+
+    let header = std::fs::read_to_string(prefix.join("include/v4_c_export_callback.h"))
+        .expect("the header should install");
+    // The canonical shape: the pointer's own first argument is the context,
+    // and the context travels beside it as its own parameter.
+    assert!(
+        header.contains("int32_t (*arg2)(void *, int32_t, int32_t), void *arg2_context"),
+        "the callback should declare the canonical shape:\n{header}"
+    );
+
+    let stdout = run_named_consumer(
+        &cc,
+        &prefix,
+        "v4_c_export_callback",
+        "v4_c_export_callback",
+        false,
+    );
+    assert!(
+        stdout.contains("all callback checks passed"),
+        "the callback consumer did not pass:\n{stdout}"
+    );
+}

@@ -35,6 +35,9 @@ fn c_type(table: &AbiTypeTable, id: AbiTypeId) -> String {
         // it back, and cannot read through it. The domain *is* the identity,
         // so two domains are two C types and the compiler keeps them apart.
         Some(AbiType::OpaqueHandle { name }) => format!("{} *", c_handle_name(name)),
+        // Rendered where the parameter name is known, because a C function
+        // pointer puts the name inside the type rather than after it.
+        Some(AbiType::Callback { .. }) => "void".to_string(),
         _ => "void".to_string(),
     }
 }
@@ -279,7 +282,31 @@ pub fn render_header(surface: &ResolvedAbiSurface) -> String {
         let mut params: Vec<String> = routine
             .parameters
             .iter()
-            .map(|parameter| format!("{} {}", c_type(table, parameter.type_id), parameter.name))
+            .flat_map(|parameter| match table.get(parameter.type_id) {
+                // A callback declares two parameters: the function pointer,
+                // whose own first argument is the context, and the context
+                // itself. The context travels beside it because C has nowhere
+                // else to put the state a callback needs.
+                Some(AbiType::Callback { parameters, result }) => {
+                    let arguments = std::iter::once("void *".to_string())
+                        .chain(parameters.iter().map(|id| c_type(table, *id)))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    vec![
+                        format!(
+                            "{} (*{})({arguments})",
+                            c_type(table, *result),
+                            parameter.name
+                        ),
+                        format!("void *{}_context", parameter.name),
+                    ]
+                }
+                _ => vec![format!(
+                    "{} {}",
+                    c_type(table, parameter.type_id),
+                    parameter.name
+                )],
+            })
             .collect();
         if !matches!(table.get(routine.result), Some(AbiType::Void)) {
             params.push(format!("{} *out_result", c_type(table, routine.result)));

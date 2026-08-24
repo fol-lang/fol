@@ -1,0 +1,15 @@
+// C supplying a routine FOL calls during the call.
+//
+// The C side passes a function pointer and a context; FOL receives an ordinary
+// routine value and invokes it like any other. The context travels beside the
+// pointer because C has nowhere else to put the state a callback needs, and
+// the closure exists only for the duration of this call -- FOL keeps nothing.
+//
+// `step` is invoked twice, threading its own result back in, so the answer can
+// only be right if C really ran both times with what FOL handed it.
+fun[exp] fold(first: int[32], second: int[32],
+              step: {fun(a: int[32], v: int[32]): int[32]}): int[32] = {
+    var once: int[32] = step(0, first);
+    var twice: int[32] = step(once, second);
+    return twice;
+};

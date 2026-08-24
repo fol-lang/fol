@@ -68,6 +68,15 @@ pub enum CandidateType {
         spelling: String,
     },
     /// A routine, protocol, or closure object.
+    /// A routine value C supplies and FOL invokes during the call.
+    ///
+    /// Distinct from `RoutineObject`, which is a FOL closure with an
+    /// environment: a callback is a bare function pointer plus the context
+    /// C hands back to it, and it is valid only for the duration of one call.
+    Callback {
+        parameters: Vec<CandidateType>,
+        result: Box<CandidateType>,
+    },
     RoutineObject {
         spelling: String,
     },
@@ -140,6 +149,18 @@ pub fn verify_type_at(
     let mut found = Vec::new();
     let mut seen: Vec<String> = Vec::new();
     walk(&mut found, &mut seen, vec![root.to_string()], candidate);
+
+    // A callback is something C *supplies*, so a parameter is the only place
+    // it can appear. Returning one would hand C a pointer to a FOL closure
+    // whose environment stops existing when the call returns.
+    if position != AbiPosition::Parameter && matches!(candidate, CandidateType::Callback { .. }) {
+        found.push(AbiClassification::new(
+            vec![root.to_string()],
+            AbiRejection::RoutineOrProtocolObject {
+                spelling: format!("a callback in {} position", position.as_str()),
+            },
+        ));
+    }
 
     // A borrowed view is checked against the position separately from the
     // structural walk: the shape is fine either way, and it is only the
@@ -225,6 +246,20 @@ fn walk(
                 spelling: spelling.clone(),
             },
         ),
+        // Only the shape here: whether a callback is legal at all depends on
+        // the position, which is checked once in `verify_type_at`.
+        CandidateType::Callback { parameters, result } => {
+            for (index, parameter) in parameters.iter().enumerate() {
+                let mut nested = path.clone();
+                nested.push(format!("<callback arg{index}>"));
+                walk(found, active, nested, parameter);
+            }
+            if !matches!(result.as_ref(), CandidateType::Void) {
+                let mut nested = path.clone();
+                nested.push("<callback result>".to_string());
+                walk(found, active, nested, result);
+            }
+        }
         CandidateType::RoutineObject { spelling } => reject(
             found,
             AbiRejection::RoutineOrProtocolObject {

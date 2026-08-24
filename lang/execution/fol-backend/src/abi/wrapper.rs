@@ -149,6 +149,55 @@ fn render_entry_struct(
     out
 }
 
+/// Wrap a C function pointer as the FOL closure the routine expects.
+///
+/// The closure captures the pointer and the context and calls straight through,
+/// so FOL invokes C exactly as it would invoke any other routine value. It is
+/// valid only for the duration of this call, which is the same contract the
+/// import direction states -- and here FOL is the one honouring it, because
+/// nothing keeps the closure past the call.
+///
+/// A null pointer is refused before anything captures it: calling through one
+/// is undefined, and a caller passing null is making a mistake C cannot stop.
+fn callback_inbound_conversion(
+    table: &AbiTypeTable,
+    name: &str,
+    parameters: &[AbiTypeId],
+    result: AbiTypeId,
+) -> String {
+    let arguments: Vec<String> = (0..parameters.len())
+        .map(|index| format!("__fol_a{index}"))
+        .collect();
+    let typed: Vec<String> = parameters
+        .iter()
+        .enumerate()
+        .map(|(index, id)| format!("__fol_a{index}: {}", rust_repr(table, *id)))
+        .collect();
+    let returns = match table.get(result) {
+        Some(AbiType::Void) => String::new(),
+        _ => format!(" -> {}", rust_repr(table, result)),
+    };
+    let forwarded = std::iter::once(format!("{name}_context"))
+        .chain(arguments.iter().cloned())
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    format!(
+        "    let Some({name}) = {name} else {{\n\
+         \x20       return {invalid};\n\
+         \x20   }};\n\
+         \x20   let {name}_context = {name}_context;\n\
+         \x20   let {name} = std::rc::Rc::new(move |{}|{returns} {{\n\
+         \x20       // SAFETY: the pointer is non-null, and the context is the\n\
+         \x20       // one the caller paired with it. Both are valid for this\n\
+         \x20       // call, which is the only span the closure exists for.\n\
+         \x20       unsafe {{ {name}({forwarded}) }}\n\
+         \x20   }});\n",
+        typed.join(", "),
+        invalid = super::status::INVALID_ARGUMENT
+    )
+}
+
 /// Turn an incoming address back into the FOL value behind it.
 ///
 /// A borrower gets a reference and must not release anything; a consumer takes
@@ -392,12 +441,33 @@ pub fn render_wrapper(
     let mut params: Vec<String> = routine
         .parameters
         .iter()
-        .map(|parameter| {
-            format!(
+        .flat_map(|parameter| match table.get(parameter.type_id) {
+            // Two ABI slots, matching the header: the function pointer and the
+            // context it is handed back. `Option<fn>` rather than a bare `fn`
+            // so a null pointer is a value the wrapper can test rather than
+            // undefined behaviour on the first call.
+            Some(AbiType::Callback { parameters, result }) => {
+                let arguments = std::iter::once("*mut core::ffi::c_void".to_string())
+                    .chain(parameters.iter().map(|id| rust_repr(table, *id)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let returns = match table.get(*result) {
+                    Some(AbiType::Void) => String::new(),
+                    _ => format!(" -> {}", rust_repr(table, *result)),
+                };
+                vec![
+                    format!(
+                        "{}: Option<unsafe extern \"C\" fn({arguments}){returns}>",
+                        parameter.name
+                    ),
+                    format!("{}_context: *mut core::ffi::c_void", parameter.name),
+                ]
+            }
+            _ => vec![format!(
                 "{}: {}",
                 parameter.name,
                 rust_repr(table, parameter.type_id)
-            )
+            )],
         })
         .collect();
 
@@ -437,6 +507,15 @@ pub fn render_wrapper(
     }
 
     for parameter in &routine.parameters {
+        if let Some(AbiType::Callback { parameters, result }) = table.get(parameter.type_id) {
+            out.push_str(&callback_inbound_conversion(
+                table,
+                &parameter.name,
+                parameters,
+                *result,
+            ));
+            continue;
+        }
         if let Some(AbiType::OpaqueHandle { name }) = table.get(parameter.type_id) {
             out.push_str(&handle_inbound_conversion(
                 name,
