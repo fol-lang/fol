@@ -1503,6 +1503,13 @@ Tasks:
   because listing a chip no diagnostic can print would be the same false claim
   the reserved-codes rule exists to prevent.
 
+  **Superseded at M4, and false as written since then.** Nine codes
+  (`A1001`-`A1009`) now have producers in `fol-abi`, and the guard became its
+  own opposite: `abi_codes_are_registered_with_construction_sites` asserts each
+  is registered *and* that nothing beyond the codes with producers is. The test
+  this entry names no longer exists. Kept as the M0 record rather than edited,
+  because the milestone log is history; found by the M16 audit.
+
 Verification:
 
 - `make test`
@@ -3372,6 +3379,16 @@ was checked. Verified locally by running all eight lanes with it set: zero
 skips, all green.
 - [x] Update README, architecture, docs, book, examples, and ABI-versioning
   guidance to present exactly the shipped matrix and remaining exclusions.
+
+  **Was true at M9 and false from M10 onward.** Three documents went on
+  describing the M9 boundary after M10-M13 moved it: the book's *What crosses*
+  table still listed exported handles, exported callbacks, and imported
+  aggregates as unsupported; `README.md` said handles and callbacks "cannot yet
+  be exported to it"; `ARCHITECTURE.md` listed "exporting handles or callbacks
+  to C, importing C structs and enums" as outside V4. All three now describe
+  what ships, including the exclusions M16 added. The lesson is that this is
+  not a one-time task: every milestone that moves the boundary re-falsifies it,
+  and nothing was checking. Found by the M16 audit.
 
 The book's interop chapter gained a **What crosses** section listing each shape
 in each direction, and -- as prominently -- what is refused: exporting handles
