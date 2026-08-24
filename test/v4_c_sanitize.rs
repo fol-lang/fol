@@ -342,3 +342,46 @@ fn the_sanitizer_lane_actually_reports_violations() {
         "the sanitizer must name the violation; got:\n{output}"
     );
 }
+
+/// Every surface added after M5, swept together.
+///
+/// The three tests above cover the surfaces that existed when this lane was
+/// written. Entries, handles, callbacks, and the scalar edge probe all crossed
+/// afterwards, and each one is somewhere a sanitizer would notice what a
+/// passing consumer cannot: an entry read through the wrong union member, a
+/// handle boxed and unboxed across the boundary, a trampoline reaching a
+/// closure, and a scalar written at its widest value.
+#[test]
+fn the_surfaces_added_after_m5_are_clean_under_sanitizers() {
+    let fixture = fol_testkit::TempFixture::new("fol_v4_san_later");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root");
+    let Some(cc) = sanitizing_compiler(fixture.path()) else {
+        eprintln!("skipping: no compiler on this host can build a sanitized binary");
+        return;
+    };
+
+    for (example, final_line) in [
+        ("v4_c_export_entry", "all entry checks passed"),
+        ("v4_c_export_handle", "all handle checks passed"),
+        ("v4_c_export_callback", "all callback checks passed"),
+        ("v4_c_differential", "all differential checks passed"),
+    ] {
+        let prefix = build_example(fixture.path(), example);
+        let (ok, output) = run_sanitized(
+            &cc,
+            &prefix,
+            &repo_root()
+                .join("examples")
+                .join(example)
+                .join("consumer.c"),
+            &prefix.join(format!("lib/lib{example}.a")),
+            &fixture.path().join(format!("{example}_sanitized")),
+        );
+
+        assert_clean(example, ok, &output);
+        assert!(
+            output.contains(final_line),
+            "{example} should still reach its final line:\n{output}"
+        );
+    }
+}

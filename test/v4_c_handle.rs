@@ -319,3 +319,68 @@ fn a_producer_returning_null_is_refused() {
         "refusing means aborting, not returning:\n{output}"
     );
 }
+
+/// One release on every path, across control flow the straight-line case omits.
+///
+/// Each shape here is somewhere a release can be missed: a branch that returns
+/// early with the handle already live, two handles live at once, and a loop
+/// that acquires and releases once per iteration. The program running matters
+/// as much as it compiling -- a proof about paths nothing takes proves nothing,
+/// and the printed 7 says all three ran and agreed.
+#[test]
+fn a_handle_is_released_once_on_every_path() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the handle slice");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("fol_v4_handle_paths");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root");
+    let root = stage(fixture.path(), "v4_c_handle_lifecycle", &compiler);
+
+    let (ok, output) = bind(&root, &compiler, &temp);
+    assert!(ok, "binding should succeed:\n{output}");
+
+    let (_, output) = run_folc(&root, &compiler, &temp, &["code", "run"]);
+    assert!(
+        output.lines().any(|line| line.trim() == "7"),
+        "every lifecycle shape should run and agree:\n{output}"
+    );
+}
+
+/// Dropping the release on one branch is refused, so the proof is not vacuous.
+///
+/// Without this, a checker that proved nothing would pass the test above
+/// exactly as a working one does.
+#[test]
+fn a_release_missed_on_one_branch_is_refused() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the handle slice");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("fol_v4_handle_missed");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root");
+    let root = stage(fixture.path(), "v4_c_handle_lifecycle", &compiler);
+
+    // The early-return branch loses its release; the fall-through keeps one,
+    // so only the branching path is wrong.
+    let source = root.join("src/main.fol");
+    let text = std::fs::read_to_string(&source).expect("main.fol readable");
+    std::fs::write(
+        &source,
+        text.replace(
+            "        wid::widget_free([mov]w);\n        return size;",
+            "        return size;",
+        ),
+    )
+    .expect("main.fol writable");
+
+    let (ok, output) = bind(&root, &compiler, &temp);
+    assert!(ok, "binding should still succeed:\n{output}");
+
+    let (ok, output) = run_folc(&root, &compiler, &temp, &["code", "build"]);
+    assert!(!ok, "an abandoned handle should be refused:\n{output}");
+    assert!(
+        output.contains("abandon the linear resource 'w'"),
+        "the refusal should name the resource and the path:\n{output}"
+    );
+}

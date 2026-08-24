@@ -1,0 +1,74 @@
+// Handle lifecycle across control flow the straight-line example never takes.
+//
+// Each shape below is a path a release could be missed on: a branch that
+// returns early, a loop that acquires repeatedly, a nested acquisition where
+// two handles are live at once, and a conditional release. What is being
+// checked is that the compiler still proves exactly one release on every one
+// of them -- and that the program runs, so the proof is not vacuous.
+
+use std: pkg = {"std"};
+use wid: pkg = {"widget"};
+
+// Early return with the handle already live: the release has to happen on the
+// path that leaves early as well as the one that falls through.
+fun[] early(seed: int[32]): int[32] = {
+    var w: wid::Widget = wid::widget_new(seed);
+    var size: int[32] = wid::widget_size([bor]w);
+    var threshold: int[32] = 100;
+    if(.lt(size, threshold)) {
+        wid::widget_free([mov]w);
+        return size;
+    }
+    wid::widget_free([mov]w);
+    return 0;
+};
+
+// Two live at once. Neither release may be skipped, and neither may release
+// the other: the domain is the identity, not the position.
+fun[] nested(a: int[32], b: int[32]): int[32] = {
+    var first: wid::Widget = wid::widget_new(a);
+    var second: wid::Widget = wid::widget_new(b);
+    var total: int[32] = wid::widget_size([bor]first) + wid::widget_size([bor]second);
+    wid::widget_free([mov]second);
+    wid::widget_free([mov]first);
+    return total;
+};
+
+// Acquired and released once per iteration. A release outside the loop would
+// free one handle and leak the rest.
+fun[] repeated(times: int[32]): int[32] = {
+    var total: int[32] = 0;
+    var index: int[32] = 0;
+    loop(.lt(index, times)) {
+        var w: wid::Widget = wid::widget_new(index);
+        total = total + wid::widget_size([bor]w);
+        wid::widget_free([mov]w);
+        index = index + 1;
+    };
+    return total;
+};
+
+fun[] main(): int = {
+    var early_result: int[32] = early(21);
+    var nested_result: int[32] = nested(3, 4);
+    var repeated_result: int[32] = repeated(4);
+
+    // 42, then 6+8=14, then 0+2+4+6=12.
+    var marker: int = 0;
+    when(early_result) {
+        is(42) {
+            when(nested_result) {
+                is(14) {
+                    when(repeated_result) {
+                        is(12) { marker = 7; }
+                        * { marker = 3; }
+                    };
+                }
+                * { marker = 2; }
+            };
+        }
+        * { marker = 1; }
+    };
+    var shown: int = std::io::echo_int(marker);
+    return 0;
+};
