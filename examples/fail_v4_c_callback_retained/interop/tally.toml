@@ -1,0 +1,10 @@
+version = 1
+
+[routine.tally_range]
+error = "infallible"
+callback = "step"
+callback_context = "context"
+
+[routine.tally_replay]
+error = "infallible"
+fol_name = "replay"

@@ -185,6 +185,26 @@ pub fn callback_panicked(symbol: &str) -> ! {
     std::process::abort()
 }
 
+/// Refuse a callback invocation that is not inside the call that passed it.
+///
+/// FOL hands a provider a callback for the duration of one call. A provider
+/// that stashes it and invokes it later, or invokes it from another thread, is
+/// reaching for a closure whose frame is gone -- the context pointer it kept
+/// points at a stack slot that has since been reused.
+///
+/// There is nothing to return that would be true, and no channel to report a
+/// failure through, so this ends here with the symbol named. A provider that
+/// needs a callback to outlive the call needs an ownership contract FOL does
+/// not yet have a way to state.
+pub fn callback_invoked_out_of_scope(symbol: &str) -> ! {
+    eprintln!(
+        "fol runtime fault: a FOL callback passed to '{symbol}' was invoked outside the call \
+         that passed it -- either after that call returned, or from another thread. A callback \
+         is valid for the duration of one call and nothing else."
+    );
+    std::process::abort()
+}
+
 /// Refuse a null handle from a routine declared to produce one.
 ///
 /// A producer that returns `NULL` is reporting a failure through the one

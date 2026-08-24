@@ -1,0 +1,39 @@
+// A provider that keeps a callback past the call that lent it.
+//
+// `tally_range` is declared exactly as the honest provider declares it, and C
+// has no way to say whether the callback is retained -- so this one loops and
+// calls back correctly, then stashes the function pointer and the context.
+//
+// `tally_replay` invokes them afterwards. The FOL closure it reaches for lived
+// on the stack of a call that has returned, so without a check this runs
+// whatever reused that memory: the worst kind of failure, because it usually
+// appears to work.
+//
+// FOL hands the closure to its trampoline through a slot that is live only for
+// the duration of the call, so the replay finds it empty and the process ends
+// with the symbol named.
+//
+// This package builds and runs the honest part. It aborts on the replay.
+use std: pkg = {"std"};
+use tal: pkg = {"tally"};
+
+fun[] main(): int = {
+    // C loops 1..4 and calls back once per step. 1+2+3+4 is 10, and 10 can
+    // only come from C having actually invoked the closure four times with the
+    // accumulator it was handed back each time.
+    var total: int[32] = tal::tally_range(4, fun(a: int[32], v: int[32]): int[32] = {
+        return a + v;
+    });
+
+    var marker: int = 0;
+    when(total) {
+        is(10) { marker = 7; }
+        * { marker = 1; }
+    };
+    var shown: int = std::io::echo_int(marker);
+
+    // The misuse: this reaches the callback the previous call lent out.
+    var replayed: int[32] = tal::replay(1);
+    var ignored: int = std::io::echo_int(0);
+    return 0;
+};

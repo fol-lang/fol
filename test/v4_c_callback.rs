@@ -304,3 +304,50 @@ fn a_context_in_any_other_position_is_refused_with_the_canonical_shape() {
         "the diagnostic must name the shape that is imported:\n{output}"
     );
 }
+
+/// A provider that keeps a callback past the call that lent it is refused.
+///
+/// C cannot say whether a callback is retained, and this provider is declared
+/// exactly like the honest one: it loops and calls back correctly, then stashes
+/// the function pointer and the context and invokes them later.
+///
+/// The failure this prevents is the quiet kind. The closure lived on the stack
+/// of a call that has returned, so reading through the retained context runs
+/// whatever reused that memory -- which usually looks like it worked. FOL
+/// reaches the closure through a slot that is live only for the duration of the
+/// call, so the replay finds it empty.
+#[test]
+fn a_callback_invoked_after_the_call_returns_is_refused() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the callback slice");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("fol_v4_cb_retained");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root");
+    let root = stage(fixture.path(), "fail_v4_c_callback_retained", &compiler);
+
+    let (ok, output) = bind(&root, &compiler, &temp);
+    assert!(ok, "binding should succeed:\n{output}");
+
+    let (ok, output) = run_folc(&root, &compiler, &temp, &["code", "run"]);
+    assert!(!ok, "a retained callback must not be invocable:\n{output}");
+
+    // The honest half ran first: the loop called back four times and summed to
+    // ten, so this is not a program that failed before reaching the misuse.
+    assert!(
+        output.contains('7'),
+        "the in-call callback should still have worked:\n{output}"
+    );
+    assert!(
+        output.contains("was invoked outside the call that passed it"),
+        "the fault should say what the provider did:\n{output}"
+    );
+    assert!(
+        output.contains("tally_range"),
+        "the fault should name the routine that was lent the callback:\n{output}"
+    );
+    assert!(
+        output.contains("SIGABRT") || output.contains("signal: 6"),
+        "refusing means aborting, not returning:\n{output}"
+    );
+}
