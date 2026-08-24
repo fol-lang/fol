@@ -2883,10 +2883,39 @@ Still open: the sysroot reaches `ScanConfig` but not the `TargetSpec`, whose
 `sysroot` stays `None`, and a compiler with a non-empty sysroot of its own is
 refused outright. So an external sysroot is honoured for finding headers but is
 not part of the target's identity.
-- [ ] Complete the same `artifact.add_c_import` record with the M0-frozen
+- [~] Complete the same `artifact.add_c_import` record with the M0-frozen
   multiple-header/provider ordering, include/define/sysroot/toolchain, and
   reproducibility fields needed by bounded general header intake; do not add a
   second build method or handwritten source declaration route.
+
+`library_paths` is added to the frozen record and to `tool bind c` as
+`--library-path`, which Section 11 named as what the dynamic and system-library
+provider forms were waiting on. The freeze test caught the record change, which
+is what it is for.
+
+**It cannot be honoured, and the reason is not FOL's.** Section 11 recorded the
+blocker as "declared library search paths on the import record, which is not a
+policy relaxation and not discovery". Measured against the pinned LINC, that is
+wrong in a way worth correcting rather than leaving:
+
+- `ResolverConfiguration::toolchain_search_paths` -- the obvious slot -- is
+  read only under `ToolchainSearch`, the ambient-discovery policy FOL refuses.
+  Putting declared paths there does nothing.
+- The right channel is `NativeInput::SearchNative` under `HermeticSearch`,
+  which is explicitly "name lookup limited to explicitly supplied search
+  paths" -- hermetic, not ambient.
+- But `validate_certification_request` requires `ExactPathsOnly`, so a
+  hermetic-search analysis cannot be *certified* at all; and exact-path
+  resolution separately rejects a search path as an input, so the paths cannot
+  even be passed.
+
+So the dynamic form needs a LINC certification profile that accepts hermetic
+search. Until then FOL validates the declared paths and refuses them with a
+diagnostic naming that reason, rather than surfacing LINC's internal policy
+error or silently ignoring a field the build program set.
+
+Still open: multiple headers and providers per import, and the reproducibility
+fields. One import per artifact remains a hard rejection.
 - [x] Add `fol tool bind c` with human/plain/JSON output and deterministic
   target-specific manifest generation over the typed sibling pipeline.
 
