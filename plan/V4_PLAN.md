@@ -2427,6 +2427,7 @@ Verification:
 - `make test-native`
 - `make test-v4-c`
 - `make abi-check`
+- `make test-v4-c-platform`
 
 **STOP:** an imported function cannot ship if its provider path, target,
 provenance, effect, calling convention, error mapping, unwind behavior, or
@@ -2827,6 +2828,7 @@ Verification after every sub-slice:
 - `make test`
 - `make test-v4-c`
 - `make abi-check`
+- `make test-v4-c-platform`
 - required sanitizer target for pointer/resource slices
 - `make tree-test` and LSP inventory tests when the source/build surface changes
 
@@ -2903,6 +2905,7 @@ Verification:
 - `make test-interop`
 - `make interop-locked`
 - `make abi-check`
+- `make test-v4-c-platform`
 - `make docs TYPE=mdbook`
 
 **STOP:** header import cannot be called complete if it depends on the host
@@ -2961,10 +2964,45 @@ Verified by `abi_inspect_reads_an_installed_manifest`,
 `abi_check_distinguishes_every_outcome` (four verdicts, from manifests two real
 builds produced), and `abi_check_refuses_a_hand_edited_manifest`, all in
 `test/v4_c_export.rs`.
-- [ ] Inspect actual symbols with target-appropriate LLVM/platform tools and
+- [x] Inspect actual symbols with target-appropriate LLVM/platform tools and
   compare against the allowlist.
-- [ ] Verify SONAME/install-name/import-library/runtime lookup behavior without
+
+`the_built_symbol_set_matches_the_allowlist_exactly` in `test/v4_c_export.rs`
+reads the static archive's symbol table with `nm`;
+`the_shared_library_exports_exactly_the_allowlist` in `test/v4_c_platform.rs`
+reads the shared library's *dynamic* table with `nm -D`. Both are needed: an
+archive's symbol table and a shared object's dynamic export set are decided by
+different mechanisms, so agreement in one is not evidence about the other.
+- [x] Verify SONAME/install-name/import-library/runtime lookup behavior without
   injecting a hidden default rpath.
+
+The installed shared library had no `SONAME` at all. That is invisible in any
+test that only checks a consumer's output, because the consumer runs fine on
+the machine that built it: with no `SONAME`, GNU ld records whatever spelling
+the consumer linked *through*, so linking by absolute path -- what a build
+system resolving a full path does -- wrote
+`NEEDED [/home/.../.fol/install/lib/libv4_c_export_scalar.so]` into the
+consumer. That path does not exist on any other machine.
+
+`NativeLinkPlan` now carries a `soname`, set by `resolve_link_plan` for shared
+libraries only, rendered as `-Wl,-soname` plus `-Wl,<name>` as two separate
+link arguments so a name is never split on a comma. It is the *installed* file
+name, not the build-tree one, and it joins the plan fingerprint because it
+changes the produced file. MachO gets `-install_name`; PE gets nothing, because
+a DLL's identity is its file name and asking for a SONAME there would be an
+error rather than a no-op.
+
+FOL injects no rpath, which `no_plan_injects_an_rpath` asserts over a rendered
+plan rather than over a linked file -- a C toolchain wrapper may add its own
+runpath, and that is the wrapper's business, not something FOL can honestly
+claim to control. Runtime lookup is proven the ordinary way instead:
+`a_consumer_linked_by_absolute_path_records_the_soname` links through the full
+path, asserts the recorded `NEEDED` entry is the bare SONAME with no `/` in it,
+and runs the program through `LD_LIBRARY_PATH`.
+
+Import libraries stay unverified: they are a PE concern and `x86_64-pc-windows-gnu`
+is not a certified lane, so the PE arm is written and untested rather than
+claimed.
 - [x] Run two clean builds and compare manifest/header/export lists and all
   declared reproducible outputs.
 
@@ -2975,7 +3013,13 @@ list. The export list was the gap: a header and a manifest that agree while the
 linker's allowlist drifts would ship a library exporting something the manifest
 never described. It also asserts the list is *sorted*, so two builds cannot
 match by luck of declaration order.
-- [ ] Test concurrent builds and cache isolation.
+- [x] Test concurrent builds and cache isolation.
+
+`concurrent_builds_do_not_share_cache_state` in `test/v4_c_platform.rs` builds
+the same source in two trees on two threads at once and requires each to
+produce its own complete prefix -- library, header, manifest, and allowlist.
+FOL caches by content fingerprint, so a cache keyed too coarsely would let one
+build satisfy the other and leave a prefix short a file.
 - [ ] Install matching static and shared FOL libraries into clean prefixes with
   only their declared headers, manifests, link metadata, and runtime roles.
 - [ ] Re-read each installed header with PARC, measure and validate each
