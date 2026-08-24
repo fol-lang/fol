@@ -1,10 +1,14 @@
 # Interop Toolchain Boundary
 
-The repository-wide hardening gate is complete for the initial certified
-`x86_64-unknown-linux-gnu` lane. The locked H7 Make gate passes in FOL CI
-through clean, exact PARC, LINC, and GERC commits. This unblocks the first
-broader V4 milestone; it does not complete FOL V4's broader language-level
-interop milestones.
+FOL exports a real C ABI and imports real C libraries. A C program links a FOL
+static or shared library and calls it through a generated header; a FOL package
+calls a C provider through a manifest that `fol tool bind c` wrote from that
+provider's own header and archive. Both directions are proven by lanes in
+`make verify` that compile and run the result, not by reading generated text.
+
+What crosses each way is listed under [What crosses](#what-crosses), together
+with what is refused. The exclusions are as load-bearing as the inclusions:
+FOL rejects a construct it cannot model rather than approximating it.
 
 FOL integrates three independently usable sibling crates and does not copy
 their native semantics:
@@ -94,8 +98,52 @@ FOL target must equal every sibling target fingerprint before generated files
 or backend compilation are allowed.
 
 Other Linux architectures, Apple targets, Windows targets, frameworks, import
-libraries, multiple imports, and the general C type/API surface remain
-uncertified.
+libraries, and multiple imports per artifact remain uncertified.
+
+## What crosses
+
+The two directions are not symmetric, and the asymmetry is real rather than an
+accident of what has been tested. Everything below is exercised by a lane in
+`make verify` that compiles and runs it; nothing is listed on the strength of
+the code appearing to support it.
+
+Exporting, FOL to C — a C program links a FOL library and calls it:
+
+| Shape | Crosses as |
+|---|---|
+| integers `int[8..64]`, unsigned, `flt[32]`/`flt[64]` | the exact-width C scalar |
+| `bol` | `fol_bool_t` (`uint8_t`); only 0 and 1 are valid, and imports validate |
+| `chr` | `fol_char_t` (`uint32_t`); validated as a Unicode scalar value |
+| records | a C struct whose layout C agrees with, field order preserved |
+| entries | a C enum with explicit stable discriminants |
+| recoverable errors | `fol_status_t` plus a typed error out-parameter |
+| a FOL panic | contained and reported as `FOL_STATUS_PANIC` |
+| borrowed text, inbound | `fol_str_view_t`, caller-owned and call-scoped |
+
+Importing, C to FOL — FOL calls a C provider through a checked manifest:
+
+| Shape | Crosses as |
+|---|---|
+| scalars, including through `typedef` chains | the measured FOL scalar |
+| pointers and out-parameters | a FOL value on the success channel |
+| status codes | FOL's ordinary or recoverable channel, per the overlay |
+| opaque handles | a `lin` linear resource with a paired destroy routine |
+| one synchronous callback shape | a FOL closure invoked by the provider |
+
+Not supported, in either direction, and refused rather than approximated:
+
+- **Exporting** an opaque handle, a destroy routine, or a callback. FOL can
+  receive all three from C; it cannot hand them out. A FOL routine value in an
+  exported signature is rejected by name.
+- **Importing** a named aggregate — a C struct or enum parameter. Scalars,
+  pointers, handles, and the one callback shape are what the import path
+  projects.
+- Variadics, bitfields, packed and flexible-array members, unions, C++
+  linkage, and unknown calling conventions.
+- Pointer/length slice pairing, and declaring direction, nullability, or escape
+  in the overlay.
+- Raw pointers in an ordinary export: a raw pointer with no declared ownership
+  and destroy pairing is refused, not defaulted.
 ## Evidence and failure policy
 
 The required smoke test starts from the real `build.fol` graph route. It
