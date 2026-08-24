@@ -459,10 +459,10 @@ Tasks:
   `(const uint8_t *, size_t)` pair imports as one FOL value rather than two
   unrelated parameters.
 - [x] Make direction declarable rather than inferred from pointee constness.
-- [ ] Validate capacity, length, and domain before reconstructing an owned
+- [x] Validate capacity, length, and domain before reconstructing an owned
   buffer, and refuse a length that exceeds capacity, a null with a nonzero
   length, and a domain mismatch.
-- [ ] Pair every owned buffer with exactly one release path, the way handles
+- [x] Pair every owned buffer with exactly one release path, the way handles
   are paired.
 
 Tests:
@@ -475,10 +475,12 @@ Tests:
 Verification: `make test-v4-c-import`, `make test-v4-sanitize`,
 `make test-v4-linear`.
 
-## Landed so far — the borrowed half
+## Landed
 
-The first two tasks are done and gated; the owned-buffer half (tasks 3 and 4)
-is not started.
+All four tasks are done and gated, with one verification substituted and said
+so below.
+
+### The borrowed half
 
 **The pairing.** `buffer = "bytes"` with `buffer_length = "count"` makes the
 two C parameters one FOL value. The length then stops being a FOL parameter at
@@ -526,9 +528,59 @@ Adding the `buffer` field to the import manifest invalidated every checked-in
 `.folabi.json`. They were regenerated rather than edited -- a hand-edited
 manifest is exactly what the fingerprint refuses, and one test proves it.
 
+### The owned half
+
+A provider-allocated buffer gets a domain and a release, the shape a handle
+domain already has: `[buffer.Bytes] destroy = "..."`, with `buffer_domain` and
+`buffer_role` on the routines. `buffer_length` means the same thing in both
+spellings -- where this routine's buffer reports its extent -- so it is shared
+rather than duplicated, and a routine declaring both a borrowed pairing and an
+owned domain is refused.
+
+**FOL never adopts the memory.** Its allocator did not make the allocation and
+must not free it, so the adapter validates the provider's report, copies out of
+it, and calls the release before returning. `AbiType::Pointer`'s `destructor`
+field -- built for exactly this and until now never constructed -- is what
+carries the pairing.
+
+The destroy is **not mountable**: FOL holds a copy and no address, so there is
+nothing for a program to release. It gets no adapter either; the producer
+reaches the certified symbol directly.
+
+Two self-contradictions are refused rather than read: a **null address with a
+nonzero length**, which describes memory that does not exist, and a **length
+past the reported capacity**, which describes memory that was not allocated.
+The capacity is what makes the second checkable at all -- a length on its own
+is unfalsifiable. Four domain cross-checks mirror the handle ones.
+
+**The release is proven, not assumed.** FOL cannot see C's heap, so the
+provider is asked: `digest_live()` returns the outstanding allocation count,
+and the example asserts 0. A control removes the provider's decrement and the
+same program reports a leak instead, so passing means something.
+
+### One verification substituted
+
+The plan asks for the accepted path under ASan/UBSan. **That is not reachable
+for an import-side program today**: FOL never forwards `RUSTFLAGS` to the
+generated crate's rustc, so the sanitizer runtime is missing at link even when
+the C provider is instrumented -- the link fails on `__asan_report_load1`. The
+existing `make test-v4-sanitize` lane works because it sanitizes a *C consumer*
+of a plain FOL library, which is the other direction.
+
+The allocation-counter proof above is what replaced it, and it is stronger for
+the leak question specifically -- it observes the provider's own accounting
+rather than inferring from a checker. It does not cover an out-of-bounds read
+that the capacity check does not catch. **Forwarding sanitizer flags into the
+generated crate is a real gap and belongs in M14 or M16, not in a claim here.**
+
 ---
 
 # 8. M14 — Provider Diagnostics and Link Evidence
+
+**Carried in from M13**: FOL forwards no sanitizer flags into the generated
+crate's rustc, so no import-side program can be built under ASan/UBSan. The
+export-side lane sanitizes a C consumer of a plain FOL library and is
+unaffected. Closing this is a build-layer change, not an ABI one.
 
 Goal: every native failure reports a FOL diagnostic, never a raw linker dump.
 
