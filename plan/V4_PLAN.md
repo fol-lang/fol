@@ -2941,10 +2941,32 @@ the include roots, the system include roots, the defines, and the sysroot --
 everything that changes what the scan produces.
 - [~] Translate only the supported subset from Section 4.13.
 
-Scalars, pointers and out-parameters, opaque handles, and the one callback
-shape are implemented. Named aggregates are still rejected by
-`project_imported_interface`, so Section 4.13's non-packed POD structs and
-target-resolved enums do not import yet.
+Scalars -- now including through `typedef` chains -- pointers and
+out-parameters, opaque handles, and the one callback shape are implemented.
+
+Non-packed POD structs and target-resolved enums do not import. This is a
+feature slice rather than a missing check, and worth stating at its real size
+so it is not mistaken for a small gap. What exists already: GERC hands over
+`RustRecord` with per-field offsets, sizes, packing, and support status, which
+is everything the projection needs, and `AbiType::Record` is already in the
+model and already serializes. What does not exist is everything after that
+point:
+
+- `project_imported_interface` refuses `RustTypeKind::Named` rather than
+  resolving it to a record and checking the shape Section 4.13 admits --
+  `struct` only, natural `repr(C)` layout, byte-aligned fields, no self-
+  reference by value.
+- `fol-typecheck/src/c_import.rs` maps scalars and `void` and nothing else. A
+  record needs a *nominal* FOL type synthesized with its fields, mounted in the
+  import namespace the way `OpaqueHandle` mounts a name -- but a handle is
+  opaque, so mounting it needs no field structure, no construction form, and no
+  field access.
+- The adapter and backend then have to marshal it by value, and the layout FOL
+  believes has to be the layout the provider was compiled with.
+
+A partial version is worse than none: it would produce a manifest describing a
+record that then fails somewhere in the middle of the pipeline with an internal
+error. The handle slice is the right size comparison for what this costs.
 
 The compile path used to scan the *whole* header with no selection even when an
 overlay named one, so a header that bound cleanly failed to build if it
