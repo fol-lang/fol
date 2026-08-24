@@ -3152,10 +3152,30 @@ close until the export side grows them.
   static and shared consumers without repository-relative paths.
 - [ ] Make the certified `x86_64-unknown-linux-gnu` lane release-blocking and
   keep candidate/experimental compile lanes explicitly non-certifying.
-- [ ] Pin GitHub Actions and Rust/mdBook/tree-sitter/Clang/LLVM/C toolchain
+- [x] Pin GitHub Actions and Rust/mdBook/tree-sitter/Clang/LLVM/C toolchain
   inputs rather than using mutable `latest` references.
-- [ ] Make CI invoke Makefile-owned validation targets instead of duplicating a
+
+Every action was already pinned by 40-character commit SHA, mdBook by exact
+version, and Rust, the tree-sitter CLI, and the C toolchain all come from the
+flake, which is the single toolchain source. The one mutable input left was the
+runner image: `ubuntu-latest` moves between major releases under you, so it is
+now `ubuntu-24.04` (and `ubuntu-24.04-arm`) in all four workflows.
+- [x] Make CI invoke Makefile-owned validation targets instead of duplicating a
   weaker command set.
+
+CI runs `make verify` and nothing else, so a lane added to the Makefile is
+covered in CI the same day -- which is how `test-v4-c-platform` and
+`test-v4-c-roundtrip` reached CI without touching a workflow.
+
+What was weaker in CI than locally was not the command set but the *skipping*.
+Every interop and inspection lane skips when its toolchain is absent, which is
+right on a developer machine and wrong on the certified one: a silent skip is
+indistinguishable from a pass, which is precisely what this milestone's STOP
+rules out. CI now exports `FOL_H7_REQUIRED=1`, and the platform and round-trip
+lanes honour it the way the older interop lanes already did, so a missing
+`readelf`, `nm`, or C compiler fails the build instead of quietly reducing what
+was checked. Verified locally by running all eight lanes with it set: zero
+skips, all green.
 - [ ] Update README, architecture, docs, book, examples, and ABI-versioning
   guidance to present exactly the shipped matrix and remaining exclusions.
 
