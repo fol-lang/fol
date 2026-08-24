@@ -455,10 +455,10 @@ Goal: a buffer crosses with its capacity, length, and domain validated.
 
 Tasks:
 
-- [ ] Add pointer/length pairing to the annotation overlay, so a
+- [x] Add pointer/length pairing to the annotation overlay, so a
   `(const uint8_t *, size_t)` pair imports as one FOL value rather than two
   unrelated parameters.
-- [ ] Make direction declarable rather than inferred from pointee constness.
+- [x] Make direction declarable rather than inferred from pointee constness.
 - [ ] Validate capacity, length, and domain before reconstructing an owned
   buffer, and refuse a length that exceeds capacity, a null with a nonzero
   length, and a domain mismatch.
@@ -474,6 +474,57 @@ Tests:
 
 Verification: `make test-v4-c-import`, `make test-v4-sanitize`,
 `make test-v4-linear`.
+
+## Landed so far — the borrowed half
+
+The first two tasks are done and gated; the owned-buffer half (tasks 3 and 4)
+is not started.
+
+**The pairing.** `buffer = "bytes"` with `buffer_length = "count"` makes the
+two C parameters one FOL value. The length then stops being a FOL parameter at
+all -- it is derived from the value at the call site, so there is no second
+number for a caller to get wrong and no way to describe a buffer longer than
+the one that exists. `AbiType::BorrowedSlice` already existed, serializable and
+renderable, with nothing constructing one; this is what constructs it.
+
+On FOL's side it is a borrowed vector: `bor[vec[u8]]` for a read-only buffer
+and a mutable loan for one the provider writes. Borrowed rather than owned
+because the storage stays FOL's -- the provider is lent it for the call.
+
+**Direction is declared, not guessed.** `reads` / `writes` / `reads_writes`
+name the parameters they apply to, in the same style as `nullable` /
+`transferred` / `retained`. Constness stays the default when nothing is
+declared, but it is a poor witness: `void *base` in `qsort` is read and
+written, `char *dst` in `strcpy` is only written, and a mutable pointer a
+provider never writes is indistinguishable from either. A declaration C
+contradicts -- `writes` on a const pointee, or any direction on a by-value
+parameter -- is refused rather than believed.
+
+Six refusals, each naming the routine and the parameter: a buffer or length
+that is not a parameter of that signature, a parameter paired with itself, a
+declared half with no other half, a signed length, a pointer to something with
+no size (`void *`), and a by-value parameter named as a buffer.
+
+**Verified by moving the buffer.** Four elements summed to 10; five summed to
+100. A length that was hardcoded, ignored, or off by one fails one of the two.
+Both directions run in one program: C reads four elements, then writes through
+a mutable loan, and FOL sums the result back.
+
+Three things found by running it:
+
+- **`out` was already taken.** It names the status convention's out-parameter,
+  so the direction keys say what the provider does through the pointer instead.
+  The compiler caught the shadowing as an unreachable match arm.
+- **The import manifest's type writer had a silent catch-all** -- `other =>
+  kind only` -- so a slice serialized without its element or mutability and
+  read back as a type the reader rejects. Both sides are explicit now.
+- **A mutable loan renders as `&mut *local`**, so taking `.as_mut_slice()` off
+  the rendered form produced `&mut *local.as_mut_slice().len()`: dereferencing
+  the length. The loan has to be peeled before the slice is taken.
+
+Adding the `buffer` field to the import manifest invalidated every checked-in
+`.folabi.json`. They were regenerated rather than edited -- a hand-edited
+manifest is exactly what the fingerprint refuses, and one test proves it.
 
 ---
 

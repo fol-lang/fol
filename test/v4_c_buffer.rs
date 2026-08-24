@@ -312,7 +312,11 @@ fn incoherent_buffer_pairings_are_refused() {
             "C declares its pointee const, so the provider cannot write through it",
         ),
     ] {
-        let root = stage(fixture.path().join(name).as_path(), "v4_c_buffer", &compiler);
+        let root = stage(
+            fixture.path().join(name).as_path(),
+            "v4_c_buffer",
+            &compiler,
+        );
         std::fs::write(
             root.join("interop/digest.toml"),
             format!("version = 1\n\n[routine.digest_sum]\nerror = \"infallible\"\n{overlay}\n"),
