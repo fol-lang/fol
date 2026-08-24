@@ -1,4 +1,7 @@
-use super::{resolve_package_from_folder_with_config, try_resolve_package_from_folder_with_config, unique_temp_root};
+use super::{
+    resolve_package_from_folder_with_config, try_resolve_package_from_folder_with_config,
+    unique_temp_root,
+};
 use fol_resolver::{ReferenceKind, ResolverConfig, ResolverErrorKind, ScopeKind, SymbolKind};
 use std::fs;
 
@@ -52,9 +55,12 @@ fn test_resolver_resolves_pkg_imports_from_the_configured_package_store_root() {
         store_root.join("json/build.fol"),
         formal_pkg_build("json", &[]),
     )
-        .expect("Should write the installed package build fixture");
-    fs::write(store_root.join("json/src/lib.fol"), "var[exp] answer: int = 42;\n")
-        .expect("Should write the installed package export fixture");
+    .expect("Should write the installed package build fixture");
+    fs::write(
+        store_root.join("json/src/lib.fol"),
+        "var[exp] answer: int = 42;\n",
+    )
+    .expect("Should write the installed package export fixture");
     fs::write(
         app_root.join("main.fol"),
         "use json: pkg = {\"json\"};\nfun[] main(): int = {\n    return json::src::answer;\n};\n",
@@ -139,7 +145,7 @@ fn test_resolver_pkg_imports_expose_semantic_internal_namespaces() {
         store_root.join("json/build.fol"),
         formal_pkg_build("json", &[]),
     )
-        .expect("Should write the installed package build fixture");
+    .expect("Should write the installed package build fixture");
     fs::write(
         store_root.join("json/src/public/value.fol"),
         "var[exp] answer: int = 42;\n",
@@ -352,7 +358,7 @@ fn test_resolver_pkg_qualified_names_follow_semantic_internal_namespaces() {
         store_root.join("json/build.fol"),
         formal_pkg_build("json", &[]),
     )
-        .expect("Should write the installed package build fixture");
+    .expect("Should write the installed package build fixture");
     fs::write(
         store_root.join("json/src/root/value.fol"),
         "var[exp] answer: int = 42;\n",
@@ -427,7 +433,7 @@ fn test_resolver_pkg_transitive_dependencies_follow_build_definitions() {
         store_root.join("core/build.fol"),
         formal_pkg_build("core", &[]),
     )
-        .expect("Should write the transitive dependency build fixture");
+    .expect("Should write the transitive dependency build fixture");
     fs::write(
         store_root.join("core/src/root/value.fol"),
         "var[exp] shared: int = 7;\n",

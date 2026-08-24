@@ -11,8 +11,11 @@ fn test_resolver_workspace_keeps_direct_loaded_packages() {
         .expect("Should create the importing package root fixture directory");
     fs::create_dir_all(temp_root.join("shared"))
         .expect("Should create the imported package root fixture directory");
-    fs::write(temp_root.join("shared/lib.fol"), "var[exp] answer: int = 42;\n")
-        .expect("Should write the imported package fixture");
+    fs::write(
+        temp_root.join("shared/lib.fol"),
+        "var[exp] answer: int = 42;\n",
+    )
+    .expect("Should write the imported package fixture");
     fs::write(
         temp_root.join("app/main.fol"),
         "use shared: loc = {\"../shared\"};\nfun[] main(): int = {\n    return answer;\n};\n",
@@ -59,8 +62,11 @@ fn test_resolver_workspace_dedupes_repeated_loaded_packages() {
         .expect("Should create the importing package root fixture directory");
     fs::create_dir_all(temp_root.join("shared"))
         .expect("Should create the imported package root fixture directory");
-    fs::write(temp_root.join("shared/lib.fol"), "var[exp] answer: int = 42;\n")
-        .expect("Should write the imported package fixture");
+    fs::write(
+        temp_root.join("shared/lib.fol"),
+        "var[exp] answer: int = 42;\n",
+    )
+    .expect("Should write the imported package fixture");
     fs::write(
         temp_root.join("app/main.fol"),
         concat!(
@@ -132,8 +138,11 @@ fn test_resolver_workspace_keeps_transitive_loaded_packages() {
         "pro[] build(): non = {\n    var build = .build();\n    build.meta({\n        name = \"core\",\n        version = \"1.0.0\",\n    });\n};\n",
     )
         .expect("Should write core build definition");
-    fs::write(store_root.join("core/src/lib.fol"), "var[exp] shared: int = 7;\n")
-        .expect("Should write core package sources");
+    fs::write(
+        store_root.join("core/src/lib.fol"),
+        "var[exp] shared: int = 7;\n",
+    )
+    .expect("Should write core package sources");
 
     fs::write(
         app_root.join("main.fol"),
@@ -194,8 +203,11 @@ fn test_resolver_legacy_program_api_matches_workspace_entry_program() {
         .expect("Should create the importing package root fixture directory");
     fs::create_dir_all(temp_root.join("shared"))
         .expect("Should create the imported package root fixture directory");
-    fs::write(temp_root.join("shared/lib.fol"), "var[exp] answer: int = 42;\n")
-        .expect("Should write the imported package fixture");
+    fs::write(
+        temp_root.join("shared/lib.fol"),
+        "var[exp] answer: int = 42;\n",
+    )
+    .expect("Should write the imported package fixture");
     fs::write(
         temp_root.join("app/main.fol"),
         "use shared: loc = {\"../shared\"};\nfun[] main(): int = {\n    return answer;\n};\n",
