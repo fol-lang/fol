@@ -3584,30 +3584,147 @@ example and real consumer test exist.
 
 # 18. Security, Reproducibility, and Supply-Chain Checklist
 
-- [ ] Canonicalize all native/header/sysroot/tool paths and reject traversal or
+- [~] Canonicalize all native/header/sysroot/tool paths and reject traversal or
   symlink escape from declared roots.
-- [ ] Validate native filenames/library names and never interpolate them into a
+
+Done on the interop path: `canonical_file`/`canonical_directory` and
+`canonical_include_root` canonicalize before the containment check, the
+compiler executable must be absolute with no `.`/`..`, and
+`ensure_no_symlink_escape` re-checks the deepest existing ancestor before every
+write. System include roots and the sysroot are canonicalized but deliberately
+not contained, because an SDK legitimately lives outside the package.
+
+Open: build *tool* paths are only checked for being absolute, so a symlink at
+an absolute path is followed; and native library search paths reach
+`-L native={path}` with no canonicalization or containment at all.
+- [~] Validate native filenames/library names and never interpolate them into a
   shell command.
-- [ ] Use structured `Command` arguments; no shell-expanded linker fragments.
+
+The shell half is fully satisfied -- see the next item. The validation half is
+not: a system library name is checked for being non-empty and nothing else,
+then becomes `-l dylib={name}`. `validate_build_name` already enforces a sane
+charset and is simply never applied to library names or search paths.
+- [x] Use structured `Command` arguments; no shell-expanded linker fragments.
+
+There is no `sh -c` anywhere in `lang/`. `to_rustc_args` returns `OsString`
+items with every flag and value separate -- the SONAME is split into two `-Wl`
+items rather than a comma list for exactly this reason -- and
+`arguments_are_structured_never_concatenated` proves a path containing a space
+stays one argv element.
 - [ ] Inspect object format/architecture before linking.
-- [ ] Cryptographically digest exact native binary/header/annotation inputs and
+
+**Worse than absent: it currently reads as covered and is not.**
+`validate_targets` compares declared targets, `continue`s on mismatch, and only
+then tests `object_format()` -- which by that point is equal by construction.
+The `ObjectFormatMismatch` variant is constructed at exactly one unreachable
+line and has no test. Nothing anywhere reads the magic bytes of a `.a`, `.o`,
+or `.so`. Either the dead branch goes or a real inspection replaces it; leaving
+it is the worst of the three, because it looks like a check.
+- [~] Cryptographically digest exact native binary/header/annotation inputs and
   record provider provenance in lock/build metadata.
-- [ ] Do not use `DefaultHasher` as a native-content identity.
-- [ ] Hash/redact environment values in reports/cache identity.
-- [ ] Lock per-plan temporary outputs and publish atomically.
-- [ ] Validate every C-originating pointer, length, alignment, capacity, tag,
+
+The header and the annotation overlay now carry content digests, which is what
+makes stale-interface detection possible. Two gaps remain, and the first is the
+real one: **the native provider binary has no digest field at all**, so
+`stale_input` cannot notice a swapped `.a` -- the manifest records its path and
+nothing about its contents. The compiler is likewise recorded as a path.
+
+The second is the word *cryptographically*: these digests are FNV-1a 64-bit,
+matching every other fingerprint in the tree. That is sound for comparing a
+value against one this same code produced, and wrong for anything an adversary
+touches. `sha256_hex` now exists and is used for release checksums, so the
+material for closing this is in place.
+- [x] Do not use `DefaultHasher` as a native-content identity.
+
+The single live `DefaultHasher` hashes package-lock identity strings, not
+native content. Every native and build identity path uses the FNV-1a `digest`,
+each with a comment recording that `std`'s hasher is unstable across releases.
+- [x] Hash/redact environment values in reports/cache identity.
+
+`cache_identity` renders `name=digest(value)` per environment entry, and
+`ToolFingerprint` records names only. `PUBLIC_ENVIRONMENT_NAMES` is an
+allowlist rather than a denylist, because a denylist fails open. Two caveats
+worth keeping in view: `classify_environment` has no non-test caller yet, and
+redaction is FNV-64, which is brute-forceable for a low-entropy value.
+- [x] Lock per-plan temporary outputs and publish atomically.
+
+`MaterializeLock::acquire` uses `create_new(true)` on a per-plan lock file and
+releases in `Drop` so a panic cannot wedge the tree; `publish` renames the old
+tree aside, renames staging into place, and restores on failure.
+- [~] Validate every C-originating pointer, length, alignment, capacity, tag,
   bool, Unicode, UTF-8, output pointer, and ownership token before use.
-- [ ] Keep generated unsafe code minimal, linted, locally documented, and
+
+Covered and exercised: null output pointers, pointer/length pairing including
+the `len > isize::MAX` case, UTF-8, `bool` as strictly 0 or 1, Unicode scalar
+values via `char::from_u32`, entry tags matched before any union read, and
+over-aligned or packed scalars refused at bind time. Records are rebuilt field
+by field, never transmuted.
+
+Open: **the ownership token is not validated.** A producing routine's return is
+adopted with `FolHandle::from_raw` and no null check, so a `NULL` from a
+producer becomes a live FOL handle that is later handed to destroy.
+`FolHandle::is_null` exists and has no caller. Capacity is not validated
+because owned buffers are not built.
+- [~] Keep generated unsafe code minimal, linted, locally documented, and
   inaccessible from ordinary FOL and public C ABI surfaces.
-- [ ] Catch/translate panic; reject unwind-capable foreign declarations.
-- [ ] Pair every owned value with one exact provider/domain destroy path.
+
+Minimal, documented, and inaccessible all hold: each adapter is the only place
+an `unsafe` call appears for its symbol (asserted by a test that counts the
+blocks), every block carries a local justification naming the checks that make
+it sound, `ptr[raw]` is refused in ordinary source, and the raw extern module
+is a private crate reachable only through adapters.
+
+*Linted* does not hold. The generated adapter module emits
+`#[allow(dead_code, non_snake_case)]` -- a relaxation -- and there is no
+`deny`/`warn` attribute anywhere on the emitted surface.
+- [x] Catch/translate panic; reject unwind-capable foreign declarations.
+
+Exports wrap the call in `catch_unwind` and map a panic to `FOL_STATUS_PANIC`;
+the callback trampoline validates a null context and aborts with the symbol
+named rather than unwinding into C. Only `RustAbi::C` is accepted, so
+`C-unwind` cannot get through, and the overlay refuses `unwind`, `exception`,
+and `longjmp` conventions by name.
+- [x] Pair every owned value with one exact provider/domain destroy path.
+
+Every handle domain must name a `destroy`, that symbol must be a selected
+routine, it must declare `handle_role = "consumes"` for the domain, and no
+other routine may consume it. Ownership transfer with no destructor is refused.
+At the FOL level `FolHandle` has no `Clone`, `Copy`, or `Drop`, `into_raw`
+takes `self`, and linear analysis makes a never-consumed handle a compile
+error; the four `fail_v4_c_handle_*` examples cover leak, double free, use
+after free, and duplicate.
 - [ ] Prevent callback retention, post-destroy invocation, unapproved reentry,
   and cross-thread invocation.
-- [ ] Treat headers, annotations, providers, preprocessors/compilers, and
+
+Only the null-context case is detected. Everything else here is something the
+*provider* does after FOL has returned, and nothing on FOL's side observes it:
+the context is a stack local, so a retained pointer dangles rather than being
+caught, and there is no generation counter, thread-id check, reentry flag, or
+context destroyer. Section 12.5 records the same gap; the negatives this item
+names have no tests because there is nothing yet to test.
+- [~] Treat headers, annotations, providers, preprocessors/compilers, and
   sysroots as explicit trusted and fingerprinted build inputs; FOL does not
   execute undeclared dependency code implicitly.
-- [ ] Pin CI actions and toolchain versions; publish checksums, provenance, and
+
+The *does not execute* half is solid. A dependency-supplied executable is
+refused outright, the check runs at exec time rather than declaration time so
+no path can reach an exec without passing it, bare names are refused so `PATH`
+cannot decide, there is no ambient `CPATH`/SDK/sysroot discovery, the LINC
+policy is exact-paths-only and compile-only with an empty probe environment,
+and a compiler carrying its own sysroot is rejected.
+
+The *fingerprinted* half is the gap recorded above: provider, compiler, and
+sysroot are path strings with no digest.
+- [~] Pin CI actions and toolchain versions; publish checksums, provenance, and
   SBOM with release artifacts.
+
+Pinning is done: every action is a full commit SHA, every runner is a pinned
+image, Rust and the tree-sitter CLI are pinned in the flake, nixpkgs is pinned,
+and the release build runs only inside `nix develop .#release --locked`.
+
+Publishing is split. An ABI release archive carries all three -- real SHA-256
+checksums, `PROVENANCE`, and `SBOM`. The **toolchain** release publishes
+checksums only: no provenance and no SBOM accompany those artifacts.
 
 
 # 19. Risk Register
