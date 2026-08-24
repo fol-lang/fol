@@ -35,9 +35,7 @@ impl BuildBodyExecutor {
         let field = fields
             .iter()
             .find(|field| field.name == "alias")
-            .ok_or_else(|| {
-                self.invalid_config(method, "missing required string field 'alias'")
-            })?;
+            .ok_or_else(|| self.invalid_config(method, "missing required string field 'alias'"))?;
         let alias = self
             .resolve_string(&field.value)
             .ok_or_else(|| self.invalid_config(method, "'alias' must be a string"))?;
@@ -844,12 +842,16 @@ impl BuildBodyExecutor {
                 })?;
                 let target = self.resolve_field_string(fields, "target");
                 if target.is_none() && fields.iter().any(|field| field.name == "target") {
-                    return Err(self.invalid_config(method, "'target' must be a string or a target option handle"));
+                    return Err(self.invalid_config(
+                        method,
+                        "'target' must be a string or a target option handle",
+                    ));
                 }
                 let dialect = self.resolve_optional_c_import_string(method, fields, "dialect")?;
                 let compiler = self.resolve_optional_c_import_string(method, fields, "compiler")?;
                 let sysroot = self.resolve_optional_c_import_string(method, fields, "sysroot")?;
-                let include_roots = self.resolve_c_import_strings(method, fields, "include_roots")?;
+                let include_roots =
+                    self.resolve_c_import_strings(method, fields, "include_roots")?;
                 let system_include_roots =
                     self.resolve_c_import_strings(method, fields, "system_include_roots")?;
                 let defines = self.resolve_c_import_strings(method, fields, "defines")?;

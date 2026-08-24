@@ -198,7 +198,9 @@ impl BuildCImportDeclaration {
             alias: self.alias,
             header: self.header,
             provider: self.provider,
-            provider_kind: self.provider_kind.unwrap_or(BuildCImportProviderKind::Object),
+            provider_kind: self
+                .provider_kind
+                .unwrap_or(BuildCImportProviderKind::Object),
             annotations: self.annotations,
             target: self.target,
             dialect: self.dialect,
@@ -532,11 +534,9 @@ impl BuildGraph {
                 provider: attachment.provider,
             });
         }
-        if self
-            .c_imports
-            .iter()
-            .any(|existing| existing.artifact_id == artifact_id && existing.alias == attachment.alias)
-        {
+        if self.c_imports.iter().any(|existing| {
+            existing.artifact_id == artifact_id && existing.alias == attachment.alias
+        }) {
             return Err(BuildCImportAttachmentError::DuplicateAlias {
                 artifact_id,
                 alias: attachment.alias,
@@ -965,10 +965,10 @@ mod tests {
     use super::{
         BuildArtifactDependency, BuildArtifactId, BuildArtifactInput, BuildArtifactKind,
         BuildCImportAttachment, BuildCImportAttachmentError, BuildCImportDeclaration,
-        BuildCImportProviderKind, BuildGeneratedFileId, BuildGeneratedFileKind, BuildGraph, BuildGraphValidationError,
-        BuildGraphValidationErrorKind, BuildInstallId, BuildInstallKind, BuildInstallTarget,
-        BuildModuleId, BuildModuleKind, BuildOptionId, BuildOptionKind, BuildStepDependency,
-        BuildStepId, BuildStepKind,
+        BuildCImportProviderKind, BuildGeneratedFileId, BuildGeneratedFileKind, BuildGraph,
+        BuildGraphValidationError, BuildGraphValidationErrorKind, BuildInstallId, BuildInstallKind,
+        BuildInstallTarget, BuildModuleId, BuildModuleKind, BuildOptionId, BuildOptionKind,
+        BuildStepDependency, BuildStepId, BuildStepKind,
     };
 
     #[test]

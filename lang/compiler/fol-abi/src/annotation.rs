@@ -117,20 +117,58 @@ impl AnnotationOverlay {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AnnotationError {
     MissingVersion,
-    UnsupportedVersion { line: u32, found: u32 },
-    UnknownKey { line: u32, key: String },
-    UnknownTable { line: u32, table: String },
-    MalformedLine { line: u32 },
-    DuplicateRoutine { line: u32, symbol: String },
-    InvalidSymbol { line: u32, symbol: String },
-    KeyOutsideTable { line: u32, key: String },
-    MissingKey { symbol: String, key: &'static str },
+    UnsupportedVersion {
+        line: u32,
+        found: u32,
+    },
+    UnknownKey {
+        line: u32,
+        key: String,
+    },
+    UnknownTable {
+        line: u32,
+        table: String,
+    },
+    MalformedLine {
+        line: u32,
+    },
+    DuplicateRoutine {
+        line: u32,
+        symbol: String,
+    },
+    InvalidSymbol {
+        line: u32,
+        symbol: String,
+    },
+    KeyOutsideTable {
+        line: u32,
+        key: String,
+    },
+    MissingKey {
+        symbol: String,
+        key: &'static str,
+    },
     /// A convention section 4.13 rejects outright rather than approximating.
-    RejectedConvention { line: u32, convention: String },
-    UnusedKey { symbol: String, key: String },
-    EmptyStatusSet { symbol: String, key: &'static str },
-    OverlappingStatusCodes { symbol: String, code: i64 },
-    UnknownEffect { line: u32, effect: String },
+    RejectedConvention {
+        line: u32,
+        convention: String,
+    },
+    UnusedKey {
+        symbol: String,
+        key: String,
+    },
+    EmptyStatusSet {
+        symbol: String,
+        key: &'static str,
+    },
+    OverlappingStatusCodes {
+        symbol: String,
+        code: i64,
+    },
+    UnknownEffect {
+        line: u32,
+        effect: String,
+    },
 }
 
 impl AnnotationError {
@@ -166,15 +204,17 @@ impl std::fmt::Display for AnnotationError {
                 "line {line}: unknown annotation table '[{table}]'; expected '[routine.<symbol>]'"
             ),
             Self::MalformedLine { line } => {
-                write!(f, "line {line}: expected `key = value` or `[routine.<symbol>]`")
+                write!(
+                    f,
+                    "line {line}: expected `key = value` or `[routine.<symbol>]`"
+                )
             }
             Self::DuplicateRoutine { line, symbol } => {
                 write!(f, "line {line}: '{symbol}' is annotated twice")
             }
-            Self::InvalidSymbol { line, symbol } => write!(
-                f,
-                "line {line}: '{symbol}' is not a C identifier"
-            ),
+            Self::InvalidSymbol { line, symbol } => {
+                write!(f, "line {line}: '{symbol}' is not a C identifier")
+            }
             Self::KeyOutsideTable { line, key } => write!(
                 f,
                 "line {line}: '{key}' appears before any '[routine.<symbol>]' table"
@@ -269,7 +309,9 @@ impl<'a> Parser<'a> {
     }
 
     fn read_table(&mut self, line: u32, table: &str) -> Result<(), AnnotationError> {
-        let name = table.strip_suffix(']').ok_or(AnnotationError::MalformedLine { line })?;
+        let name = table
+            .strip_suffix(']')
+            .ok_or(AnnotationError::MalformedLine { line })?;
         let symbol = name
             .strip_prefix("routine.")
             .ok_or_else(|| AnnotationError::UnknownTable {
@@ -311,8 +353,8 @@ impl<'a> Parser<'a> {
         let Some(symbol) = self.current.clone() else {
             if key == "version" {
                 let parsed = parse_integer(value).ok_or(AnnotationError::MalformedLine { line })?;
-                let parsed = u32::try_from(parsed)
-                    .map_err(|_| AnnotationError::MalformedLine { line })?;
+                let parsed =
+                    u32::try_from(parsed).map_err(|_| AnnotationError::MalformedLine { line })?;
                 if parsed != ANNOTATION_SCHEMA_VERSION {
                     return Err(AnnotationError::UnsupportedVersion {
                         line,
@@ -349,12 +391,14 @@ impl<'a> Parser<'a> {
                 routine.error = Some(convention);
             }
             "status_ok" => {
-                routine.success =
-                    Some(parse_integer_array(value).ok_or(AnnotationError::MalformedLine { line })?);
+                routine.success = Some(
+                    parse_integer_array(value).ok_or(AnnotationError::MalformedLine { line })?,
+                );
             }
             "status_error" => {
-                routine.failure =
-                    Some(parse_integer_array(value).ok_or(AnnotationError::MalformedLine { line })?);
+                routine.failure = Some(
+                    parse_integer_array(value).ok_or(AnnotationError::MalformedLine { line })?,
+                );
             }
             "out" => {
                 routine.out_parameter =
@@ -479,11 +523,17 @@ fn parse_integer(value: &str) -> Option<i64> {
 }
 
 fn parse_integer_array(value: &str) -> Option<Vec<i64>> {
-    array_items(value)?.iter().map(|item| parse_integer(item)).collect()
+    array_items(value)?
+        .iter()
+        .map(|item| parse_integer(item))
+        .collect()
 }
 
 fn parse_string_array(value: &str) -> Option<Vec<String>> {
-    array_items(value)?.iter().map(|item| parse_string(item)).collect()
+    array_items(value)?
+        .iter()
+        .map(|item| parse_string(item))
+        .collect()
 }
 
 fn array_items(value: &str) -> Option<Vec<&str>> {
@@ -536,7 +586,10 @@ effects = ["allocates"]
         let overlay = AnnotationOverlay::parse(SCALAR_OVERLAY).expect("overlay should parse");
 
         assert_eq!(
-            overlay.routine("c_math_add_one").expect("selected").fol_name,
+            overlay
+                .routine("c_math_add_one")
+                .expect("selected")
+                .fol_name,
             "add_one"
         );
         assert_eq!(
@@ -569,11 +622,9 @@ effects = ["allocates"]
     #[test]
     fn every_guessed_error_convention_is_refused_by_name() {
         for convention in REJECTED_CONVENTIONS {
-            let text = format!(
-                "version = 1\n[routine.f]\nerror = \"{convention}\"\n"
-            );
-            let error = AnnotationOverlay::parse(&text)
-                .expect_err("a guessed convention must be refused");
+            let text = format!("version = 1\n[routine.f]\nerror = \"{convention}\"\n");
+            let error =
+                AnnotationOverlay::parse(&text).expect_err("a guessed convention must be refused");
             assert_eq!(
                 error,
                 AnnotationError::RejectedConvention {
@@ -612,7 +663,10 @@ effects = ["allocates"]
     #[test]
     fn a_future_schema_version_is_refused_rather_than_read() {
         let error = AnnotationOverlay::parse("version = 2\n").expect_err("version 2 is not ours");
-        assert_eq!(error, AnnotationError::UnsupportedVersion { line: 1, found: 2 });
+        assert_eq!(
+            error,
+            AnnotationError::UnsupportedVersion { line: 1, found: 2 }
+        );
     }
 
     #[test]

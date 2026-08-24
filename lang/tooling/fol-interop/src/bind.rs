@@ -197,11 +197,19 @@ fn canonical_file(path: &Path) -> Result<PathBuf, BindCError> {
 
 #[derive(Debug)]
 pub enum BindCError {
-    UncertifiedTarget { triple: String },
-    Io { path: PathBuf, source: std::io::Error },
+    UncertifiedTarget {
+        triple: String,
+    },
+    Io {
+        path: PathBuf,
+        source: std::io::Error,
+    },
     NotADirectory(PathBuf),
     NotAFile(PathBuf),
-    Annotation { path: PathBuf, error: AnnotationError },
+    Annotation {
+        path: PathBuf,
+        error: AnnotationError,
+    },
     EmptySelection,
     Policy(String),
     Toolchain(String),

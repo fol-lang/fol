@@ -139,12 +139,12 @@ impl ImportManifest {
                 .array_field("components")?
                 .iter()
                 .map(|item| {
-                    item.as_str().map(str::to_string).ok_or(ImportManifestError::Json(
-                        JsonError::WrongType {
+                    item.as_str()
+                        .map(str::to_string)
+                        .ok_or(ImportManifestError::Json(JsonError::WrongType {
                             field: "components".to_string(),
                             expected: "string",
-                        },
-                    ))
+                        }))
                 })
                 .collect::<Result<Vec<_>, _>>()?,
         };
@@ -286,7 +286,10 @@ fn render_integers(values: &[i64]) -> String {
 fn render_type(id: AbiTypeId, ty: &AbiType) -> String {
     let body = match ty {
         AbiType::Void => "\"kind\":\"void\"".to_string(),
-        AbiType::Scalar(scalar) => format!("\"kind\":\"scalar\",\"scalar\":{}", quoted(&scalar_name(*scalar))),
+        AbiType::Scalar(scalar) => format!(
+            "\"kind\":\"scalar\",\"scalar\":{}",
+            quoted(&scalar_name(*scalar))
+        ),
         AbiType::Pointer {
             target,
             mutability,
@@ -423,12 +426,14 @@ fn read_type(entry: &JsonValue) -> Result<AbiType, ImportManifestError> {
             })?)
         }
         "pointer" => AbiType::Pointer {
-            target: AbiTypeId(usize::try_from(entry.integer_field("target")?).map_err(|_| {
-                ImportManifestError::Json(JsonError::WrongType {
-                    field: "target".to_string(),
-                    expected: "a type index",
-                })
-            })?),
+            target: AbiTypeId(
+                usize::try_from(entry.integer_field("target")?).map_err(|_| {
+                    ImportManifestError::Json(JsonError::WrongType {
+                        field: "target".to_string(),
+                        expected: "a type index",
+                    })
+                })?,
+            ),
             mutability: match entry.string_field("mutability")? {
                 "const" => AbiMutability::Const,
                 _ => AbiMutability::Mutable,
@@ -509,11 +514,15 @@ fn read_type_id(
     types: &AbiTypeTable,
     symbol: &str,
 ) -> Result<AbiTypeId, ImportManifestError> {
-    let index = usize::try_from(raw).ok().filter(|index| *index < types.len());
-    index.map(AbiTypeId).ok_or(ImportManifestError::DanglingTypeId {
-        symbol: symbol.to_string(),
-        id: raw,
-    })
+    let index = usize::try_from(raw)
+        .ok()
+        .filter(|index| *index < types.len());
+    index
+        .map(AbiTypeId)
+        .ok_or(ImportManifestError::DanglingTypeId {
+            symbol: symbol.to_string(),
+            id: raw,
+        })
 }
 
 fn read_error(value: &JsonValue) -> Result<ImportErrorConvention, ImportManifestError> {
@@ -537,10 +546,11 @@ fn read_integers(value: &JsonValue, field: &str) -> Result<Vec<i64>, ImportManif
         .array_field(field)?
         .iter()
         .map(|item| {
-            item.as_i64().ok_or(ImportManifestError::Json(JsonError::WrongType {
-                field: field.to_string(),
-                expected: "integer",
-            }))
+            item.as_i64()
+                .ok_or(ImportManifestError::Json(JsonError::WrongType {
+                    field: field.to_string(),
+                    expected: "integer",
+                }))
         })
         .collect()
 }
@@ -553,21 +563,44 @@ fn quoted(text: &str) -> String {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportManifestError {
     Json(JsonError),
-    UnknownSchema { found: String },
-    UnsupportedVersion { found: i64 },
-    UnknownTarget { triple: String },
-    UnknownScalar { name: String },
-    UnsupportedTypeKind { kind: String },
-    UnknownConvention { convention: String },
-    UnknownErrorKind { kind: String },
-    TypeTableOutOfOrder { expected: usize, found: i64 },
-    DanglingTypeId { symbol: String, id: i64 },
+    UnknownSchema {
+        found: String,
+    },
+    UnsupportedVersion {
+        found: i64,
+    },
+    UnknownTarget {
+        triple: String,
+    },
+    UnknownScalar {
+        name: String,
+    },
+    UnsupportedTypeKind {
+        kind: String,
+    },
+    UnknownConvention {
+        convention: String,
+    },
+    UnknownErrorKind {
+        kind: String,
+    },
+    TypeTableOutOfOrder {
+        expected: usize,
+        found: i64,
+    },
+    DanglingTypeId {
+        symbol: String,
+        id: i64,
+    },
     FingerprintMismatch {
         field: &'static str,
         recorded: String,
         actual: String,
     },
-    AliasMismatch { recorded: String, actual: String },
+    AliasMismatch {
+        recorded: String,
+        actual: String,
+    },
     StaleInterface {
         alias: String,
         recorded: String,
@@ -615,10 +648,9 @@ impl std::fmt::Display for ImportManifestError {
                 f,
                 "the import manifest names calling convention '{convention}'"
             ),
-            Self::UnknownErrorKind { kind } => write!(
-                f,
-                "the import manifest names error convention '{kind}'"
-            ),
+            Self::UnknownErrorKind { kind } => {
+                write!(f, "the import manifest names error convention '{kind}'")
+            }
             Self::TypeTableOutOfOrder { expected, found } => write!(
                 f,
                 "the import manifest's type table is out of order: position {expected} carries \

@@ -360,8 +360,8 @@ fn the_frozen_abi_export_spelling_is_implemented() {
 /// checked-in file is now accepted -- which is what the freeze was for.
 #[test]
 fn the_frozen_c_import_field_spelling_is_implemented() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("examples/fail_v4_contract_c_import_fields");
+    let root =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/fail_v4_contract_c_import_fields");
     let output = run_fol_in_dir(
         &root,
         &[

@@ -31,6 +31,7 @@ mod ui;
 mod work;
 mod workspace;
 
+pub use bind::{bind_c_command, default_manifest_path};
 pub use build_route::{
     execute_workspace_build_route, plan_workspace_build_route, requested_workspace_step,
     FrontendBuildStep, FrontendBuildWorkflowMode, FrontendMemberBuildRoute,
@@ -65,7 +66,6 @@ pub use discovery::{
     discover_root_from_explicit_path, discover_root_upward, require_discovered_root,
     DiscoveredRoot, PackageRoot, WorkspaceRoot, PACKAGE_FILE_NAME, WORKSPACE_FILE_NAME,
 };
-pub use bind::{bind_c_command, default_manifest_path};
 pub use editor::{
     editor_completion_command, editor_format_command, editor_highlight_command, editor_lsp_command,
     editor_lsp_stdio, editor_parse_command, editor_references_command, editor_rename_command,

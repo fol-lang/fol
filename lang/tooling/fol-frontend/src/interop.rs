@@ -234,10 +234,7 @@ mod tests {
             fol_package::BuildOptimizeMode::Debug,
         );
         let c_import = graph
-            .add_c_import(
-                artifact_id,
-                provider_declaration(),
-            )
+            .add_c_import(artifact_id, provider_declaration())
             .unwrap();
         let selection = FrontendArtifactExecutionSelection {
             package_root: PathBuf::from("/definitely/missing/fol-h7-package"),
@@ -284,10 +281,7 @@ mod tests {
                 fol_package::BuildOptimizeMode::Debug,
             );
             let c_import = graph
-                .add_c_import(
-                    artifact_id,
-                    provider_declaration(),
-                )
+                .add_c_import(artifact_id, provider_declaration())
                 .unwrap();
             let selection = FrontendArtifactExecutionSelection {
                 package_root: PathBuf::from("/definitely/missing/fol-h7-package"),

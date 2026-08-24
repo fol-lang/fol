@@ -430,7 +430,7 @@ mod tests {
     use super::*;
     use crate::annotation::AnnotationOverlay;
     use crate::interface::AbiDirection;
-    use crate::types::{AbiMutability, AbiNullability, AbiOwnership, AbiType, AbiEscape};
+    use crate::types::{AbiEscape, AbiMutability, AbiNullability, AbiOwnership, AbiType};
 
     fn overlay(text: &str) -> AnnotationOverlay {
         AnnotationOverlay::parse(text).expect("test overlay should parse")
@@ -765,7 +765,9 @@ mod tests {
 
         assert_eq!(interface.required_symbols(), vec!["alpha", "mid", "zeta"]);
         assert_eq!(
-            interface.routine("mid").map(|routine| routine.symbol.as_str()),
+            interface
+                .routine("mid")
+                .map(|routine| routine.symbol.as_str()),
             Some("mid")
         );
         assert!(interface.routine("absent").is_none());

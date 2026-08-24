@@ -32,12 +32,12 @@ pub use import_manifest::{
     canonical_import_interface_json, ImportManifest, ImportManifestError, ImportProvenance,
     IMPORT_MANIFEST_SCHEMA, IMPORT_MANIFEST_SCHEMA_VERSION,
 };
-pub use json::{JsonError, JsonValue};
 pub use interface::{
     AbiCallingConvention, AbiDirection, AbiEffects, AbiErrorContract, AbiFacing, AbiParameter,
     AbiSourceOrigin, ExportSelection, ForeignInterface, ForeignInterfaceTemplate, ForeignRoutine,
     ResolvedAbiSurface,
 };
+pub use json::{JsonError, JsonValue};
 pub use manifest::{
     canonical_interface_json, canonical_type_table_json, compare_surfaces, digest,
     AbiCompatibility, AbiManifest, BuildProvenance, MANIFEST_SCHEMA, MANIFEST_SCHEMA_VERSION,

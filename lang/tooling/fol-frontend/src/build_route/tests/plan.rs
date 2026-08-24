@@ -258,7 +258,7 @@ fn semantic_member_planning_carries_target_optimize_c_import_and_graph_binding_e
             "    var app = graph.add_exe({ name = \"app\", root = \"src/main.fol\", target = \"aarch64-linux-gnu\", optimize = \"release-fast\" });\n",
             "    var header = graph.file_from_root(\"native/widget.h\");\n",
             "    var provider = graph.file_from_root(\"native/widget.o\");\n",
-            "    app.add_c_import({ header = header, provider = provider, provider_kind = \"object\" });\n",
+            "    app.add_c_import({ alias = \"widget\", header = header, provider = provider, provider_kind = \"object\" });\n",
             "    graph.add_run(app);\n",
             "    return;\n",
             "};\n",

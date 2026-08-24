@@ -215,9 +215,7 @@ impl<'a> BuildApi<'a> {
                     header: request.header.relative_path,
                     provider: request.provider.relative_path,
                     provider_kind: Some(request.provider_kind),
-                    annotations: request
-                        .annotations
-                        .map(|handle| handle.relative_path),
+                    annotations: request.annotations.map(|handle| handle.relative_path),
                     target: request.target,
                     dialect: request.dialect,
                     compiler: request.compiler,

@@ -64,9 +64,7 @@ pub fn bind_c_command(
         temporary_parent,
         model,
     })
-    .map_err(|error| {
-        FrontendError::new(FrontendErrorKind::CommandFailed, format!("{error}"))
-    })?;
+    .map_err(|error| FrontendError::new(FrontendErrorKind::CommandFailed, format!("{error}")))?;
 
     let out = package_root.join(&command.out);
     if let Some(parent) = out.parent() {

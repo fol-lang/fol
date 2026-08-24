@@ -79,17 +79,21 @@ impl JsonValue {
     }
 
     pub fn string_field(&self, name: &str) -> Result<&str, JsonError> {
-        self.field(name)?.as_str().ok_or_else(|| JsonError::WrongType {
-            field: name.to_string(),
-            expected: "string",
-        })
+        self.field(name)?
+            .as_str()
+            .ok_or_else(|| JsonError::WrongType {
+                field: name.to_string(),
+                expected: "string",
+            })
     }
 
     pub fn integer_field(&self, name: &str) -> Result<i64, JsonError> {
-        self.field(name)?.as_i64().ok_or_else(|| JsonError::WrongType {
-            field: name.to_string(),
-            expected: "integer",
-        })
+        self.field(name)?
+            .as_i64()
+            .ok_or_else(|| JsonError::WrongType {
+                field: name.to_string(),
+                expected: "integer",
+            })
     }
 
     pub fn array_field(&self, name: &str) -> Result<&[JsonValue], JsonError> {
@@ -105,14 +109,32 @@ impl JsonValue {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JsonError {
     UnexpectedEnd,
-    UnexpectedByte { offset: usize, found: char },
-    TrailingContent { offset: usize },
-    InvalidNumber { offset: usize },
-    InvalidEscape { offset: usize },
-    DuplicateKey { key: String },
-    MissingField { field: String },
-    ExpectedObject { field: String },
-    WrongType { field: String, expected: &'static str },
+    UnexpectedByte {
+        offset: usize,
+        found: char,
+    },
+    TrailingContent {
+        offset: usize,
+    },
+    InvalidNumber {
+        offset: usize,
+    },
+    InvalidEscape {
+        offset: usize,
+    },
+    DuplicateKey {
+        key: String,
+    },
+    MissingField {
+        field: String,
+    },
+    ExpectedObject {
+        field: String,
+    },
+    WrongType {
+        field: String,
+        expected: &'static str,
+    },
 }
 
 impl std::fmt::Display for JsonError {
@@ -160,7 +182,10 @@ impl Reader<'_> {
     }
 
     fn peek(&self) -> Result<u8, JsonError> {
-        self.bytes.get(self.offset).copied().ok_or(JsonError::UnexpectedEnd)
+        self.bytes
+            .get(self.offset)
+            .copied()
+            .ok_or(JsonError::UnexpectedEnd)
     }
 
     fn expect(&mut self, byte: u8) -> Result<(), JsonError> {
@@ -259,8 +284,8 @@ impl Reader<'_> {
                         self.offset += 1;
                     }
                     let slice = &self.bytes[start..self.offset];
-                    let decoded = std::str::from_utf8(slice)
-                        .map_err(|_| JsonError::UnexpectedByte {
+                    let decoded =
+                        std::str::from_utf8(slice).map_err(|_| JsonError::UnexpectedByte {
                             offset: start,
                             found: '?',
                         })?;
@@ -273,11 +298,9 @@ impl Reader<'_> {
     fn read_unicode_escape(&mut self) -> Result<char, JsonError> {
         let start = self.offset;
         let end = start + 4;
-        let digits = self
-            .bytes
-            .get(start..end)
-            .ok_or(JsonError::UnexpectedEnd)?;
-        let text = std::str::from_utf8(digits).map_err(|_| JsonError::InvalidEscape { offset: start })?;
+        let digits = self.bytes.get(start..end).ok_or(JsonError::UnexpectedEnd)?;
+        let text =
+            std::str::from_utf8(digits).map_err(|_| JsonError::InvalidEscape { offset: start })?;
         let code = u32::from_str_radix(text, 16)
             .map_err(|_| JsonError::InvalidEscape { offset: start })?;
         self.offset = end;
@@ -396,7 +419,10 @@ mod tests {
     #[test]
     fn multi_byte_utf8_reads_back_unchanged() {
         let value = JsonValue::parse("{\"value\":\"naïve — 日本語\"}").expect("utf-8 should read");
-        assert_eq!(value.string_field("value").expect("value"), "naïve — 日本語");
+        assert_eq!(
+            value.string_field("value").expect("value"),
+            "naïve — 日本語"
+        );
     }
 
     #[test]
@@ -444,10 +470,7 @@ mod tests {
     #[test]
     fn a_truncated_document_is_refused() {
         for text in [r#"{"a":"#, r#"{"a":1"#, r#"["#, r#""unterminated"#] {
-            assert!(
-                JsonValue::parse(text).is_err(),
-                "'{text}' should not parse"
-            );
+            assert!(JsonValue::parse(text).is_err(), "'{text}' should not parse");
         }
     }
 
