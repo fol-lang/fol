@@ -271,18 +271,18 @@ Primary files:
 
 Tasks:
 
-- [ ] Add handle and callback variants to `CandidateType`, and the matching
+- [x] Add handle and callback variants to `CandidateType`, and the matching
   `intern` arms, so `AbiType::OpaqueHandle` and `AbiType::Callback` become
   reachable from an export.
-- [ ] Emit an opaque struct typedef in the generated header for an exported
+- [x] Emit an opaque struct typedef in the generated header for an exported
   handle domain, with the same nominal-identity rule the import side uses: the
   domain is the type, and no runtime tag is involved.
-- [ ] Extend the frozen `AbiExportConfig` with a destroy pairing, and enforce
+- [x] Extend the frozen `AbiExportConfig` with a destroy pairing, and enforce
   it the way the import overlay does — exactly one destroy per domain, and no
   other exported routine may consume the domain.
-- [ ] Export a callback as a function pointer in the canonical shape, with the
+- [x] Export a callback as a function pointer in the canonical shape, with the
   context parameter FOL owns.
-- [ ] Refuse an exported handle with no destroy, and an exported callback whose
+- [x] Refuse an exported handle with no destroy, and an exported callback whose
   shape is not canonical, each by name.
 
 Tests:
@@ -299,6 +299,45 @@ Verification: `make test-v4-c`, `make test-v4-c-platform`,
 **STOP:** an exported handle whose destroy is not declared and enforced is a
 leak the type system promised to prevent. Do not ship the handle export without
 the pairing.
+
+## Landed
+
+**Handles.** The header declares `typedef struct fol_session_t fol_session_t;`
+and never defines it, so a consumer holds the address, hands it back, and the C
+compiler refuses to let it read through or copy what is behind it. *Produces*
+boxes the FOL value and returns its address; *borrows* lends what the address
+points at; *consumes* takes the box back, which is what makes the release
+happen exactly once. A null handle is refused rather than dereferenced.
+
+The pairing is enforced across the whole allowlist, not per routine: a producer
+must name a destroy, that destroy must be an exported consumer of the same
+domain, a domain has exactly one producer, and a consumer with no producer is
+refused. The C consumer borrows *twice* before releasing, so a borrow that
+quietly consumed would fail rather than pass.
+
+The domain name is the FOL type name -- `HandleUse`'s own documentation already
+said so for the import side, so the export side follows the same rule instead
+of inventing a second mapping. That is also what lets the wrapper find the Rust
+path it boxes and unboxes through.
+
+**Callbacks.** C supplies a function pointer and a context; FOL receives an
+ordinary routine value. The context travels beside the pointer because C has
+nowhere else to put the state a callback needs, and the closure exists only for
+the duration of the call. `Option<unsafe extern "C" fn(..)>` rather than a bare
+pointer, so null is a value the wrapper tests rather than undefined behaviour
+on first call.
+
+A callback is legal in parameter position and nowhere else: returning one would
+hand C a pointer to a FOL closure whose environment stops existing when the
+call returns. A routine that *reports* is refused too -- a callback has one
+result channel and no way to use another.
+
+The test counts invocations through the context, which is what proves FOL
+actually called back rather than computing the answer another way.
+
+Found by running it: a borrower writes `Session[bor]`, so the loan has to be
+peeled before matching the domain type, or the borrowing routine looks like it
+takes no handle at all.
 
 ---
 
