@@ -2429,6 +2429,7 @@ Verification:
 - `make abi-check`
 - `make test-v4-c-platform`
 - `make test-v4-c-roundtrip`
+- `make test-v4-c-release`
 
 **STOP:** an imported function cannot ship if its provider path, target,
 provenance, effect, calling convention, error mapping, unwind behavior, or
@@ -2831,6 +2832,7 @@ Verification after every sub-slice:
 - `make abi-check`
 - `make test-v4-c-platform`
 - `make test-v4-c-roundtrip`
+- `make test-v4-c-release`
 - required sanitizer target for pointer/resource slices
 - `make tree-test` and LSP inventory tests when the source/build surface changes
 
@@ -2978,6 +2980,7 @@ Verification:
 - `make abi-check`
 - `make test-v4-c-platform`
 - `make test-v4-c-roundtrip`
+- `make test-v4-c-release`
 - `make docs TYPE=mdbook`
 
 **STOP:** header import cannot be called complete if it depends on the host
@@ -3144,12 +3147,44 @@ paths, and callbacks exist only in the import direction.** FOL can receive an
 opaque C handle and call a C callback; it cannot yet *export* either to a C
 consumer, so there is nothing for a C11 consumer to exercise. This task cannot
 close until the export side grows them.
-- [ ] Package release archives with headers, libraries, any platform-required
+- [x] Package release archives with headers, libraries, any platform-required
   import libraries, manifests, link interface, licenses, checksums, provenance,
   and SBOM. Assert that no public Cargo manifest, Rust source facade, GERC raw
   module, or other backend source appears.
-- [ ] Extract each release archive in a clean directory and compile/link/run C
+
+`fol tool abi package --prefix <DIR> --out <ARCHIVE> [--license <PATH>]` stages
+the published roots, adds `CHECKSUMS.sha256`, `PROVENANCE`, and `SBOM`, and
+packs with `tar`. The target, ABI version, and both fingerprints come out of
+the installed manifest rather than from the packaging command's own idea of
+what was built, so the archive cannot describe something else.
+
+Backend source is **refused, not filtered**. Filtering would let the command
+succeed on a prefix that should never have existed and leave the next person to
+discover it. `a_prefix_carrying_backend_source_is_refused` plants a `.rs` file
+in `lib/` and requires the refusal to name it and to leave no archive behind.
+
+Checksums required SHA-256, which the tree had no implementation of --
+`fol_abi::digest` is FNV-64, right for comparing a value against one this same
+code produced and wrong for something a stranger verifies. `fol-abi` may depend
+only on `fol-types`, so it is written out in `sha256.rs` against the FIPS 180-4
+known-answer vectors, including the million-`a` case and all three padding
+boundaries. The real proof is external:
+`the_published_checksums_verify_with_the_system_tool` runs `sha256sum -c`,
+which is an independent implementation *and* an independent reading of the file
+format, and asserts the line count so a file that verifies by listing nothing
+cannot pass.
+
+Import libraries remain out of scope: they are a PE concern and no Windows lane
+is certified.
+- [x] Extract each release archive in a clean directory and compile/link/run C
   static and shared consumers without repository-relative paths.
+
+`a_c_consumer_builds_from_the_extracted_static_archive` and its shared
+counterpart extract into a fresh directory and compile with exactly one include
+path and one library, both inside the extraction directory. Nothing reaches
+back into the repository or the build tree. The shared consumer resolves
+through `-l` and `LD_LIBRARY_PATH`, which works because the archive's library
+carries the SONAME set earlier in this milestone.
 - [ ] Make the certified `x86_64-unknown-linux-gnu` lane release-blocking and
   keep candidate/experimental compile lanes explicitly non-certifying.
 - [x] Pin GitHub Actions and Rust/mdBook/tree-sitter/Clang/LLVM/C toolchain
