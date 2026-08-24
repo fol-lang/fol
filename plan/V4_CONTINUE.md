@@ -885,20 +885,54 @@ edge probe alongside the three surfaces it was written for. It already had a
 deliberate-violation control; the new sweep got its own -- a heap overflow
 planted in one consumer, which failed it, then removed.
 
-### The audit was a sample, and says so
+### The audit, completed
 
-`V4_PLAN.md` carries **127** `[x]` claims. Four were checked directly against
-the code -- the release-blocking certified lane (the `guard` → `verify` →
-`create_release` chain is real, and `verify` runs `make verify` under
-`FOL_H7_REQUIRED=1`), CI invoking Makefile-owned targets, target precedence
-(the named test exists), and Makefile target ownership. All four hold.
+All **127** `[x]` claims in `V4_PLAN.md` were examined. Method, because the
+coverage is uneven and saying so is the point:
 
-Three documentation falsehoods were found incidentally rather than by the
-audit, and fixed where they were found: the interop chapter's *What crosses*
-table still listing exported handles, exported callbacks, and imported
-aggregates as unsupported after M10-M11 landed them; `CapabilityTooStrong`'s
-doc; and `LinkPlanErrorKind::MissingRole`'s. **The remaining 123 claims are
-unaudited.** That is the honest state, not a clean bill.
+- **65 claims name a checkable artefact** -- a file, test, function, type, or
+  make target. Every named artefact was resolved mechanically. Eight came back
+  missing; seven were faults in the checker (crate-relative paths, `Type::member`
+  prefixes, `plan/` and `book/` outside the search roots) or claims that
+  *assert an absence*, which holding means the thing is correctly gone --
+  `rust-toolchain.toml`, `NativePlatform`, `project_graph_artifacts`. One was
+  real.
+- **23 claims are backed by a named `#[test]`** that exists and passes in the
+  green gate.
+- **62 name nothing checkable.** Each was read; the falsifiable ones were
+  verified by running something.
+
+**Two claims were false. Both are annotated in `V4_PLAN.md` where they stand.**
+
+**M0's ABI-diagnostic-family claim** (`V4_PLAN.md:1497`) says "no code is
+registered" and names `abi_family_is_reserved_without_registered_codes`. Nine
+codes have producers now, and that test no longer exists -- M4 replaced it with
+`abi_codes_are_registered_with_construction_sites`, which asserts the opposite.
+True when written, false since M4. The entry is annotated rather than edited:
+the milestone log is history.
+
+**M9's documentation claim** (`V4_PLAN.md:3380`) says the README, architecture,
+book, and versioning guidance "present exactly the shipped matrix". Three
+documents went on describing the M9 boundary after M10-M13 moved it. The book
+was corrected during M13; the audit found the other two and corrected them:
+`README.md` said handles and callbacks "cannot yet be exported to it", and
+`ARCHITECTURE.md` listed "exporting handles or callbacks to C, importing C
+structs and enums" as outside V4. **This claim is not a one-time task** --
+every milestone that moves the boundary re-falsifies it, and nothing was
+checking.
+
+One claim has **naming drift without substance drift**: M8's `may_retain_pointer`
+(`V4_PLAN.md:2544`) shipped as the overlay's `retained` key producing
+`AbiEscape::Retained`, and the rule it describes is enforced. The name never
+existed in code.
+
+### What the audit could not falsify
+
+Three M0 claims are about work done to the plan itself -- re-running the truth
+snapshot, adding characterization tests for "remaining" routes, revalidating
+retained rationale. Their evidence is the plan's own prose, and there is no
+state to check them against after the fact. They are recorded as unfalsifiable
+rather than as verified.
 
 ---
 
