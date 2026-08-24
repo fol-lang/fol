@@ -328,20 +328,55 @@ pub fn project_exports(
             continue;
         }
 
+        // `verify` above accepted every type, so `intern` should handle all of
+        // them. The two lists are maintained separately, though, and a
+        // divergence must surface as a diagnostic: dropping the parameter
+        // would emit a wrapper whose signature silently disagrees with the
+        // header, and defaulting a result to `void` would discard a value.
         let mut parameters = Vec::new();
+        let mut internable = true;
         for (name, type_id) in &params {
-            let Some(abi_id) = intern(&mut template.types, table, records, *type_id) else {
-                continue;
-            };
-            parameters.push(AbiParameter {
-                name: name.clone(),
-                type_id: abi_id,
-                direction: AbiDirection::In,
-            });
+            match intern(&mut template.types, table, records, *type_id) {
+                Some(abi_id) => parameters.push(AbiParameter {
+                    name: name.clone(),
+                    type_id: abi_id,
+                    direction: AbiDirection::In,
+                }),
+                None => {
+                    internable = false;
+                    rejections.push(AbiClassification::new(
+                        vec![request.routine.clone()],
+                        AbiRejection::UnsupportedLayout {
+                            detail: format!(
+                                "parameter '{name}' passed verification but has no ABI \
+                                 projection; this is a compiler inconsistency"
+                            ),
+                        },
+                    ));
+                }
+            }
         }
-        let result_id = result
-            .and_then(|id| intern(&mut template.types, table, records, id))
-            .unwrap_or_else(|| template.types.intern(AbiType::Void));
+        let result_id = match result {
+            Some(id) => match intern(&mut template.types, table, records, id) {
+                Some(abi_id) => abi_id,
+                None => {
+                    internable = false;
+                    rejections.push(AbiClassification::new(
+                        vec![request.routine.clone()],
+                        AbiRejection::UnsupportedLayout {
+                            detail: "the result passed verification but has no ABI projection; \
+                                     this is a compiler inconsistency"
+                                .to_string(),
+                        },
+                    ));
+                    template.types.intern(AbiType::Void)
+                }
+            },
+            None => template.types.intern(AbiType::Void),
+        };
+        if !internable {
+            continue;
+        }
         let error_contract =
             match error.and_then(|id| intern(&mut template.types, table, records, id)) {
                 Some(error_type) => AbiErrorContract::Recoverable { error_type },
