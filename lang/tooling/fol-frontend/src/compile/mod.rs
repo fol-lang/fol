@@ -1754,11 +1754,17 @@ fn package_c_import_interfaces(
     let Some(evaluated) = evaluate_package_build(package_root, config)? else {
         return Ok(Vec::new());
     };
+    // Only an import with an annotation overlay has a callable namespace: the
+    // overlay is what selects declarations and states how they report failure.
+    // Without one there is nothing to mount and no manifest to require, which
+    // is the H7 smoke's shape -- it proves a symbol survives to the binary and
+    // exposes no FOL surface at all.
     let mut aliases: Vec<String> = evaluated
         .result
         .graph
         .c_imports()
         .iter()
+        .filter(|attachment| attachment.annotations.is_some())
         .map(|attachment| attachment.alias.clone())
         .collect();
     if aliases.is_empty() {
