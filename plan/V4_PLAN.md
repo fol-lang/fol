@@ -3739,8 +3739,17 @@ are now refused by name. The check scans the raw path segments rather than
 see the thing being looked for -- a trap worth recording, since the obvious
 implementation silently passes.
 
-Still open: a symlink at an otherwise-normalized absolute tool path is followed
-rather than resolved and re-checked.
+One thing deliberately *not* changed: a symlink at an otherwise-normalized
+absolute tool path is followed rather than resolved. That was raised as a gap
+and is better read as correct behaviour -- `cc` is conventionally a symlink to
+the real compiler, so refusing or rewriting one would reject ordinary
+toolchains. What matters is not the spelling but that the identity recorded is
+the *resolved binary's bytes*, which `fingerprint_tool` computes.
+
+The real residual there: `fingerprint_tool` is written and tested and called
+from nowhere in production. Wiring it is not a one-line change, because a tool
+fingerprint has to be folded into the cache identity, which is computed before
+execution, rather than taken at the exec site where the tool check happens.
 - [~] Validate native filenames/library names and never interpolate them into a
   shell command.
 
