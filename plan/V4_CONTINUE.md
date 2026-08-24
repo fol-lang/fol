@@ -186,20 +186,20 @@ Primary files:
 
 Tasks:
 
-- [ ] Resolve `RustTypeKind::Named` to its declaration and project a `struct`
+- [x] Resolve `RustTypeKind::Named` to its declaration and project a `struct`
   as `AbiType::Record`, admitting only Section 4.13's shape: `struct` kind,
   natural `repr(C)` layout, byte-aligned fields, no self-reference by value.
-- [ ] Refuse union, opaque, packed, bitfield, and flexible-array members by
+- [x] Refuse union, opaque, packed, bitfield, and flexible-array members by
   name, each with the reason rather than a generic "could not be modelled".
-- [ ] Project a C `enum` as a FOL value at its measured underlying width, with
+- [x] Project a C `enum` as a FOL value at its measured underlying width, with
   the enumerator names carried for diagnostics. Do **not** project it as a FOL
   entry: a C enum is an integer with named constants, and pretending otherwise
   re-creates the tag problem M12 exists to solve.
-- [ ] Synthesize a nominal FOL record type from `AbiType::Record` and mount it
+- [x] Synthesize a nominal FOL record type from `AbiType::Record` and mount it
   in the import namespace, the way `OpaqueHandle` mounts a name today.
-- [ ] Support field access on that type, and construction where the overlay
+- [x] Support field access on that type, and construction where the overlay
   declares the record inbound-constructible.
-- [ ] Marshal by value in the adapter and backend, with the layout FOL believes
+- [~] Marshal by value in the adapter and backend, with the layout FOL believes
   checked against the layout the provider was compiled with.
 
 Tests:
@@ -221,6 +221,40 @@ Verification: `make test`, `make test-v4-c-import`, `make abi-check`,
 then fails in typecheck, the adapter, or the backend is worse than today's
 clean refusal, because it moves the failure away from the declaration that
 caused it.
+
+## Landed
+
+A C `struct` and a C `enum` both cross inbound. `6 * 7 = 42` computed by C from
+a struct FOL built, with `p.x` still readable afterwards, is the evidence.
+
+**The design changed once, under measurement.** The first attempt named GERC's
+raw struct as the FOL type directly -- no conversion, provider layout for free.
+It compiled all the way to `rustc` and failed there: GERC emits its structs
+with **no derives at all**, so the raw struct has no `Clone` and no `Default`
+and cannot be a FOL value. What ships instead: FOL emits its *own* struct for
+the imported record, from a `LoweredTypeDecl` synthesized for a symbol that has
+no AST behind it, and the adapter takes the record's **fields** rather than the
+struct, rebuilding the provider's own struct inside. Field by field, never
+transmuted -- the rule the export wrapper already followed in the other
+direction.
+
+Two things that only running it could have found:
+
+- `struct node { struct node *next; }` -- a list node, an entirely ordinary
+  header shape -- **overflowed the stack**, because the pointer's target
+  resolves back to the record being projected. Now a named refusal.
+- An imported record was first treated as move-only, so reading one *after*
+  passing it to C silently returned a defaulted value rather than erroring. C
+  passes a struct by value, so a copy is what the provider's own calling
+  convention already does; it is now copy, and the test reads the record after
+  the call to prove it.
+
+A C enum crosses as the integer the target measured, **not** as a FOL entry: an
+enum is an integer with named constants, and projecting it as a tagged union
+would invent the discriminant contract M12 exists to establish honestly.
+
+Still open: a record in *result* position, which needs the reverse conversion
+and is refused by name.
 
 ---
 
