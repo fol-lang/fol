@@ -560,6 +560,19 @@ fn summarize_rustc_failure(main_rs: &Path, stdout: &str, stderr: &str) -> String
         Err(_) => format!("\n  = note: the full output could not be written:\n{full}"),
     };
 
+    // Checked before undefined symbols, because an input the linker never
+    // opened produces both: everything that input defined is then undefined
+    // too, and the missing file is the cause rather than a consequence.
+    let unopened = unopened_inputs(stderr);
+    if !unopened.is_empty() {
+        return format!(
+            "the native link failed: {} linked input(s) could not be opened\n  = missing: \
+             {}{recorded}",
+            unopened.len(),
+            unopened.join(", "),
+        );
+    }
+
     let undefined = undefined_symbols(stderr);
     if !undefined.is_empty() {
         let sources = referencing_inputs(stderr);
@@ -594,6 +607,32 @@ fn summarize_rustc_failure(main_rs: &Path, stdout: &str, stderr: &str) -> String
         main_rs.display(),
         errors.join("\n  ")
     )
+}
+
+/// The inputs a linker was given and could not open.
+///
+/// A path that does not exist is a different failure from a symbol that is not
+/// defined, and reporting it as the latter sends a reader looking for the
+/// wrong thing.
+fn unopened_inputs(stderr: &str) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    for line in stderr.lines() {
+        // GNU ld: `ld: cannot find -lfoo` and `ld: cannot find /path/lib.a`.
+        // Apple's: `ld: library not found for -lfoo`.
+        let input = line
+            .split("cannot find ")
+            .nth(1)
+            .and_then(|rest| rest.split(':').next())
+            .or_else(|| line.split("library not found for ").nth(1))
+            .map(str::trim);
+        if let Some(input) = input {
+            let input = input.trim_end_matches(['\'', '"']);
+            if !input.is_empty() && !found.iter().any(|seen| seen == input) {
+                found.push(input.to_string());
+            }
+        }
+    }
+    found
 }
 
 /// The symbols a linker reported as undefined, deduplicated and in order.
@@ -1045,5 +1084,73 @@ pub fn summarize_emitted_artifact(artifact: &BackendArtifact) -> String {
             crate_root,
             binary_path,
         } => format!("compiled backend artifact crate_root={crate_root} binary={binary_path}"),
+    }
+}
+
+#[cfg(test)]
+mod link_failure_tests {
+    use super::*;
+
+    /// Both linkers' spellings of an undefined symbol, read the same way.
+    #[test]
+    fn undefined_symbols_are_read_from_either_linker() {
+        let gnu = "ld: lib.a(o.o): in function `f':\n\
+                   c.c:(.text+0x8): undefined reference to `helper'\n\
+                   collect2: error: ld returned 1 exit status";
+        assert_eq!(undefined_symbols(gnu), vec!["helper".to_string()]);
+
+        let apple = "Undefined symbols for architecture arm64:\n  \
+                     \"_helper\", referenced from:\n      _f in lib.a(o.o)";
+        assert_eq!(undefined_symbols(apple), vec!["helper".to_string()]);
+    }
+
+    /// A symbol reported at several call sites is one missing symbol.
+    #[test]
+    fn a_repeated_symbol_is_reported_once() {
+        let stderr = "c.c:(.text+0x8): undefined reference to `helper'\n\
+                      c.c:(.text+0x20): undefined reference to `helper'";
+        assert_eq!(undefined_symbols(stderr), vec!["helper".to_string()]);
+    }
+
+    /// An input that could not be opened is a different failure.
+    #[test]
+    fn an_unopened_input_is_not_read_as_a_missing_symbol() {
+        let stderr = "ld: cannot find -lnosuch\nld: cannot find /store/lib.a";
+        assert_eq!(
+            unopened_inputs(stderr),
+            vec!["-lnosuch".to_string(), "/store/lib.a".to_string()]
+        );
+        assert!(undefined_symbols(stderr).is_empty());
+    }
+
+    /// The archive a linker blamed, so the report names where to look.
+    #[test]
+    fn the_referencing_input_is_recovered() {
+        let stderr = "/nix/store/bin/ld: /pkg/native/libdigest.a(digest.o): in function `sum':\n\
+                      digest.c:(.text+0x28): undefined reference to `helper'";
+        assert_eq!(
+            referencing_inputs(stderr),
+            vec!["/pkg/native/libdigest.a(digest.o)".to_string()]
+        );
+    }
+
+    /// A failure that is not a link failure keeps rustc's own errors, and
+    /// leaves its notes and command lines in the log.
+    #[test]
+    fn a_compile_failure_reports_the_errors_not_the_notes() {
+        let fixture = fol_testkit::TempFixture::new("fol-link-summary");
+        std::fs::create_dir_all(fixture.path()).expect("fixture root");
+        let summary = summarize_rustc_failure(
+            &fixture.path().join("main.rs"),
+            "",
+            "error[E0308]: mismatched types\n  = note: expected `u8`\nerror: aborting",
+        );
+        assert!(summary.contains("E0308"), "{summary}");
+        assert!(!summary.contains("expected `u8`"), "{summary}");
+        assert!(summary.contains("the full output is at"), "{summary}");
+        // Nothing is discarded: the note is in the log, just not in the error.
+        let log = std::fs::read_to_string(fixture.path().join("link-error.log"))
+            .expect("the log should be written");
+        assert!(log.contains("expected `u8`"), "{log}");
     }
 }

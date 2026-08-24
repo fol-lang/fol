@@ -142,7 +142,14 @@ pub enum LinkPlanErrorKind {
     TargetMismatch,
     /// An input's object format does not match the target's.
     ObjectFormatMismatch,
-    /// An input names a role its producer does not have.
+    /// A link input that cannot be resolved to a place on disk: an artifact
+    /// the graph does not contain, or a package-owned search path that is
+    /// absolute or leaves its package.
+    ///
+    /// Note what this does *not* cover: a dependency export whose `role_path`
+    /// names a file its producer did not build. That path is carried through
+    /// unvalidated, so it fails at the link rather than here -- reported by
+    /// the backend's link summary as an input that could not be opened.
     MissingRole,
     /// Two inputs provide the same library name.
     DuplicateProvider,
