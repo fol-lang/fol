@@ -17,7 +17,7 @@ AGENTS.md
 # plan/ is working scratch except the notes checked in deliberately.
 /plan/*
 !/plan/V4_PLAN.md
-!/plan/V5_PLAN.md
+!/plan/V4_CONTINUE.md
 !/plan/TOOLCHAIN.md
 !/plan/V3_MEM.md
 !/plan/V3_PROC.md

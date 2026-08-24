@@ -1,35 +1,39 @@
-# V5 — Foreign Boundary Completion and Hardening
+# V4 Continued — Foreign Boundary Completion and Hardening
 
-> **Status: not started.** V4 closed with M0-M9 complete and the certified
-> `x86_64-unknown-linux-gnu` and `x86_64-unknown-linux-musl` lanes green with
-> zero skips under `FOL_H7_REQUIRED=1`. A checked box in this file means a
-> verified shipped result, not parser acceptance or an implementation sketch.
+> **Status: not started.** This is the continuation of `V4_PLAN.md`, not a new
+> release. Same milestone family, same branch, same guardrails; the numbering
+> picks up at M10 because M0-M9 are done. A checked box here means a verified
+> shipped result, not parser acceptance or an implementation sketch.
 
-V4 made FOL a participant in C toolchains: it exports a real C ABI, imports
-real C libraries, and ships release archives a stranger can use. What it did
-not do is make that boundary *symmetric* or *complete*. Three shapes cross in
-one direction only, one shape does not cross at all, and several checks that
-sound enforced are enforced by argument rather than by code.
+M0-M9 made FOL a participant in C toolchains: it exports a real C ABI, imports
+real C libraries, and ships release archives a stranger can use. The certified
+`x86_64-unknown-linux-gnu` and `x86_64-unknown-linux-musl` lanes pass with zero
+skips under `FOL_H7_REQUIRED=1`.
 
-V5 is the release that closes those, and then attacks what is shipped rather
-than adding to it. It is deliberately two halves:
+What that did not do is make the boundary *symmetric* or *complete*. Three
+shapes cross in one direction only, one shape does not cross at all, and
+several checks that sound enforced are enforced by argument rather than by
+code. M10-M16 close those, and then attack what is shipped rather than adding
+to it:
 
-- **Completion** (N1-N5): the foreign surface a real header actually needs.
-- **Hardening** (N6-N7): finding what is wrong with what exists.
+- **Completion** (M10-M13): the foreign surface a real header actually needs.
+- **Closure and hardening** (M14-M16): proving the failure modes, clearing the
+  supply-chain residuals, and going looking for defects.
 
-The second half is not a formality. Every defect V4 shipped was found by
+The hardening half is not a formality. Every defect M0-M9 found was found by
 running something, never by reading generated text, and several were invisible
 to a green suite. That ratio should be expected to hold.
 
-This file inherits V4's guardrails, ownership rules, and STOP discipline
-wholesale. Where this file and `V4_PLAN.md` disagree about a technical fact,
-this file wins only where it cites a measurement; elsewhere V4's text stands.
+`V4_PLAN.md` remains the authority for M0-M9 and for every guardrail, ownership
+rule, and STOP condition. This file adds milestones; it does not restate or
+override that one. Where the two disagree about a technical fact, this file
+wins only where it cites a measurement.
 
 ---
 
 # 1. Definition of Done
 
-V5 is done when all of the following hold **and** are proven by a lane in
+M10-M16 are done when all of the following hold **and** are proven by a lane in
 `make verify`:
 
 1. A C `struct` and a C `enum` cross **inbound** as ordinary FOL values.
@@ -53,11 +57,11 @@ import, or any target beyond the two certified lanes. Those stay non-goals.
 
 # 2. Permanent Guardrails
 
-All of V4's guardrails carry over unchanged. The four that this plan will be
+All of `V4_PLAN.md`'s guardrails carry over unchanged. The four that this plan will be
 tempted to break, restated because the temptation is specific:
 
 - **No half-features.** A shape either crosses and is tested end to end, or it
-  is refused by name. V4's record-import gap is refused cleanly today; a
+  is refused by name. the record-import gap is refused cleanly today; a
   partial implementation that produces a manifest and then dies mid-pipeline
   with an internal error is strictly worse than that.
 - **No sibling ownership.** PARC owns C parsing, LINC owns native evidence,
@@ -67,9 +71,9 @@ tempted to break, restated because the temptation is specific:
   not compile.
 - **A skip is not a pass.** Every lane added here honours `FOL_H7_REQUIRED`.
 
-One guardrail is new, and it is the lesson V4 paid for:
+One guardrail is new, and it is the lesson M0-M9 paid for:
 
-- **A check that cannot fire is worse than no check.** V4 shipped an
+- **A check that cannot fire is worse than no check.** M3 shipped an
   object-format comparison that was unreachable by construction: it read as
   coverage and could never fail. Any validation added here must be accompanied
   by a test that fails when the validation is removed.
@@ -78,8 +82,8 @@ One guardrail is new, and it is the lesson V4 paid for:
 
 # 3. Verified Truth Snapshot
 
-Everything in this section was measured against the tree at the close of V4,
-not inferred. It is here so N1-N7 start from facts.
+Everything in this section was measured against the tree at the close of M9,
+not inferred. It is here so M10-M16 start from facts.
 
 ## 3.1 What the export path can produce
 
@@ -148,7 +152,7 @@ you stood on. Reusing the default as the discriminant was then tried and
 reverted, because the collision above is real.
 
 Entries are therefore refused outbound with `AbiRejection::UnstableEntryTag`.
-**N3 is a language-syntax milestone before it is an ABI milestone.**
+**M12 is a language-syntax milestone before it is an ABI milestone.**
 
 ## 3.5 What LINC's certification forbids
 
@@ -168,7 +172,7 @@ which is genuinely hermetic — and which certification rejects.
 
 ---
 
-# 4. N1 — Nominal C Types Inbound
+# 4. M10 — Nominal C Types Inbound
 
 Goal: a C `struct` and a C `enum` cross inbound as ordinary FOL values.
 
@@ -190,7 +194,7 @@ Tasks:
 - [ ] Project a C `enum` as a FOL value at its measured underlying width, with
   the enumerator names carried for diagnostics. Do **not** project it as a FOL
   entry: a C enum is an integer with named constants, and pretending otherwise
-  re-creates the tag problem N3 exists to solve.
+  re-creates the tag problem M12 exists to solve.
 - [ ] Synthesize a nominal FOL record type from `AbiType::Record` and mount it
   in the import namespace, the way `OpaqueHandle` mounts a name today.
 - [ ] Support field access on that type, and construction where the overlay
@@ -220,7 +224,7 @@ caused it.
 
 ---
 
-# 5. N2 — Owned Resources Outbound
+# 5. M11 — Owned Resources Outbound
 
 Goal: FOL hands C an opaque handle, a destroy routine, and a callback.
 
@@ -264,7 +268,7 @@ the pairing.
 
 ---
 
-# 6. N3 — Explicit ABI Discriminants
+# 6. M12 — Explicit ABI Discriminants
 
 Goal: an exported entry carries a discriminant FOL and C agree on.
 
@@ -309,7 +313,7 @@ Verification: `make test`, `make abi-check`, `make test-v4-c`,
 
 ---
 
-# 7. N4 — Owned Buffers and Pointer Contracts
+# 7. M13 — Owned Buffers and Pointer Contracts
 
 Goal: a buffer crosses with its capacity, length, and domain validated.
 
@@ -337,11 +341,11 @@ Verification: `make test-v4-c-import`, `make test-v4-sanitize`,
 
 ---
 
-# 8. N5 — Provider Diagnostics and Link Evidence
+# 8. M14 — Provider Diagnostics and Link Evidence
 
 Goal: every native failure reports a FOL diagnostic, never a raw linker dump.
 
-This milestone is mostly *audit and coverage*, not new machinery. V4 already
+This milestone is mostly *audit and coverage*, not new machinery. M9 already
 added real object-format and architecture inspection; what is missing is proof
 that each failure mode reports well.
 
@@ -367,7 +371,7 @@ Verification: `make test-native`, `make test-build-actions`,
 
 ---
 
-# 9. N6 — Supply-Chain Residuals
+# 9. M15 — Supply-Chain Residuals
 
 Goal: every `V4_PLAN.md` §18 item is `[x]` or cites code for why not.
 
@@ -391,12 +395,12 @@ Verification: `make verify`, `make interop-locked`, `make abi-check`.
 
 ---
 
-# 10. N7 — Adversarial Hardening
+# 10. M16 — Adversarial Hardening
 
 Goal: find what is wrong with what shipped.
 
 This milestone adds no surface. It is scheduled last and given real time
-because V4's evidence says it will pay: nine defects were found by running
+because M0-M9's evidence says it will pay: nine defects were found by running
 things, and several were invisible to a green suite — an unreachable check that
 read as coverage, a dead `is_null` with no caller, a lexer bug that silently
 deleted a declaration.
@@ -425,7 +429,7 @@ Tasks:
 
 Verification: `make verify` plus each new lane, all under `FOL_H7_REQUIRED=1`.
 
-**STOP:** V5 does not close while a known defect is unrecorded. A defect that
+**STOP:** This does not close while a known defect is unrecorded. A defect that
 is found and cannot be fixed in scope gets a reproduction and a plan entry, not
 silence.
 
@@ -433,13 +437,13 @@ silence.
 
 # 11. Cross-Cutting Rows
 
-Apply in the same commit as the slice, not as a late phase. V4's cross-cutting
-inventory carries over; the rows that N1-N4 will actually touch:
+Apply in the same commit as the slice, not as a late phase. `V4_PLAN.md`'s cross-cutting
+inventory carries over; the rows that M10-M13 will actually touch:
 
 - **Diagnostics**: a stable code for every new refusal, with `fol code explain`
   text and human/plain/JSON parity.
-- **Formatter**: the N3 discriminant syntax formats and stays idempotent.
-- **Tree-sitter**: the N3 syntax parses, highlights, and has corpus coverage;
+- **Formatter**: the M12 discriminant syntax formats and stays idempotent.
+- **Tree-sitter**: the M12 syntax parses, highlights, and has corpus coverage;
   the parse ratchet is refreshed and its diff is deletions only.
 - **LSP**: hover on an imported record shows its C layout; hover on an exported
   handle shows its destroy pairing; completion offers the new export config
@@ -454,11 +458,11 @@ inventory carries over; the rows that N1-N4 will actually touch:
 
 | Risk | Consequence | Prevention / early signal |
 |---|---|---|
-| N1 lands partially | manifests that die mid-pipeline; worse than today's refusal | one vertical slice, refused until it runs end to end |
-| N3 syntax picked without the owner | a language surface nobody wants, cemented by an ABI | the decision is a task, not an assumption |
-| N3 reuses the default payload as a tag | two variants share a tag; C and FOL disagree | the probe from §3.4 is a required test |
+| M10 lands partially | manifests that die mid-pipeline; worse than today's refusal | one vertical slice, refused until it runs end to end |
+| M12 syntax picked without the owner | a language surface nobody wants, cemented by an ABI | the decision is a task, not an assumption |
+| M12 reuses the default payload as a tag | two variants share a tag; C and FOL disagree | the probe from §3.4 is a required test |
 | Export handles ship without destroy pairing | a leak the type system promised to prevent | the pairing is in the same milestone, not a follow-up |
-| Hardening deferred to "if there is time" | V4's ratio says defects remain | N7 is scheduled, not optional |
+| Hardening deferred to "if there is time" | M0-M9's ratio says defects remain | M16 is scheduled, not optional |
 | A new check cannot fire | reads as coverage, catches nothing | every validation ships with a test that fails when it is removed |
 | Interop pin raised mid-milestone | sibling behaviour changes under a half-done slice | pin bumps land alone, with §3.5 re-measured |
 
@@ -466,7 +470,7 @@ inventory carries over; the rows that N1-N4 will actually touch:
 
 # 13. Hard STOP Conditions
 
-V5 does not close while any of these hold:
+This continuation does not close while any of these hold:
 
 - a shape crosses in one direction and is silently absent in the other
 - an entry ships a tag FOL and C disagree on
@@ -474,18 +478,18 @@ V5 does not close while any of these hold:
 - a native failure surfaces a raw linker dump as the primary error
 - a lane can pass by skipping
 - a `[x]` in this file or in `V4_PLAN.md` is not backed by a lane
-- N7 has not run
+- M16 has not run
 
 ---
 
 # 14. Explicit Non-Goals
 
-Unchanged from V4, restated because each will be proposed:
+Unchanged from `V4_PLAN.md`, restated because each will be proposed:
 
 - Rust interop, a C++ ABI, or any second public boundary
 - arbitrary Cargo ingestion
 - unrestricted unsafe code in ordinary FOL
-- multiple headers or providers per import, unless N6's pin raise makes it free
+- multiple headers or providers per import, unless M15's pin raise makes it free
 - any target beyond the two certified lanes
 - generators, `yield`, and broader V2 expressiveness
 
@@ -495,18 +499,18 @@ Unchanged from V4, restated because each will be proposed:
 
 Land in this order. The dependencies are real, not stylistic.
 
-1. **N1** — inbound records and enums. Largest user-visible gap; most real
+1. **M10** — inbound records and enums. Largest user-visible gap; most real
    headers pass structs. It also settles how a nominal C type is mounted, which
-   N2 needs.
-2. **N2** — outbound handles and callbacks. Easier to specify once N1 has
+   M11 needs.
+2. **M11** — outbound handles and callbacks. Easier to specify once M10 has
    settled nominal mounting, and it closes the symmetry gap.
-3. **N3** — discriminants. Independent of N1/N2, but gated on an owner
+3. **M12** — discriminants. Independent of M10/M11, but gated on an owner
    decision, so start the decision early and implement when it lands.
-4. **N4** — buffers and pointer contracts. Builds on N1's field machinery.
-5. **N5** — provider diagnostics. Mostly audit; can run in parallel with N4.
-6. **N6** — supply-chain residuals. Small, and the pin raise may unblock work
+4. **M13** — buffers and pointer contracts. Builds on M10's field machinery.
+5. **M14** — provider diagnostics. Mostly audit; can run in parallel with M13.
+6. **M15** — supply-chain residuals. Small, and the pin raise may unblock work
    the earlier milestones had to refuse.
-7. **N7** — adversarial hardening. Last, over everything, with real time.
+7. **M16** — adversarial hardening. Last, over everything, with real time.
 
 ---
 
@@ -517,6 +521,6 @@ A milestone is complete when its tasks are `[x]`, its tests exist and run in
 not hold. A milestone is not complete because its code is written, because the
 suite is green, or because a plan file says so.
 
-The rule V4 earned, kept here verbatim: **prove it by running it.** Every
-defect V4 found came from executing something. None came from reading
+The rule M0-M9 earned, kept here verbatim: **prove it by running it.** Every
+defect they found came from executing something. None came from reading
 generated text and finding it convincing.
