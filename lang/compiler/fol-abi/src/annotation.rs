@@ -137,6 +137,23 @@ pub struct CallbackUse {
     pub context: String,
 }
 
+/// What an overlay says about one pointer parameter.
+///
+/// C states none of this. A `const char *` might be borrowed for the call or
+/// handed over to keep, might accept `NULL` or not, and the compiler cannot
+/// tell which by looking. Left undeclared these default to the conservative
+/// reading -- non-null, borrowed, valid only for the call -- which is what the
+/// projection used to hardcode for every pointer with no way to say otherwise.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PointerContract {
+    /// `true` when the parameter accepts `NULL`.
+    pub nullable: bool,
+    /// `true` when ownership transfers to the callee.
+    pub transferred: bool,
+    /// `true` when the pointer may be retained past the call.
+    pub retained: bool,
+}
+
 /// One selected declaration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoutineAnnotation {
@@ -150,6 +167,8 @@ pub struct RoutineAnnotation {
     pub handle: Option<HandleUse>,
     /// The synchronous callback this routine invokes during the call.
     pub callback: Option<CallbackUse>,
+    /// Declared pointer contracts, by parameter name.
+    pub pointers: BTreeMap<String, PointerContract>,
 }
 
 /// The accepted overlay for one import.
@@ -421,6 +440,8 @@ struct PendingRoutine {
     handle_role: Option<HandleRole>,
     callback: Option<String>,
     callback_context: Option<String>,
+    /// `nullable`, `transferred`, and `retained` sets, by parameter name.
+    pointers: BTreeMap<String, PointerContract>,
 }
 
 /// Which kind of table the parser is currently inside.
@@ -591,6 +612,21 @@ impl<'a> Parser<'a> {
             "callback_context" => {
                 routine.callback_context =
                     Some(parse_string(value).ok_or(AnnotationError::MalformedLine { line })?);
+            }
+            // The three pointer contracts C cannot state. Each names the
+            // parameters it applies to, so one routine declares all of its
+            // pointers without a table per parameter.
+            "nullable" | "transferred" | "retained" => {
+                let names =
+                    parse_string_array(value).ok_or(AnnotationError::MalformedLine { line })?;
+                for name in names {
+                    let contract = routine.pointers.entry(name).or_default();
+                    match key {
+                        "nullable" => contract.nullable = true,
+                        "transferred" => contract.transferred = true,
+                        _ => contract.retained = true,
+                    }
+                }
             }
             "fol_name" => {
                 routine.fol_name =
@@ -808,6 +844,7 @@ impl PendingRoutine {
             effects: self.effects,
             handle,
             callback,
+            pointers: self.pointers,
         })
     }
 }
@@ -1269,6 +1306,56 @@ effects = ["allocates"]
                 line: 4,
                 key: "size".to_string(),
             }
+        );
+    }
+    /// The three contracts C cannot state, declared per parameter.
+    #[test]
+    fn an_overlay_declares_pointer_contracts_by_parameter() {
+        let overlay = AnnotationOverlay::parse(
+            "version = 1\n\
+             [routine.widget_apply]\n\
+             fol_name = \"apply\"\n\
+             error = \"infallible\"\n\
+             nullable = [\"maybe\"]\n\
+             transferred = [\"owned\"]\n\
+             retained = [\"kept\", \"owned\"]\n",
+        )
+        .expect("the overlay should parse");
+        let routine = overlay.routine("widget_apply").expect("the routine");
+
+        let maybe = routine.pointers.get("maybe").expect("maybe is declared");
+        assert!(maybe.nullable);
+        assert!(!maybe.transferred && !maybe.retained);
+
+        // One parameter may carry more than one contract.
+        let owned = routine.pointers.get("owned").expect("owned is declared");
+        assert!(owned.transferred && owned.retained);
+        assert!(!owned.nullable);
+
+        let kept = routine.pointers.get("kept").expect("kept is declared");
+        assert!(kept.retained);
+        assert!(!kept.nullable && !kept.transferred);
+
+        // An undeclared parameter has no entry, and the projection reads that
+        // as the conservative default rather than as a missing declaration.
+        assert!(!routine.pointers.contains_key("plain"));
+    }
+
+    /// A contract key whose value is not a list of names is a malformed line,
+    /// not a silently ignored one.
+    #[test]
+    fn a_malformed_pointer_contract_is_refused() {
+        let error = AnnotationOverlay::parse(
+            "version = 1\n\
+             [routine.widget_apply]\n\
+             fol_name = \"apply\"\n\
+             error = \"infallible\"\n\
+             nullable = \"maybe\"\n",
+        )
+        .expect_err("a bare string is not a list of parameter names");
+        assert!(
+            matches!(error, AnnotationError::MalformedLine { .. }),
+            "{error:?}"
         );
     }
 }

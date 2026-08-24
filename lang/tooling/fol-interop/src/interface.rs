@@ -130,10 +130,25 @@ fn project_routine(
 
     let result = match handle_positions.result {
         Some(domain) => types.intern(AbiType::OpaqueHandle { name: domain }),
-        None => project_type(&symbol, function.return_type(), types, aliases)?,
+        None => project_type(
+            &symbol,
+            function.return_type(),
+            types,
+            aliases,
+            &fol_abi::PointerContract::default(),
+        )?,
     };
     let mut parameters = Vec::new();
+    let default_contract = fol_abi::PointerContract::default();
     for (index, parameter) in function.parameters().iter().enumerate() {
+        // A C parameter may be unnamed; the position is the only stable
+        // identity then, and the overlay has to be able to name it. Computed
+        // before projection because the overlay's pointer contract is keyed by
+        // this same name.
+        let name = parameter
+            .source_name()
+            .map(|name| name.original.clone())
+            .unwrap_or_else(|| format!("arg{index}"));
         let type_id = match handle_positions.parameter.as_ref() {
             Some((position, domain)) if *position == index => types.intern(AbiType::OpaqueHandle {
                 name: domain.clone(),
@@ -141,14 +156,14 @@ fn project_routine(
             _ if callback.as_ref().is_some_and(|c| c.parameter == index) => {
                 callback.as_ref().expect("checked").type_id
             }
-            _ => project_type(&symbol, parameter.ty(), types, aliases)?,
+            _ => project_type(
+                &symbol,
+                parameter.ty(),
+                types,
+                aliases,
+                annotation.pointers.get(&name).unwrap_or(&default_contract),
+            )?,
         };
-        // A C parameter may be unnamed; the position is the only stable
-        // identity then, and the overlay has to be able to name it.
-        let name = parameter
-            .source_name()
-            .map(|name| name.original.clone())
-            .unwrap_or_else(|| format!("arg{index}"));
         parameters.push(AbiParameter {
             name,
             type_id,
@@ -279,9 +294,21 @@ fn callback_positions(
     // Everything after the context is what a FOL routine value receives.
     let mut projected = Vec::new();
     for argument in signature.iter().skip(1) {
-        projected.push(project_type(symbol, argument, types, aliases)?);
+        projected.push(project_type(
+            symbol,
+            argument,
+            types,
+            aliases,
+            &fol_abi::PointerContract::default(),
+        )?);
     }
-    let result = project_type(symbol, return_type, types, aliases)?;
+    let result = project_type(
+        symbol,
+        return_type,
+        types,
+        aliases,
+        &fol_abi::PointerContract::default(),
+    )?;
     let type_id = types.intern(AbiType::Callback {
         parameters: projected,
         result,
@@ -432,6 +459,7 @@ fn project_type(
     ty: &RustType,
     types: &mut AbiTypeTable,
     aliases: &TypeAliases<'_>,
+    contract: &fol_abi::PointerContract,
 ) -> Result<AbiTypeId, ImportRejection> {
     // Resolved first: a typedef's own qualifiers and support status are the
     // spelling's, and what matters is the type underneath.
@@ -456,7 +484,7 @@ fn project_type(
         RustTypeKind::Void => AbiType::Void,
         RustTypeKind::Scalar(scalar) => AbiType::Scalar(project_scalar(symbol, *scalar)?),
         RustTypeKind::Pointer(target) => {
-            let target_id = project_type(symbol, target, types, aliases)?;
+            let target_id = project_type(symbol, target, types, aliases, contract)?;
             AbiType::Pointer {
                 target: target_id,
                 mutability: if target.qualifiers().is_const {
@@ -464,12 +492,24 @@ fn project_type(
                 } else {
                     AbiMutability::Mutable
                 },
-                // M6 imports scalars and the out-parameters that carry them.
-                // Section 4.8's nullability and ownership vocabulary is
-                // recorded, and M7 is what lets an overlay set it.
-                nullability: AbiNullability::NonNull,
-                ownership: AbiOwnership::Borrowed,
-                escape: AbiEscape::CallScoped,
+                // C says none of this, so the overlay does. Undeclared means
+                // the conservative reading: a pointer that must not be null,
+                // is not owned, and does not outlive the call.
+                nullability: if contract.nullable {
+                    AbiNullability::Nullable
+                } else {
+                    AbiNullability::NonNull
+                },
+                ownership: if contract.transferred {
+                    AbiOwnership::Transferred
+                } else {
+                    AbiOwnership::Borrowed
+                },
+                escape: if contract.retained {
+                    AbiEscape::Retained
+                } else {
+                    AbiEscape::CallScoped
+                },
                 destructor: None,
             }
         }
