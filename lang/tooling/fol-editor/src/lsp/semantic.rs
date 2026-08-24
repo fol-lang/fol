@@ -605,27 +605,14 @@ impl SemanticSnapshot {
         let cursor = (position.character as usize).min(line.len());
         let prefix = &line[..cursor];
 
-        // Field completions inside a git dependency declaration.
-        if prefix.contains("add_dep(") && prefix.contains("\"git") {
-            let items = fol_package::canonical_build_context_config_shapes()
-                .into_iter()
-                .find(|shape| shape.name == "BuildDependencyConfig")
-                .map(|shape| {
-                    shape
-                        .fields
-                        .into_iter()
-                        .map(|field| EditorCompletionItem {
-                            label: field.name,
-                            kind: 5,
-                            detail: Some(if field.required {
-                                "required dependency field".to_string()
-                            } else {
-                                "optional dependency field".to_string()
-                            }),
-                            insert_text: None,
-                        })
-                        .collect::<Vec<_>>()
-                })?;
+        // Field completions inside a `method({ ... })` config record.
+        //
+        // The shape comes from the same registry the build executor validates
+        // against, so a field the executor would reject is never offered and a
+        // field it requires is never missing. Previously only git dependencies
+        // completed, through a hardcoded string test, and every other config
+        // record -- including `add_c_import` -- offered nothing.
+        if let Some(items) = config_field_completions(prefix) {
             return Some(items);
         }
 
@@ -2646,13 +2633,125 @@ fn declared_bundled_standard_root(package_root: &Path, alias: &str) -> Option<Pa
         .flatten()
 }
 
+/// Which config record a `method({` prefix is inside, if any.
+///
+/// One table, matching the executor's own method-to-shape mapping. A method
+/// missing here completes nothing rather than completing the wrong record.
+const CONFIG_METHOD_SHAPES: &[(&str, &str)] = &[
+    ("add_dep", "BuildDependencyConfig"),
+    ("meta", "BuildMetaConfig"),
+    ("add_exe", "ExeConfig"),
+    ("add_static_lib", "StaticLibConfig"),
+    ("add_shared_lib", "SharedLibConfig"),
+    ("add_test", "TestConfig"),
+    ("set_abi_version", "AbiVersionConfig"),
+    ("add_abi_export", "AbiExportConfig"),
+    ("add_c_import", "CImportConfig"),
+];
+
+/// Complete the fields of the config record the cursor is inside.
+fn config_field_completions(prefix: &str) -> Option<Vec<EditorCompletionItem>> {
+    // The innermost unclosed `method({` before the cursor. Scanning from the
+    // right means a nested record completes for itself, not for its parent.
+    let (method, shape_name) = CONFIG_METHOD_SHAPES
+        .iter()
+        .filter_map(|(method, shape)| {
+            let open = format!("{method}(");
+            prefix.rfind(&open).map(|at| (at, *method, *shape))
+        })
+        .max_by_key(|(at, _, _)| *at)
+        // Still inside the call: nothing has closed it since.
+        .filter(|(at, _, _)| !prefix[*at..].contains(')'))
+        .map(|(_, method, shape)| (method, shape))?;
+
+    let shape = fol_package::canonical_build_context_config_shapes()
+        .into_iter()
+        .chain(fol_package::canonical_artifact_config_shapes())
+        .find(|shape| shape.name == shape_name)?;
+
+    Some(
+        shape
+            .fields
+            .into_iter()
+            .map(|field| EditorCompletionItem {
+                label: field.name,
+                kind: 5,
+                detail: Some(format!(
+                    "{} {method} field",
+                    if field.required {
+                        "required"
+                    } else {
+                        "optional"
+                    }
+                )),
+                insert_text: None,
+            })
+            .collect(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
+    use super::config_field_completions;
     use super::{
         direct_channel_receiver_precedes, direct_endpoint_occurs, fallback_visible_binding_kind,
         position_is_inside_deferred_block, FallbackBindingKind, SemanticSnapshot,
     };
     use crate::{EditorDocument, EditorDocumentUri, LspPosition};
+
+    /// Every config record completes from the registry the executor validates
+    /// against, not from a hardcoded list that can drift from it.
+    #[test]
+    fn config_records_complete_from_the_shared_registry() {
+        // `add_c_import` completed nothing at all before: only git
+        // dependencies had a completion path, behind a string test.
+        let items = config_field_completions("    app.add_c_import({ ")
+            .expect("add_c_import should complete");
+        let labels: Vec<&str> = items.iter().map(|item| item.label.as_str()).collect();
+        for required in ["alias", "header", "provider", "provider_kind"] {
+            assert!(
+                labels.contains(&required),
+                "missing {required} in {labels:?}"
+            );
+        }
+
+        // The registry is the authority on which fields exist, so a field the
+        // executor would reject must not be offered.
+        assert!(!labels.contains(&"headers"), "{labels:?}");
+
+        // And required-ness comes from the registry too.
+        let alias = items
+            .iter()
+            .find(|item| item.label == "alias")
+            .expect("alias");
+        assert_eq!(alias.detail.as_deref(), Some("required add_c_import field"));
+    }
+
+    /// The innermost open call wins, so a nested record completes for itself.
+    #[test]
+    fn the_innermost_open_config_call_decides_the_shape() {
+        let items = config_field_completions("var lib = graph.add_static_lib({ ")
+            .expect("add_static_lib should complete");
+        let labels: Vec<&str> = items.iter().map(|item| item.label.as_str()).collect();
+        assert!(
+            labels.contains(&"name") && labels.contains(&"root"),
+            "{labels:?}"
+        );
+        assert!(!labels.contains(&"alias"), "{labels:?}");
+    }
+
+    /// A call that has already closed is not completed into.
+    #[test]
+    fn a_closed_config_call_does_not_complete() {
+        assert!(config_field_completions("graph.add_exe({ name = \"a\" });  ").is_none());
+    }
+
+    /// A method with no config record completes nothing here.
+    #[test]
+    fn a_method_without_a_config_record_completes_nothing() {
+        assert!(config_field_completions("    graph.install(app").is_none());
+    }
+
     use std::fs;
     use std::path::PathBuf;
 
