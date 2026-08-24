@@ -245,3 +245,42 @@ fun (Box[T])unwrap(T)(fallback: T): T = {
                 (field_access
                   (self_expr)
                   (identifier))))))))))
+
+================================================================================
+Entry variants with explicit ABI tags
+================================================================================
+
+typ[exp] Lookup: ent = {
+    con[tag = 4] MISSING;
+    con[tag = 1] FOUND;
+    con[tag = -2] DENIED;
+};
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (typ_decl
+    modifiers: (decl_modifiers
+      (modifier_list
+        (identifier)))
+    name: (identifier)
+    (entry_type)
+    (type_block
+      (entry_variant
+        modifiers: (decl_modifiers
+          (variant_tag
+            (integer_literal)))
+        (typed_binding
+          name: (identifier)))
+      (entry_variant
+        modifiers: (decl_modifiers
+          (variant_tag
+            (integer_literal)))
+        (typed_binding
+          name: (identifier)))
+      (entry_variant
+        modifiers: (decl_modifiers
+          (variant_tag
+            (integer_literal)))
+        (typed_binding
+          name: (identifier))))))

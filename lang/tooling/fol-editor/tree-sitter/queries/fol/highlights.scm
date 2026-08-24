@@ -63,6 +63,8 @@
 (use_decl "{" @punctuation.bracket "}" @punctuation.bracket)
 (decl_modifiers "[" @punctuation.bracket "]" @punctuation.bracket)
 (decl_modifiers (modifier_list (identifier) @attribute))
+(variant_tag "tag" @attribute)
+(variant_tag (integer_literal) @number)
 
 (use_decl name: (identifier) @namespace)
 (typ_decl name: (identifier) @type.definition)
