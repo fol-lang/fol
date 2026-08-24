@@ -40,7 +40,7 @@ pub fn project_imported_interface(
     // both `int` on this target. Without resolving them every stdint-typed
     // declaration -- which is most real headers, and every header FOL itself
     // generates -- would be refused as a named aggregate.
-    let aliases = type_aliases(bundle);
+    let shapes = collect_shapes(bundle);
 
     let mut projected: Vec<&str> = Vec::new();
     for item in bundle.projection().items() {
@@ -56,7 +56,7 @@ pub fn project_imported_interface(
         let Some(annotation) = overlay.routine(symbol) else {
             continue;
         };
-        match project_routine(function, annotation, source, &mut types, model, &aliases) {
+        match project_routine(function, annotation, source, &mut types, model, &shapes) {
             Ok(routine) => routines.push(routine),
             Err(rejection) => rejections.push(rejection),
         }
@@ -92,7 +92,7 @@ fn project_routine(
     source: &CompleteSourcePackage,
     types: &mut AbiTypeTable,
     model: CapabilityModel,
-    aliases: &TypeAliases<'_>,
+    shapes: &Shapes<'_>,
 ) -> Result<ImportedRoutine, ImportRejection> {
     let symbol = function.link_name().to_string();
 
@@ -126,7 +126,7 @@ fn project_routine(
     // pointer becomes. Resolved before projection for the same reason a handle
     // is: `project_type` refuses a function pointer by design, so replacing it
     // afterwards would mean refusing the shape the overlay just declared legal.
-    let callback = callback_positions(&symbol, function, annotation, types, aliases)?;
+    let callback = callback_positions(&symbol, function, annotation, types, shapes)?;
 
     let result = match handle_positions.result {
         Some(domain) => types.intern(AbiType::OpaqueHandle { name: domain }),
@@ -134,7 +134,7 @@ fn project_routine(
             &symbol,
             function.return_type(),
             types,
-            aliases,
+            shapes,
             &fol_abi::PointerContract::default(),
         )?,
     };
@@ -160,7 +160,7 @@ fn project_routine(
                 &symbol,
                 parameter.ty(),
                 types,
-                aliases,
+                shapes,
                 annotation.pointers.get(&name).unwrap_or(&default_contract),
             )?,
         };
@@ -208,7 +208,7 @@ fn callback_positions(
     function: &RustFunction,
     annotation: &fol_abi::RoutineAnnotation,
     types: &mut AbiTypeTable,
-    aliases: &TypeAliases<'_>,
+    shapes: &Shapes<'_>,
 ) -> Result<Option<CallbackPositions>, ImportRejection> {
     let Some(use_) = &annotation.callback else {
         return Ok(None);
@@ -298,7 +298,7 @@ fn callback_positions(
             symbol,
             argument,
             types,
-            aliases,
+            shapes,
             &fol_abi::PointerContract::default(),
         )?);
     }
@@ -306,7 +306,7 @@ fn callback_positions(
         symbol,
         return_type,
         types,
-        aliases,
+        shapes,
         &fol_abi::PointerContract::default(),
     )?;
     let type_id = types.intern(AbiType::Callback {
@@ -422,16 +422,45 @@ fn origin_for(function: &RustFunction, source: &CompleteSourcePackage) -> AbiSou
 /// Every `typedef` in the projection, by the declaration a `Named` refers to.
 type TypeAliases<'a> = std::collections::HashMap<parc::contract::DeclarationId, &'a RustType>;
 
-fn type_aliases(bundle: &GenerationBundle) -> TypeAliases<'_> {
-    bundle
-        .projection()
-        .items()
-        .iter()
-        .filter_map(|item| match item {
-            RustItem::TypeAlias(alias) => Some((alias.declaration(), alias.target())),
-            _ => None,
-        })
-        .collect()
+/// The named declarations a `Named` type can resolve to.
+///
+/// Collected once per import rather than searched per occurrence: a header of
+/// any size has every type referenced many times over.
+struct Shapes<'a> {
+    aliases: TypeAliases<'a>,
+    records: std::collections::HashMap<parc::contract::DeclarationId, &'a gerc::RustRecord>,
+    enums: std::collections::HashMap<parc::contract::DeclarationId, &'a gerc::RustEnum>,
+    /// Records currently being projected, innermost last.
+    ///
+    /// `struct node { struct node *next; }` is an ordinary header shape and a
+    /// cycle in the type graph: the pointer's target resolves back to the
+    /// record being projected. Without this the projection recurses until the
+    /// stack ends.
+    in_progress: std::cell::RefCell<Vec<parc::contract::DeclarationId>>,
+}
+
+fn collect_shapes(bundle: &GenerationBundle) -> Shapes<'_> {
+    let mut shapes = Shapes {
+        aliases: TypeAliases::new(),
+        records: std::collections::HashMap::new(),
+        enums: std::collections::HashMap::new(),
+        in_progress: std::cell::RefCell::new(Vec::new()),
+    };
+    for item in bundle.projection().items() {
+        match item {
+            RustItem::TypeAlias(alias) => {
+                shapes.aliases.insert(alias.declaration(), alias.target());
+            }
+            RustItem::Record(record) => {
+                shapes.records.insert(record.declaration(), record);
+            }
+            RustItem::Enum(entry) => {
+                shapes.enums.insert(entry.declaration(), entry);
+            }
+            _ => {}
+        }
+    }
+    shapes
 }
 
 /// Follow a chain of typedefs to the type they finally name.
@@ -453,17 +482,149 @@ fn resolve_alias<'a>(ty: &'a RustType, aliases: &TypeAliases<'a>) -> &'a RustTyp
     current
 }
 
+/// Resolve a `Named` type to the declaration behind it.
+///
+/// A typedef has already been followed by `resolve_alias`, so what is left is
+/// a record, an enum, or a name with no definition in this projection.
+fn project_named(
+    symbol: &str,
+    declaration: parc::contract::DeclarationId,
+    rust_name: &gerc::RustName,
+    types: &mut AbiTypeTable,
+    shapes: &Shapes<'_>,
+) -> Result<AbiTypeId, ImportRejection> {
+    if let Some(record) = shapes.records.get(&declaration) {
+        return project_record(symbol, record, types, shapes);
+    }
+    if let Some(entry) = shapes.enums.get(&declaration) {
+        // A C enum is an integer with named constants, not a tagged union. It
+        // crosses as the integer the target actually gave it -- projecting it
+        // as a FOL entry would invent a discriminant contract C never made.
+        return Ok(types.intern(AbiType::Scalar(project_scalar(symbol, entry.storage())?)));
+    }
+    Err(ImportRejection::UnsupportedDeclaration {
+        symbol: symbol.to_string(),
+        detail: format!(
+            "'{}' is named but not defined in this header, so its size and layout are unknown; \
+             an incomplete type crosses only as an opaque handle",
+            rust_name.as_str()
+        ),
+    })
+}
+
+/// Project one C struct as a FOL-visible record, or say why it does not cross.
+///
+/// Only the shape Section 4.13 admits: a `struct` with natural `repr(C)`
+/// layout and byte-aligned fields. A union has no discriminant to read, an
+/// incomplete record is the handle path and must not be read through, and a
+/// packed or bitfield layout has no independently addressable field.
+fn project_record(
+    symbol: &str,
+    record: &gerc::RustRecord,
+    types: &mut AbiTypeTable,
+    shapes: &Shapes<'_>,
+) -> Result<AbiTypeId, ImportRejection> {
+    let name = record.rust_name().as_str().to_owned();
+    let reject = |detail: String| ImportRejection::UnsupportedDeclaration {
+        symbol: symbol.to_string(),
+        detail,
+    };
+
+    match record.kind() {
+        gerc::RustRecordKind::Struct => {}
+        gerc::RustRecordKind::Union => {
+            return Err(reject(format!(
+                "'{name}' is a union: C carries no discriminant, so nothing says which member \
+                 is live"
+            )))
+        }
+        gerc::RustRecordKind::Opaque => {
+            return Err(reject(format!(
+                "'{name}' is incomplete, so it cannot be read through; declare it as a handle \
+                 domain to pass it as an address"
+            )))
+        }
+    }
+    if record.packing_bits().is_some() {
+        return Err(reject(format!(
+            "'{name}' has a packed layout, whose fields are not independently addressable"
+        )));
+    }
+
+    // A record reachable from itself has no finite projection. C forbids
+    // containing itself *by value*, but a pointer back to it is ordinary --
+    // a list node -- and that is the cycle to stop.
+    if shapes.in_progress.borrow().contains(&record.declaration()) {
+        return Err(reject(format!(
+            "'{name}' refers to itself, so it has no finite FOL shape; pass it as a pointer \
+             the overlay declares, or as a handle domain"
+        )));
+    }
+    shapes.in_progress.borrow_mut().push(record.declaration());
+    let projected = project_record_fields(symbol, record, &name, types, shapes);
+    shapes.in_progress.borrow_mut().pop();
+    let fields = projected?;
+
+    Ok(types.intern(AbiType::Record { name, fields }))
+}
+
+/// The field walk, split out so the cycle guard above is released on every
+/// path including a rejection.
+fn project_record_fields(
+    symbol: &str,
+    record: &gerc::RustRecord,
+    name: &str,
+    types: &mut AbiTypeTable,
+    shapes: &Shapes<'_>,
+) -> Result<Vec<fol_abi::AbiField>, ImportRejection> {
+    let reject = |detail: String| ImportRejection::UnsupportedDeclaration {
+        symbol: symbol.to_string(),
+        detail,
+    };
+    let mut fields = Vec::new();
+    for field in record.fields() {
+        let field_name = field
+            .source_name()
+            .map(|source| source.original.clone())
+            .unwrap_or_else(|| field.rust_name().as_str().to_owned());
+        if !field.support().is_supported() {
+            return Err(reject(format!(
+                "'{name}' has field '{field_name}', which the C front end could not model"
+            )));
+        }
+        // A bitfield neither starts nor ends on a byte, which is exactly why
+        // it cannot be projected: there is no field to take the address of.
+        if field.offset_bits() % 8 != 0 || field.size_bits() % 8 != 0 {
+            return Err(reject(format!(
+                "'{name}' has bitfield '{field_name}', which has no addressable storage"
+            )));
+        }
+        let type_id = project_type(
+            symbol,
+            field.ty(),
+            types,
+            shapes,
+            &fol_abi::PointerContract::default(),
+        )?;
+        fields.push(fol_abi::AbiField {
+            name: field_name,
+            type_id,
+        });
+    }
+    Ok(fields)
+}
+
 /// Intern one measured C type, or say why it does not cross.
 fn project_type(
     symbol: &str,
     ty: &RustType,
     types: &mut AbiTypeTable,
-    aliases: &TypeAliases<'_>,
+    shapes: &Shapes<'_>,
     contract: &fol_abi::PointerContract,
 ) -> Result<AbiTypeId, ImportRejection> {
     // Resolved first: a typedef's own qualifiers and support status are the
     // spelling's, and what matters is the type underneath.
-    let ty = resolve_alias(ty, aliases);
+    let ty = resolve_alias(ty, &shapes.aliases);
     if !ty.support().is_supported() {
         return Err(ImportRejection::UnsupportedDeclaration {
             symbol: symbol.to_string(),
@@ -484,7 +645,7 @@ fn project_type(
         RustTypeKind::Void => AbiType::Void,
         RustTypeKind::Scalar(scalar) => AbiType::Scalar(project_scalar(symbol, *scalar)?),
         RustTypeKind::Pointer(target) => {
-            let target_id = project_type(symbol, target, types, aliases, contract)?;
+            let target_id = project_type(symbol, target, types, shapes, contract)?;
             AbiType::Pointer {
                 target: target_id,
                 mutability: if target.qualifiers().is_const {
@@ -532,15 +693,10 @@ fn project_type(
                     .to_string(),
             })
         }
-        RustTypeKind::Named { rust_name, .. } => {
-            return Err(ImportRejection::UnsupportedDeclaration {
-                symbol: symbol.to_string(),
-                detail: format!(
-                    "'{}' is a named aggregate; M7 is what imports records and handles",
-                    rust_name.as_str()
-                ),
-            })
-        }
+        RustTypeKind::Named {
+            declaration,
+            rust_name,
+        } => return project_named(symbol, *declaration, rust_name, types, shapes),
     };
     Ok(types.intern(abi_type))
 }

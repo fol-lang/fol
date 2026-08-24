@@ -508,10 +508,29 @@ fn render_type(id: AbiTypeId, ty: &AbiType) -> String {
                 result.0
             )
         }
-        // M6 imports scalars, void, and the pointers that carry an out-value.
-        // The remaining aggregate shapes are not read back, and writing a
-        // placeholder for one would put a type in the manifest nothing can
-        // parse.
+        AbiType::Record { name, fields } => {
+            // Field order is semantic -- it decides every offset -- so it is
+            // written as declared and never sorted. Same spelling as the
+            // export manifest, so one reader could serve both.
+            let rendered = fields
+                .iter()
+                .map(|field| {
+                    format!(
+                        "{{\"name\":{},\"type\":{}}}",
+                        quoted(&field.name),
+                        field.type_id.0
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            format!(
+                "\"kind\":\"record\",\"fields\":[{rendered}],\"name\":{}",
+                quoted(name)
+            )
+        }
+        // Anything still unwritten would put a type in the manifest that
+        // nothing can parse, so it must not have been projected in the first
+        // place.
         other => format!("\"kind\":{}", quoted(other.kind_name())),
     };
     format!("{{\"id\":{},{body}}}", id.0)
@@ -611,6 +630,26 @@ fn read_type(entry: &JsonValue) -> Result<AbiType, ImportManifestError> {
                     name: name.to_string(),
                 }
             })?)
+        }
+        "record" => {
+            let mut fields = Vec::new();
+            for field in entry.array_field("fields")? {
+                fields.push(crate::types::AbiField {
+                    name: field.string_field("name")?.to_string(),
+                    type_id: AbiTypeId(usize::try_from(field.integer_field("type")?).map_err(
+                        |_| {
+                            ImportManifestError::Json(JsonError::WrongType {
+                                field: "type".to_string(),
+                                expected: "a type index",
+                            })
+                        },
+                    )?),
+                });
+            }
+            AbiType::Record {
+                name: entry.string_field("name")?.to_string(),
+                fields,
+            }
         }
         "pointer" => AbiType::Pointer {
             target: AbiTypeId(
