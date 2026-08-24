@@ -41,9 +41,7 @@ pub use interface::{
     ResolvedAbiSurface,
 };
 pub use json::{JsonError, JsonValue};
-pub use layout::{
-    record_layout, record_layouts, size_and_align, FieldPlacement, LayoutError, RecordLayout,
-};
+pub use layout::{record_layout, size_and_align, FieldPlacement, LayoutError, RecordLayout};
 pub use manifest::{
     canonical_interface_json, canonical_type_table_json, compare_surfaces, digest,
     AbiCompatibility, AbiManifest, BuildProvenance, ManifestError, MANIFEST_SCHEMA,

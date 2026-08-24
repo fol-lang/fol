@@ -77,14 +77,6 @@ impl ImportedRoutine {
             .position(|parameter| parameter.name == use_.context)
     }
 
-    /// The parameter holding a paired buffer's address, by index.
-    pub fn buffer_index(&self) -> Option<usize> {
-        let use_ = self.buffer.as_ref()?;
-        self.parameters
-            .iter()
-            .position(|parameter| parameter.name == use_.parameter)
-    }
-
     /// The parameter carrying a paired buffer's length, by index.
     pub fn buffer_length_index(&self) -> Option<usize> {
         let use_ = self.buffer.as_ref()?;
@@ -172,19 +164,6 @@ impl ImportedInterface {
         self.routines
             .iter()
             .find(|routine| routine.fol_name == fol_name)
-    }
-
-    /// The routine that releases handles of `domain`, if this interface has
-    /// one.
-    ///
-    /// The destroy is looked up through the routines rather than stored beside
-    /// them, so an interface cannot end up naming a release it does not carry.
-    pub fn destroy_for(&self, domain: &str) -> Option<&ImportedRoutine> {
-        self.routines.iter().find(|routine| {
-            routine.handle.as_ref().is_some_and(|use_| {
-                use_.domain == domain && use_.role == crate::annotation::HandleRole::Consumes
-            })
-        })
     }
 
     /// Every handle domain this interface produces, in name order.

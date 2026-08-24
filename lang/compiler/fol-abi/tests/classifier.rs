@@ -142,8 +142,15 @@ fn packed_bitfield_and_flexible_forms_are_rejected() {
     assert!(message(&rejection).contains("bitfield"));
 }
 
+/// The capability class formats, which is all it can be asked to do.
+///
+/// The name this test used to carry -- "capabilities stronger than the
+/// artifact model are rejected" -- claimed something it never checked. Nothing
+/// constructs this rejection and nothing can: a `core` artifact cannot contain
+/// an allocating routine at all, and typecheck reports `T1002` before any
+/// export set is classified. See `AbiRejection::CapabilityTooStrong`.
 #[test]
-fn capabilities_stronger_than_the_artifact_model_are_rejected() {
+fn the_capability_class_renders_even_though_export_never_raises_it() {
     let rejection = AbiRejection::CapabilityTooStrong {
         detail: "the routine needs heap allocation and the artifact is fol_model = core"
             .to_string(),

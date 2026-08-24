@@ -213,9 +213,14 @@ impl ExportSelection {
 /// Effects a foreign declaration is permitted to have.
 ///
 /// Recorded on the routine because the artifact's capability model constrains
-/// them: a `core` artifact cannot export something that allocates, and the
-/// classifier reports that as `CapabilityTooStrong` rather than letting it fail
-/// at link time.
+/// them: a `core` artifact cannot call something that allocates.
+///
+/// These are *import* effects -- what a foreign provider declares it does --
+/// and `verify_effects` checks them against the model, reporting
+/// `ImportRejection::CapabilityTooStrong`. The export direction needs no such
+/// check: a routine FOL exports is FOL's own, so typecheck has already refused
+/// it under a model that forbids what it needs, and does so whether or not it
+/// is exported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub struct AbiEffects {
     pub allocates: bool,

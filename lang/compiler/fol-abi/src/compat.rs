@@ -40,6 +40,20 @@ pub enum AbiRejection {
     /// An external symbol that is empty, non-ASCII, reserved, or duplicated.
     InvalidExternalSymbol { symbol: String, reason: String },
     /// An effect or capability the artifact's model does not permit.
+    ///
+    /// **Nothing constructs this, and nothing can.** It is retained because
+    /// section 9 enumerates it as a rejection class, but the condition it
+    /// describes never reaches ABI classification: typecheck refuses the
+    /// routine outright, and does so more broadly. A `core` artifact cannot
+    /// *contain* `vec[i32]` at all -- exported or not -- and reports `T1002`
+    /// long before any export set is verified. Probed by building a `core`
+    /// artifact with an allocating export: the failure is `T1002`, from the
+    /// typechecker, naming the type rather than the export.
+    ///
+    /// The import side is different and does fire: `ImportRejection::
+    /// CapabilityTooStrong` is produced by `verify_effects`, because a
+    /// provider's declared effects are a fact about someone else's code that
+    /// FOL can only check here.
     CapabilityTooStrong { detail: String },
     /// A borrowed view in a position that outlives the call.
     BorrowedViewOutlivesCall { position: String },

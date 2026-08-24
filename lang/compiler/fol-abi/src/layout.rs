@@ -137,17 +137,6 @@ fn align_up(offset: u64, align: u64) -> u64 {
     offset.div_ceil(align) * align
 }
 
-/// Every record in the table, in id order.
-pub fn record_layouts(table: &AbiTypeTable) -> Result<Vec<RecordLayout>, LayoutError> {
-    let mut layouts = Vec::new();
-    for (id, ty) in table.iter() {
-        if matches!(ty, AbiType::Record { .. }) {
-            layouts.push(record_layout(table, id)?);
-        }
-    }
-    Ok(layouts)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
