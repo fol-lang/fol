@@ -407,6 +407,7 @@ pub fn render_core_instruction_in_workspace(
             symbol,
             args,
             error_type,
+            callback_arg,
         } => {
             // The callee is a FOL-generated safe adapter, not the raw provider
             // symbol. Section 4.13 keeps validation, the error convention, and
@@ -416,19 +417,41 @@ pub fn render_core_instruction_in_workspace(
             // conversion applies is read off the local's own lowered type:
             // an owned handle gives the address up (`into_raw` takes `self`,
             // so the FOL value cannot be used again), and a loan only lends it.
-            let rendered_args = args
+            let mut rendered_args = args
                 .iter()
-                .map(|arg| {
+                .enumerate()
+                .map(|(position, arg)| {
                     let rendered =
                         render_local_list(type_table, package_identity, routine, &[*arg])?;
+                    // A callback argument is not passed as a value at all: C
+                    // takes a bare function pointer, so the closure stays in
+                    // this frame and the provider receives a trampoline plus
+                    // the closure's address.
+                    if *callback_arg == Some(position) {
+                        return Ok("Some(__fol_trampoline)".to_string());
+                    }
                     Ok(match handle_passing(type_table, routine, *arg) {
                         Some(HandlePassing::Owned) => format!("{rendered}.into_raw()"),
                         Some(HandlePassing::Borrowed) => format!("{rendered}.as_raw()"),
                         None => rendered,
                     })
                 })
-                .collect::<BackendResult<Vec<_>>>()?
-                .join(", ");
+                .collect::<BackendResult<Vec<_>>>()?;
+
+            // The context follows every declared argument, matching the adapter,
+            // which appends it for the same reason: FOL owns that slot.
+            let mut trampoline = String::new();
+            if let Some(position) = *callback_arg {
+                let closure =
+                    render_local_list(type_table, package_identity, routine, &[args[position]])?;
+                let closure_local = closure.trim_end_matches(".clone()").to_string();
+                trampoline =
+                    render_callback_trampoline(type_table, routine, args[position], symbol)?;
+                rendered_args.push(format!(
+                    "(&{closure_local}) as *const _ as *mut core::ffi::c_void"
+                ));
+            }
+            let rendered_args = rendered_args.join(", ");
             let module = crate::mangle::foreign_adapter_module_name(alias);
             let callee_name = format!(
                 "{}::{module}::{}",
@@ -465,7 +488,14 @@ pub fn render_core_instruction_in_workspace(
                 }
                 None => format!("{expression};"),
             };
-            Ok(format!("{call} // c: {symbol}"))
+            // The trampoline is a nested item, so it is scoped to this one
+            // call: two call sites passing different closures cannot collide,
+            // and the provider cannot reach one from anywhere else.
+            if trampoline.is_empty() {
+                Ok(format!("{call} // c: {symbol}"))
+            } else {
+                Ok(format!("{{\n{trampoline}{call} // c: {symbol}\n}}"))
+            }
         }
         LoweredInstrKind::SpawnCall {
             callee,
@@ -1827,4 +1857,78 @@ fn handle_passing(
         .then_some(HandlePassing::Borrowed),
         _ => None,
     }
+}
+
+/// The `extern "C"` shim a provider calls back through.
+///
+/// C takes a bare function pointer, and a Rust closure is not one: it carries
+/// an environment. The shim is the bridge -- a monomorphic `extern "C" fn` that
+/// recovers the closure from the context pointer FOL passed alongside it and
+/// calls it.
+///
+/// Two rules the plan names are enforced here rather than documented:
+///
+/// - **The context is validated.** A null one means the provider called back
+///   outside the call that lent the closure, and there is no value that would
+///   be a true answer, so the process ends.
+/// - **A panic is contained.** Unwinding out of `extern "C"` is undefined, and
+///   a callback has no status channel to report through, so a panic also ends
+///   the process rather than returning something nobody computed.
+fn render_callback_trampoline(
+    type_table: &fol_lower::LoweredTypeTable,
+    routine: &fol_lower::LoweredRoutine,
+    local_id: fol_lower::LoweredLocalId,
+    symbol: &str,
+) -> BackendResult<String> {
+    let type_id = routine
+        .locals
+        .get(local_id)
+        .and_then(|local| local.type_id)
+        .ok_or_else(|| {
+            BackendError::new(
+                BackendErrorKind::InvalidInput,
+                format!("the callback passed to '{symbol}' lost its lowered type"),
+            )
+        })?;
+    let Some(fol_lower::LoweredType::Routine(signature)) = type_table.get(type_id) else {
+        return Err(BackendError::new(
+            BackendErrorKind::InvalidInput,
+            format!("the callback passed to '{symbol}' is not a routine value"),
+        ));
+    };
+
+    let closure_type = crate::types::render_rust_type(type_table, type_id)?;
+    let mut params = Vec::new();
+    let mut forwarded = Vec::new();
+    for (index, param) in signature.params.iter().enumerate() {
+        let rendered = crate::types::render_rust_type(type_table, *param)?;
+        params.push(format!("__fol_a{index}: {rendered}"));
+        forwarded.push(format!("__fol_a{index}"));
+    }
+    let params = params.join(", ");
+    let forwarded = forwarded.join(", ");
+    let result = match signature.return_type {
+        Some(return_type) => format!(
+            " -> {}",
+            crate::types::render_rust_type(type_table, return_type)?
+        ),
+        None => String::new(),
+    };
+
+    // The symbol as a Rust string literal, so the runtime message names the
+    // provider routine that called back.
+    let named = format!("{symbol:?}");
+    let separator = if params.is_empty() { "" } else { ", " };
+    Ok(format!(
+        "    unsafe extern \"C\" fn __fol_trampoline(\
+         __fol_context: *mut core::ffi::c_void{separator}{params}){result} {{\n\
+         \x20       if __fol_context.is_null() {{ rt::callback_context_invalid({named}); }}\n\
+         \x20       let __fol_closure = unsafe {{ &*(__fol_context as *const {closure_type}) }};\n\
+         \x20       match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| \
+         __fol_closure({forwarded}))) {{\n\
+         \x20           Ok(__fol_value) => __fol_value,\n\
+         \x20           Err(_) => rt::callback_panicked({named}),\n\
+         \x20       }}\n\
+         \x20   }}\n"
+    ))
 }

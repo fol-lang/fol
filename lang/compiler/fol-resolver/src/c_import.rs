@@ -185,6 +185,7 @@ mod tests {
                     error: ImportErrorConvention::Infallible,
                     effects: ImportEffects::default(),
                     handle: None,
+                    callback: None,
                     origin: AbiSourceOrigin::default(),
                 })
                 .collect(),

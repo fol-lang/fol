@@ -18,8 +18,8 @@ pub mod types;
 pub mod verify;
 
 pub use annotation::{
-    AnnotationError, AnnotationOverlay, HandleDomain, HandleRole, HandleUse, ImportEffects,
-    ImportErrorConvention, RoutineAnnotation, ANNOTATION_SCHEMA_VERSION,
+    AnnotationError, AnnotationOverlay, CallbackUse, HandleDomain, HandleRole, HandleUse,
+    ImportEffects, ImportErrorConvention, RoutineAnnotation, ANNOTATION_SCHEMA_VERSION,
 };
 pub use compat::{
     classify_duplicate_symbols, classify_external_symbol, is_reserved_c_identifier,

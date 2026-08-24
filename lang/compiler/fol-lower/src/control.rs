@@ -259,6 +259,14 @@ pub enum LoweredInstrKind {
         symbol: String,
         args: Vec<LoweredLocalId>,
         error_type: Option<LoweredTypeId>,
+        /// The position in `args` holding a routine value the provider will
+        /// invoke during the call.
+        ///
+        /// Carried here because the backend cannot tell a callback from any
+        /// other routine-valued argument by its lowered type alone: both are
+        /// `Rc<dyn Fn>`. Only the import manifest knows, and this is where that
+        /// knowledge reaches codegen.
+        callback_arg: Option<usize>,
     },
     SpawnCall {
         callee: LoweredRoutineId,

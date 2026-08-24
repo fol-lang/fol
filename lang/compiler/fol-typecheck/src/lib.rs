@@ -29,6 +29,7 @@ pub use editor::{
     EditorTypeFamily,
 };
 pub use errors::{TypecheckError, TypecheckErrorKind};
+pub use exprs::helpers::{float_width_of, int_width_of};
 pub use fol_parser::ast::ParsedSourceUnitKind;
 pub use model::{
     ActiveMutexGuard, EntryVariantLayout, RecordFieldLayout, RecoverableCallEffect,

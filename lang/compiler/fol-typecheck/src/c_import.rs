@@ -211,6 +211,41 @@ fn checked_type_for(
         let name = name.clone();
         return Ok(foreign_handle_type(typed, alias, &name));
     }
+    // A callback becomes an ordinary FOL routine value, so a caller passes a
+    // closure and nothing about the C function-pointer shape is visible. The
+    // context is already absent: it never reaches this function, because
+    // `call_parameters` hides it.
+    if let AbiType::Callback { parameters, result } = abi_type {
+        let (parameters, result) = (parameters.clone(), *result);
+        let mut params = Vec::new();
+        for parameter in &parameters {
+            params.push(checked_type_for(typed, alias, types, *parameter, routine)?);
+        }
+        let return_type = match types.get(result) {
+            Some(AbiType::Void) => None,
+            _ => Some(checked_type_for(typed, alias, types, result, routine)?),
+        };
+        let signature = RoutineType {
+            generic_params: Vec::new(),
+            generic_constraints: BTreeMap::new(),
+            param_names: (0..params.len())
+                .map(|index| format!("arg{index}"))
+                .collect(),
+            param_defaults: vec![None; params.len()],
+            variadic_index: None,
+            mutex_params: Default::default(),
+            params,
+            return_type,
+            // A C callback has one result channel. A FOL closure that reported
+            // would have nowhere to report to: the provider is mid-call and
+            // takes only the return value.
+            error_type: None,
+            env_lifetime: false,
+        };
+        return Ok(typed
+            .type_table_mut()
+            .intern(CheckedType::Routine(signature)));
+    }
     let checked = match abi_type {
         AbiType::Scalar(AbiScalar::Int(width)) => CheckedType::Builtin(BuiltinType::Int(*width)),
         AbiType::Scalar(AbiScalar::Float(width)) => {
@@ -295,6 +330,7 @@ mod tests {
                     error: ImportErrorConvention::Infallible,
                     effects: ImportEffects::default(),
                     handle: None,
+                    callback: None,
                     origin: AbiSourceOrigin::default(),
                 },
                 ImportedRoutine {
@@ -326,6 +362,7 @@ mod tests {
                     },
                     effects: ImportEffects::default(),
                     handle: None,
+                    callback: None,
                     origin: AbiSourceOrigin::default(),
                 },
             ],

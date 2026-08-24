@@ -2730,16 +2730,87 @@ must be clean on the mandatory host lane.
 
 ## 12.5 Synchronous callbacks
 
-- [ ] Canonical shape is function pointer plus opaque context and optional
+- [x] Canonical shape is function pointer plus opaque context and optional
   context destroyer.
-- [ ] V4 callbacks are synchronous, non-retained, same-thread, non-concurrent,
+- [x] V4 callbacks are synchronous, non-retained, same-thread, non-concurrent,
   and non-reentrant unless a fixture explicitly proves a narrower safe case.
-- [ ] Generated trampolines validate context and contain panic.
+- [x] Generated trampolines validate context and contain panic.
 - [ ] The callback cannot be invoked after the foreign call returns or after
   context destruction.
 
 Gate: success, foreign error, callback panic, attempted retention, double
 destroy, reentry, and cross-thread negatives pass.
+
+Landed, with one item honestly open. `examples/v4_c_callback` imports
+
+```c
+int tally_range(int upto,
+                int (*step)(void *context, int accumulator, int value),
+                void *context);
+```
+
+and calls it with a FOL closure. C invokes that closure four times and the
+accumulated 10 comes back, which is the only evidence that matters: a missing
+callback cannot produce it.
+
+The overlay states the pairing, because C cannot:
+
+```toml
+[routine.tally_range]
+callback = "step"
+callback_context = "context"
+```
+
+Neither position is a FOL parameter. FOL passes a closure and fills the context
+itself with that closure's address, so a caller cannot get the pairing wrong.
+A generated **trampoline** bridges the two: a monomorphic `extern "C"` shim,
+nested inside the one call site so two calls cannot collide, that recovers the
+closure from the context and calls it. It is emitted by the backend rather than
+the adapter because only the backend knows the closure's Rust type.
+
+**The canonical shape is exactly one shape.** The function pointer's own first
+parameter must be the `void *` context. A provider that puts its context last is
+refused at bind time, with a diagnostic naming the shape that *is* imported --
+`examples/fail_v4_c_callback_shape`. C permits the trailing form and real APIs
+use it, but FOL cannot tell a trailing context from any other trailing pointer,
+and guessing wrong hands the provider an address that is not the closure.
+
+Two rules are enforced in the trampoline rather than documented:
+
+- **The context is validated.** A null one means the callback was invoked
+  outside the call that lent the closure.
+- **A fault is contained.** Unwinding out of `extern "C"` is undefined, and a
+  callback has no status channel, so `rt::callback_panicked` names the symbol
+  and aborts. `examples/fail_v4_c_callback_panic` proves it: the process ends
+  on SIGABRT with the reason, rather than returning a value nobody computed.
+
+What is **not** enforced, and why the fourth item stays open: retention,
+reentry, and cross-thread invocation are all things the *provider* does after
+FOL has returned, and no code on FOL's side of the boundary observes them. FOL's
+side of the contract does hold structurally -- the closure is a local, so the
+context cannot outlive the call, and there is nothing to retain that stays
+valid -- and the null-context check catches the one detectable case. Claiming
+the rest would be claiming a check that does not exist. A real guarantee needs
+a generation counter in the context and a provider-side destroyer, which is
+where the "optional context destroyer" half of item 1 leads and is not built.
+
+Verified by `make test-v4-c-callback`.
+
+**A pre-existing defect found and fixed on the way**, unrelated to callbacks:
+an anonymous routine with narrow-width declared parameters
+(`fun(a: int[32]): int[32]`) lowered its *signature* at the default width while
+its *body* used the declared width, so the emitted Rust did not compile.
+`resolve_fol_type_to_lowered` was discarding the width from every `int`, `flt`,
+and `chr` annotation. It now reads the declared width through
+`TypeTable::find`, which looks an already-interned type up rather than
+interning one nothing was checked against.
+
+**A second pre-existing defect found and NOT fixed**: integer division at a
+narrow width does not compile, because `rt::div_int` is `i64`-only and the
+backend passes narrow operands to it. Reproduced with
+`return a / (v - v);` in an `int[32]` closure. It needs a width-aware division
+helper and is out of this slice's scope; it is recorded here rather than
+half-fixed.
 
 Primary examples:
 

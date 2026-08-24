@@ -105,6 +105,12 @@ path = "test/v4_linear.rs"
 name = "v4_c_handle"
 path = "test/v4_c_handle.rs"
 
+# M7.5 synchronous callbacks. Same toolchain requirement as `v4_c_handle`:
+# proving C actually invokes a FOL closure needs the real pipeline.
+[[test]]
+name = "v4_c_callback"
+path = "test/v4_c_callback.rs"
+
 [dev-dependencies]
 fol-types = { path = "lang/compiler/fol-types" }
 fol-stream = { path = "lang/compiler/fol-stream" }

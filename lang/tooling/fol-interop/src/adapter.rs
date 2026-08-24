@@ -63,12 +63,25 @@ fn render_adapter(
             rust_scalar(&interface.types, parameter.type_id, &routine.symbol)?
         ));
     }
+    // The context is hidden from FOL but not from the adapter: FOL passes the
+    // trampoline and the closure address as two ordinary arguments here, and
+    // the adapter forwards both. The trampoline itself is emitted by the
+    // backend, which is the only layer that knows the closure's Rust type.
+    if let Some(index) = routine.callback_context_index() {
+        params.push(format!(
+            "{}: *mut core::ffi::c_void",
+            rust_param_name(&routine.parameters[index].name)
+        ));
+    }
     let params = params.join(", ");
 
     match &routine.error {
         ImportErrorConvention::Infallible => {
+            // Every declared parameter, in the provider's own order -- including
+            // the context, which the adapter passes through even though FOL
+            // never named it. Its value comes from the extra argument above.
             let call_args = routine
-                .call_parameters()
+                .parameters
                 .iter()
                 .map(|parameter| cast_argument(&interface.types, parameter))
                 .collect::<Vec<_>>()
@@ -178,6 +191,9 @@ fn cast_argument(types: &AbiTypeTable, parameter: &fol_abi::AbiParameter) -> Str
     let name = rust_param_name(&parameter.name);
     match types.get(parameter.type_id) {
         Some(AbiType::OpaqueHandle { .. }) => format!("{name} as *mut _"),
+        // A callback and its context both already have the provider's own
+        // spelling: the adapter declares the function pointer exactly as GERC
+        // projected it, and `void *` projects to `*mut c_void` on both sides.
         _ => name,
     }
 }
@@ -229,6 +245,23 @@ fn rust_scalar(
         // crate never names GERC's projected types: the raw call site casts
         // with `as *mut _`, which infers the pointee from the callee.
         AbiType::OpaqueHandle { .. } => "*mut core::ffi::c_void".to_string(),
+        // Rendered as GERC projects a C function pointer, with the context
+        // restored at the front: the canonical shape puts it first, and the
+        // stored `parameters` are what FOL sees, which is everything after it.
+        AbiType::Callback { parameters, result } => {
+            let mut rendered = String::from("Option<unsafe extern \"C\" fn(*mut core::ffi::c_void");
+            for parameter in parameters {
+                rendered.push_str(", ");
+                rendered.push_str(&rust_scalar(types, *parameter, symbol)?);
+            }
+            rendered.push(')');
+            if !matches!(types.get(*result), Some(AbiType::Void)) {
+                rendered.push_str(" -> ");
+                rendered.push_str(&rust_scalar(types, *result, symbol)?);
+            }
+            rendered.push('>');
+            rendered
+        }
         other => {
             return Err(AdapterError::UnsupportedType {
                 symbol: symbol.to_string(),
@@ -307,6 +340,7 @@ mod tests {
                     error: ImportErrorConvention::Infallible,
                     effects: ImportEffects::default(),
                     handle: None,
+                    callback: None,
                     origin: AbiSourceOrigin::default(),
                 },
                 ImportedRoutine {
@@ -333,6 +367,7 @@ mod tests {
                     },
                     effects: ImportEffects::default(),
                     handle: None,
+                    callback: None,
                     origin: AbiSourceOrigin::default(),
                 },
             ],

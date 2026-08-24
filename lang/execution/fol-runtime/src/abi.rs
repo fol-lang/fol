@@ -168,6 +168,37 @@ impl crate::aggregate::FolEchoFormat for FolHandle {
     }
 }
 
+/// End the process because a FOL callback panicked inside a C call.
+///
+/// Unwinding out of an `extern "C"` function is undefined behaviour, so the
+/// panic has to stop here. A callback has no status channel -- the provider is
+/// mid-call and takes only a return value -- so the alternative would be
+/// returning a made-up value and letting the provider continue on it. That is
+/// the silent wrong answer this boundary exists to prevent, so the process ends
+/// instead, loudly and with the symbol named.
+pub fn callback_panicked(symbol: &str) -> ! {
+    eprintln!(
+        "fol runtime fault: a FOL callback passed to '{symbol}' panicked. A callback has no \
+         channel to report a failure through, and unwinding into C is undefined, so the process \
+         is ending here rather than returning a value nobody computed."
+    );
+    std::process::abort()
+}
+
+/// Refuse a callback invocation whose context pointer is not the one FOL gave.
+///
+/// Same reasoning as the panic path: there is nothing to return that would be
+/// true. A null context means the provider called back after FOL's frame was
+/// gone, or called with a context it invented.
+pub fn callback_context_invalid(symbol: &str) -> ! {
+    eprintln!(
+        "fol runtime fault: '{symbol}' invoked a FOL callback with a null context. The context is \
+         the closure FOL lent for the duration of the call; a null one means the callback was \
+         invoked outside that call."
+    );
+    std::process::abort()
+}
+
 pub fn module_name() -> &'static str {
     "abi"
 }

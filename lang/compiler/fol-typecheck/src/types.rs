@@ -294,6 +294,15 @@ impl TypeTable {
         id
     }
 
+    /// The id an already-interned type has, without interning it.
+    ///
+    /// Lowering needs this: it reads a written annotation back into a checked
+    /// id after type checking has finished, and interning there would add a
+    /// type nothing was checked against.
+    pub fn find(&self, ty: &CheckedType) -> Option<CheckedTypeId> {
+        self.canonical_ids.get(ty).copied()
+    }
+
     pub fn intern_builtin(&mut self, builtin: BuiltinType) -> CheckedTypeId {
         self.intern(CheckedType::Builtin(builtin))
     }

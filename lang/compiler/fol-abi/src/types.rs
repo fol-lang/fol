@@ -151,6 +151,16 @@ pub enum AbiType {
     OpaqueHandle {
         name: String,
     },
+    /// A synchronous callback the provider invokes during one call.
+    ///
+    /// The C shape is a function pointer plus a separate `void *` context, and
+    /// the function pointer's own first parameter is that context handed back.
+    /// Neither of those is a FOL-visible parameter: FOL supplies the context
+    /// itself, so `parameters` here is what a FOL routine value receives.
+    Callback {
+        parameters: Vec<AbiTypeId>,
+        result: AbiTypeId,
+    },
 }
 
 impl AbiType {
@@ -164,6 +174,7 @@ impl AbiType {
             Self::BorrowedString => "borrowed-string",
             Self::BorrowedSlice { .. } => "borrowed-slice",
             Self::OpaqueHandle { .. } => "opaque-handle",
+            Self::Callback { .. } => "callback",
         }
     }
 

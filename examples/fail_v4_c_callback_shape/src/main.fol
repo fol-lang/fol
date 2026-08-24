@@ -1,0 +1,16 @@
+// A provider whose callback takes its context last.
+//
+// C's type system permits it and plenty of real APIs do it, but FOL cannot tell
+// a trailing `void *` context from any other trailing pointer argument. V4
+// imports exactly one shape -- `f(void *context, ...)` -- and refuses this one
+// at bind time rather than guessing, because guessing wrong means handing the
+// provider an address that is not the closure.
+//
+// The package never reaches FOL type checking: `fol tool bind c` rejects the
+// header first.
+
+use std: pkg = {"std"};
+
+fun[] main(): int = {
+    return std::io::echo_int(0);
+};

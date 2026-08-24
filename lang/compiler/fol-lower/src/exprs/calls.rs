@@ -2052,6 +2052,17 @@ fn lower_foreign_call(
         lowered_args.push(value.local_id);
     }
 
+    // Which argument the provider will call back into. Read off the checked
+    // signature rather than the manifest, because that is the same source the
+    // arguments were checked against, so the two cannot point at different
+    // positions.
+    let callback_arg = signature.params.iter().position(|param| {
+        matches!(
+            typed_package.program.type_table().get(*param),
+            Some(fol_typecheck::CheckedType::Routine(_))
+        )
+    });
+
     let error_type = signature
         .error_type
         .and_then(|error_type| checked_type_map.get(&error_type).copied());
@@ -2066,6 +2077,7 @@ fn lower_foreign_call(
                 symbol: binding.symbol.clone(),
                 args: lowered_args,
                 error_type,
+                callback_arg,
             },
         )?;
         return Ok(None);
@@ -2088,6 +2100,7 @@ fn lower_foreign_call(
             symbol: binding.symbol.clone(),
             args: lowered_args,
             error_type,
+            callback_arg,
         },
     )?;
     Ok(Some(LoweredValue {

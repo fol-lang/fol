@@ -1,0 +1,47 @@
+// C calling back into a FOL closure, synchronously, during one call.
+//
+// The C side is the canonical shape and nothing else is imported:
+//
+//     int tally_range(int upto,
+//                     int (*step)(void *context, int accumulator, int value),
+//                     void *context);
+//
+// C cannot say which `void *` belongs to which function pointer, so the overlay
+// says it:
+//
+//     [routine.tally_range]
+//     callback = "step"
+//     callback_context = "context"
+//
+// Neither the function pointer nor the context is a FOL parameter. FOL passes a
+// closure and supplies the context itself -- a pointer to that closure -- so a
+// caller cannot get the pairing wrong.
+//
+// What bridges the two is a generated trampoline: a monomorphic `extern "C"`
+// shim that recovers the closure from the context and calls it. It refuses a
+// null context and contains a panic, because unwinding into C is undefined and
+// a callback has no status channel to report through. Both end the process
+// rather than returning a value nobody computed.
+//
+// The closure is a local, so the context cannot outlive the call by
+// construction: there is nothing for the provider to retain.
+
+use std: pkg = {"std"};
+use tal: pkg = {"tally"};
+
+fun[] main(): int = {
+    // C loops 1..4 and calls back once per step. 1+2+3+4 is 10, and 10 can
+    // only come from C having actually invoked the closure four times with the
+    // accumulator it was handed back each time.
+    var total: int[32] = tal::tally_range(4, fun(a: int[32], v: int[32]): int[32] = {
+        return a + v;
+    });
+
+    var marker: int = 0;
+    when(total) {
+        is(10) { marker = 7; }
+        * { marker = 1; }
+    };
+    var shown: int = std::io::echo_int(marker);
+    return 0;
+};

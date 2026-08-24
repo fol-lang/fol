@@ -2259,11 +2259,42 @@ fn resolve_fol_type_to_lowered(
     fol_type: &FolType,
 ) -> Result<LoweredTypeId, LoweringError> {
     let builtins = typed_package.program.builtin_types();
+    let table = typed_package.program.type_table();
+    // The declared width, not the default one. Reading `int[32]` as `int` was a
+    // real defect: an anonymous routine's signature came out at the default
+    // width while its body used the declared one, so the emitted Rust did not
+    // compile. `find` rather than `intern`, because a width nothing was checked
+    // against is not a type this program has.
     let checked_id = match fol_type {
-        FolType::Int { .. } => builtins.int,
-        FolType::Float { .. } => builtins.float,
+        FolType::Int { size, signed } => {
+            let width = fol_typecheck::int_width_of(size.as_ref(), *signed);
+            table
+                .find(&fol_typecheck::CheckedType::Builtin(
+                    fol_typecheck::BuiltinType::Int(width),
+                ))
+                .unwrap_or(builtins.int)
+        }
+        FolType::Float { size } => {
+            let width = fol_typecheck::float_width_of(size.as_ref());
+            table
+                .find(&fol_typecheck::CheckedType::Builtin(
+                    fol_typecheck::BuiltinType::Float(width),
+                ))
+                .unwrap_or(builtins.float)
+        }
         FolType::Bool => builtins.bool_,
-        FolType::Char { .. } => builtins.char_,
+        FolType::Char { encoding } => {
+            let encoding = match encoding {
+                fol_parser::ast::CharEncoding::Utf8 => fol_types::CharEncoding::Utf8,
+                fol_parser::ast::CharEncoding::Utf16 => fol_types::CharEncoding::Utf16,
+                fol_parser::ast::CharEncoding::Utf32 => fol_types::CharEncoding::Utf32,
+            };
+            table
+                .find(&fol_typecheck::CheckedType::Builtin(
+                    fol_typecheck::BuiltinType::Char(encoding),
+                ))
+                .unwrap_or(builtins.char_)
+        }
         ty if ty.is_builtin_str() => builtins.str_,
         FolType::Never => builtins.never,
         FolType::Named { name, syntax_id } => {

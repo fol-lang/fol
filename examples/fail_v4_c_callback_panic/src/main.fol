@@ -1,0 +1,31 @@
+// A FOL callback that faults while C is calling it.
+//
+// This one is a runtime negative, not a compile-time one: the program builds,
+// and the trampoline is what refuses to let the fault cross the boundary.
+// Unwinding out of an `extern "C"` function is undefined behaviour, and a
+// callback has no status channel -- the provider is mid-call and takes only a
+// return value -- so there is nothing that would be a true answer to return.
+// The process ends, loudly, naming the symbol that called back.
+//
+// The alternative, returning a default and letting the provider continue on it,
+// is the silent wrong answer this whole boundary exists to prevent.
+
+use std: pkg = {"std"};
+use tal: pkg = {"tally"};
+
+fun[] main(): int = {
+    var total: int[32] = tal::tally_range(4, fun(a: int[32], v: int[32]): int[32] = {
+        // A fault raised while C is on the stack between this frame and
+        // `main`. Nothing here returns: the trampoline is what the fault
+        // reaches, and it does not let it travel any further.
+        panic "a FOL callback faulted mid-call";
+        return a + v;
+    });
+    var marker: int = 0;
+    when(total) {
+        is(0) { marker = 1; }
+        * { marker = 1; }
+    };
+    var shown: int = std::io::echo_int(marker);
+    return 0;
+};

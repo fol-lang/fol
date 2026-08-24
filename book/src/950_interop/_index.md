@@ -193,6 +193,65 @@ in the import's namespace, so a program writes `wid::Widget` and the compiler
 proves the release. `examples/v4_c_opaque_handle` is the whole path, and the
 four `examples/fail_v4_c_handle_*` packages are the misuses C would compile.
 
+### Synchronous callbacks
+
+A C routine that calls back needs a function pointer and somewhere to keep the
+caller's state. C cannot say which `void *` belongs to which function pointer,
+so the overlay does:
+
+```toml
+[routine.tally_range]
+error = "infallible"
+callback = "step"
+callback_context = "context"
+```
+
+Neither position is a FOL parameter. FOL passes a closure and fills the context
+itself, with that closure's address, so the pairing cannot be got wrong:
+
+```fol
+var total: int[32] = tal::tally_range(4, fun(a: int[32], v: int[32]): int[32] = {
+    return a + v;
+});
+```
+
+Bridging the two is a **generated trampoline** — a monomorphic `extern "C"` shim
+nested inside the one call site, which recovers the closure from the context and
+calls it. A Rust closure carries an environment and a C function pointer has
+nowhere to put one; the trampoline is where that gap is closed.
+
+**Exactly one shape is imported.** The function pointer's own first parameter
+must be the `void *` context:
+
+```c
+int tally_range(int upto,
+                int (*step)(void *context, int accumulator, int value),
+                void *context);
+```
+
+A provider that puts its context last is refused at bind time. C permits that
+form and real APIs use it, but FOL cannot tell a trailing context from any other
+trailing pointer, and guessing wrong hands the provider an address that is not
+the closure.
+
+The trampoline enforces two rules rather than documenting them. A **null
+context** means the callback was invoked outside the call that lent the closure.
+A **fault inside the callback** cannot travel further: unwinding out of
+`extern "C"` is undefined, and a callback has no status channel — the provider
+is mid-call and takes only a return value. Both end the process, naming the
+symbol, rather than returning a value nobody computed.
+
+What FOL does **not** enforce is what the provider does after the call returns.
+Retention, reentry, and cross-thread invocation are all provider behaviour that
+nothing on FOL's side observes. FOL's half of the contract holds structurally —
+the closure is a local, so the context cannot outlive the call — and the
+null-context check catches the one detectable case. A real guarantee would need
+a generation counter in the context and a provider-side destroyer, which V4 does
+not build.
+
+See `examples/v4_c_callback`, `examples/fail_v4_c_callback_panic`, and
+`examples/fail_v4_c_callback_shape`.
+
 ## Verification commands
 
 Run these on GNU/Linux from the FOL root with `parc`, `linc`, and `gerc` as

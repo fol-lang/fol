@@ -1,0 +1,6 @@
+version = 1
+
+[routine.tally_range]
+error = "infallible"
+callback = "step"
+callback_context = "context"

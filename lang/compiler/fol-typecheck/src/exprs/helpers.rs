@@ -2018,7 +2018,7 @@ pub(crate) fn unsupported_node_surface(
 /// The canonical width for a parsed integer type. An unsized `int` is the
 /// default width, which is `i64`; every other spelling keeps exactly what it
 /// was written as (`plan/V4_SCALAR_WIDTHS.md`).
-pub(crate) fn int_width_of(size: Option<&fol_parser::ast::IntSize>, signed: bool) -> IntWidth {
+pub fn int_width_of(size: Option<&fol_parser::ast::IntSize>, signed: bool) -> IntWidth {
     use fol_parser::ast::IntSize;
     match (size, signed) {
         (None, _) => IntWidth::DEFAULT,
@@ -2038,7 +2038,7 @@ pub(crate) fn int_width_of(size: Option<&fol_parser::ast::IntSize>, signed: bool
 }
 
 /// The canonical width for a parsed float type; an unsized `flt` is `f64`.
-pub(crate) fn float_width_of(size: Option<&fol_parser::ast::FloatSize>) -> FloatWidth {
+pub fn float_width_of(size: Option<&fol_parser::ast::FloatSize>) -> FloatWidth {
     use fol_parser::ast::FloatSize;
     match size {
         None => FloatWidth::DEFAULT,

@@ -253,8 +253,17 @@ fn render_routine(routine: &ImportedRoutine) -> String {
         ),
         None => "null".to_string(),
     };
+    let callback = match &routine.callback {
+        Some(use_) => format!(
+            "{{\"context\":{},\"parameter\":{}}}",
+            quoted(&use_.context),
+            quoted(&use_.parameter)
+        ),
+        None => "null".to_string(),
+    };
     format!(
-        "{{\"convention\":{},\"effects\":{{\"allocates\":{},\"hosted\":{}}},\
+        "{{\"callback\":{callback},\"convention\":{},\
+         \"effects\":{{\"allocates\":{},\"hosted\":{}}},\
          \"error\":{},\"fol_name\":{},\"handle\":{handle},\
          \"origin\":{{\"column\":{},\"file\":{},\"line\":{}}},\
          \"parameters\":[{parameters}],\"result\":{},\"symbol\":{}}}",
@@ -338,6 +347,17 @@ fn render_type(id: AbiTypeId, ty: &AbiType) -> String {
         // the domain is the identity, and a consumer may only pass it back.
         AbiType::OpaqueHandle { name } => {
             format!("\"kind\":\"opaque-handle\",\"name\":{}", quoted(name))
+        }
+        AbiType::Callback { parameters, result } => {
+            let rendered = parameters
+                .iter()
+                .map(|id| id.0.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            format!(
+                "\"kind\":\"callback\",\"parameters\":[{rendered}],\"result\":{}",
+                result.0
+            )
         }
         // M6 imports scalars, void, and the pointers that carry an out-value.
         // The remaining aggregate shapes are not read back, and writing a
@@ -476,6 +496,23 @@ fn read_type(entry: &JsonValue) -> Result<AbiType, ImportManifestError> {
         "opaque-handle" => AbiType::OpaqueHandle {
             name: entry.string_field("name")?.to_string(),
         },
+        "callback" => {
+            let mut parameters = Vec::new();
+            for parameter in entry.array_field("parameters")? {
+                let index =
+                    parameter
+                        .as_i64()
+                        .ok_or(ImportManifestError::Json(JsonError::WrongType {
+                            field: "parameters".to_string(),
+                            expected: "a type index",
+                        }))?;
+                parameters.push(callback_type_index(index)?);
+            }
+            AbiType::Callback {
+                parameters,
+                result: callback_type_index(entry.integer_field("result")?)?,
+            }
+        }
         other => {
             return Err(ImportManifestError::UnsupportedTypeKind {
                 kind: other.to_string(),
@@ -521,6 +558,7 @@ fn read_routine(
             hosted: matches!(effects_value.field("hosted")?, JsonValue::Bool(true)),
         },
         handle: read_handle(entry.field("handle")?)?,
+        callback: read_callback(entry.field("callback")?)?,
         origin: AbiSourceOrigin {
             file: origin_value.string_field("file")?.to_string(),
             line: u32::try_from(origin_value.integer_field("line")?).unwrap_or(0),
@@ -529,6 +567,29 @@ fn read_routine(
         parameters,
         symbol,
     })
+}
+
+/// A callback's parameter and result ids, which are positions in the same
+/// table and are checked against it by the caller's `read_type_id`.
+fn callback_type_index(raw: i64) -> Result<AbiTypeId, ImportManifestError> {
+    usize::try_from(raw).map(AbiTypeId).map_err(|_| {
+        ImportManifestError::Json(JsonError::WrongType {
+            field: "type".to_string(),
+            expected: "a type index",
+        })
+    })
+}
+
+fn read_callback(
+    value: &JsonValue,
+) -> Result<Option<crate::annotation::CallbackUse>, ImportManifestError> {
+    if matches!(value, JsonValue::Null) {
+        return Ok(None);
+    }
+    Ok(Some(crate::annotation::CallbackUse {
+        parameter: value.string_field("parameter")?.to_string(),
+        context: value.string_field("context")?.to_string(),
+    }))
 }
 
 fn read_handle(
@@ -783,6 +844,7 @@ mod tests {
                         error: ImportErrorConvention::Infallible,
                         effects: ImportEffects::default(),
                         handle: None,
+                        callback: None,
                         origin: AbiSourceOrigin {
                             file: "native/c_math.h".to_string(),
                             line: 7,
@@ -816,6 +878,7 @@ mod tests {
                             hosted: false,
                         },
                         handle: None,
+                        callback: None,
                         origin: AbiSourceOrigin {
                             file: "native/c_math.h".to_string(),
                             line: 11,

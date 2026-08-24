@@ -19,7 +19,7 @@ $(info Project: $(PROJECT_NAME))
 $(info Version: $(CURRENT_VERSION))
 $(info ------------------------------------------)
 
-.PHONY: build b compile c fmt f fmt-changed fmt-check lint run r test t test-network print-version tree tree-test interop-check interop-locked test-interop test-build-actions test-native abi-check test-v4-c test-v4-c-import test-v4-c-handle test-v4-linear test-v4-sanitize verify verify-all help h clean docs release
+.PHONY: build b compile c fmt f fmt-changed fmt-check lint run r test t test-network print-version tree tree-test interop-check interop-locked test-interop test-build-actions test-native abi-check test-v4-c test-v4-c-import test-v4-c-handle test-v4-c-callback test-v4-linear test-v4-sanitize verify verify-all help h clean docs release
 
 SHELL := /bin/bash
 
@@ -164,6 +164,11 @@ test-v4-linear:
 test-v4-c-handle:
 	@cargo test -p fol --test v4_c_handle -- --nocapture
 
+# M7.5 synchronous callbacks: C invoking a FOL closure, the trampoline's
+# containment, and the one canonical shape that is imported.
+test-v4-c-callback:
+	@cargo test -p fol --test v4_c_callback -- --nocapture
+
 # The ABI model gate: the canonical type vocabulary, the classifier's required
 # negative cases, the verifier, the manifest encoding, and the two fingerprints.
 # Separate from `test` because a failure here means the compiler's idea of the C
@@ -183,7 +188,7 @@ print-version:
 
 t: test
 
-verify: fmt-check lint test test-build-actions test-native abi-check test-v4-c test-v4-c-import test-v4-c-handle test-v4-linear test-v4-sanitize interop-check test-interop
+verify: fmt-check lint test test-build-actions test-native abi-check test-v4-c test-v4-c-import test-v4-c-handle test-v4-c-callback test-v4-linear test-v4-sanitize interop-check test-interop
 
 verify-all: verify test-network
 

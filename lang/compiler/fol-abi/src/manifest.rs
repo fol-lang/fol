@@ -139,6 +139,17 @@ fn render_type(id: AbiTypeId, ty: &AbiType) -> String {
         AbiType::OpaqueHandle { name } => {
             fields.push(("name".to_string(), quoted(name)));
         }
+        AbiType::Callback { parameters, result } => {
+            // Positional, because a callback's parameter order is part of the
+            // contract exactly as a routine's is.
+            let rendered = parameters
+                .iter()
+                .map(|id| id.0.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            fields.push(("parameters".to_string(), format!("[{rendered}]")));
+            fields.push(("result".to_string(), result.0.to_string()));
+        }
     }
     fields.sort_by(|left, right| left.0.cmp(&right.0));
     let body = fields
@@ -856,5 +867,14 @@ fn expand_type(id: AbiTypeId, table: &AbiTypeTable) -> String {
             format!("slice({},{mutability:?})", expand_type(*element, table))
         }
         AbiType::OpaqueHandle { name } => format!("handle {name}"),
+        AbiType::Callback { parameters, result } => format!(
+            "callback({}) -> {}",
+            parameters
+                .iter()
+                .map(|id| expand_type(*id, table))
+                .collect::<Vec<_>>()
+                .join(","),
+            expand_type(*result, table)
+        ),
     }
 }

@@ -32,6 +32,8 @@ pub struct ImportedRoutine {
     /// C pointer to an incomplete type says nothing about ownership: the same
     /// `sqlite3 *` is produced by one call, lent to many, and released by one.
     pub handle: Option<crate::annotation::HandleUse>,
+    /// The synchronous callback this routine invokes, when it takes one.
+    pub callback: Option<crate::annotation::CallbackUse>,
     /// The header location, for diagnostics and navigation.
     pub origin: AbiSourceOrigin,
 }
@@ -50,17 +52,28 @@ impl ImportedRoutine {
             .position(|parameter| &parameter.name == out_parameter)
     }
 
+    /// The parameter carrying a callback's opaque context, by index.
+    pub fn callback_context_index(&self) -> Option<usize> {
+        let use_ = self.callback.as_ref()?;
+        self.parameters
+            .iter()
+            .position(|parameter| parameter.name == use_.context)
+    }
+
     /// Parameters a FOL caller passes, in order.
     ///
-    /// Under a status mapping the out-parameter is not one of them: FOL
-    /// supplies the storage and reads it back as the result, so a caller
-    /// passing it would be writing the answer to its own question.
+    /// Two positions are hidden, for the same reason in both cases: FOL owns
+    /// the storage, so a caller passing it would be answering its own question.
+    /// Under a status mapping that is the out-parameter; with a callback it is
+    /// the context, which FOL fills with a pointer to the closure it is about
+    /// to lend.
     pub fn call_parameters(&self) -> Vec<&AbiParameter> {
         let out = self.out_parameter_index();
+        let context = self.callback_context_index();
         self.parameters
             .iter()
             .enumerate()
-            .filter(|(index, _)| Some(*index) != out)
+            .filter(|(index, _)| Some(*index) != out && Some(*index) != context)
             .map(|(_, parameter)| parameter)
             .collect()
     }
@@ -177,6 +190,30 @@ pub enum ImportRejection {
         domain: String,
         found: usize,
     },
+    /// The overlay names a callback or context parameter the signature lacks.
+    UnknownCallbackParameter {
+        symbol: String,
+        parameter: String,
+        role: &'static str,
+    },
+    /// The named callback parameter is not a function pointer, or the named
+    /// context parameter is not a `void *`.
+    CallbackShapeMismatch {
+        symbol: String,
+        parameter: String,
+        expected: &'static str,
+    },
+    /// A callback whose own first parameter is not the context it is handed.
+    ///
+    /// The canonical shape is `f(void *context, ...)`. A provider that puts its
+    /// context last is not importable in V4 rather than being guessed at.
+    CallbackContextNotFirst { symbol: String, parameter: String },
+    /// A callback that is variadic, or one whose signature FOL cannot carry.
+    UnsupportedCallbackSignature {
+        symbol: String,
+        parameter: String,
+        detail: String,
+    },
 }
 
 impl ImportRejection {
@@ -208,6 +245,10 @@ impl ImportRejection {
             Self::CapabilityTooStrong { .. } => "capability-too-strong",
             Self::HandleResultIsNotAPointer { .. } => "handle-result-is-not-a-pointer",
             Self::AmbiguousHandleParameter { .. } => "ambiguous-handle-parameter",
+            Self::UnknownCallbackParameter { .. } => "unknown-callback-parameter",
+            Self::CallbackShapeMismatch { .. } => "callback-shape-mismatch",
+            Self::CallbackContextNotFirst { .. } => "callback-context-not-first",
+            Self::UnsupportedCallbackSignature { .. } => "unsupported-callback-signature",
         }
     }
 
@@ -226,7 +267,11 @@ impl ImportRejection {
             | Self::UnwritableOutParameter { symbol, .. }
             | Self::CapabilityTooStrong { symbol, .. }
             | Self::HandleResultIsNotAPointer { symbol, .. }
-            | Self::AmbiguousHandleParameter { symbol, .. } => symbol,
+            | Self::AmbiguousHandleParameter { symbol, .. }
+            | Self::UnknownCallbackParameter { symbol, .. }
+            | Self::CallbackShapeMismatch { symbol, .. }
+            | Self::CallbackContextNotFirst { symbol, .. }
+            | Self::UnsupportedCallbackSignature { symbol, .. } => symbol,
         }
     }
 }
@@ -310,6 +355,39 @@ impl std::fmt::Display for ImportRejection {
                 f,
                 "'{symbol}' uses handle domain '{domain}' but has {found} pointer parameters; \
                  exactly one is needed so the handle is not chosen by position"
+            ),
+            Self::UnknownCallbackParameter {
+                symbol,
+                parameter,
+                role,
+            } => write!(
+                f,
+                "'{symbol}' names '{parameter}' as its callback {role}, which is not one of its \
+                 parameters"
+            ),
+            Self::CallbackShapeMismatch {
+                symbol,
+                parameter,
+                expected,
+            } => write!(
+                f,
+                "'{symbol}' names '{parameter}' as part of its callback, but that parameter is \
+                 not {expected}"
+            ),
+            Self::CallbackContextNotFirst { symbol, parameter } => write!(
+                f,
+                "'{symbol}' passes a callback '{parameter}' whose first parameter is not the \
+                 context it is handed; V4 imports the canonical shape \
+                 `f(void *context, ...)` and refuses a context in any other position rather \
+                 than guessing which argument it is"
+            ),
+            Self::UnsupportedCallbackSignature {
+                symbol,
+                parameter,
+                detail,
+            } => write!(
+                f,
+                "'{symbol}' passes a callback '{parameter}' FOL cannot carry: {detail}"
             ),
         }
     }
@@ -778,6 +856,7 @@ mod tests {
             error: annotation.error.clone(),
             effects: annotation.effects,
             handle: None,
+            callback: None,
             origin: AbiSourceOrigin::default(),
         };
 
@@ -803,6 +882,7 @@ mod tests {
             error: ImportErrorConvention::Infallible,
             effects: ImportEffects::default(),
             handle: None,
+            callback: None,
             origin: AbiSourceOrigin::default(),
         };
 
@@ -828,6 +908,7 @@ mod tests {
                     error: ImportErrorConvention::Infallible,
                     effects: ImportEffects::default(),
                     handle: None,
+                    callback: None,
                     origin: AbiSourceOrigin::default(),
                 })
                 .collect(),

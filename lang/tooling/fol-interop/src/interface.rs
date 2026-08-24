@@ -115,6 +115,11 @@ fn project_routine(
     // projecting it would mean refusing the one shape the overlay just
     // declared legal.
     let handle_positions = handle_positions(&symbol, function, annotation)?;
+    // The callback's two positions, and the `AbiType::Callback` its function
+    // pointer becomes. Resolved before projection for the same reason a handle
+    // is: `project_type` refuses a function pointer by design, so replacing it
+    // afterwards would mean refusing the shape the overlay just declared legal.
+    let callback = callback_positions(&symbol, function, annotation, types)?;
 
     let result = match handle_positions.result {
         Some(domain) => types.intern(AbiType::OpaqueHandle { name: domain }),
@@ -126,6 +131,9 @@ fn project_routine(
             Some((position, domain)) if *position == index => types.intern(AbiType::OpaqueHandle {
                 name: domain.clone(),
             }),
+            _ if callback.as_ref().is_some_and(|c| c.parameter == index) => {
+                callback.as_ref().expect("checked").type_id
+            }
             _ => project_type(&symbol, parameter.ty(), types)?,
         };
         // A C parameter may be unnamed; the position is the only stable
@@ -153,8 +161,124 @@ fn project_routine(
         error: annotation.error.clone(),
         effects: annotation.effects,
         handle: annotation.handle.clone(),
+        callback: annotation.callback.clone(),
         origin: origin_for(function, source),
     })
+}
+
+/// Where a routine's callback sits, and what its FOL-visible type is.
+struct CallbackPositions {
+    /// The index of the function-pointer parameter.
+    parameter: usize,
+    /// The interned `AbiType::Callback`.
+    type_id: AbiTypeId,
+}
+
+/// Validate the canonical callback shape and intern the callback type.
+///
+/// V4 imports exactly one shape: a function pointer whose own first parameter
+/// is the `void *` context, plus a separate `void *` parameter carrying that
+/// context. Every other arrangement is refused rather than guessed at, because
+/// guessing which argument is the context is how a provider gets handed an
+/// address that is not one.
+fn callback_positions(
+    symbol: &str,
+    function: &RustFunction,
+    annotation: &fol_abi::RoutineAnnotation,
+    types: &mut AbiTypeTable,
+) -> Result<Option<CallbackPositions>, ImportRejection> {
+    let Some(use_) = &annotation.callback else {
+        return Ok(None);
+    };
+
+    let named = |wanted: &str| -> Option<usize> {
+        function.parameters().iter().position(|parameter| {
+            parameter
+                .source_name()
+                .is_some_and(|name| name.original == wanted)
+        })
+    };
+    let parameter =
+        named(&use_.parameter).ok_or_else(|| ImportRejection::UnknownCallbackParameter {
+            symbol: symbol.to_string(),
+            parameter: use_.parameter.clone(),
+            role: "function pointer",
+        })?;
+    let context =
+        named(&use_.context).ok_or_else(|| ImportRejection::UnknownCallbackParameter {
+            symbol: symbol.to_string(),
+            parameter: use_.context.clone(),
+            role: "context",
+        })?;
+
+    // The context must be a pointer FOL can hand an arbitrary address through.
+    if !matches!(
+        function.parameters()[context].ty().kind(),
+        RustTypeKind::Pointer(_)
+    ) {
+        return Err(ImportRejection::CallbackShapeMismatch {
+            symbol: symbol.to_string(),
+            parameter: use_.context.clone(),
+            expected: "a pointer",
+        });
+    }
+
+    let RustTypeKind::FunctionPointer {
+        abi,
+        parameters: signature,
+        return_type,
+        variadic,
+    } = function.parameters()[parameter].ty().kind()
+    else {
+        return Err(ImportRejection::CallbackShapeMismatch {
+            symbol: symbol.to_string(),
+            parameter: use_.parameter.clone(),
+            expected: "a function pointer",
+        });
+    };
+
+    if *variadic {
+        return Err(ImportRejection::UnsupportedCallbackSignature {
+            symbol: symbol.to_string(),
+            parameter: use_.parameter.clone(),
+            detail: "it is variadic, and FOL has no call form that supplies a variadic list"
+                .to_string(),
+        });
+    }
+    if *abi != RustAbi::C {
+        return Err(ImportRejection::UnsupportedCallbackSignature {
+            symbol: symbol.to_string(),
+            parameter: use_.parameter.clone(),
+            detail: format!("its calling convention is {abi:?}, and only C is imported"),
+        });
+    }
+    // The first parameter is the context handed back. Without it the provider
+    // has nowhere to return the pointer FOL gave it, so a FOL closure could
+    // never be recovered.
+    let Some(first) = signature.first() else {
+        return Err(ImportRejection::CallbackContextNotFirst {
+            symbol: symbol.to_string(),
+            parameter: use_.parameter.clone(),
+        });
+    };
+    if !matches!(first.kind(), RustTypeKind::Pointer(_)) {
+        return Err(ImportRejection::CallbackContextNotFirst {
+            symbol: symbol.to_string(),
+            parameter: use_.parameter.clone(),
+        });
+    }
+
+    // Everything after the context is what a FOL routine value receives.
+    let mut projected = Vec::new();
+    for argument in signature.iter().skip(1) {
+        projected.push(project_type(symbol, argument, types)?);
+    }
+    let result = project_type(symbol, return_type, types)?;
+    let type_id = types.intern(AbiType::Callback {
+        parameters: projected,
+        result,
+    });
+    Ok(Some(CallbackPositions { parameter, type_id }))
 }
 
 /// Which of a routine's positions carry the handle.

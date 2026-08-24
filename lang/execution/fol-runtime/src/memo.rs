@@ -3,7 +3,10 @@
 //! the frontend; declaring bundled `standard` separately selects the effective
 //! hosted runtime tier and its source APIs.
 
-pub use crate::abi::{check_recoverable, recoverable_succeeded, FolHandle, FolRecover};
+pub use crate::abi::{
+    callback_context_invalid, callback_panicked, check_recoverable, recoverable_succeeded,
+    FolHandle, FolRecover,
+};
 pub use crate::aggregate::{
     render_echo, render_entry, render_entry_debug, render_record, render_record_debug,
     FolEchoFormat, FolEntry, FolNamedValue, FolRecord,

@@ -123,6 +123,20 @@ pub struct HandleDomain {
     pub destroy: String,
 }
 
+/// A routine's synchronous callback, named by the overlay.
+///
+/// Both halves are needed and neither is inferable. C's type system cannot say
+/// which `void *` belongs to which function pointer, and a routine with two of
+/// each would be resolved by position -- which is exactly the guess that hands
+/// a provider the wrong context.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallbackUse {
+    /// The parameter holding the function pointer.
+    pub parameter: String,
+    /// The parameter carrying the opaque context.
+    pub context: String,
+}
+
 /// One selected declaration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoutineAnnotation {
@@ -134,6 +148,8 @@ pub struct RoutineAnnotation {
     pub effects: ImportEffects,
     /// The handle domain this routine produces, borrows, or consumes.
     pub handle: Option<HandleUse>,
+    /// The synchronous callback this routine invokes during the call.
+    pub callback: Option<CallbackUse>,
 }
 
 /// The accepted overlay for one import.
@@ -403,6 +419,8 @@ struct PendingRoutine {
     effects: ImportEffects,
     handle: Option<String>,
     handle_role: Option<HandleRole>,
+    callback: Option<String>,
+    callback_context: Option<String>,
 }
 
 /// Which kind of table the parser is currently inside.
@@ -565,6 +583,14 @@ impl<'a> Parser<'a> {
                 let parsed = HandleRole::from_keyword(&role);
                 routine.handle_role =
                     Some(parsed.ok_or(AnnotationError::UnknownHandleRole { line, role })?);
+            }
+            "callback" => {
+                routine.callback =
+                    Some(parse_string(value).ok_or(AnnotationError::MalformedLine { line })?);
+            }
+            "callback_context" => {
+                routine.callback_context =
+                    Some(parse_string(value).ok_or(AnnotationError::MalformedLine { line })?);
             }
             "fol_name" => {
                 routine.fol_name =
@@ -756,12 +782,32 @@ impl PendingRoutine {
             }
             (None, None) => None,
         };
+        // Same rule as the handle pair, for the same reason: a function pointer
+        // with no named context has nothing to pass, and a context with no
+        // named function pointer names nothing to pass it to.
+        let callback = match (self.callback, self.callback_context) {
+            (Some(parameter), Some(context)) => Some(CallbackUse { parameter, context }),
+            (Some(_), None) => {
+                return Err(AnnotationError::MissingKey {
+                    symbol: symbol.to_string(),
+                    key: "callback_context",
+                })
+            }
+            (None, Some(_)) => {
+                return Err(AnnotationError::MissingKey {
+                    symbol: symbol.to_string(),
+                    key: "callback",
+                })
+            }
+            (None, None) => None,
+        };
         Ok(RoutineAnnotation {
             symbol: symbol.to_string(),
             fol_name: self.fol_name.unwrap_or_else(|| symbol.to_string()),
             error,
             effects: self.effects,
             handle,
+            callback,
         })
     }
 }

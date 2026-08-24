@@ -1,0 +1,26 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "fail_v4_c_callback_panic", version = "0.1.0",
+        description = "a C routine calling back into a FOL closure",
+        license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "fail_v4_c_callback_panic", root = "src/main.fol", fol_model = "memo",
+    });
+    var header = graph.file_from_root("native/tally.h");
+    var provider = graph.file_from_root("native/libtally.a");
+    var overlay = graph.file_from_root("interop/tally.toml");
+    app.add_c_import({
+        alias = "tally",
+        header = header,
+        provider = provider,
+        provider_kind = "static",
+        annotations = overlay,
+    });
+    graph.install(app);
+    graph.add_run(app);
+    return;
+};
