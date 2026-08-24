@@ -302,7 +302,15 @@ fn configure_generated_crate_rustc_command_impl(
         .current_dir(crate_root)
         .arg("--crate-name")
         .arg(rustc_crate_name_for_generated_crate(crate_root)?)
-        .arg("--edition=2021");
+        .arg("--edition=2021")
+        // This crate is generated, and its warnings are about the generator's
+        // own choices -- mangled identifiers are not snake case, and a routine
+        // no path reaches is dead code. None of it is actionable by whoever
+        // wrote the FOL, and a real failure arrives buried under thousands of
+        // lines of it. Errors are unaffected: `--cap-lints` caps lints, and a
+        // compile error is not a lint.
+        .arg("--cap-lints")
+        .arg("allow");
     command
         .arg("--target")
         .arg(machine_target.rust_target_triple());
@@ -532,6 +540,110 @@ fn built_binary_output_path(
             profile,
         ))
         .join(file_name))
+}
+
+/// One line naming what actually failed, with the full output kept beside it.
+///
+/// A link failure used to arrive as the whole of rustc's stderr -- the entire
+/// `cc` invocation, every omitted-argument note, and the one line that matters
+/// somewhere in the middle. The fact a reader needs is which symbols are
+/// referenced and defined nowhere, so that is what is reported; the rest is
+/// written to a file and named, because a linker's own output is still the
+/// place to look when the summary is not enough.
+fn summarize_rustc_failure(main_rs: &Path, stdout: &str, stderr: &str) -> String {
+    let log = main_rs.with_file_name("link-error.log");
+    let full = format!("stdout:\n{}\nstderr:\n{}\n", stdout.trim(), stderr.trim());
+    let recorded = match std::fs::write(&log, &full) {
+        Ok(()) => format!("\n  = note: the full output is at {}", log.display()),
+        // Nothing is lost when the log cannot be written: the whole output
+        // goes into the message instead, which is what used to happen always.
+        Err(_) => format!("\n  = note: the full output could not be written:\n{full}"),
+    };
+
+    let undefined = undefined_symbols(stderr);
+    if !undefined.is_empty() {
+        let sources = referencing_inputs(stderr);
+        let referenced = if sources.is_empty() {
+            String::new()
+        } else {
+            format!("\n  = referenced by: {}", sources.join(", "))
+        };
+        return format!(
+            "the native link failed: {} symbol(s) referenced but defined by no linked \
+             provider\n  = missing: {}{referenced}{recorded}",
+            undefined.len(),
+            undefined.join(", "),
+        );
+    }
+
+    // Not a link failure. rustc's own errors are the summary then, without
+    // the notes and command lines around them.
+    let errors: Vec<&str> = stderr
+        .lines()
+        .filter(|line| line.starts_with("error"))
+        .take(8)
+        .collect();
+    if errors.is_empty() {
+        return format!(
+            "rustc failed for generated crate '{}'{recorded}",
+            main_rs.display()
+        );
+    }
+    format!(
+        "rustc failed for generated crate '{}':\n  {}{recorded}",
+        main_rs.display(),
+        errors.join("\n  ")
+    )
+}
+
+/// The symbols a linker reported as undefined, deduplicated and in order.
+///
+/// Both spellings are read: GNU ld says ``undefined reference to `sym'`` and
+/// Apple's says ``"_sym", referenced from:``.
+fn undefined_symbols(stderr: &str) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    for line in stderr.lines() {
+        let symbol = if let Some(rest) = line.split("undefined reference to `").nth(1) {
+            rest.split('\'').next().map(str::to_string)
+        } else if line.trim_start().starts_with('"') && line.contains("\", referenced from:") {
+            line.trim_start()
+                .trim_start_matches('"')
+                .split('"')
+                .next()
+                .map(|symbol| symbol.trim_start_matches('_').to_string())
+        } else {
+            None
+        };
+        if let Some(symbol) = symbol {
+            if !symbol.is_empty() && !found.contains(&symbol) {
+                found.push(symbol);
+            }
+        }
+    }
+    found
+}
+
+/// The archives and objects a linker named as referencing something undefined.
+fn referencing_inputs(stderr: &str) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    for line in stderr.lines() {
+        let Some(prefix) = line.split(": in function").next() else {
+            continue;
+        };
+        if prefix == line {
+            continue;
+        }
+        // `ld: /path/lib.a(member.o)` -- the last colon-separated field is the
+        // input, and the ones before it are the linker naming itself.
+        let Some(input) = prefix.rsplit(": ").next() else {
+            continue;
+        };
+        let input = input.trim();
+        if !input.is_empty() && !found.contains(&input.to_string()) {
+            found.push(input.to_string());
+        }
+    }
+    found
 }
 
 fn wait_for_emitted_path(path: &Path) -> bool {
@@ -788,12 +900,7 @@ fn build_generated_crate_with_rustc_impl(
         let stdout = String::from_utf8_lossy(&output.stdout);
         return Err(BackendError::new(
             BackendErrorKind::BuildFailure,
-            format!(
-                "rustc failed for generated crate '{}'\nstdout:\n{}\nstderr:\n{}",
-                main_rs.display(),
-                stdout.trim(),
-                stderr.trim()
-            ),
+            summarize_rustc_failure(&main_rs, &stdout, &stderr),
         ));
     }
     if !wait_for_emitted_path(&binary_path) {

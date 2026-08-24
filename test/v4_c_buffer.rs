@@ -508,3 +508,146 @@ fn incoherent_buffer_domains_are_refused() {
         );
     }
 }
+
+/// A link failure reports the missing symbol, not the linker's transcript.
+///
+/// This is the one M14 exists for. Before the summary, an undefined symbol
+/// produced 57,462 lines -- 8,398 of them rustc naming warnings about the
+/// generated crate's own mangled identifiers -- with the one useful line
+/// somewhere in the middle. The fact a reader needs is which symbol is
+/// referenced and defined nowhere.
+#[test]
+fn a_link_failure_names_the_symbol_rather_than_dumping_the_linker() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the buffer slice");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("fol_v4_link_summary");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root");
+    let root = stage(fixture.path(), "v4_c_buffer", &compiler);
+
+    // Referenced by the provider, defined by nothing it links against. The
+    // symbols the header declares are all present, so binding succeeds and
+    // the failure lands at the link, which is the path under test.
+    let source = root.join("native/digest.c");
+    let text = std::fs::read_to_string(&source).expect("digest.c readable");
+    let text = text
+        .replace(
+            "#include <stdlib.h>",
+            "#include <stdlib.h>\nextern uint32_t fol_absent_helper(uint32_t);",
+        )
+        .replace(
+            "        total += (uint32_t)bytes[index];",
+            "        total += fol_absent_helper((uint32_t)bytes[index]);",
+        );
+    std::fs::write(&source, text).expect("digest.c writable");
+    rebuild_provider(&root, &compiler);
+
+    let (ok, output) = bind(&root, &compiler, &temp);
+    assert!(ok, "binding should still succeed:\n{output}");
+
+    let (ok, output) = run_folc(&root, &compiler, &temp, &["code", "build"]);
+    assert!(!ok, "the link should fail:\n{output}");
+    assert!(
+        output.contains("fol_absent_helper"),
+        "the missing symbol should be named:\n{output}"
+    );
+    assert!(
+        output.contains("referenced but defined by no linked provider"),
+        "the failure should say what kind it is:\n{output}"
+    );
+    // The transcript is kept, but beside the diagnostic rather than as it.
+    assert!(
+        output.contains("the full output is at"),
+        "the full linker output should still be reachable:\n{output}"
+    );
+    assert!(
+        !output.contains("--eh-frame-hdr"),
+        "the linker command line is not the error:\n{output}"
+    );
+    assert!(
+        output.lines().count() < 40,
+        "a link failure should not be a transcript; got {} lines:\n{output}",
+        output.lines().count()
+    );
+}
+
+/// The generated crate's own lints never reach the user.
+///
+/// Its identifiers are mangled and some of its routines are unreachable, both
+/// by construction. Warning about either tells whoever wrote the FOL nothing
+/// they can act on, and burying a real failure under thousands of them is how
+/// this was found.
+#[test]
+fn the_generated_crate_does_not_warn_at_the_user() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the buffer slice");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("fol_v4_no_lints");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root");
+    let root = stage(fixture.path(), "v4_c_buffer", &compiler);
+
+    let (ok, output) = bind(&root, &compiler, &temp);
+    assert!(ok, "binding should succeed:\n{output}");
+
+    let (ok, output) = run_folc(&root, &compiler, &temp, &["code", "build"]);
+    assert!(ok, "the example should build:\n{output}");
+    for noise in ["should have an upper camel case name", "is never used"] {
+        assert!(
+            !output.contains(noise),
+            "the generated crate should not warn about {noise:?}:\n{output}"
+        );
+    }
+}
+
+/// A rejection about a declaration names where it was written.
+///
+/// LINC reports against its own declaration ids -- `pdecl1_<hash>` -- which
+/// say nothing to whoever wrote the header. The symbol is in the message, and
+/// the scanned package knows where each declaration is, so the id becomes a
+/// place.
+#[test]
+fn a_missing_provider_symbol_names_its_header_line() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the buffer slice");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("fol_v4_decl_origin");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root");
+    let root = stage(fixture.path(), "v4_c_buffer", &compiler);
+
+    // Declared in the header, defined in no provider.
+    let header = root.join("native/digest.h");
+    let text = std::fs::read_to_string(&header).expect("digest.h readable");
+    std::fs::write(
+        &header,
+        text.replace("#endif", "uint32_t digest_absent(uint8_t seed);\n\n#endif"),
+    )
+    .expect("digest.h writable");
+    let overlay = root.join("interop/digest.toml");
+    let text = std::fs::read_to_string(&overlay).expect("overlay readable");
+    std::fs::write(
+        &overlay,
+        format!("{text}\n[routine.digest_absent]\nerror = \"infallible\"\n"),
+    )
+    .expect("overlay writable");
+
+    let (ok, output) = bind(&root, &compiler, &temp);
+    assert!(
+        !ok,
+        "a symbol no provider defines should be refused:\n{output}"
+    );
+    assert!(
+        output.contains("missing exact provider symbol"),
+        "the reason should survive:\n{output}"
+    );
+    assert!(
+        output.contains("digest.h:23"),
+        "the declaration's own line should be named:\n{output}"
+    );
+    assert!(
+        !output.contains("pdecl"),
+        "an internal declaration id is not a place:\n{output}"
+    );
+}

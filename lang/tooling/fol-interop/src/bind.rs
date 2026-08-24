@@ -150,7 +150,7 @@ pub fn bind_c(request: BindCRequest<'_>) -> Result<ImportManifest, BindCError> {
     // carries that result; it never runs a second resolver of its own.
     let evidence = NativeAnalyzer::new(resolver)
         .certify(&analysis_request, toolchain.certification())
-        .map_err(|error| BindCError::Analysis(error.to_string()))?;
+        .map_err(|error| BindCError::Analysis(name_the_declaration(&source, error.to_string())))?;
     let bundle = generate_raw_bindings(&source, &evidence)
         .map_err(|error| BindCError::Generation(error.to_string()))?;
 
@@ -287,6 +287,47 @@ pub enum BindCError {
     Generation(String),
     FingerprintMismatch(&'static str),
     Rejected(Vec<ImportRejection>),
+}
+
+/// Rewrite a native-analysis failure to name a place in the header.
+///
+/// LINC reports against its own declaration ids -- `pdecl1_<hash>` -- which
+/// say nothing to whoever wrote the header, and it carries no range because
+/// the rejection is about a symbol rather than a span. The symbol is in the
+/// message though, and the scanned package knows where each declaration was
+/// written, so the id is replaced with the place. A message naming no symbol
+/// FOL can find is left exactly as it was: a worse guess is not an
+/// improvement.
+fn name_the_declaration(source: &parc::contract::CompleteSourcePackage, detail: String) -> String {
+    let Some(symbol) = detail.split('"').nth(1).map(str::to_string) else {
+        return detail;
+    };
+    let package = source.source();
+    let Some(declaration) = package.declarations().iter().find(|declaration| {
+        declaration
+            .name
+            .as_ref()
+            .is_some_and(|name| name.original == symbol)
+    }) else {
+        return detail;
+    };
+    let Some(range) = declaration.occurrences.first().map(|entry| entry.range) else {
+        return detail;
+    };
+    let Some(file) = package.files().iter().find(|file| file.id == range.file) else {
+        return detail;
+    };
+    let line = file
+        .line_starts
+        .partition_point(|start| *start <= range.start);
+    // The id is what a reader cannot act on; everything else LINC said is
+    // kept, because it is the reason.
+    let without_id = detail
+        .split_whitespace()
+        .filter(|word| !word.starts_with("pdecl"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!("{without_id}\n  = declared at {}:{line}", file.logical_path)
 }
 
 impl std::fmt::Display for BindCError {
