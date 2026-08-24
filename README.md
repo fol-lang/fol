@@ -205,12 +205,16 @@ app.add_c_import({
 });
 ```
 
-Scalars, records, entries, recoverable errors, and borrowed string views cross
-in both directions. Opaque handles with paired destroy routines and one
-synchronous callback shape can be **imported** from C; they cannot yet be
-exported to it. Variadics, bitfields, unions, packed and flexible-array
-members, and C++ linkage are refused rather than approximated, on the principle
-that a construct FOL cannot model exactly should not compile.
+Scalars, records, entries, recoverable errors, borrowed string views, opaque
+handles with paired destroy routines, and one synchronous callback shape all
+cross in both directions. A pointer and a length pair into one FOL value, and a
+provider-allocated buffer is validated, copied, and released inside the call
+that produced it. An entry states its own ABI discriminants, so reordering its
+variants is not an ABI change.
+
+Variadics, bitfields, unions, packed and flexible-array members, anonymous and
+nested struct members, and C++ linkage are refused rather than approximated, on
+the principle that a construct FOL cannot model exactly should not compile.
 
 Certified for `x86_64-unknown-linux-gnu` and `x86_64-unknown-linux-musl`, each
 with its own release-blocking link-and-run lane; GCC and clang are both

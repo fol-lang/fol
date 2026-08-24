@@ -511,14 +511,17 @@ See `plan/VERSIONS.md` for the full rationale.
   canonical C ABI model with preserved layout facts, real native artifact
   families and ordered link plans, C export through generated headers with
   status/out-parameter wrappers and contained panics, bounded C header import
-  through the pinned PARC/LINC/GERC pipeline, opaque handles as linear
-  resources, one synchronous callback shape, ABI manifests with separate
-  interface and build fingerprints, and release archives with checksums and
-  provenance.
+  through the pinned PARC/LINC/GERC pipeline, C structs and enums crossing
+  inbound, opaque handles as linear resources in both directions, one
+  synchronous callback shape in both directions, entries carrying stated ABI
+  discriminants, pointer/length buffers pairing into one FOL value, ABI
+  manifests with separate interface and build fingerprints, and release
+  archives with checksums and provenance.
 
-  Still outside it: exporting handles or callbacks to C, importing C structs
-  and enums, Rust interop, and general foreign declaration syntax. The
-  exclusions are enumerated in the
+  Still outside it: Rust interop, general foreign declaration syntax, adopting
+  a provider's allocation rather than copying it, and importing a C struct as a
+  *result* or one with anonymous or nested struct members. The exclusions are
+  enumerated in the
   [Interop chapter](book/src/950_interop/_index.md) and tracked in
   `plan/V4_PLAN.md`.
 
