@@ -2738,7 +2738,7 @@ must be clean on the mandatory host lane.
 - [x] V4 callbacks are synchronous, non-retained, same-thread, non-concurrent,
   and non-reentrant unless a fixture explicitly proves a narrower safe case.
 - [x] Generated trampolines validate context and contain panic.
-- [ ] The callback cannot be invoked after the foreign call returns or after
+- [x] The callback cannot be invoked after the foreign call returns or after
   context destruction.
 
 Gate: success, foreign error, callback panic, attempted retention, double
@@ -2787,15 +2787,25 @@ Two rules are enforced in the trampoline rather than documented:
   and aborts. `examples/fail_v4_c_callback_panic` proves it: the process ends
   on SIGABRT with the reason, rather than returning a value nobody computed.
 
-What is **not** enforced, and why the fourth item stays open: retention,
-reentry, and cross-thread invocation are all things the *provider* does after
-FOL has returned, and no code on FOL's side of the boundary observes them. FOL's
-side of the contract does hold structurally -- the closure is a local, so the
-context cannot outlive the call, and there is nothing to retain that stays
-valid -- and the null-context check catches the one detectable case. Claiming
-the rest would be claiming a check that does not exist. A real guarantee needs
-a generation counter in the context and a provider-side destroyer, which is
-where the "optional context destroyer" half of item 1 leads and is not built.
+Invocation outside the call is now refused, which this milestone first recorded
+as needing "a generation counter in the context and a provider-side destroyer".
+It needed neither. The closure reaches the trampoline through a thread-local
+slot that is live for exactly the duration of the call; an invocation from
+outside that window finds it empty, and one from another thread finds a slot
+that was never filled. The context pointer is still the closure's address so a
+provider that logs or compares it sees something meaningful, and it is simply
+never dereferenced -- which is what removes the hazard, since dereferencing a
+returned call's stack local is what used to read reused memory and usually
+appear to work.
+
+The slot is saved and restored rather than cleared, so a FOL closure that calls
+back into the same foreign routine does not strand the outer call.
+
+Still permitted, deliberately: **reentry**. A provider may invoke the callback
+again from inside the same call, which is the ordinary case and is not
+distinguishable at the boundary from the reentry this item would want to
+reject. And cross-thread refusal follows from the slot being thread-local
+rather than from a test of its own.
 
 Verified by `make test-v4-c-callback`.
 
