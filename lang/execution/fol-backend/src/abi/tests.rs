@@ -29,6 +29,7 @@ fn scalar_routine(
         None => AbiErrorContract::Infallible,
     };
     ForeignRoutine {
+        handle: None,
         fol_path: format!("api::{symbol}"),
         symbol: symbol.to_string(),
         facing: AbiFacing::Export,
@@ -310,6 +311,7 @@ fn a_borrowed_string_parameter_is_validated_on_entry() {
     let view = table.intern(AbiType::BorrowedString);
     let result = table.intern(AbiType::Scalar(AbiScalar::Int(fol_types::IntWidth::I64)));
     let routine = ForeignRoutine {
+        handle: None,
         fol_path: "api::text_length".to_string(),
         symbol: "fol_demo_text_length".to_string(),
         facing: AbiFacing::Export,
@@ -413,6 +415,7 @@ mod compiles {
         let mut add = |name: &str, param: AbiScalar, result: Option<AbiTypeId>| {
             let param_id = table.intern(AbiType::Scalar(param));
             routines.push(ForeignRoutine {
+                handle: None,
                 fol_path: format!("api::{name}"),
                 symbol: name.to_string(),
                 facing: AbiFacing::Export,

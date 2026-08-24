@@ -533,3 +533,162 @@ fn every_file(root: &Path, base: &Path, into: &mut Vec<String>) {
         }
     }
 }
+
+/// Build a named example under a given artifact kind, returning its prefix.
+fn build_kind_named(fixture: &Path, example: &str, kind: &str) -> PathBuf {
+    let root = fixture.join(example);
+    copy_dir(&repo_root().join("examples").join(example), &root);
+    if kind != "add_static_lib" {
+        let build = root.join("build.fol");
+        let text = std::fs::read_to_string(&build).expect("build.fol readable");
+        std::fs::write(&build, text.replace("add_static_lib", kind)).expect("build.fol writable");
+    }
+    let output = Command::new(env!("CARGO_BIN_EXE_folc"))
+        .args(["code", "build", "--package-store-root"])
+        .arg(store_root())
+        .current_dir(&root)
+        .output()
+        .expect("the build should run");
+    assert!(
+        output.status.success(),
+        "{example} failed to build:\n{}",
+        strip_ansi(&format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    );
+    root.join(".fol/install")
+}
+
+/// Compile an example's checked-in consumer against a prefix and run it.
+fn run_named_consumer(
+    cc: &str,
+    prefix: &Path,
+    example: &str,
+    library_stem: &str,
+    shared: bool,
+) -> String {
+    let consumer = repo_root()
+        .join("examples")
+        .join(example)
+        .join("consumer.c");
+    let binary = prefix.join("consumer_binary");
+    let lib_dir = prefix.join("lib");
+
+    let mut command = Command::new(cc);
+    command
+        .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-I"])
+        .arg(prefix.join("include"))
+        .arg(&consumer);
+    if shared {
+        command
+            .arg("-L")
+            .arg(&lib_dir)
+            .arg(format!("-l{library_stem}"));
+    } else {
+        command
+            .arg(lib_dir.join(format!("lib{library_stem}.a")))
+            .args(["-lpthread", "-ldl", "-lm"]);
+    }
+    let link = command
+        .arg("-o")
+        .arg(&binary)
+        .output()
+        .expect("the C compiler should run");
+    assert!(
+        link.status.success(),
+        "{example}'s consumer failed to link:\n{}",
+        String::from_utf8_lossy(&link.stderr)
+    );
+
+    let run = Command::new(&binary)
+        .env("LD_LIBRARY_PATH", &lib_dir)
+        .output()
+        .expect("the consumer should run");
+    let stdout = String::from_utf8_lossy(&run.stdout).to_string();
+    assert!(
+        run.status.success(),
+        "{example}'s consumer failed (exit {:?}):\n{stdout}",
+        run.status.code()
+    );
+    stdout
+}
+
+/// A FOL resource crosses to C as an opaque handle, and comes back.
+///
+/// The consumer holds an address it cannot read through -- `fol_session_t` is
+/// declared and never defined -- borrows it twice without consuming it, and
+/// releases it exactly once. 42 can only come from C having handed back the
+/// address of the value FOL built, and 21 can only come from the box arriving
+/// intact at the consuming wrapper.
+#[test]
+fn c_owns_a_fol_handle_and_releases_it_once() {
+    let Some(cc) = c_compiler() else {
+        skip("no C compiler; cannot link a consumer");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("v4-export-handle");
+    let prefix = build_kind_named(fixture.path(), "v4_c_export_handle", "add_static_lib");
+
+    let header = std::fs::read_to_string(prefix.join("include/v4_c_export_handle.h"))
+        .expect("the header should install");
+    assert!(
+        header.contains("typedef struct fol_session_t fol_session_t;"),
+        "the domain should be an incomplete type:\n{header}"
+    );
+    assert!(
+        !header.contains("struct fol_session_t {"),
+        "an opaque handle must never be defined:\n{header}"
+    );
+
+    let stdout = run_named_consumer(
+        &cc,
+        &prefix,
+        "v4_c_export_handle",
+        "v4_c_export_handle",
+        false,
+    );
+    assert!(
+        stdout.contains("all handle checks passed"),
+        "the handle consumer did not pass:\n{stdout}"
+    );
+}
+
+/// A produced handle with no declared destroy is refused.
+///
+/// C cannot infer which routine releases what it was handed, so a producing
+/// export that does not name one would hand out a resource nothing can free.
+#[test]
+fn a_produced_handle_without_a_destroy_is_refused() {
+    let fixture = fol_testkit::TempFixture::new("v4-export-handle-nodestroy");
+    let root = fixture.path().join("lib");
+    copy_dir(&repo_root().join("examples/v4_c_export_handle"), &root);
+    let build = root.join("build.fol");
+    let text = std::fs::read_to_string(&build).expect("build.fol readable");
+    std::fs::write(
+        &build,
+        text.replace(
+            "handle = \"Session\", handle_role = \"produces\", destroy = \"fol_session_close\",",
+            "handle = \"Session\", handle_role = \"produces\",",
+        ),
+    )
+    .expect("build.fol writable");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_folc"))
+        .args(["code", "build", "--package-store-root"])
+        .arg(store_root())
+        .current_dir(&root)
+        .output()
+        .expect("the build should run");
+    let text = strip_ansi(&format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    ));
+    assert!(!output.status.success(), "it should be refused:\n{text}");
+    assert!(
+        text.contains("destroy symbol for handle domain 'Session'"),
+        "the refusal should name what is missing:\n{text}"
+    );
+}

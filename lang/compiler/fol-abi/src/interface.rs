@@ -97,6 +97,12 @@ pub struct ForeignRoutine {
     /// What the routine is permitted to do, checked against the artifact's
     /// capability model.
     pub effects: AbiEffects,
+    /// The handle domain this routine produces, borrows, or consumes.
+    ///
+    /// C sees an address either way, so the role is the only thing that says
+    /// whether the wrapper should hand out a box, lend what one points at, or
+    /// take it back and release it.
+    pub handle: Option<crate::annotation::HandleUse>,
     pub origin: AbiSourceOrigin,
 }
 

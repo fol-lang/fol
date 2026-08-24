@@ -184,9 +184,19 @@ fn render_routine(routine: &ForeignRoutine) -> String {
     };
     // Sorted keys, and `parameters` kept in declaration order because argument
     // order is part of the ABI.
+    // A handle is part of the public contract -- it says who releases what --
+    // so it belongs in the fingerprinted body rather than beside it.
+    let handle = match &routine.handle {
+        Some(use_) => format!(
+            "{{\"domain\":{},\"role\":{}}}",
+            quoted(&use_.domain),
+            quoted(use_.role.as_str())
+        ),
+        None => "null".to_string(),
+    };
     format!(
         "{{\"convention\":{},\"error\":{error},\"facing\":{},\"fol_path\":{},\
-         \"parameters\":[{parameters}],\"result\":{},\"symbol\":{}}}",
+         \"handle\":{handle},\"parameters\":[{parameters}],\"result\":{},\"symbol\":{}}}",
         quoted(routine.convention.as_str()),
         quoted(facing),
         quoted(&routine.fol_path),
@@ -643,7 +653,20 @@ fn read_routine(entry: &JsonValue, types: &AbiTypeTable) -> Result<ForeignRoutin
         });
     }
     let facing = entry.string_field("facing")?;
+    // The domain and role, when the routine names one. Absent for every
+    // routine that does not touch a handle, which is most of them.
+    let handle = match entry.field("handle") {
+        Ok(JsonValue::Null) | Err(_) => None,
+        Ok(value) => Some(crate::annotation::HandleUse {
+            domain: value.string_field("domain")?.to_string(),
+            role: crate::annotation::HandleRole::from_keyword(value.string_field("role")?)
+                .ok_or_else(|| ManifestError::UnknownConvention {
+                    convention: value.string_field("role").unwrap_or_default().to_string(),
+                })?,
+        }),
+    };
     Ok(ForeignRoutine {
+        handle,
         fol_path: entry.string_field("fol_path")?.to_string(),
         convention: match entry.string_field("convention")? {
             "C" => crate::interface::AbiCallingConvention::C,

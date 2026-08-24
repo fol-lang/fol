@@ -23,6 +23,10 @@ pub fn rust_repr(table: &AbiTypeTable, id: AbiTypeId) -> String {
             c_repr_struct_name(name)
         }
         Some(AbiType::BorrowedString) => STR_VIEW_STRUCT.to_string(),
+        // C holds it as an address and nothing else, so the wrapper's ABI
+        // spelling is an address and nothing else. What it points at is FOL's
+        // own value, boxed by the producing wrapper.
+        Some(AbiType::OpaqueHandle { .. }) => "*mut core::ffi::c_void".to_string(),
         _ => "()".to_string(),
     }
 }
@@ -142,6 +146,51 @@ fn render_entry_struct(
          #[repr(C)]\n#[derive(Clone, Copy)]\npub struct {struct_name} {{\n    \
          pub tag: i32,\n    pub payload: {union_name},\n}}\n\n"
     ));
+    out
+}
+
+/// Turn an incoming address back into the FOL value behind it.
+///
+/// A borrower gets a reference and must not release anything; a consumer takes
+/// the box back, which is what makes the release happen exactly once. Either
+/// way the address is checked first: a null handle is a caller error C cannot
+/// be stopped from making, and reading through it would be undefined rather
+/// than wrong.
+fn handle_inbound_conversion(
+    domain: &str,
+    name: &str,
+    role: fol_abi::HandleRole,
+    record_paths: &std::collections::BTreeMap<String, String>,
+    symbol: &str,
+) -> String {
+    let Some(path) = record_paths.get(domain) else {
+        return String::new();
+    };
+    let _ = symbol;
+    let mut out = format!(
+        "    if {name}.is_null() {{\n\
+         \x20       return {};\n\
+         \x20   }}\n",
+        super::status::INVALID_ARGUMENT
+    );
+    match role {
+        fol_abi::HandleRole::Consumes => {
+            // The box comes back here and is dropped when the FOL routine that
+            // receives it finishes with it. That is the release.
+            out.push_str(&format!(
+                "    // SAFETY: the address came from this library's own producing\n\
+                 \x20   // wrapper, which handed out a `Box` of exactly this type.\n\
+                 \x20   let {name} = *unsafe {{ Box::from_raw({name} as *mut {path}) }};\n"
+            ));
+        }
+        _ => {
+            out.push_str(&format!(
+                "    // SAFETY: as above, and the reference does not outlive this\n\
+                 \x20   // call, so the caller still owns the box afterwards.\n\
+                 \x20   let {name} = unsafe {{ &*({name} as *const {path}) }};\n"
+            ));
+        }
+    }
     out
 }
 
@@ -267,6 +316,12 @@ fn outbound_conversion(
     expr: &str,
     record_paths: &std::collections::BTreeMap<String, String>,
 ) -> String {
+    // The value moves to the heap and the caller receives its address. Nothing
+    // frees it here: that is the paired destroy routine's job, which is why a
+    // producing export cannot be declared without naming one.
+    if matches!(table.get(id), Some(AbiType::OpaqueHandle { .. })) {
+        return format!("Box::into_raw(Box::new({expr})) as *mut core::ffi::c_void");
+    }
     if let Some(AbiType::Entry { name, variants, .. }) = table.get(id) {
         let Some(path) = record_paths.get(name) else {
             return expr.to_string();
@@ -382,6 +437,20 @@ pub fn render_wrapper(
     }
 
     for parameter in &routine.parameters {
+        if let Some(AbiType::OpaqueHandle { name }) = table.get(parameter.type_id) {
+            out.push_str(&handle_inbound_conversion(
+                name,
+                &parameter.name,
+                routine
+                    .handle
+                    .as_ref()
+                    .map(|use_| use_.role)
+                    .unwrap_or(fol_abi::HandleRole::Borrows),
+                record_paths,
+                &routine.symbol,
+            ));
+            continue;
+        }
         out.push_str(&inbound_conversion(
             table,
             parameter.type_id,

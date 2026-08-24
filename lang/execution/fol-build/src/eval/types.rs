@@ -218,6 +218,9 @@ pub enum BuildEvaluationOperationKind {
         artifact: String,
         routine: String,
         symbol: String,
+        handle: Option<String>,
+        handle_role: Option<String>,
+        destroy: Option<String>,
     },
     RunAddArg {
         run_name: String,

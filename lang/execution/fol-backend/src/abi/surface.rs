@@ -138,8 +138,15 @@ fn internal_record_paths(
 ) -> std::collections::BTreeMap<String, String> {
     let mut wanted = std::collections::BTreeSet::new();
     for (_, ty) in surface.interface.types.iter() {
-        if let fol_abi::AbiType::Record { name, .. } | fol_abi::AbiType::Entry { name, .. } = ty {
-            wanted.insert(name.clone());
+        match ty {
+            fol_abi::AbiType::Record { name, .. }
+            | fol_abi::AbiType::Entry { name, .. }
+            // A handle domain names the FOL type it stands for, so the wrapper
+            // needs that type's Rust path to box and unbox through it.
+            | fol_abi::AbiType::OpaqueHandle { name } => {
+                wanted.insert(name.clone());
+            }
+            _ => {}
         }
     }
 

@@ -730,6 +730,9 @@ pub fn evaluate_build_plan(
                 artifact,
                 routine,
                 symbol,
+                handle: handle_domain,
+                handle_role,
+                destroy,
             } => {
                 let artifact_id = artifact_names
                     .get(artifact)
@@ -745,6 +748,9 @@ pub fn evaluate_build_plan(
                     crate::graph::BuildAbiExport {
                         routine: routine.clone(),
                         symbol: symbol.clone(),
+                        handle: handle_domain.clone(),
+                        handle_role: handle_role.clone(),
+                        destroy: destroy.clone(),
                     },
                 );
             }

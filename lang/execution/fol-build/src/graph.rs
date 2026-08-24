@@ -286,6 +286,16 @@ pub struct BuildAbiExport {
     pub routine: String,
     /// The exact external C symbol. Never mangled, never inferred.
     pub symbol: String,
+    /// The handle domain this routine produces, borrows, or consumes.
+    ///
+    /// C sees an address and nothing else, so which routine creates one and
+    /// which releases it are facts C cannot state -- exactly as on the import
+    /// side, where the annotation overlay carries them.
+    pub handle: Option<String>,
+    /// `produces`, `borrows`, or `consumes`.
+    pub handle_role: Option<String>,
+    /// On the producing routine: the symbol that releases what it made.
+    pub destroy: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

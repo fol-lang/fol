@@ -1,0 +1,30 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "v4_c_export_handle", version = "0.1.0", kind = "lib",
+        description = "a FOL resource C owns and releases once",
+        license = "MIT",
+    });
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+    var lib = graph.add_static_lib({
+        name = "v4_c_export_handle", root = "src/lib.fol", fol_model = "memo",
+        target = target, optimize = optimize,
+    });
+    lib.set_abi_version({ major = 1, minor = 0 });
+    lib.add_abi_export({
+        routine = "open", symbol = "fol_session_open",
+        handle = "Session", handle_role = "produces", destroy = "fol_session_close",
+    });
+    lib.add_abi_export({
+        routine = "size", symbol = "fol_session_size",
+        handle = "Session", handle_role = "borrows",
+    });
+    lib.add_abi_export({
+        routine = "close", symbol = "fol_session_close",
+        handle = "Session", handle_role = "consumes",
+    });
+    graph.install(lib);
+    return;
+};

@@ -860,6 +860,24 @@ pub(crate) fn build_selected_artifacts_for_profile_with_config(
                             .map(|export| fol_lower::abi::AbiExportRequest {
                                 routine: export.routine.clone(),
                                 symbol: export.symbol.clone(),
+                                // An unrecognized role is left as `None` here
+                                // and reported by the projection, which owns
+                                // every reason an export can be refused.
+                                handle: export.handle.as_ref().map(|domain| {
+                                    fol_lower::abi::AbiExportHandle {
+                                        domain: domain.clone(),
+                                        role: export
+                                            .handle_role
+                                            .as_deref()
+                                            .and_then(
+                                                fol_lower::abi::AbiExportHandleRole::from_keyword,
+                                            )
+                                            .unwrap_or(
+                                                fol_lower::abi::AbiExportHandleRole::Produces,
+                                            ),
+                                        destroy: export.destroy.clone(),
+                                    }
+                                }),
                             })
                             .collect(),
                     });

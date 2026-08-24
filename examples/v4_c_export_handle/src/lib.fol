@@ -1,0 +1,31 @@
+// A FOL resource C owns, borrows, and releases exactly once.
+//
+// `Session` is an ordinary FOL record. What makes it a *handle* is the build
+// program: `add_abi_export` names the domain and the role, because C sees an
+// address either way and nothing in a C signature could say which routine
+// creates one, which may look at it, and which releases it.
+//
+// The generated header declares `fol_session_t` and never defines it, so a C
+// consumer can hold the pointer and hand it back, and cannot read through it
+// or copy what is behind it.
+typ[exp] Session: rec = {
+    var seed: int[32];
+};
+
+// Produces: FOL builds the value, and the wrapper moves it to the heap and
+// returns its address. Nothing frees it here -- that is `close`.
+fun[exp] open(seed: int[32]): Session = {
+    return { seed = seed };
+};
+
+// Borrows: the wrapper lends what the address points at for the duration of
+// the call. The caller still owns it afterwards.
+fun[exp] size(session: Session[bor]): int[32] = {
+    return session.seed * 2;
+};
+
+// Consumes: the wrapper takes the box back, so the value is released here and
+// exactly once.
+fun[exp] close(session: Session): int[32] = {
+    return session.seed;
+};

@@ -72,7 +72,7 @@ pub struct ImportEffects {
 /// so the three roles below are exactly the facts the overlay must supply. They
 /// are per-routine rather than per-type because the same `sqlite3 *` is
 /// produced by one call, lent to many, and consumed by one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum HandleRole {
     /// The routine's result is a new handle whose release FOL now owes.
     Produces,
@@ -91,7 +91,7 @@ impl HandleRole {
         }
     }
 
-    fn from_keyword(value: &str) -> Option<Self> {
+    pub fn from_keyword(value: &str) -> Option<Self> {
         Some(match value {
             "produces" => Self::Produces,
             "borrows" => Self::Borrows,
@@ -102,7 +102,7 @@ impl HandleRole {
 }
 
 /// A routine's relationship to one handle domain.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct HandleUse {
     /// The domain name, which is also the FOL type name.
     pub domain: String,

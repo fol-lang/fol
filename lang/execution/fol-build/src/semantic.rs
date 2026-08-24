@@ -593,6 +593,9 @@ pub fn canonical_artifact_config_shapes() -> Vec<BuildSemanticRecordShape> {
             [
                 BuildSemanticRecordField::required("routine"),
                 BuildSemanticRecordField::required("symbol"),
+                BuildSemanticRecordField::optional("handle"),
+                BuildSemanticRecordField::optional("handle_role"),
+                BuildSemanticRecordField::optional("destroy"),
             ],
         ),
         // Section 4.15 freezes this record. Adding a field here means adding

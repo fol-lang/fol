@@ -31,8 +31,50 @@ fn c_type(table: &AbiTypeTable, id: AbiTypeId) -> String {
             c_struct_name(name)
         }
         Some(AbiType::BorrowedString) => "fol_str_view_t".to_string(),
+        // A pointer to an incomplete type: the consumer may hold it and hand
+        // it back, and cannot read through it. The domain *is* the identity,
+        // so two domains are two C types and the compiler keeps them apart.
+        Some(AbiType::OpaqueHandle { name }) => format!("{} *", c_handle_name(name)),
         _ => "void".to_string(),
     }
+}
+
+/// One incomplete struct per exported handle domain.
+///
+/// Declared and never defined, which is the whole contract: a consumer can hold
+/// the pointer and hand it back, and the C compiler refuses to let it read
+/// through or copy what is behind it. Nothing here says how big it is, because
+/// nothing outside this library is entitled to know.
+fn render_handle_definitions(table: &fol_abi::AbiTypeTable) -> String {
+    let mut domains: Vec<&str> = table
+        .iter()
+        .filter_map(|(_, ty)| match ty {
+            AbiType::OpaqueHandle { name } => Some(name.as_str()),
+            _ => None,
+        })
+        .collect();
+    domains.sort_unstable();
+    domains.dedup();
+    if domains.is_empty() {
+        return String::new();
+    }
+
+    let mut out = String::from(
+        "/* Opaque resources this library owns. Each is declared and never\n \
+         * defined: hold the pointer, hand it back, and release it through the\n \
+         * routine paired with it. */\n",
+    );
+    for domain in domains {
+        let name = c_handle_name(domain);
+        out.push_str(&format!("typedef struct {name} {name};\n"));
+    }
+    out.push('\n');
+    out
+}
+
+/// The C spelling of an exported handle domain.
+fn c_handle_name(domain: &str) -> String {
+    format!("fol_{}_t", domain.to_lowercase())
 }
 
 /// The C spelling of an entry's tag enum.
@@ -216,6 +258,7 @@ pub fn render_header(surface: &ResolvedAbiSurface) -> String {
     }
     out.push('\n');
 
+    out.push_str(&render_handle_definitions(table));
     out.push_str(&render_record_definitions(table));
 
     out.push_str(

@@ -18,6 +18,7 @@ fn surface_with(routines: Vec<ForeignRoutine>, types: AbiTypeTable) -> ResolvedA
 fn add_routine(table: &mut AbiTypeTable, symbol: &str) -> ForeignRoutine {
     let int = table.intern_int(fol_types::IntWidth::I64);
     ForeignRoutine {
+        handle: None,
         fol_path: format!("api::{symbol}"),
         symbol: symbol.to_string(),
         facing: AbiFacing::Export,

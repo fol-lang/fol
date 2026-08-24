@@ -910,12 +910,18 @@ impl BuildBodyExecutor {
                 let symbol = self
                     .resolve_field_string(fields, "symbol")
                     .ok_or_else(|| self.invalid_config(method, "missing string field 'symbol'"))?;
+                let handle = self.resolve_field_string(fields, "handle");
+                let handle_role = self.resolve_field_string(fields, "handle_role");
+                let destroy = self.resolve_field_string(fields, "destroy");
                 self.output.operations.push(BuildEvaluationOperation {
                     origin: None,
                     kind: BuildEvaluationOperationKind::ArtifactAddAbiExport {
                         artifact: artifact.name.clone(),
                         routine,
                         symbol,
+                        handle,
+                        handle_role,
+                        destroy,
                     },
                 });
                 Ok(Some(receiver))
