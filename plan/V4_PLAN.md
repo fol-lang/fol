@@ -2853,34 +2853,103 @@ Primary files:
 
 Tasks:
 
-- [ ] Consume the exact PARC revision and its normal `scan_headers` production
+- [x] Consume the exact PARC revision and its normal `scan_headers` production
   API; FOL must not invoke libclang, parse a Clang AST, or add another header
   frontend.
-- [ ] Construct one explicit PARC `TargetSpec` with the locked compiler
+
+Landed with M6 and audited here: the three siblings are pinned by 40-character
+revision in `fol-interop/Cargo.toml`, `build.rs` reads the resolved revisions
+back out of `Cargo.lock`, and `tools/verify-interop-lock.sh` rejects a path
+dependency or a `[patch]` on any of them. `parc::scan::scan_headers` is the
+only entry point, and no crate in the tree depends on libclang or bindgen.
+- [~] Construct one explicit PARC `TargetSpec` with the locked compiler
   identity, supported C standard, sysroot, include roots, defines, environment
   policy, and bounded preprocessing policy.
+
+The C standard was hardcoded to C17 while the M0-frozen `dialect` field was
+parsed, stored on the build graph, and read by nothing -- a declared dialect
+was silently ignored. It now reaches PARC's target, with an unrecognized
+spelling refused by name rather than falling back to C17.
+
+Include roots, system include roots, defines, and the sysroot now reach the
+scan through an explicit `HeaderSearch` (they were declared and ignored too),
+canonicalized with quoted-include roots required to resolve inside the package.
+
+Still open: the sysroot reaches `ScanConfig` but not the `TargetSpec`, whose
+`sysroot` stays `None`, and a compiler with a non-empty sysroot of its own is
+refused outright. So an external sysroot is honoured for finding headers but is
+not part of the target's identity.
 - [ ] Complete the same `artifact.add_c_import` record with the M0-frozen
   multiple-header/provider ordering, include/define/sysroot/toolchain, and
   reproducibility fields needed by bounded general header intake; do not add a
   second build method or handwritten source declaration route.
-- [ ] Add `fol tool bind c` with human/plain/JSON output and deterministic
+- [x] Add `fol tool bind c` with human/plain/JSON output and deterministic
   target-specific manifest generation over the typed sibling pipeline.
+
+Landed with M6; the command takes every input explicitly and discovers nothing
+from the environment. It gained `--include-root`, `--system-include-root`,
+`--define`, `--sysroot`, and `--dialect` here, which is what makes it usable on
+a header that needs more than its own directory.
 - [ ] Complete the explicit C-import annotation format for ownership,
   pointer/length pairing, direction, nullability, effect, escape, destructor
   pairs, imported error convention/mapping, unwind prohibition, and callable
   selection.
-- [ ] Canonicalize include roots and reject traversal/symlink escape; record
+- [x] Canonicalize include roots and reject traversal/symlink escape; record
   header, annotation, toolchain, target, and relevant sysroot identities in the
   build fingerprint.
-- [ ] Translate only the supported subset from Section 4.13.
+
+`canonical_include_root` canonicalizes before the containment check, so `..`
+and a symlink are both caught rather than only a literal prefix mismatch.
+Angled-include roots are deliberately exempt: an SDK legitimately lives outside
+the package. Both are pinned by tests in `fol-interop/src/source.rs`.
+
+The fingerprint half was the gap. `ImportProvenance` recorded header, provider,
+and annotation *paths* and no content at all, so nothing in the manifest could
+tell whether those files still said what they said at bind time. It now records
+content digests for the header and the overlay, plus the target, the dialect,
+the include roots, the system include roots, the defines, and the sysroot --
+everything that changes what the scan produces.
+- [~] Translate only the supported subset from Section 4.13.
+
+Scalars, pointers and out-parameters, opaque handles, and the one callback
+shape are implemented. Named aggregates are still rejected by
+`project_imported_interface`, so Section 4.13's non-packed POD structs and
+target-resolved enums do not import yet.
+
+The compile path used to scan the *whole* header with no selection even when an
+overlay named one, so a header that bound cleanly failed to build if it
+contained any unsupported declaration anywhere -- Section 4.13's rule that
+unsupported declarations may remain in the header held only for `bind c`. The
+build now selects the same closure the bind did, proven by
+`an_unselected_unsupported_declaration_does_not_break_the_build`, which fails
+without the fix.
 - [ ] Emit structured diagnostics with header source ranges and exact unsupported
   construct names.
-- [ ] Detect stale generated interfaces when headers/annotations/toolchain/
+- [x] Detect stale generated interfaces when headers/annotations/toolchain/
   target change.
+
+`verify_against` existed and was called from nowhere outside its own tests, and
+it needs a fresh bind to compare against -- too expensive for every compile. So
+the only staleness anything actually caught was a hand-edited manifest, via the
+manifest's own recorded-versus-recomputed fingerprints. Editing the header left
+the checked-in interface in force and callers compiled against a surface the
+header no longer had.
+
+`stale_input` compares the recorded digests against the files on disk, which
+costs two reads, and `load_c_import_interfaces` calls it on every compile. The
+refusal names what went stale and the command that fixes it.
+`editing_the_header_after_binding_is_refused_at_compile_time` also re-binds at
+the end, so the check is a staleness check and not a permanent wedge.
 - [ ] Make build-record completion offer only fields/values owned by the shared
   semantic registry.
-- [ ] Keep unsupported functions absent/unusable rather than approximating
+- [x] Keep unsupported functions absent/unusable rather than approximating
   their types.
+
+A declaration the overlay does not name is never mounted, an overlay entry with
+no declaration is a rejection, and an unsupported, variadic, or
+non-C-convention declaration is refused by name. Nothing approximates. The
+caveat that made "this function is unusable" into "this header is unusable" was
+the compile-path scan, fixed above.
 
 Tests:
 
