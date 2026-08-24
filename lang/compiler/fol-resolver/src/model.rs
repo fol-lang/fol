@@ -113,6 +113,17 @@ pub struct ForeignRoutineBinding {
     pub fol_name: String,
 }
 
+/// What a foreign type symbol names on the C side.
+///
+/// Only the alias and the domain, because that pair *is* the identity: the C
+/// pointee has no definition to describe, and two providers may both call
+/// their resource `Connection`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForeignHandleBinding {
+    pub alias: String,
+    pub domain: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MountedSymbolProvenance {
     pub package_identity: PackageIdentity,
@@ -267,6 +278,12 @@ pub struct ResolvedProgram {
     /// path, so lowering asks an authoritative question instead of matching a
     /// string that happens to look distinctive.
     foreign_routines: BTreeMap<SymbolId, ForeignRoutineBinding>,
+    /// Type symbols that name an imported opaque handle domain.
+    ///
+    /// Kept beside the routines for the same reason: a synthetic type has no
+    /// declaration to read the answer off, and lowering a type reference must
+    /// not have to recognize it by the shape of its source-unit path.
+    foreign_handles: BTreeMap<SymbolId, ForeignHandleBinding>,
     pub source_units: IdTable<SourceUnitId, ResolvedSourceUnit>,
     pub scopes: IdTable<ScopeId, ResolvedScope>,
     pub symbols: IdTable<SymbolId, ResolvedSymbol>,
@@ -358,6 +375,7 @@ impl ResolvedProgram {
             syntax_scopes: BTreeMap::new(),
             mounted_package_roots: BTreeMap::new(),
             foreign_routines: BTreeMap::new(),
+            foreign_handles: BTreeMap::new(),
             source_units,
             scopes,
             symbols: IdTable::new(),
@@ -463,6 +481,19 @@ impl ResolvedProgram {
     /// the question without knowing whether any import exists.
     pub fn foreign_routine(&self, symbol_id: SymbolId) -> Option<&ForeignRoutineBinding> {
         self.foreign_routines.get(&symbol_id)
+    }
+
+    pub(crate) fn register_foreign_handle(
+        &mut self,
+        symbol_id: SymbolId,
+        binding: ForeignHandleBinding,
+    ) {
+        self.foreign_handles.insert(symbol_id, binding);
+    }
+
+    /// The handle domain this type symbol names, if it names one.
+    pub fn foreign_handle(&self, symbol_id: SymbolId) -> Option<&ForeignHandleBinding> {
+        self.foreign_handles.get(&symbol_id)
     }
 
     pub fn scope_for_syntax(&self, syntax_id: SyntaxNodeId) -> Option<ScopeId> {

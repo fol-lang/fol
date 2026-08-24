@@ -819,7 +819,19 @@ impl TypedProgram {
     }
 
     /// Whether the type's own declaration claims `lin` (non-transitive).
+    ///
+    /// A foreign handle is linear *structurally*, not by a recorded claim.
+    /// Its checked type is interned in several places -- import hydration,
+    /// cross-package translation, and lowering a written `alias::Domain` -- and
+    /// a registry any one of them forgot to update would silently drop the
+    /// release obligation. Reading it off the type cannot go out of sync.
     pub fn type_claims_lin(&self, type_id: CheckedTypeId) -> bool {
+        if matches!(
+            self.type_table().get(type_id),
+            Some(crate::CheckedType::ForeignHandle { .. })
+        ) {
+            return true;
+        }
         self.lin_types.contains(&type_id)
     }
 

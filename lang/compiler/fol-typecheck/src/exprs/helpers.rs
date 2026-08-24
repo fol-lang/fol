@@ -159,7 +159,10 @@ pub(crate) fn type_embeds_full_channel(typed: &TypedProgram, type_id: CheckedTyp
                         .chain(signature.error_type)
                         .any(|part| embeds(typed, part, false, visiting))
                 }
-                Some(CheckedType::Builtin(_)) | None => false,
+                // An opaque handle embeds nothing: it is one address.
+                Some(CheckedType::ForeignHandle { .. }) | Some(CheckedType::Builtin(_)) | None => {
+                    false
+                }
             }
         };
         visiting.remove(&type_id);
@@ -253,7 +256,11 @@ pub(crate) fn type_contains_shared_pointer(typed: &TypedProgram, type_id: Checke
                     contains(typed, *value_type, visiting)
                         || error_type.is_some_and(|error| contains(typed, error, visiting))
                 }
-                Some(CheckedType::Builtin(_)) | Some(CheckedType::Routine(_)) | None => false,
+                // An opaque handle is one address: nothing is nested inside it.
+                Some(CheckedType::ForeignHandle { .. })
+                | Some(CheckedType::Builtin(_))
+                | Some(CheckedType::Routine(_))
+                | None => false,
             }
         };
         visiting.remove(&type_id);
@@ -323,7 +330,11 @@ pub(crate) fn type_contains_borrowed(typed: &TypedProgram, type_id: CheckedTypeI
                     contains(typed, *value_type, visiting)
                         || error_type.is_some_and(|error| contains(typed, error, visiting))
                 }
-                Some(CheckedType::Builtin(_)) | Some(CheckedType::Routine(_)) | None => false,
+                // An opaque handle is one address: nothing is nested inside it.
+                Some(CheckedType::ForeignHandle { .. })
+                | Some(CheckedType::Builtin(_))
+                | Some(CheckedType::Routine(_))
+                | None => false,
             }
         };
         visiting.remove(&type_id);

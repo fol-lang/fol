@@ -2650,7 +2650,7 @@ three `examples/fail_v4_linear_*` packages, run by `make test-v4-linear`.
 - [x] Record ownership direction and exact generated/imported destroy symbol.
 - [x] Give every allocator/provider domain a stable identity checked by the
   destroy adapter.
-- [ ] Generate FOL-owned C destroy wrappers and honor imported C destroy pairs,
+- [x] Generate FOL-owned C destroy wrappers and honor imported C destroy pairs,
   with the release typed fallible (`pro (T)close(): non / E`) rather than as a
   `fin` finalizer.
 - [ ] Validate capacity/length/domain before reconstructing owned buffers.
@@ -2677,19 +2677,52 @@ The handle fact is part of the **interface** fingerprint, not the provenance:
 changing a routine from borrowing to consuming changes who owes the release, so
 every caller must be recompiled against it.
 
-The remaining two items are the runtime half and are **not** done. They need,
-in order: a `lin`-claiming synthetic FOL type per domain, injected the way M6
-injects an import namespace; a move-only runtime value carrying the address;
-the adapter's Rust spelling for a handle, which depends on what GERC emits for
-a pointer to an incomplete type and cannot be settled by reading this
-repository; and a C round-trip fixture proving create/use/destroy, wrong
-destroyer, double destroy, use-after-destroy, and missing destroy. Until then
-`render_adapter_module` refuses a handle-typed signature by name rather than
-rendering a guess, so nothing half-wired can compile.
+The imported destroy pairs are landed end to end. A C header declaring
+`struct widget;` with no definition, plus an overlay naming the three roles,
+now produces a FOL type `alias::Widget` that claims `lin` — and
+`examples/v4_c_opaque_handle` creates one, lends it to C, reads a value back
+through it, and releases it, running under `make test-v4-c-handle`.
 
-Note that "wrong destroyer", "double destroy", "use-after-destroy", and
-"missing destroy" are already refused for FOL-declared `lin` types by the flow
-analysis above; what is missing is only the C-provided form.
+The layers, each because the one above it needed something the one below did
+not yet have:
+
+- `fol-runtime`: `FolHandle`, a `repr(transparent)` address with no `Clone`,
+  no `Copy`, and no `Drop`. `into_raw` takes `self`, so the address cannot be
+  obtained without giving up the handle. Its `Default` is null and exists only
+  as the residue `std::mem::take` leaves in a moved-from slot.
+- `fol-typecheck`: `CheckedType::ForeignHandle { alias, domain }`, linear
+  **structurally** rather than by a recorded claim — it is interned in three
+  separate places, and a registry any one of them forgot would silently drop
+  the release obligation.
+- `fol-resolver`: a `SymbolKind::Type` per domain in the import's namespace, so
+  `alias::Widget` is writable in type position.
+- `fol-lower`: `LoweredType::ForeignHandle`, move-only in `moves_on_transfer`,
+  which is what makes the backend emit a move rather than the `.clone()` it
+  emits for clone-safe types.
+- `fol-interop`: a handle crosses the adapter as `*mut c_void` and reaches the
+  provider through `as *mut _`, so this crate never names the opaque struct
+  GERC projects. GERC emits an opaque C record as
+  `#[repr(C)] struct N { _private: [u8; 0] }` and a pointer to it as `*mut N` —
+  read out of the pinned revision rather than guessed.
+
+Two things had to change beyond the handle itself. A statement-position call to
+an imported routine was not routed to the foreign path at all, so a
+void-returning destroy failed lowering with a message about IR; and
+`lower_foreign_call` required a result type, which a `void` provider has none
+of. Both are the same underlying gap: M6 only ever imported routines whose
+result was read.
+
+Domain identity needs no runtime tag, which is the part worth stating plainly:
+a handle from one provider is a *different FOL type* from one produced by
+another, so it cannot reach the wrong destroy. The check is the type.
+
+Four `examples/fail_v4_c_handle_*` packages cover the misuses C would compile
+and then fail on at run time — a leak, a double free, a use after free, and a
+duplication — each refused with its own reason.
+
+The remaining item is owned **buffers** (pointer plus length, reconstructed
+with a validated capacity), which is a different shape from a handle: a handle
+is opaque and a buffer is read through. It is not built.
 
 Gate: create/use/destroy, early-error cleanup, wrong destroyer, double destroy,
 use-after-destroy, missing destroy, and borrowed destroy tests pass. ASan/UBSan

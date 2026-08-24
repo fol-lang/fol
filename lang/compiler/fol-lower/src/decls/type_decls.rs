@@ -630,7 +630,8 @@ fn checked_type_contains_generic_parameter(
                 kind: fol_typecheck::DeclaredTypeKind::GenericParameter,
                 ..
             } => true,
-            CheckedType::Builtin(_) => false,
+            // An opaque handle has no generic parameter inside it.
+            CheckedType::ForeignHandle { .. } | CheckedType::Builtin(_) => false,
             // A generic INSTANTIATION (`Box[int]`, args non-empty) is generic iff
             // one of its concrete type arguments is — checking the declaration's
             // template (which always mentions `T`) would wrongly skip every

@@ -1,0 +1,13 @@
+// A C handle that is never released.
+//
+// Nothing in this routine names a release, so the resource the provider
+// allocated is abandoned. There is no scope-exit fallback to hide it: a
+// handle is linear, and a linear value that reaches the end of its scope
+// still held is a compile error.
+use std: pkg = {"std"};
+use wid: pkg = {"widget"};
+
+fun[] main(): int = {
+    var w: wid::Widget = wid::widget_new(21);
+    return std::io::echo_int(0);
+};

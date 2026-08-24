@@ -99,6 +99,12 @@ path = "test/v4_c_sanitize.rs"
 name = "v4_linear"
 path = "test/v4_linear.rs"
 
+# M7.4 opaque C handles. Separate because it needs the full PARC/LINC/GERC
+# pipeline and a C toolchain, which `integration` does not require.
+[[test]]
+name = "v4_c_handle"
+path = "test/v4_c_handle.rs"
+
 [dev-dependencies]
 fol-types = { path = "lang/compiler/fol-types" }
 fol-stream = { path = "lang/compiler/fol-stream" }

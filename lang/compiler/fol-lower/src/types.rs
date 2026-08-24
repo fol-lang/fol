@@ -53,6 +53,12 @@ pub enum LoweredType {
         /// Whether the pointee may be written through.
         mutable: bool,
     },
+    /// An opaque foreign resource. Rendered as the runtime's move-only handle,
+    /// which carries the address and nothing else.
+    ForeignHandle {
+        alias: String,
+        domain: String,
+    },
     Array {
         element_type: LoweredTypeId,
         size: Option<usize>,
@@ -195,6 +201,9 @@ impl LoweredTypeTable {
             },
             Some(LoweredType::GenericParameter { name })
             | Some(LoweredType::Named { name, .. }) => name.clone(),
+            // Qualified: the alias is half the identity, so `Widget` alone
+            // would name two different types in a program with two providers.
+            Some(LoweredType::ForeignHandle { alias, domain }) => format!("{alias}::{domain}"),
             Some(LoweredType::Owned { inner }) => format!("@{}", nested(*inner)),
             Some(LoweredType::Borrowed { inner, mutable }) => {
                 if *mutable {
@@ -356,7 +365,10 @@ impl LoweredTypeTable {
                 | Some(LoweredType::Eventual { .. })
                 | Some(LoweredType::Channel { .. })
                 // A `chn[rx, T]` receiver is unique: move-only, never cloned.
-                | Some(LoweredType::ChannelReceiver { .. }) => true,
+                | Some(LoweredType::ChannelReceiver { .. })
+                // A foreign handle owns a resource whose release must happen
+                // exactly once, so it can never be duplicated.
+                | Some(LoweredType::ForeignHandle { .. }) => true,
                 Some(LoweredType::Array { element_type, .. })
                 | Some(LoweredType::Vector { element_type })
                 | Some(LoweredType::Sequence { element_type })
@@ -485,6 +497,7 @@ impl LoweredTypeTable {
                 | Some(LoweredType::GenericParameter { .. })
                 | Some(LoweredType::Named { .. })
                 | Some(LoweredType::Routine(_))
+                | Some(LoweredType::ForeignHandle { .. })
                 | None => false,
             };
             visiting.remove(&id);
@@ -503,7 +516,10 @@ impl LoweredTypeTable {
         };
         match lowered_type {
             LoweredType::GenericParameter { .. } => true,
-            LoweredType::Builtin(_) | LoweredType::Named { .. } => false,
+            // An opaque handle carries no type parameter.
+            LoweredType::ForeignHandle { .. }
+            | LoweredType::Builtin(_)
+            | LoweredType::Named { .. } => false,
             LoweredType::Array { element_type, .. }
             | LoweredType::Vector { element_type }
             | LoweredType::Sequence { element_type }
@@ -639,6 +655,7 @@ impl LoweredTypeTable {
             }
             LoweredType::Builtin(_)
             | LoweredType::Named { .. }
+            | LoweredType::ForeignHandle { .. }
             | LoweredType::GenericParameter { .. } => false,
         }
     }
@@ -656,7 +673,9 @@ impl LoweredTypeTable {
             LoweredType::GenericParameter { name } => {
                 out.insert(name.clone());
             }
-            LoweredType::Builtin(_) | LoweredType::Named { .. } => {}
+            LoweredType::ForeignHandle { .. }
+            | LoweredType::Builtin(_)
+            | LoweredType::Named { .. } => {}
             LoweredType::Array { element_type, .. }
             | LoweredType::Vector { element_type }
             | LoweredType::Sequence { element_type }

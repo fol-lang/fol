@@ -55,7 +55,7 @@ pub(crate) fn hydrate_c_import_symbol_types(
             let Some(symbol_id) = symbols.get(&routine.fol_name).copied() else {
                 continue;
             };
-            match routine_type_for(typed, &interface.types, routine) {
+            match routine_type_for(typed, &interface.alias, &interface.types, routine) {
                 Ok(signature) => {
                     let type_id = typed
                         .type_table_mut()
@@ -80,24 +80,68 @@ pub(crate) fn hydrate_c_import_symbol_types(
     }
 }
 
+/// Intern one handle domain and record its linear obligation.
+///
+/// The `lin` claim is what makes every later rule apply: the flow analysis
+/// then proves the handle is consumed exactly once on every path, and
+/// `[cpy]`/`[cln]` of one are refused as duplication. None of that needs a
+/// FOL declaration, because the claim is on the type rather than on a syntax
+/// node.
+pub(crate) fn foreign_handle_type(
+    typed: &mut TypedProgram,
+    alias: &str,
+    domain: &str,
+) -> CheckedTypeId {
+    let type_id = typed.type_table_mut().intern(CheckedType::ForeignHandle {
+        alias: alias.to_string(),
+        domain: domain.to_string(),
+    });
+    typed.record_lin_type(type_id);
+    type_id
+}
+
 fn routine_type_for(
     typed: &mut TypedProgram,
+    alias: &str,
     types: &AbiTypeTable,
     routine: &ImportedRoutine,
 ) -> Result<RoutineType, TypecheckError> {
+    // A routine that only *borrows* a handle takes a loan, not the handle: a
+    // by-value parameter would consume it, and `widget_size(w)` would leave the
+    // caller with nothing to release. The role is the only thing that says
+    // which, because a C pointer parameter looks identical either way.
+    let borrows = routine
+        .handle
+        .as_ref()
+        .is_some_and(|use_| use_.role == fol_abi::HandleRole::Borrows);
+
     let mut param_names = Vec::new();
     let mut params = Vec::new();
     for parameter in routine.call_parameters() {
         param_names.push(parameter.name.clone());
-        params.push(checked_type_for(typed, types, parameter.type_id, routine)?);
+        let mut checked = checked_type_for(typed, alias, types, parameter.type_id, routine)?;
+        if borrows
+            && matches!(
+                types.get(parameter.type_id),
+                Some(AbiType::OpaqueHandle { .. })
+            )
+        {
+            checked = typed.type_table_mut().intern(CheckedType::Borrowed {
+                inner: checked,
+                mutable: false,
+            });
+        }
+        params.push(checked);
     }
 
     let (return_type, error_type) = match &routine.error {
         ImportErrorConvention::Infallible => {
-            let result = checked_type_for(typed, types, routine.result, routine)?;
+            let result = checked_type_for(typed, alias, types, routine.result, routine)?;
             // A `void` C result is no FOL value at all, not a unit value.
+            // Everything else is: a producer returning a handle has to hand it
+            // back, or the resource would be created with nobody owing it.
             let return_type =
-                matches!(types.get(routine.result), Some(AbiType::Scalar(_))).then_some(result);
+                (!matches!(types.get(routine.result), Some(AbiType::Void))).then_some(result);
             (return_type, None)
         }
         ImportErrorConvention::Status { .. } => {
@@ -105,8 +149,8 @@ fn routine_type_for(
             // types apart rather than wrapping one in the other. The success
             // type is the out-parameter's pointee; the failure carries the
             // provider's own status code, which is the only thing it reported.
-            let success = success_type_for(typed, types, routine)?;
-            let status = checked_type_for(typed, types, routine.result, routine)?;
+            let success = success_type_for(typed, alias, types, routine)?;
+            let status = checked_type_for(typed, alias, types, routine.result, routine)?;
             (Some(success), Some(status))
         }
     };
@@ -128,6 +172,7 @@ fn routine_type_for(
 /// Under a status mapping the FOL result is the out-parameter's pointee.
 fn success_type_for(
     typed: &mut TypedProgram,
+    alias: &str,
     types: &AbiTypeTable,
     routine: &ImportedRoutine,
 ) -> Result<CheckedTypeId, TypecheckError> {
@@ -144,11 +189,12 @@ fn success_type_for(
             routine.symbol
         )));
     };
-    checked_type_for(typed, types, *target, routine)
+    checked_type_for(typed, alias, types, *target, routine)
 }
 
 fn checked_type_for(
     typed: &mut TypedProgram,
+    alias: &str,
     types: &AbiTypeTable,
     type_id: AbiTypeId,
     routine: &ImportedRoutine,
@@ -159,6 +205,12 @@ fn checked_type_for(
             routine.symbol
         ))
     })?;
+    // Handled before the match because it needs the import's alias, which is
+    // half the handle's identity and which the ABI type table does not carry.
+    if let AbiType::OpaqueHandle { name } = abi_type {
+        let name = name.clone();
+        return Ok(foreign_handle_type(typed, alias, &name));
+    }
     let checked = match abi_type {
         AbiType::Scalar(AbiScalar::Int(width)) => CheckedType::Builtin(BuiltinType::Int(*width)),
         AbiType::Scalar(AbiScalar::Float(width)) => {

@@ -320,6 +320,13 @@ pub fn render_type_default_expr_in_workspace(
     };
 
     match ty {
+        // A null placeholder for a slot FOL has already proven is written
+        // before it is read. It is spelled null rather than left uninitialized
+        // so that if the proof were ever wrong, the result is a handle that
+        // reports `is_null` rather than one carrying an arbitrary address.
+        LoweredType::ForeignHandle { .. } => {
+            Ok("rt::FolHandle::from_raw(core::ptr::null_mut())".to_string())
+        }
         // The zero has to be spelled at the operand's own width, or rustc
         // infers a different one and the assignment stops compiling.
         LoweredType::Builtin(LoweredBuiltinType::Int(width)) => {

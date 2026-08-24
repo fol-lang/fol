@@ -1,0 +1,26 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "fail_v4_c_handle_use_after_free", version = "0.1.0",
+        description = "a C resource FOL owns, releases once, and cannot look inside",
+        license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "fail_v4_c_handle_use_after_free", root = "src/main.fol", fol_model = "memo",
+    });
+    var header = graph.file_from_root("native/widget.h");
+    var provider = graph.file_from_root("native/libwidget.a");
+    var overlay = graph.file_from_root("interop/widget.toml");
+    app.add_c_import({
+        alias = "widget",
+        header = header,
+        provider = provider,
+        provider_kind = "static",
+        annotations = overlay,
+    });
+    graph.install(app);
+    graph.add_run(app);
+    return;
+};

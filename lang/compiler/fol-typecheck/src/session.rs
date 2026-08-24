@@ -384,6 +384,17 @@ impl TypecheckSession {
             CheckedType::Builtin(builtin) => {
                 target_program.type_table_mut().intern_builtin(builtin)
             }
+            // A foreign handle's identity is its alias and domain, both of
+            // which travel with the type, so importing one is re-interning it.
+            // The `lin` claim travels too: the obligation belongs to the type,
+            // not to the package that happened to declare it.
+            CheckedType::ForeignHandle { alias, domain } => {
+                let interned = target_program
+                    .type_table_mut()
+                    .intern(CheckedType::ForeignHandle { alias, domain });
+                target_program.record_lin_type(interned);
+                interned
+            }
             CheckedType::Declared {
                 symbol,
                 name,

@@ -17,8 +17,8 @@ use fol_parser::ast::ParsedSourceUnitKind;
 
 use crate::{
     model::{
-        ForeignRoutineBinding, ResolvedProgram, ResolvedScope, ResolvedSourceUnit, ResolvedSymbol,
-        ScopeKind, SymbolKind,
+        ForeignHandleBinding, ForeignRoutineBinding, ResolvedProgram, ResolvedScope,
+        ResolvedSourceUnit, ResolvedSymbol, ScopeKind, SymbolKind,
     },
     ScopeId, SourceUnitId, SymbolId,
 };
@@ -77,6 +77,45 @@ fn inject_one(program: &mut ResolvedProgram, interface: &ImportedInterface) {
         unit.scope_id = root_scope;
     }
     program.register_namespace_scope(interface.alias.clone(), root_scope);
+
+    // Handle domains first: a routine's signature names one, and a FOL author
+    // writes `alias::Widget` in type position, so the type has to exist as a
+    // symbol before anything refers to it.
+    for domain in interface.handle_domains() {
+        let canonical_name = fol_types::canonical_identifier_key(domain);
+        let symbol_id = program.symbols.push(ResolvedSymbol {
+            id: SymbolId(0),
+            name: domain.to_string(),
+            canonical_name: canonical_name.clone(),
+            duplicate_key: format!("type#{canonical_name}"),
+            kind: SymbolKind::Type,
+            scope: root_scope,
+            source_unit: source_unit_id,
+            origin: None,
+            visibility: Some(fol_parser::ast::ParsedDeclVisibility::Exported),
+            declaration_scope: None,
+            mounted_from: None,
+            is_mutable: false,
+        });
+        if let Some(symbol) = program.symbols.get_mut(symbol_id) {
+            symbol.id = symbol_id;
+        }
+        if let Some(scope) = program.scopes.get_mut(root_scope) {
+            scope.symbols.push(symbol_id);
+            scope
+                .symbol_keys
+                .entry(canonical_name)
+                .or_default()
+                .push(symbol_id);
+        }
+        program.register_foreign_handle(
+            symbol_id,
+            ForeignHandleBinding {
+                alias: interface.alias.clone(),
+                domain: domain.to_string(),
+            },
+        );
+    }
 
     for routine in &interface.routines {
         let canonical_name = fol_types::canonical_identifier_key(&routine.fol_name);

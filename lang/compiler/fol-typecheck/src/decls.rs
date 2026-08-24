@@ -3881,7 +3881,10 @@ fn checked_type_references_symbol(
         CheckedType::Pointer { .. } => false,
         CheckedType::Borrowed { inner, .. } => refers(inner, visited),
         CheckedType::Error { inner } => inner.is_some_and(|inner| refers(inner, visited)),
-        CheckedType::Builtin(_) | CheckedType::Routine(_) => false,
+        // An opaque handle has no inner type to reach through.
+        CheckedType::ForeignHandle { .. } | CheckedType::Builtin(_) | CheckedType::Routine(_) => {
+            false
+        }
     }
 }
 
@@ -3987,6 +3990,9 @@ pub(crate) fn checked_type_blocks_ordering(
         | CheckedType::ChannelReceiver { .. }
         | CheckedType::Eventual { .. }
         | CheckedType::Builtin(_)
+        // Two handles compare as the addresses they are, which is a total
+        // order; nothing about an opaque resource blocks one.
+        | CheckedType::ForeignHandle { .. }
         | CheckedType::Routine(_) => false,
     }
 }
@@ -4065,7 +4071,11 @@ pub(crate) fn substitute_generic_checked_type(
             }
             Ok(instance)
         }
-        CheckedType::Declared { .. } | CheckedType::Builtin(_) => Ok(type_id),
+        // A foreign handle carries no type parameter, so substitution is
+        // identity: `Widget` is `Widget` under every binding.
+        CheckedType::Declared { .. }
+        | CheckedType::ForeignHandle { .. }
+        | CheckedType::Builtin(_) => Ok(type_id),
         CheckedType::Array { element_type, size } => {
             let element_type =
                 substitute_generic_checked_type(typed, element_type, bindings, origin)?;
@@ -4472,6 +4482,16 @@ fn lower_declared_symbol(
     let symbol = resolved
         .symbol(symbol_id)
         .ok_or_else(|| internal_error("resolved type symbol disappeared", None))?;
+    // An imported handle domain has no FOL declaration behind it, so it never
+    // becomes a `Declared` reference: the alias and the domain are the whole
+    // type. Asked before the kind match, because a `Declared` shell pointing at
+    // nothing would be the wrong answer rather than a slower one.
+    if let Some(binding) = resolved.foreign_handle(symbol_id) {
+        return Ok(table.intern(CheckedType::ForeignHandle {
+            alias: binding.alias.clone(),
+            domain: binding.domain.clone(),
+        }));
+    }
     let kind = match symbol.kind {
         SymbolKind::Type => DeclaredTypeKind::Type,
         SymbolKind::Alias => DeclaredTypeKind::Alias,

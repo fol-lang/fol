@@ -1140,7 +1140,16 @@ pub(crate) fn lower_function_call(
                 display_name,
                 args,
                 &binding,
-            );
+            )?
+            // Expression position needs a value. A `void` provider reaching
+            // here was used where its result is read, which typecheck already
+            // refuses; the message names the routine rather than the shape.
+            .ok_or_else(|| {
+                LoweringError::with_kind(
+                    LoweringErrorKind::Unsupported,
+                    format!("imported routine '{display_name}' returns no value"),
+                )
+            });
         }
         return Err(LoweringError::with_kind(
             LoweringErrorKind::InvalidInput,
@@ -1796,6 +1805,32 @@ pub(crate) fn lower_statement_free_call(
         resolved_symbol.id,
     );
     let Some(callee) = decl_index.routine_id_for_symbol(&owning_identity, owning_symbol_id) else {
+        // A foreign routine has no FOL declaration to find. Statement position
+        // reaches here for the calls whose result is nothing -- a destroy, for
+        // instance -- which is exactly the shape a handle domain needs.
+        if let Some(binding) = typed_package
+            .program
+            .resolved()
+            .foreign_routine(resolved_symbol.id)
+            .cloned()
+        {
+            return lower_foreign_call(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                syntax_id,
+                kind,
+                display_name,
+                args,
+                &binding,
+            )
+            .map(|_| None);
+        }
         return Err(LoweringError::with_kind(
             LoweringErrorKind::InvalidInput,
             format!("call target '{display_name}' does not map to a lowered routine definition"),
@@ -1981,7 +2016,7 @@ fn lower_foreign_call(
     display_name: &str,
     args: &[AstNode],
     binding: &fol_resolver::ForeignRoutineBinding,
-) -> Result<LoweredValue, LoweringError> {
+) -> Result<Option<LoweredValue>, LoweringError> {
     let signature = foreign_signature(typed_package, binding).ok_or_else(|| {
         LoweringError::with_kind(
             LoweringErrorKind::InvalidInput,
@@ -2020,6 +2055,22 @@ fn lower_foreign_call(
     let error_type = signature
         .error_type
         .and_then(|error_type| checked_type_map.get(&error_type).copied());
+    // A `void` provider -- a destroy, most importantly -- produces no value.
+    // The call still has to be emitted; only the result local is absent.
+    if signature.return_type.is_none() {
+        cursor.push_instr(
+            None,
+            LoweredInstrKind::ForeignCall {
+                alias: binding.alias.clone(),
+                adapter: binding.fol_name.clone(),
+                symbol: binding.symbol.clone(),
+                args: lowered_args,
+                error_type,
+            },
+        )?;
+        return Ok(None);
+    }
+
     let Some(result_type) =
         resolve_reference_type_id(typed_package, checked_type_map, syntax_id, kind)
     else {
@@ -2039,11 +2090,11 @@ fn lower_foreign_call(
             error_type,
         },
     )?;
-    Ok(LoweredValue {
+    Ok(Some(LoweredValue {
         local_id: result_local,
         type_id: result_type,
         recoverable_error_type: error_type,
-    })
+    }))
 }
 
 fn foreign_signature(

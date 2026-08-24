@@ -70,12 +70,23 @@ fn render_adapter(
             let call_args = routine
                 .call_parameters()
                 .iter()
-                .map(|parameter| rust_param_name(&parameter.name))
+                .map(|parameter| cast_argument(&interface.types, parameter))
                 .collect::<Vec<_>>()
                 .join(", ");
             // A `void` provider and a value-returning one render the same
             // call; only the adapter's declared return type differs.
-            let body = format!("    unsafe {{ {raw}({call_args}) }}\n");
+            let returns_handle = matches!(
+                interface.types.get(routine.result),
+                Some(AbiType::OpaqueHandle { .. })
+            );
+            let body = if returns_handle {
+                // Back to `c_void` on the way out, for the same reason the
+                // arguments cast on the way in: this crate does not name the
+                // provider's projected opaque struct.
+                format!("    unsafe {{ {raw}({call_args}) as *mut core::ffi::c_void }}\n")
+            } else {
+                format!("    unsafe {{ {raw}({call_args}) }}\n")
+            };
             let return_type = match interface.types.get(routine.result) {
                 Some(AbiType::Void) => String::new(),
                 _ => format!(
@@ -109,7 +120,7 @@ fn render_adapter(
                 if position == index {
                     call_args.push("&mut __fol_out".to_string());
                 } else {
-                    call_args.push(rust_param_name(&parameter.name));
+                    call_args.push(cast_argument(&interface.types, parameter));
                 }
             }
             let call_args = call_args.join(", ");
@@ -157,6 +168,20 @@ fn out_pointee(
     rust_scalar(types, *target, &routine.symbol)
 }
 
+/// One argument as it is passed to the raw provider.
+///
+/// A handle crosses the adapter boundary as `*mut c_void` and reaches the
+/// provider as its own opaque pointee. `as *mut _` bridges the two without
+/// this crate ever naming GERC's projected struct: the target type is inferred
+/// from the callee's declared parameter.
+fn cast_argument(types: &AbiTypeTable, parameter: &fol_abi::AbiParameter) -> String {
+    let name = rust_param_name(&parameter.name);
+    match types.get(parameter.type_id) {
+        Some(AbiType::OpaqueHandle { .. }) => format!("{name} as *mut _"),
+        _ => name,
+    }
+}
+
 /// A C parameter may be named for a Rust keyword; raw identifiers keep the
 /// provider's own spelling rather than renaming its API.
 fn rust_param_name(name: &str) -> String {
@@ -199,6 +224,11 @@ fn rust_scalar(
         AbiType::Scalar(AbiScalar::Bool) => "bool".to_string(),
         AbiType::Scalar(AbiScalar::Char) => "char".to_string(),
         AbiType::Void => "()".to_string(),
+        // An opaque handle is the address and nothing else. It is spelled
+        // `c_void` rather than the provider's own opaque struct because this
+        // crate never names GERC's projected types: the raw call site casts
+        // with `as *mut _`, which infers the pointee from the callee.
+        AbiType::OpaqueHandle { .. } => "*mut core::ffi::c_void".to_string(),
         other => {
             return Err(AdapterError::UnsupportedType {
                 symbol: symbol.to_string(),
@@ -409,19 +439,54 @@ mod tests {
         assert!(rendered.contains("(r#type)"), "got:\n{rendered}");
     }
 
+    /// A handle crosses as a bare address, cast at the raw call in both
+    /// directions.
+    ///
+    /// The casts are the point: this crate must never name the opaque struct
+    /// GERC projects for the provider's incomplete type. `as *mut _` on the way
+    /// in infers the pointee from the callee, and `as *mut c_void` on the way
+    /// out returns to the spelling the adapter declares.
     #[test]
-    fn an_aggregate_type_is_refused_rather_than_guessed() {
+    fn a_handle_crosses_as_an_address_and_is_cast_at_the_raw_call() {
         let mut interface = scalar_interface();
         let handle = interface.types.intern(AbiType::OpaqueHandle {
             name: "Widget".to_string(),
         });
         interface.routines[0].result = handle;
+        interface.routines[0].parameters[0].type_id = handle;
+
+        let rendered =
+            render_adapter_module(&interface, "fol_raw").expect("a handle adapter should render");
+        assert!(
+            rendered.contains("pub fn add_one(value: *mut core::ffi::c_void)"),
+            "got:\n{rendered}"
+        );
+        assert!(
+            rendered.contains(" -> *mut core::ffi::c_void"),
+            "got:\n{rendered}"
+        );
+        assert!(rendered.contains("(value as *mut _)"), "got:\n{rendered}");
+        assert!(
+            rendered.contains("as *mut core::ffi::c_void }"),
+            "the result casts back to the declared spelling; got:\n{rendered}"
+        );
+    }
+
+    /// A shape with no handle role behind it is still refused by name.
+    #[test]
+    fn an_aggregate_type_is_refused_rather_than_guessed() {
+        let mut interface = scalar_interface();
+        let record = interface.types.intern(AbiType::Record {
+            name: "Point".to_string(),
+            fields: Vec::new(),
+        });
+        interface.routines[0].result = record;
 
         assert_eq!(
             render_adapter_module(&interface, "fol_raw"),
             Err(AdapterError::UnsupportedType {
                 symbol: "c_math_add_one".to_string(),
-                detail: "a opaque-handle type".to_string(),
+                detail: "a record type".to_string(),
             })
         );
     }

@@ -101,6 +101,73 @@ pub fn recoverable_succeeded<T, E>(value: &FolRecover<T, E>) -> FolBool {
     value.is_ok()
 }
 
+/// A foreign resource FOL owns but cannot look inside.
+///
+/// The address comes from a provider and goes back to that provider's destroy;
+/// nothing between those two points may read it. The type carries no `Clone`,
+/// no `Copy`, and no `Drop`:
+///
+/// - duplicating it would create a second release obligation nothing tracks,
+///   which is why the FOL type that wraps it claims `lin`;
+/// - dropping it silently is exactly what the linear capability exists to
+///   prevent, so there is no destructor to run at the wrong moment. A handle
+///   that is never consumed is a compile error, not a leak at run time.
+///
+/// It is deliberately neither `Send` nor `Sync`. Whether a particular C
+/// resource may cross a thread is a fact about that provider, and the raw
+/// pointer inside makes the auto-traits opt out for us.
+#[derive(Debug, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct FolHandle(*mut core::ffi::c_void);
+
+/// A null handle, and only as the residue a move leaves behind.
+///
+/// Moving a value out of a place is emitted as `std::mem::take`, which needs
+/// something to put back. Null is the one value that cannot be mistaken for a
+/// live resource. Nothing in FOL can construct a handle this way: there is no
+/// syntax for one, and the linear analysis has already proven the moved-from
+/// binding is never read again -- so if this value is ever observed, the bug is
+/// upstream and null is what makes it visible rather than silent.
+impl Default for FolHandle {
+    fn default() -> Self {
+        Self(core::ptr::null_mut())
+    }
+}
+
+impl FolHandle {
+    /// Adopt an address a provider just returned.
+    pub fn from_raw(address: *mut core::ffi::c_void) -> Self {
+        Self(address)
+    }
+
+    /// Hand the address back, consuming the handle.
+    ///
+    /// By value on purpose: the caller must give up the handle to get the
+    /// address, so there is no way to keep one and release the other.
+    pub fn into_raw(self) -> *mut core::ffi::c_void {
+        self.0
+    }
+
+    /// Lend the address for the duration of a call.
+    pub fn as_raw(&self) -> *mut core::ffi::c_void {
+        self.0
+    }
+
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+}
+
+impl crate::aggregate::FolEchoFormat for FolHandle {
+    /// Prints the domain, never the address.
+    ///
+    /// An address is not a program's output: it varies between runs, so
+    /// echoing one would make any test that touched a handle unstable.
+    fn fol_echo_format(&self) -> String {
+        "<foreign handle>".to_string()
+    }
+}
+
 pub fn module_name() -> &'static str {
     "abi"
 }

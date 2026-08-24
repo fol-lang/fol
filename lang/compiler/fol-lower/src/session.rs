@@ -233,6 +233,9 @@ fn translate_checked_type(
 
     let lowered_type_id = match checked_type {
         CheckedType::Builtin(builtin) => lowered_types.intern_builtin(lower_builtin(builtin)),
+        CheckedType::ForeignHandle { alias, domain } => {
+            lowered_types.intern(LoweredType::ForeignHandle { alias, domain })
+        }
         CheckedType::Declared {
             symbol, name, kind, ..
         } => {

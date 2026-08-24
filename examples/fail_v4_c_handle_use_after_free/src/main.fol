@@ -1,0 +1,13 @@
+// A handle read after it was released.
+//
+// The borrow here would hand C an address it has already freed. The release
+// consumed 'w', so there is nothing left to lend.
+use std: pkg = {"std"};
+use wid: pkg = {"widget"};
+
+fun[] main(): int = {
+    var w: wid::Widget = wid::widget_new(21);
+    wid::widget_free([mov]w);
+    var size: int[32] = wid::widget_size([bor]w);
+    return std::io::echo_int(size);
+};

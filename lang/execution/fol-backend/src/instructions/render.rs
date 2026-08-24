@@ -412,7 +412,23 @@ pub fn render_core_instruction_in_workspace(
             // symbol. Section 4.13 keeps validation, the error convention, and
             // the capability check inside that adapter, so the emitted call
             // looks exactly like an ordinary one from here.
-            let rendered_args = render_local_list(type_table, package_identity, routine, args)?;
+            // A handle crosses into the adapter as a bare address. Which
+            // conversion applies is read off the local's own lowered type:
+            // an owned handle gives the address up (`into_raw` takes `self`,
+            // so the FOL value cannot be used again), and a loan only lends it.
+            let rendered_args = args
+                .iter()
+                .map(|arg| {
+                    let rendered =
+                        render_local_list(type_table, package_identity, routine, &[*arg])?;
+                    Ok(match handle_passing(type_table, routine, *arg) {
+                        Some(HandlePassing::Owned) => format!("{rendered}.into_raw()"),
+                        Some(HandlePassing::Borrowed) => format!("{rendered}.as_raw()"),
+                        None => rendered,
+                    })
+                })
+                .collect::<BackendResult<Vec<_>>>()?
+                .join(", ");
             let module = crate::mangle::foreign_adapter_module_name(alias);
             let callee_name = format!(
                 "{}::{module}::{}",
@@ -435,8 +451,16 @@ pub fn render_core_instruction_in_workspace(
             // it -- so it is recorded as a comment, which is what makes a
             // generated file greppable back to the provider it calls.
             let call = match instruction.result {
-                Some(_) => {
+                Some(result_id) => {
                     let result = rendered_result_local(package_identity, routine, instruction)?;
+                    // A producer hands back a bare address; adopting it is what
+                    // makes the FOL value the thing that owes the release.
+                    let expression = match handle_passing(type_table, routine, result_id) {
+                        Some(HandlePassing::Owned) => {
+                            format!("rt::FolHandle::from_raw({expression})")
+                        }
+                        _ => expression,
+                    };
                     format!("{result} = {expression};")
                 }
                 None => format!("{expression};"),
@@ -1772,4 +1796,35 @@ fn result_int_width(
                 "a width conversion must write into an integer local",
             )
         })
+}
+
+/// How one local carries a foreign handle across the adapter boundary.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum HandlePassing {
+    /// The FOL value owns the handle and gives the address up.
+    Owned,
+    /// The FOL value is a loan and only lends the address.
+    Borrowed,
+}
+
+/// Whether a local is a foreign handle, and in which of the two forms.
+///
+/// Read off the lowered type rather than the routine's ABI record, so the
+/// answer is the same one the emitted Rust type is built from and the two
+/// cannot disagree.
+fn handle_passing(
+    type_table: &fol_lower::LoweredTypeTable,
+    routine: &fol_lower::LoweredRoutine,
+    local_id: fol_lower::LoweredLocalId,
+) -> Option<HandlePassing> {
+    let type_id = routine.locals.get(local_id)?.type_id?;
+    match type_table.get(type_id)? {
+        fol_lower::LoweredType::ForeignHandle { .. } => Some(HandlePassing::Owned),
+        fol_lower::LoweredType::Borrowed { inner, .. } => matches!(
+            type_table.get(*inner),
+            Some(fol_lower::LoweredType::ForeignHandle { .. })
+        )
+        .then_some(HandlePassing::Borrowed),
+        _ => None,
+    }
 }

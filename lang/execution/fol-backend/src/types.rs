@@ -31,6 +31,11 @@ pub fn render_rust_type_in_workspace(
     match ty {
         LoweredType::Builtin(LoweredBuiltinType::Str) => Ok("rt_model::FolStr".to_string()),
         LoweredType::Builtin(builtin) => Ok(render_builtin_type(*builtin)?.to_string()),
+        // Every domain renders as the same runtime handle. The domains are
+        // kept apart by FOL's own type checking, which has already run; giving
+        // each one a distinct Rust newtype would add generated code that proves
+        // nothing the frontend has not already proved.
+        LoweredType::ForeignHandle { .. } => Ok("rt::FolHandle".to_string()),
         LoweredType::GenericParameter { name } => Ok(sanitize_backend_ident(name)),
         LoweredType::Named {
             package, symbol, ..
@@ -312,7 +317,9 @@ fn type_transitively_contains(
                     }),
             }
         }
-        LoweredType::Builtin(_)
+        // An opaque handle has no inner type to recurse into.
+        LoweredType::ForeignHandle { .. }
+        | LoweredType::Builtin(_)
         | LoweredType::GenericParameter { .. }
         | LoweredType::Routine(_) => false,
     }

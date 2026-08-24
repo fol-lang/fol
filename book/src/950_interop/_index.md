@@ -188,10 +188,10 @@ Which routine owes the release is part of the **interface** fingerprint, so
 changing `borrows` to `consumes` invalidates every caller.
 
 On the FOL side a handle is a [linear resource](../800_memory/170_linear.md):
-consumed exactly once, explicitly, on every path. The runtime half of that
-binding — the generated destroy wrapper and the FOL-side handle value — is not
-built yet, and a handle-typed signature is refused by name rather than rendered
-as a guess.
+consumed exactly once, explicitly, on every path. The domain becomes a FOL type
+in the import's namespace, so a program writes `wid::Widget` and the compiler
+proves the release. `examples/v4_c_opaque_handle` is the whole path, and the
+four `examples/fail_v4_c_handle_*` packages are the misuses C would compile.
 
 ## Verification commands
 

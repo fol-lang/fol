@@ -613,7 +613,10 @@ pub(crate) fn type_contains_eventual(typed: &TypedProgram, type_id: crate::Check
                             .error_type
                             .is_some_and(|error| contains(typed, error, visiting))
                 }
-                Some(CheckedType::Builtin(_)) | None => false,
+                // An opaque handle is an address; nothing is nested inside it.
+                Some(CheckedType::ForeignHandle { .. }) | Some(CheckedType::Builtin(_)) | None => {
+                    false
+                }
             }
         };
         visiting.remove(&type_id);
@@ -1191,6 +1194,9 @@ fn ownership_moves_on_transfer_inner(
     } else {
         match typed.type_table().get(type_id) {
             Some(CheckedType::Owned { .. })
+            // An opaque handle is the sole owner of a foreign resource whose
+            // release must happen exactly once, so it moves on every transfer.
+            | Some(CheckedType::ForeignHandle { .. })
             // A unique `ptr[T]` (`shared: false, weak: false`) is the sole,
             // move-only owner. A `ptr[weak, T]` is clone-safe like the shared
             // `Rc`/`Arc` it observes (`std::rc::Weak`/`sync::Weak` are `Clone`

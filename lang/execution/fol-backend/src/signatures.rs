@@ -93,7 +93,8 @@ fn collect_generic_params_from_type(
                 collect_generic_params_from_type(type_table, err, params);
             }
         }
-        LoweredType::Builtin(_) | LoweredType::Named { .. } => {}
+        LoweredType::ForeignHandle { .. } | LoweredType::Builtin(_) | LoweredType::Named { .. } => {
+        }
     }
 }
 
@@ -571,13 +572,19 @@ fn render_local_declaration(
         }
         // A slot that reaches a routine value has no `Default` to fall back on
         // (`Rc<dyn Fn>` implements none), so it is built from its type's own
-        // zero expression instead.
+        // zero expression instead. A foreign handle deliberately has no
+        // `Default` either: a default-constructible handle would be a forgeable
+        // one, so it uses the same path and gets an explicit null placeholder.
         Some(_)
             if local.type_id.is_some_and(|type_id| {
-                crate::types::type_transitively_contains_routine(workspace, type_table, type_id)
-                    || crate::types::type_transitively_contains_underivable_array(
-                        workspace, type_table, type_id,
-                    )
+                matches!(
+                    type_table.get(type_id),
+                    Some(LoweredType::ForeignHandle { .. })
+                ) || crate::types::type_transitively_contains_routine(
+                    workspace, type_table, type_id,
+                ) || crate::types::type_transitively_contains_underivable_array(
+                    workspace, type_table, type_id,
+                )
             }) =>
         {
             let type_id = local

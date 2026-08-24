@@ -717,7 +717,10 @@ fn substitute_type(
                 ),
             )
         })?,
-        LoweredType::Builtin(_) | LoweredType::Named { .. } => type_id,
+        // An opaque handle has nothing to substitute.
+        LoweredType::ForeignHandle { .. } | LoweredType::Builtin(_) | LoweredType::Named { .. } => {
+            type_id
+        }
         LoweredType::Owned { inner } => {
             let inner = substitute_type(type_table, bindings, memo, inner)?;
             type_table.intern(LoweredType::Owned { inner })
@@ -1136,7 +1139,8 @@ fn collect_named_structural_types(
                 collect_named_structural_types(type_table, error_type, out);
             }
         }
-        LoweredType::Builtin(_)
+        LoweredType::ForeignHandle { .. }
+        | LoweredType::Builtin(_)
         | LoweredType::Named { .. }
         | LoweredType::GenericParameter { .. } => {}
     }
@@ -1170,7 +1174,9 @@ fn type_contains_generic_parameter(type_table: &LoweredTypeTable, type_id: Lower
     };
     match lowered_type {
         LoweredType::GenericParameter { .. } => true,
-        LoweredType::Builtin(_) | LoweredType::Named { .. } => false,
+        LoweredType::ForeignHandle { .. } | LoweredType::Builtin(_) | LoweredType::Named { .. } => {
+            false
+        }
         LoweredType::Array { element_type, .. }
         | LoweredType::Vector { element_type }
         | LoweredType::Sequence { element_type }

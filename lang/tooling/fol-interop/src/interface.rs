@@ -107,10 +107,27 @@ fn project_routine(
         });
     }
 
-    let result = project_type(&symbol, function.return_type(), types)?;
+    // Where the handle sits, decided before any type is projected.
+    //
+    // A handle's pointee is a C incomplete type, which `project_type` refuses
+    // by design -- nothing may read through it. So the handle position is
+    // identified first and skipped, rather than projected and then replaced:
+    // projecting it would mean refusing the one shape the overlay just
+    // declared legal.
+    let handle_positions = handle_positions(&symbol, function, annotation)?;
+
+    let result = match handle_positions.result {
+        Some(domain) => types.intern(AbiType::OpaqueHandle { name: domain }),
+        None => project_type(&symbol, function.return_type(), types)?,
+    };
     let mut parameters = Vec::new();
     for (index, parameter) in function.parameters().iter().enumerate() {
-        let type_id = project_type(&symbol, parameter.ty(), types)?;
+        let type_id = match handle_positions.parameter.as_ref() {
+            Some((position, domain)) if *position == index => types.intern(AbiType::OpaqueHandle {
+                name: domain.clone(),
+            }),
+            _ => project_type(&symbol, parameter.ty(), types)?,
+        };
         // A C parameter may be unnamed; the position is the only stable
         // identity then, and the overlay has to be able to name it.
         let name = parameter
@@ -123,11 +140,6 @@ fn project_routine(
             direction: direction_for(parameter.ty()),
         });
     }
-
-    // Handle projection replaces a measured pointer with the domain's opaque
-    // type. It runs before the status check so an out-parameter carrying a
-    // handle is validated against the shape it will actually have.
-    let result = project_handle(&symbol, annotation, &mut parameters, result, types)?;
 
     verify_status_mapping(annotation, &parameters, result, types)?;
     verify_effects(annotation, model)?;
@@ -145,46 +157,49 @@ fn project_routine(
     })
 }
 
-/// Replace the routine's handle-carrying pointer with the domain's opaque type.
+/// Which of a routine's positions carry the handle.
+#[derive(Default)]
+struct HandlePositions {
+    /// The domain, when the C result is the handle.
+    result: Option<String>,
+    /// The parameter index and domain, when a parameter is the handle.
+    parameter: Option<(usize, String)>,
+}
+
+/// Decide which position is the handle, or say why it is not decidable.
 ///
-/// Which pointer is the handle has to be unambiguous, because getting it wrong
-/// means calling a destroy on the wrong address. A producer's handle is its
-/// result; a borrower's or consumer's is its single pointer parameter. Anything
-/// else is refused rather than resolved by position.
-fn project_handle(
+/// Getting this wrong means calling a destroy on the wrong address, so it is
+/// never resolved by position: a producer's handle is its result, and a
+/// borrower's or consumer's is its *single* pointer parameter. Anything else
+/// is refused.
+fn handle_positions(
     symbol: &str,
+    function: &RustFunction,
     annotation: &fol_abi::RoutineAnnotation,
-    parameters: &mut [AbiParameter],
-    result: AbiTypeId,
-    types: &mut AbiTypeTable,
-) -> Result<AbiTypeId, ImportRejection> {
+) -> Result<HandlePositions, ImportRejection> {
     let Some(use_) = &annotation.handle else {
-        return Ok(result);
+        return Ok(HandlePositions::default());
     };
-    let handle = types.intern(AbiType::OpaqueHandle {
-        name: use_.domain.clone(),
-    });
 
     if use_.role == fol_abi::HandleRole::Produces {
-        if !matches!(types.get(result), Some(AbiType::Pointer { .. })) {
+        if !matches!(function.return_type().kind(), RustTypeKind::Pointer(_)) {
             return Err(ImportRejection::HandleResultIsNotAPointer {
                 symbol: symbol.to_string(),
                 domain: use_.domain.clone(),
-                found: types
-                    .get(result)
-                    .map_or("nothing", |ty| ty.kind_name())
-                    .to_string(),
+                found: format!("{:?}", function.return_type().kind()),
             });
         }
-        return Ok(handle);
+        return Ok(HandlePositions {
+            result: Some(use_.domain.clone()),
+            parameter: None,
+        });
     }
 
-    let pointers: Vec<usize> = parameters
+    let pointers: Vec<usize> = function
+        .parameters()
         .iter()
         .enumerate()
-        .filter(|(_, parameter)| {
-            matches!(types.get(parameter.type_id), Some(AbiType::Pointer { .. }))
-        })
+        .filter(|(_, parameter)| matches!(parameter.ty().kind(), RustTypeKind::Pointer(_)))
         .map(|(index, _)| index)
         .collect();
     let [index] = pointers[..] else {
@@ -194,11 +209,10 @@ fn project_handle(
             found: pointers.len(),
         });
     };
-    parameters[index].type_id = handle;
-    // A handle is passed by value, never written through, so the `Out`
-    // direction a writable pointer would have inferred is wrong here.
-    parameters[index].direction = AbiDirection::In;
-    Ok(result)
+    Ok(HandlePositions {
+        result: None,
+        parameter: Some((index, use_.domain.clone())),
+    })
 }
 
 /// A `const` pointer is an input; a writable one may be written through.

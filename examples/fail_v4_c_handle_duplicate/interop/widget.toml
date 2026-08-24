@@ -1,0 +1,20 @@
+version = 1
+
+[handle.Widget]
+destroy = "widget_free"
+
+[routine.widget_new]
+error = "infallible"
+handle = "Widget"
+handle_role = "produces"
+effects = ["allocates"]
+
+[routine.widget_size]
+error = "infallible"
+handle = "Widget"
+handle_role = "borrows"
+
+[routine.widget_free]
+error = "infallible"
+handle = "Widget"
+handle_role = "consumes"

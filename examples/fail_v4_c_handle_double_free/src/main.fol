@@ -1,0 +1,14 @@
+// The same handle released twice.
+//
+// The first '[mov]' transfers the address out of 'w'. C would accept the
+// second call and free the same pointer again; FOL refuses at the second
+// transfer, pointing at the first.
+use std: pkg = {"std"};
+use wid: pkg = {"widget"};
+
+fun[] main(): int = {
+    var w: wid::Widget = wid::widget_new(21);
+    wid::widget_free([mov]w);
+    wid::widget_free([mov]w);
+    return std::io::echo_int(0);
+};

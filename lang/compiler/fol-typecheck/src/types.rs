@@ -237,6 +237,17 @@ pub enum CheckedType {
         /// nullability marker, so `opt ptr[raw, T]` is the nullable form.
         mutable: bool,
     },
+    /// An opaque foreign resource: an address FOL owns and cannot look inside.
+    ///
+    /// Nominal by construction. The alias and domain together are the identity,
+    /// so a handle from one provider is a different type from one produced by
+    /// another and cannot reach the wrong destroy at all. That is the whole
+    /// mechanism behind section 12.4's "stable identity checked by the destroy
+    /// adapter" -- no runtime tag is needed, because the check is the type.
+    ForeignHandle {
+        alias: String,
+        domain: String,
+    },
     Error {
         inner: Option<CheckedTypeId>,
     },
@@ -291,6 +302,9 @@ impl TypeTable {
     pub fn render_type(&self, type_id: CheckedTypeId) -> String {
         match self.get(type_id) {
             Some(CheckedType::Builtin(builtin)) => builtin.as_str().to_string(),
+            // Qualified, because the alias is half the identity: two providers
+            // may both call their resource `Connection`.
+            Some(CheckedType::ForeignHandle { alias, domain }) => format!("{alias}::{domain}"),
             Some(CheckedType::Declared { name, args, .. }) => {
                 if args.is_empty() {
                     name.clone()
