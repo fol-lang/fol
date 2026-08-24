@@ -607,3 +607,181 @@ fn an_unselected_declaration_does_not_become_callable() {
 
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A C enum crosses as the integer the target measured it at.
+///
+/// Deliberately not as a FOL entry: a C enum is an integer with named
+/// constants, and projecting it as a tagged union would invent a discriminant
+/// contract C never made -- the same trap M12 exists to avoid on the export
+/// side.
+#[test]
+fn a_c_enum_crosses_at_its_measured_width() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the interop lane");
+        return;
+    };
+    let root = stage_example();
+    std::fs::write(
+        root.join("native/c_math.h"),
+        b"#ifndef C_MATH_H\n#define C_MATH_H\n\
+          enum shade { SHADE_DIM = 3, SHADE_BRIGHT = 9 };\n\
+          int c_math_level(enum shade s);\n#endif\n",
+    )
+    .expect("header writable");
+    std::fs::write(
+        root.join("native/c_math.c"),
+        b"#include \"c_math.h\"\nint c_math_level(enum shade s) { return (int)s * 2; }\n",
+    )
+    .expect("provider writable");
+    std::fs::write(
+        root.join("interop/c_math.toml"),
+        b"version = 1\n[routine.c_math_level]\nfol_name = \"level\"\nerror = \"infallible\"\n",
+    )
+    .expect("overlay writable");
+    std::fs::write(
+        root.join("src/main.fol"),
+        b"use std: pkg = {\"std\"};\nuse cm: pkg = {\"c_math\"};\n\n\
+          fun[] main(): int = {\n\
+          \x20   var bright: u32 = 9;\n\
+          \x20   var got: int[32] = cm::level(bright);\n\
+          \x20   var expected: int[32] = 18;\n\
+          \x20   var marker: int = 0;\n\
+          \x20   when(.eq(got, expected)) {\n\
+          \x20       case(true) { marker = 7; }\n\
+          \x20       * { marker = 1; }\n\
+          \x20   };\n\
+          \x20   var shown: int = std::io::echo_int(marker);\n\
+          \x20   return 0;\n};\n",
+    )
+    .expect("source writable");
+    build_provider(&root, &compiler);
+
+    let (ok, text) = bind(
+        &root,
+        &compiler,
+        &temp,
+        "interop/c_math.toml",
+        "interop/c_math.folabi.json",
+    );
+    assert!(ok, "an enum parameter should bind:\n{text}");
+
+    let manifest = std::fs::read_to_string(root.join("interop/c_math.folabi.json"))
+        .expect("manifest readable");
+    assert!(
+        manifest.contains("\"scalar\":\"u32\""),
+        "the enum should record its measured storage:\n{manifest}"
+    );
+
+    let (ok, text) = run_folc(&root, &compiler, &temp, &["code", "build"]);
+    assert!(ok, "the importing package should build:\n{text}");
+
+    let binary = root.join(".fol/install/bin/v4_c_import_scalar");
+    let output = Command::new(&binary).output().expect("run the program");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "the program should run:\n{stdout}");
+    // 9 doubled is 18: the value can only be right if the enum crossed intact.
+    assert!(stdout.contains('7'), "the enum call went wrong:\n{stdout}");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A C record projects and is then refused, with the reason it is refused for.
+///
+/// The projection is real -- the shape checks below run first, so a union or a
+/// bitfield is refused for what it is. What is missing is downstream: the raw
+/// binding crate emits the struct without `Clone` or `Default`, so it cannot
+/// serve as a FOL value. Refusing here rather than accepting it into a manifest
+/// that fails during code generation is the rule this plan set for itself.
+#[test]
+fn a_c_record_is_refused_with_the_reason_it_cannot_cross() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the interop lane");
+        return;
+    };
+    let root = stage_example();
+    std::fs::write(
+        root.join("native/c_math.h"),
+        b"#ifndef C_MATH_H\n#define C_MATH_H\n\
+          struct point { int x; int y; };\n\
+          int c_math_area(struct point p);\n#endif\n",
+    )
+    .expect("header writable");
+    std::fs::write(
+        root.join("native/c_math.c"),
+        b"#include \"c_math.h\"\nint c_math_area(struct point p) { return p.x * p.y; }\n",
+    )
+    .expect("provider writable");
+    std::fs::write(
+        root.join("interop/c_math.toml"),
+        b"version = 1\n[routine.c_math_area]\nfol_name = \"area\"\nerror = \"infallible\"\n",
+    )
+    .expect("overlay writable");
+    build_provider(&root, &compiler);
+
+    let (ok, text) = bind(
+        &root,
+        &compiler,
+        &temp,
+        "interop/c_math.toml",
+        "interop/c_math.folabi.json",
+    );
+    assert!(!ok, "a record parameter must be refused for now:\n{text}");
+    assert!(
+        text.contains("is a record, which projects but cannot yet be used"),
+        "the refusal should say what is missing:\n{text}"
+    );
+    assert!(
+        text.contains("point"),
+        "the refusal should name the record:\n{text}"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A struct that refers to itself is refused before it can recurse.
+///
+/// `struct node { struct node *next; }` is an ordinary header shape and a cycle
+/// in the type graph: the pointer's target resolves back to the record being
+/// projected. Without the guard the projection recursed until the stack ended,
+/// which is what this asserts is no longer possible.
+#[test]
+fn a_self_referential_record_is_refused_rather_than_recursing() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the interop lane");
+        return;
+    };
+    let root = stage_example();
+    std::fs::write(
+        root.join("native/c_math.h"),
+        b"#ifndef C_MATH_H\n#define C_MATH_H\n\
+          struct node { int value; struct node *next; };\n\
+          int c_math_chain(struct node n);\n#endif\n",
+    )
+    .expect("header writable");
+    std::fs::write(
+        root.join("native/c_math.c"),
+        b"#include \"c_math.h\"\nint c_math_chain(struct node n) { return n.value; }\n",
+    )
+    .expect("provider writable");
+    std::fs::write(
+        root.join("interop/c_math.toml"),
+        b"version = 1\n[routine.c_math_chain]\nfol_name = \"chain\"\nerror = \"infallible\"\n",
+    )
+    .expect("overlay writable");
+    build_provider(&root, &compiler);
+
+    let (ok, text) = bind(
+        &root,
+        &compiler,
+        &temp,
+        "interop/c_math.toml",
+        "interop/c_math.folabi.json",
+    );
+    assert!(!ok, "a self-referential record must be refused:\n{text}");
+    assert!(
+        text.contains("refers to itself"),
+        "the refusal should name the cycle:\n{text}"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
