@@ -186,6 +186,38 @@ chapter.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the compiler pipeline, crate map, and how data flows from source to binary.
 
+## C interoperability
+
+FOL exports a real C ABI and imports real C libraries. A C program links a FOL
+static or shared library and calls it through a generated header; a FOL package
+calls a C provider through a checked manifest. Both directions are proven by
+lanes in `make verify` that compile and run the result.
+
+```fol
+// Exporting: a C consumer calls this through a generated header.
+lib.set_abi_version({ major = 1, minor = 0 });
+lib.add_abi_export({ routine = "add", symbol = "mylib_add" });
+
+// Importing: the manifest `fol tool bind c` wrote is what compilation reads.
+app.add_c_import({
+    alias = "c_math", header = header, provider = provider,
+    provider_kind = "static", annotations = overlay,
+});
+```
+
+Scalars, records, entries, recoverable errors, and borrowed string views cross
+in both directions. Opaque handles with paired destroy routines and one
+synchronous callback shape can be **imported** from C; they cannot yet be
+exported to it. Variadics, bitfields, unions, packed and flexible-array
+members, and C++ linkage are refused rather than approximated, on the principle
+that a construct FOL cannot model exactly should not compile.
+
+Certified for `x86_64-unknown-linux-gnu` and `x86_64-unknown-linux-musl`, each
+with its own release-blocking link-and-run lane; GCC and clang are both
+accepted. Every other target is refused by name. The full matrix, the
+exclusions, and the ABI-versioning rules are in the
+[Interop chapter](book/src/950_interop/_index.md).
+
 ## Runtime Models
 
 Every FOL artifact selects a capability mode in `build.fol`. Set `fol_model`

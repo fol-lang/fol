@@ -507,9 +507,20 @@ See `plan/VERSIONS.md` for the full rationale.
   spawning, channels, `select`, `[mux]`, and internal eventuals through
   `| async` / `| await`.
 
-- **V4** — later interop/backend-boundary work: C ABI, Rust interop, native
-  linking contracts, foreign declarations, and related conversion/diagnostic
-  surfaces.
+- **V4** — the interop and backend-boundary release. What has landed: a
+  canonical C ABI model with preserved layout facts, real native artifact
+  families and ordered link plans, C export through generated headers with
+  status/out-parameter wrappers and contained panics, bounded C header import
+  through the pinned PARC/LINC/GERC pipeline, opaque handles as linear
+  resources, one synchronous callback shape, ABI manifests with separate
+  interface and build fingerprints, and release archives with checksums and
+  provenance.
+
+  Still outside it: exporting handles or callbacks to C, importing C structs
+  and enums, Rust interop, and general foreign declaration syntax. The
+  exclusions are enumerated in the
+  [Interop chapter](book/src/950_interop/_index.md) and tracked in
+  `plan/V4_PLAN.md`.
 
 ### V3 completeness boundary
 
