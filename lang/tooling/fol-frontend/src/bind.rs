@@ -126,13 +126,16 @@ fn invalid(message: impl Into<String>) -> FrontendError {
     FrontendError::new(FrontendErrorKind::InvalidInput, message)
 }
 
-/// Where a package's checked manifests live by convention.
+/// Where a package's checked manifests live.
 ///
-/// Not enforced -- `--out` is explicit -- but the default the documentation and
-/// the example both use, so a reader sees one location rather than three.
+/// `interop/`, beside the annotation overlay, and deliberately not under
+/// `build/`: section 4.13 calls this "checked-in integration data", and a
+/// generated tree that every `.gitignore` excludes is the one place it must
+/// not be. The two files for one import sit together -- `<alias>.toml` states
+/// the contract, `<alias>.folabi.json` records what the pipeline accepted.
 pub fn default_manifest_path(package_root: &Path, alias: &str) -> PathBuf {
     package_root
-        .join("build/interop")
+        .join("interop")
         .join(format!("{alias}.folabi.json"))
 }
 

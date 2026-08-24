@@ -26,3 +26,8 @@ AGENTS.md
 lang/tooling/fol-editor/tree-sitter/src/parser.c
 lang/tooling/fol-editor/tree-sitter/src/node-types.json
 lang/tooling/fol-editor/tree-sitter/src/tree_sitter/
+
+# C provider archives built by the interop fixtures. The .c/.h sources are
+# tracked; the compiled archive is rebuilt by the test that needs it.
+examples/*/native/*.a
+examples/*/native/*.o
