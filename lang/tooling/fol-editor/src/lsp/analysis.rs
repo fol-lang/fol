@@ -236,6 +236,7 @@ pub(super) fn analyze_document_semantics(
                 package_store_root: package_store_root
                     .is_dir()
                     .then(|| package_store_root.to_string_lossy().to_string()),
+                ..ResolverConfig::default()
             },
         ) {
             Ok(resolved) => resolved,

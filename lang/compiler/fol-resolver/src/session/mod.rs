@@ -15,6 +15,12 @@ mod tests;
 pub struct ResolverConfig {
     pub std_root: Option<String>,
     pub package_store_root: Option<String>,
+    /// Checked C imports whose namespaces this program may reach.
+    ///
+    /// Loaded from `.folabi.json` manifests before resolution, so a `pkg`
+    /// import naming one of these aliases resolves to a synthesized namespace
+    /// rather than being looked up in the package store.
+    pub c_imports: Vec<fol_abi::ImportedInterface>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -143,6 +149,9 @@ impl ResolverSession {
             )]);
         }
         crate::inject::inject_build_stdlib_types(&mut program);
+        // Foreign namespaces must exist before imports resolve, or a `pkg`
+        // import naming one would be searched for in the package store.
+        crate::c_import::inject_c_import_namespaces(&mut program, &self.config.c_imports);
         let collected = collect::collect_top_level_symbols(&mut program)
             .and_then(|_| imports::resolve_import_targets(self, &mut program))
             .and_then(|_| traverse::collect_routine_scopes(self, &mut program));

@@ -9,6 +9,7 @@ name = "fol_typecheck"
 path = "src/lib.rs"
 
 [dependencies]
+fol-abi = { path = "../fol-abi" }
 fol-diagnostics = { path = "../fol-diagnostics" }
 fol-intrinsics = { path = "../fol-intrinsics" }
 fol-lexer = { path = "../fol-lexer" }

@@ -1071,6 +1071,7 @@ fn workspace_typechecking_keeps_direct_std_import_declaration_facts() {
                     .expect("package store root should be valid UTF-8")
                     .to_string(),
             ),
+            ..ResolverConfig::default()
         },
     )
     .expect("Workspace entry typing should keep direct std import declaration facts");
@@ -1119,6 +1120,7 @@ fn workspace_typechecking_keeps_direct_pkg_import_declaration_facts() {
                     .expect("Package store root should be valid UTF-8")
                     .to_string(),
             ),
+            ..ResolverConfig::default()
         },
     )
     .expect("Workspace entry typing should keep direct pkg import declaration facts");
@@ -1176,6 +1178,7 @@ fn workspace_typechecking_keeps_transitive_pkg_import_declaration_facts() {
                     .expect("Package store root should be valid UTF-8")
                     .to_string(),
             ),
+            ..ResolverConfig::default()
         },
     )
     .expect("Workspace entry typing should keep transitive pkg declaration facts");

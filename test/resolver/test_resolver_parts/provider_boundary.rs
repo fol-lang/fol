@@ -118,6 +118,7 @@ fn test_resolver_keeps_bundled_std_pkg_import_semantics_stable_through_package_p
         ResolverConfig {
             std_root: None,
             package_store_root: Some(store_root.to_string_lossy().into_owned()),
+            ..ResolverConfig::default()
         },
     );
     let import = resolved
@@ -203,6 +204,7 @@ fn test_resolver_keeps_pkg_import_semantics_stable_through_package_provider() {
                     .expect("Temporary package-store fixture path should be valid UTF-8")
                     .to_string(),
             ),
+            ..ResolverConfig::default()
         },
     );
     let import = resolved

@@ -80,6 +80,9 @@ pub(crate) fn workspace_resolver_config(
                 .to_string_lossy()
                 .to_string(),
         ),
+        // Filled in by the caller that knows the artifact's C imports; a
+        // workspace-wide config cannot, since imports are per-artifact.
+        c_imports: Vec::new(),
     }
 }
 
@@ -122,5 +125,6 @@ pub(crate) fn direct_resolver_config(
         })
         .map(|path| path.to_string_lossy().to_string()),
         package_store_root: store_root.map(|path| path.to_string_lossy().to_string()),
+        c_imports: Vec::new(),
     }
 }

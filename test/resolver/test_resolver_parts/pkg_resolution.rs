@@ -73,6 +73,7 @@ fn test_resolver_resolves_pkg_imports_from_the_configured_package_store_root() {
                     .expect("Temporary package-store fixture path should be valid UTF-8")
                     .to_string(),
             ),
+            ..ResolverConfig::default()
         },
     );
     let import = resolved
@@ -167,6 +168,7 @@ fn test_resolver_pkg_imports_expose_semantic_internal_namespaces() {
                     .expect("Temporary package-store fixture path should be valid UTF-8")
                     .to_string(),
             ),
+            ..ResolverConfig::default()
         },
     );
     let routine_scope_id = resolved
@@ -274,6 +276,7 @@ fn test_resolver_resolves_qualified_pkg_names_through_declared_export_namespaces
                     .expect("Temporary package-store fixture path should be valid UTF-8")
                     .to_string(),
             ),
+            ..ResolverConfig::default()
         },
     );
     let import = resolved
@@ -383,6 +386,7 @@ fn test_resolver_pkg_qualified_names_follow_semantic_internal_namespaces() {
                     .expect("Temporary package-store fixture path should be valid UTF-8")
                     .to_string(),
             ),
+            ..ResolverConfig::default()
         },
     );
     let routine_scope_id = resolved
@@ -462,6 +466,7 @@ fn test_resolver_pkg_transitive_dependencies_follow_build_definitions() {
                     .expect("Temporary package-store fixture path should be valid UTF-8")
                     .to_string(),
             ),
+            ..ResolverConfig::default()
         },
     );
     let import = resolved

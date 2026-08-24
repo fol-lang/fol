@@ -51,6 +51,7 @@ fn test_resolver_resolves_bundled_std_from_declared_pkg_alias() {
         ResolverConfig {
             std_root: None,
             package_store_root: Some(store_root.to_string_lossy().into_owned()),
+            ..ResolverConfig::default()
         },
     );
     let import = resolved
@@ -126,6 +127,7 @@ fn test_resolver_reports_nested_bundled_std_namespaces_from_pkg_alias_root() {
         ResolverConfig {
             std_root: None,
             package_store_root: Some(store_root.to_string_lossy().into_owned()),
+            ..ResolverConfig::default()
         },
     );
     assert!(
@@ -160,6 +162,7 @@ fn test_resolver_resolves_bundled_std_io_from_pkg_alias_root() {
         ResolverConfig {
             std_root: None,
             package_store_root: Some(store_root.to_string_lossy().into_owned()),
+            ..ResolverConfig::default()
         },
     );
     let import = resolved
@@ -214,6 +217,7 @@ fn test_resolver_reports_missing_bundled_std_dependency_alias_cleanly() {
         ResolverConfig {
             std_root: None,
             package_store_root: Some(store_root.to_string_lossy().into_owned()),
+            ..ResolverConfig::default()
         },
     )
     .expect_err("Resolver should reject missing bundled std dependency aliases");
@@ -253,6 +257,7 @@ fn test_resolver_reports_alias_mismatches_for_bundled_std_pkg_imports() {
         ResolverConfig {
             std_root: None,
             package_store_root: Some(store_root.to_string_lossy().into_owned()),
+            ..ResolverConfig::default()
         },
     )
     .expect_err("Resolver should reject bundled std alias mismatches");

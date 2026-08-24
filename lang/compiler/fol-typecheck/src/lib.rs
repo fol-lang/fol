@@ -5,6 +5,7 @@
 //! processor checks, typed results, and compiler diagnostics.
 
 pub mod builtins;
+mod c_import;
 mod channel_analysis;
 pub mod config;
 pub mod decls;
@@ -44,6 +45,7 @@ pub type TypecheckResult<T> = Result<T, Vec<TypecheckError>>;
 #[derive(Debug, Default)]
 pub struct Typechecker {
     config: TypecheckConfig,
+    c_imports: Vec<fol_abi::ImportedInterface>,
 }
 
 impl Typechecker {
@@ -52,7 +54,16 @@ impl Typechecker {
     }
 
     pub fn with_config(config: TypecheckConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            c_imports: Vec::new(),
+        }
+    }
+
+    /// Supply the checked C imports the resolver mounted for this program.
+    pub fn with_c_imports(mut self, c_imports: Vec<fol_abi::ImportedInterface>) -> Self {
+        self.c_imports = c_imports;
+        self
     }
 
     pub fn config(&self) -> TypecheckConfig {
@@ -63,14 +74,18 @@ impl Typechecker {
         &mut self,
         resolved: fol_resolver::ResolvedProgram,
     ) -> TypecheckResult<TypedProgram> {
-        session::TypecheckSession::with_config(self.config).check_resolved_program(resolved)
+        session::TypecheckSession::with_config(self.config)
+            .with_c_imports(self.c_imports.clone())
+            .check_resolved_program(resolved)
     }
 
     pub fn check_resolved_workspace(
         &mut self,
         resolved: fol_resolver::ResolvedWorkspace,
     ) -> TypecheckResult<TypedWorkspace> {
-        session::TypecheckSession::with_config(self.config).check_resolved_workspace(resolved)
+        session::TypecheckSession::with_config(self.config)
+            .with_c_imports(self.c_imports.clone())
+            .check_resolved_workspace(resolved)
     }
 }
 

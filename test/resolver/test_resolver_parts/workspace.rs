@@ -153,6 +153,7 @@ fn test_resolver_workspace_keeps_transitive_loaded_packages() {
                     .expect("Temporary package-store fixture path should be valid UTF-8")
                     .to_string(),
             ),
+            ..ResolverConfig::default()
         },
     );
 

@@ -1023,6 +1023,7 @@ mod tests {
             ResolverConfig {
                 std_root: None,
                 package_store_root: Some(store_root.to_string_lossy().into_owned()),
+                ..ResolverConfig::default()
             },
         )
         .expect("Lowering folder fixture should resolve");

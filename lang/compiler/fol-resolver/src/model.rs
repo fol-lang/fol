@@ -422,6 +422,15 @@ impl ResolvedProgram {
         self.namespace_scopes.get(namespace).copied()
     }
 
+    /// Register a namespace built without parsing FOL source.
+    ///
+    /// The only caller is the C-import synthesizer: section 4.13 mounts a
+    /// foreign surface as an ordinary namespace, and it has no source units to
+    /// derive one from.
+    pub(crate) fn register_namespace_scope(&mut self, namespace: String, scope_id: ScopeId) {
+        self.namespace_scopes.insert(namespace, scope_id);
+    }
+
     pub fn scope_for_syntax(&self, syntax_id: SyntaxNodeId) -> Option<ScopeId> {
         self.syntax_scopes.get(&syntax_id).copied()
     }

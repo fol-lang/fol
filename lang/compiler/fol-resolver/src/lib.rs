@@ -21,6 +21,7 @@
 //! - ownership/borrowing analysis
 //! - runtime lowering or code generation
 
+pub mod c_import;
 pub mod collect;
 pub mod errors;
 pub mod ids;
@@ -30,6 +31,7 @@ pub mod model;
 pub mod session;
 pub mod traverse;
 
+pub use c_import::{inject_c_import_namespaces, synthetic_source_path};
 pub use errors::{ResolverError, ResolverErrorKind};
 pub use fol_package::PreparedPackage;
 pub use fol_parser::ast::ParsedSourceUnitKind;

@@ -85,8 +85,14 @@ pub(crate) fn resolve_import_target_with_session(
             Ok(())
         }
         FolType::Package { .. } => {
-            let target_scope = resolve_package_target_from_store(session, program, &import)
-                .map_err(|error| import_error_from(program, import.alias_symbol, error))?;
+            // A checked C import is already mounted as a namespace, so it
+            // resolves here rather than being searched for in the package
+            // store, where no such package exists.
+            let target_scope = match c_import_namespace_scope(session, program, &import) {
+                Some(scope_id) => scope_id,
+                None => resolve_package_target_from_store(session, program, &import)
+                    .map_err(|error| import_error_from(program, import.alias_symbol, error))?,
+            };
             if let Some(import_slot) = program.imports.get_mut(import_id) {
                 import_slot.target_scope = Some(target_scope);
             }
@@ -139,6 +145,22 @@ fn intra_package_namespace_scope(
     } else {
         program.namespace_scope(&namespace)
     }
+}
+
+/// The synthesized namespace for `use x: pkg = {"<alias>"}`, when `<alias>`
+/// names one of this program's checked C imports.
+fn c_import_namespace_scope(
+    session: &ResolverSession,
+    program: &ResolvedProgram,
+    import: &crate::ResolvedImport,
+) -> Option<ScopeId> {
+    session
+        .config()
+        .c_imports
+        .iter()
+        .any(|interface| interface.alias == import.import_target)
+        .then(|| program.namespace_scope(&import.import_target))
+        .flatten()
 }
 
 fn resolve_package_target_from_store(

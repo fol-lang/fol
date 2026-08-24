@@ -1248,6 +1248,7 @@ fn legacy_single_package_typecheck_rejects_imported_std_values_explicitly() {
                     .expect("package store root should be utf8")
                     .to_string(),
             ),
+            ..ResolverConfig::default()
         },
     )
     .expect_err("legacy single-package typechecking should still reject imported std values");
@@ -1296,6 +1297,7 @@ fn legacy_single_package_typecheck_rejects_imported_pkg_values_explicitly() {
                     .expect("package store fixture path should be utf8")
                     .to_string(),
             ),
+            ..ResolverConfig::default()
         },
     )
     .expect_err("legacy single-package typechecking should still reject imported pkg values");

@@ -6,6 +6,7 @@ edition = "2021"
 description = "Whole-program name resolution for FOL language"
 
 [dependencies]
+fol-abi = { path = "../fol-abi" }
 fol-types = { path = "../fol-types" }
 fol-build = { path = "../../execution/fol-build" }
 fol-package = { path = "../fol-package" }

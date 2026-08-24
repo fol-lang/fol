@@ -57,6 +57,7 @@ fn session_config_can_be_provided_explicitly() {
     let session = ResolverSession::with_config(ResolverConfig {
         std_root: Some("/tmp/fol_std".to_string()),
         package_store_root: Some("/tmp/fol_pkg".to_string()),
+        ..ResolverConfig::default()
     });
 
     assert_eq!(session.config().std_root.as_deref(), Some("/tmp/fol_std"));
@@ -530,6 +531,7 @@ fn session_recursively_loads_transitive_pkg_dependencies_from_store() {
                 .expect("Temporary package-store fixture path should be valid UTF-8")
                 .to_string(),
         ),
+        ..ResolverConfig::default()
     });
 
     session
@@ -581,6 +583,7 @@ fn session_preloads_pkg_dependencies_from_metadata() {
                 .expect("Temporary package-store fixture path should be valid UTF-8")
                 .to_string(),
         ),
+        ..ResolverConfig::default()
     });
 
     let loaded = session
@@ -686,6 +689,7 @@ fn session_reuses_cached_shared_pkg_dependencies_across_multiple_dependents() {
                 .expect("Temporary package-store fixture path should be valid UTF-8")
                 .to_string(),
         ),
+        ..ResolverConfig::default()
     });
 
     session

@@ -8,6 +8,13 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Debug, Default)]
 pub struct TypecheckSession {
     config: TypecheckConfig,
+    /// Checked C imports whose namespaces this program may call.
+    ///
+    /// Held on the session rather than in `TypecheckConfig` because it is an
+    /// input to one compilation, not a mode: the config is a small `Copy`
+    /// value that hundreds of call sites construct literally, and a per-run
+    /// list of interfaces does not belong in it.
+    c_imports: Vec<fol_abi::ImportedInterface>,
 }
 
 impl TypecheckSession {
@@ -16,11 +23,20 @@ impl TypecheckSession {
     }
 
     pub fn with_config(config: TypecheckConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            c_imports: Vec::new(),
+        }
     }
 
-    pub fn config(&self) -> TypecheckConfig {
-        self.config
+    /// Supply the checked C imports the resolver mounted for this program.
+    pub fn with_c_imports(mut self, c_imports: Vec<fol_abi::ImportedInterface>) -> Self {
+        self.c_imports = c_imports;
+        self
+    }
+
+    pub fn config(&self) -> &TypecheckConfig {
+        &self.config
     }
 
     pub fn check_resolved_program(
@@ -31,6 +47,7 @@ impl TypecheckSession {
         validate_implicit_closure_captures(&resolved)?;
         let mut typed =
             TypedProgram::from_resolved_with_model(resolved, self.config.capability_model);
+        crate::c_import::hydrate_c_import_symbol_types(&mut typed, &self.c_imports)?;
         decls::lower_declaration_signatures(&mut typed)?;
         exprs::type_program(&mut typed)?;
         Ok(typed)
@@ -143,6 +160,10 @@ impl TypecheckSession {
             );
             if let Err(mut package_errors) =
                 self.hydrate_mounted_symbol_types(&mut typed, typed_packages)
+            {
+                errors.append(&mut package_errors);
+            } else if let Err(mut package_errors) =
+                crate::c_import::hydrate_c_import_symbol_types(&mut typed, &self.c_imports)
             {
                 errors.append(&mut package_errors);
             } else if let Err(mut package_errors) = decls::lower_declaration_signatures(&mut typed)
