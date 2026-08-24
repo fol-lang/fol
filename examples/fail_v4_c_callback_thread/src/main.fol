@@ -1,0 +1,34 @@
+// A provider that invokes the callback from another thread.
+//
+// This is the case the trampoline's thread-local slot exists for, and it is
+// not the same as invoking one after the call returned. Here the closure is
+// still alive -- `tally_range` has not returned, and the context still points
+// at a live stack local -- so a null check and a liveness check both pass.
+//
+// What is wrong is the thread. FOL lends a closure for the duration of one
+// call on one thread; reaching it from a second thread reaches it without any
+// of the synchronisation that would make that safe, and the closure may
+// capture values that are not shareable at all.
+//
+// The slot is thread-local, so the worker thread finds it empty and the
+// invocation is refused. That the check falls out of the same mechanism is
+// the point -- but a mechanism nothing tests is a mechanism nobody knows is
+// working, which is why this package exists.
+
+use std: pkg = {"std"};
+use tal: pkg = {"tally"};
+
+fun[] main(): int = {
+    var total: int[32] = tal::tally_range(4, fun(a: int[32], v: int[32]): int[32] = {
+        return a + v;
+    });
+    // Never reached: the worker thread's slot is empty, so the invocation is
+    // refused before it can run a closure this thread lent.
+    var marker: int = 0;
+    when(total) {
+        is(10) { marker = 7; }
+        * { marker = 1; }
+    };
+    var shown: int = std::io::echo_int(marker);
+    return 0;
+};

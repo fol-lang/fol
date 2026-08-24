@@ -824,3 +824,117 @@ fn a_self_referential_record_is_refused_rather_than_recursing() {
 
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// The compiler that measured the layouts is recorded by content, not by path.
+///
+/// Every offset, width, and signedness in the interface came out of that
+/// binary. Replace it at the same path -- a different major version, a
+/// different vendor -- and the path still matches while the measurements it
+/// would produce may not.
+///
+/// It is recorded and folded into cache identity, and deliberately *not* a
+/// staleness gate: the header, provider, and overlay are package-relative and
+/// checked in, so every machine reads the same bytes, while the compiler is an
+/// absolute path into whatever toolchain this machine has. Gating on it would
+/// refuse a manifest bound on one machine and built on another.
+#[test]
+fn the_compiler_is_recorded_by_content() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the import slice");
+        return;
+    };
+    let root = stage_example();
+    build_provider(&root, &compiler);
+
+    let (ok, output) = bind(
+        &root,
+        &compiler,
+        &temp,
+        "interop/c_math.toml",
+        "interop/c_math.folabi.json",
+    );
+    assert!(ok, "binding should succeed:\n{output}");
+
+    let manifest = std::fs::read_to_string(root.join("interop/c_math.folabi.json"))
+        .expect("the manifest should be written");
+    let digest = manifest
+        .split("\"compiler_digest\":\"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .expect("the compiler digest should be recorded");
+    assert!(
+        digest.len() >= 16 && digest.chars().all(|c| c.is_ascii_hexdigit()),
+        "the digest should be a content hash, got {digest:?}"
+    );
+    // The path alone was what this replaced, so both are present and differ.
+    assert!(
+        manifest.contains(&compiler) && !manifest.contains(&format!("\"{compiler}\",\"{digest}\"")),
+        "the path and the digest are separate facts:\n{manifest}"
+    );
+}
+
+/// A declaration can live in a header the entry includes, and editing that one
+/// used to be invisible.
+///
+/// Only the entry header's digest was checked, so a change to an included file
+/// left every recorded digest matching. The build re-ran the C pipeline, picked
+/// up the new signature in the raw bindings, and then failed as a *Rust type
+/// error in generated code* -- the right build outcome for entirely the wrong
+/// reason, and with nothing telling the author to re-bind.
+#[test]
+fn an_edited_include_is_reported_as_staleness() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the import slice");
+        return;
+    };
+    let root = stage_example();
+    build_provider(&root, &compiler);
+
+    // Move one declaration into a second header the entry includes.
+    let header = root.join("native/c_math.h");
+    let text = std::fs::read_to_string(&header).expect("c_math.h readable");
+    let Some(moved) = text
+        .lines()
+        .find(|line| line.trim_start().starts_with("int32_t") && line.contains('('))
+    else {
+        eprintln!("skipping: the fixture header has no declaration to move");
+        return;
+    };
+    let moved = moved.to_string();
+    std::fs::write(
+        root.join("native/shapes.h"),
+        format!(
+            "#ifndef FOL_SHAPES_H\n#define FOL_SHAPES_H\n#include <stdint.h>\n#include <stddef.h>\n{moved}\n#endif\n"
+        ),
+    )
+    .expect("shapes.h writable");
+    std::fs::write(&header, text.replace(&moved, "#include \"shapes.h\""))
+        .expect("c_math.h writable");
+
+    let (ok, output) = bind(
+        &root,
+        &compiler,
+        &temp,
+        "interop/c_math.toml",
+        "interop/c_math.folabi.json",
+    );
+    assert!(ok, "binding a split header should succeed:\n{output}");
+    let manifest = std::fs::read_to_string(root.join("interop/c_math.folabi.json"))
+        .expect("the manifest should be written");
+    assert!(
+        manifest.contains("native/shapes.h"),
+        "the included header should be recorded:\n{manifest}"
+    );
+
+    // Touch only the include. Every previously recorded digest still matches.
+    let shapes = root.join("native/shapes.h");
+    let text = std::fs::read_to_string(&shapes).expect("shapes.h readable");
+    std::fs::write(&shapes, format!("{text}\n/* edited */\n")).expect("shapes.h rewritable");
+
+    let (ok, output) = run_folc(&root, &compiler, &temp, &["code", "build"]);
+    assert!(!ok, "an edited include should be refused:\n{output}");
+    assert!(
+        output.contains("included header") && output.contains("native/shapes.h"),
+        "the changed include should be named:\n{output}"
+    );
+}

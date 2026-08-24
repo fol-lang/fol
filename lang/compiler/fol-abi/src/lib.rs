@@ -32,8 +32,8 @@ pub use import::{
     CapabilityModel, ImportRejection, ImportedInterface, ImportedRoutine,
 };
 pub use import_manifest::{
-    canonical_import_interface_json, ImportManifest, ImportManifestError, ImportProvenance,
-    StaleImportInput, IMPORT_MANIFEST_SCHEMA, IMPORT_MANIFEST_SCHEMA_VERSION,
+    canonical_import_interface_json, ImportInclude, ImportManifest, ImportManifestError,
+    ImportProvenance, StaleImportInput, IMPORT_MANIFEST_SCHEMA, IMPORT_MANIFEST_SCHEMA_VERSION,
 };
 pub use interface::{
     AbiCallingConvention, AbiDirection, AbiEffects, AbiErrorContract, AbiFacing, AbiParameter,

@@ -218,10 +218,21 @@ pub fn load_c_import_interfaces(
             None => None,
         };
         let provider_digest = recorded_input_digest(package_root, &manifest.provenance.provider)?;
+        // A declaration can live in a file the entry includes, so the entry's
+        // own digest does not describe what was read. An include that has
+        // since been deleted is absent from this map, which reads as changed
+        // -- correctly: the manifest describes a header that is not there.
+        let mut includes = std::collections::BTreeMap::new();
+        for include in &manifest.provenance.includes {
+            if let Ok(digest) = recorded_input_digest(package_root, &include.path) {
+                includes.insert(include.path.clone(), digest);
+            }
+        }
         if let Some(stale) = manifest.stale_input(
             &header_digest,
             annotations_digest.as_deref(),
             &provider_digest,
+            &includes,
         ) {
             return Err(invalid(format!("{stale}")).with_note(format!(
                 "run `fol tool bind c --alias {alias} ...` again and check the result in",

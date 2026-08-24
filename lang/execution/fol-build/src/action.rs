@@ -129,6 +129,37 @@ impl BuildAction {
     /// same inputs, so one may be skipped when the other has run. Environment
     /// values are hashed rather than rendered, because an action's environment
     /// can hold a token and a cache key travels with build metadata.
+    /// The absolute tool this action runs, when it runs one.
+    pub fn tool_path(&self) -> Option<&str> {
+        match &self.payload {
+            BuildActionPayload::SystemTool { tool, .. } => Some(tool.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Cache identity including what the tools on disk actually are.
+    ///
+    /// A tool's *path* is not its identity: replacing `/usr/bin/cc` with a
+    /// different compiler leaves every path in the plan unchanged, and a cache
+    /// keyed on paths alone would hand back results the new compiler never
+    /// produced. The digests are computed once per distinct path by the
+    /// caller, because one plan runs one tool many times.
+    ///
+    /// A tool that could not be read contributes nothing rather than a
+    /// placeholder: it will be refused at execution, and inventing an identity
+    /// for a file that is not there would make two different absences equal.
+    pub fn cache_identity_with_tools(
+        &self,
+        digests: &std::collections::BTreeMap<String, String>,
+    ) -> String {
+        let mut rendered = self.cache_identity();
+        if let Some(digest) = self.tool_path().and_then(|tool| digests.get(tool)) {
+            rendered.push('\n');
+            rendered.push_str(digest);
+        }
+        rendered
+    }
+
     pub fn cache_identity(&self) -> String {
         let mut rendered = String::new();
         rendered.push_str(self.payload.kind_name());

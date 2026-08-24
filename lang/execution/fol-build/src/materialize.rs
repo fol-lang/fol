@@ -545,10 +545,26 @@ fn ensure_no_symlink_escape(root: &Path, path: &Path) -> Result<(), MaterializeE
 
 /// The identity of one materialization: every action that will run, in order.
 fn graph_identity(graph: &BuildActionGraph, order: &[crate::action::BuildActionId]) -> String {
-    let rendered = order
+    let actions: Vec<&BuildAction> = order.iter().filter_map(|id| graph.action(*id)).collect();
+    // One read per distinct tool, not one per action: a plan that compiles
+    // forty files invokes one compiler forty times.
+    let mut digests: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    for action in &actions {
+        let Some(tool) = action.tool_path() else {
+            continue;
+        };
+        if digests.contains_key(tool) {
+            continue;
+        }
+        if let Some(content) =
+            crate::action_trust::fingerprint_tool(std::path::Path::new(tool), &[]).content_digest
+        {
+            digests.insert(tool.to_string(), content);
+        }
+    }
+    let rendered = actions
         .iter()
-        .filter_map(|id| graph.action(*id))
-        .map(|action| action.cache_identity())
+        .map(|action| action.cache_identity_with_tools(&digests))
         .collect::<Vec<_>>()
         .join("\u{1f}");
     digest(rendered.as_bytes())
@@ -1264,5 +1280,78 @@ mod escape_and_concurrency_tests {
         );
         assert!(error.to_string().contains("rustc said no"));
         assert!(!published.exists(), "nothing may be published");
+    }
+}
+
+#[cfg(test)]
+mod tool_identity_tests {
+    use crate::action::{BuildAction, BuildActionPayload};
+
+    fn tool_action(tool: &str) -> BuildAction {
+        BuildAction {
+            id: crate::action::BuildActionId(0),
+            name: "probe".to_string(),
+            payload: BuildActionPayload::SystemTool {
+                tool: tool.to_string(),
+                args: Vec::new(),
+                env: Vec::new(),
+                capture_stdout: None,
+            },
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            depends_on: Vec::new(),
+            target: None,
+        }
+    }
+
+    /// Replacing a tool at the same path changes what the plan will produce.
+    ///
+    /// The path is unchanged, so an identity taken over paths alone is
+    /// unchanged too -- and the cache hands back results the new tool never
+    /// produced. This is the whole reason the digest is folded in.
+    #[test]
+    fn a_replaced_tool_at_one_path_changes_the_identity() {
+        let fixture = fol_testkit::TempFixture::new("fol-tool-identity");
+        std::fs::create_dir_all(fixture.path()).expect("fixture root");
+        let tool = fixture.path().join("probe-tool");
+        std::fs::write(&tool, b"#!/bin/sh\nexit 0\n").expect("tool writable");
+
+        let path = tool.to_string_lossy().into_owned();
+        let action = tool_action(&path);
+        let digests_of = |action: &BuildAction| {
+            let mut digests = std::collections::BTreeMap::new();
+            if let Some(content) = crate::action_trust::fingerprint_tool(&tool, &[]).content_digest
+            {
+                digests.insert(path.clone(), content);
+            }
+            action.cache_identity_with_tools(&digests)
+        };
+
+        let before = digests_of(&action);
+        std::fs::write(&tool, b"#!/bin/sh\nexit 1\n").expect("tool rewritable");
+        let after = digests_of(&action);
+
+        assert_ne!(
+            before, after,
+            "a different tool at the same path must not reuse the cache"
+        );
+        // The plan itself is untouched, which is exactly the trap.
+        assert_eq!(
+            action.cache_identity(),
+            tool_action(&path).cache_identity(),
+            "the plan-only identity is what missed this"
+        );
+    }
+
+    /// A tool that is not there contributes nothing rather than a placeholder.
+    #[test]
+    fn an_unreadable_tool_contributes_no_identity() {
+        let action = tool_action("/nonexistent/probe-tool");
+        let empty = std::collections::BTreeMap::new();
+        assert_eq!(
+            action.cache_identity_with_tools(&empty),
+            action.cache_identity(),
+            "an absent tool should not invent an identity"
+        );
     }
 }

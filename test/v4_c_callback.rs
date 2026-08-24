@@ -351,3 +351,46 @@ fn a_callback_invoked_after_the_call_returns_is_refused() {
         "refusing means aborting, not returning:\n{output}"
     );
 }
+
+/// A provider that invokes the callback from another thread is refused.
+///
+/// Not the same failure as invoking one after the call returned, and worth its
+/// own fixture for that reason: here the closure is still alive and the
+/// context still points at a live stack local, so a null check and a liveness
+/// check both pass. What is wrong is the thread.
+///
+/// The slot being thread-local is what catches it, and that is a property of
+/// the mechanism rather than a check anyone wrote. A property nothing tests is
+/// a property nobody knows is holding.
+#[test]
+fn a_callback_invoked_from_another_thread_is_refused() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the callback slice");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("fol_v4_cb_thread");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root");
+    let root = stage(fixture.path(), "fail_v4_c_callback_thread", &compiler);
+
+    let (ok, output) = bind(&root, &compiler, &temp);
+    assert!(ok, "binding should succeed:\n{output}");
+
+    let (ok, output) = run_folc(&root, &compiler, &temp, &["code", "run"]);
+    assert!(
+        !ok,
+        "a cross-thread invocation should not complete:\n{output}"
+    );
+    assert!(
+        output.contains("from another thread"),
+        "the fault should name the thread, not just the scope:\n{output}"
+    );
+    assert!(
+        output.contains("tally_range"),
+        "the fault should name the provider routine:\n{output}"
+    );
+    // 10 is what the sum would be if the closure had actually run.
+    assert!(
+        !output.lines().any(|line| line.trim() == "7"),
+        "the program must not reach its result:\n{output}"
+    );
+}

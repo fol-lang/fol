@@ -203,6 +203,8 @@ pub fn bind_c(request: BindCRequest<'_>) -> Result<ImportManifest, BindCError> {
                 None => None,
             },
             compiler: compiler.display().to_string(),
+            compiler_digest: content_digest(&compiler)?,
+            includes: package_includes(&package_root, &source)?,
             target: target_triple,
             dialect: request.dialect.unwrap_or("c17").to_string(),
             include_roots: request.search.include_roots.clone(),
@@ -292,6 +294,50 @@ pub enum BindCError {
     Generation(String),
     FingerprintMismatch(&'static str),
     Rejected(Vec<ImportRejection>),
+}
+
+/// The package-owned headers the entry pulled in, with FOL's own digests.
+///
+/// PARC already fingerprints every file it read, but the build does not run
+/// PARC -- checking staleness is meant to cost a few file reads, not a C
+/// pipeline -- so the digests recorded here are the ones the build can
+/// recompute for itself.
+///
+/// System includes are excluded. They are not checked in and differ between
+/// machines that are both correct, so digesting them would report staleness
+/// for a manifest that is fine.
+fn package_includes(
+    package_root: &Path,
+    source: &parc::contract::CompleteSourcePackage,
+) -> Result<Vec<fol_abi::ImportInclude>, BindCError> {
+    use parc::contract::SourceFileRole;
+
+    let mut includes = Vec::new();
+    for file in source.source().files() {
+        if file.role != SourceFileRole::UserInclude {
+            continue;
+        }
+        // PARC's logical path is rooted at its own package name; the manifest
+        // records paths the build can resolve against the package root.
+        let relative = file
+            .logical_path
+            .split_once('/')
+            .map(|(_, rest)| rest)
+            .unwrap_or(file.logical_path.as_str());
+        let absolute = package_root.join(relative);
+        if !absolute.is_file() {
+            continue;
+        }
+        includes.push(fol_abi::ImportInclude {
+            path: relative.to_string(),
+            digest: content_digest(&absolute)?,
+        });
+    }
+    // Sorted so two scans that visited the same files in a different order
+    // produce the same manifest.
+    includes.sort();
+    includes.dedup();
+    Ok(includes)
 }
 
 /// Rewrite a native-analysis failure to name a place in the header.

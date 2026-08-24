@@ -69,6 +69,16 @@ pub struct ImportProvenance {
     pub annotations_digest: Option<String>,
     /// The C compiler that measured the layouts.
     pub compiler: String,
+    /// Content digest of that compiler.
+    ///
+    /// The same reasoning as `provider_digest`, applied to the tool rather
+    /// than the artifact: this binary is what *measured* every offset, width,
+    /// and signedness in the interface. Replace it at the same path -- a
+    /// different major version, a different vendor -- and the path still
+    /// matches while the measurements it would produce may not. Without this,
+    /// a manifest measured by one compiler goes on looking current under
+    /// another.
+    pub compiler_digest: String,
     /// The target triple the layouts were measured for.
     pub target: String,
     /// The C standard the header was read as.
@@ -80,9 +90,33 @@ pub struct ImportProvenance {
     /// `NAME` or `NAME=VALUE`, in declaration order.
     pub defines: Vec<String>,
     /// The external sysroot the header was read against, when there is one.
+    ///
+    /// Recorded as a path and never digested. A sysroot is a directory tree of
+    /// tens of thousands of files on this machine; hashing it on every build is
+    /// not affordable, and it is not checked in, so a digest would differ
+    /// between machines that are both correct. What actually reaches the
+    /// interface from it are headers, and those are covered by `includes`
+    /// (package-owned) or deliberately not (system-owned, machine-specific).
     pub sysroot: Option<String>,
+    /// Package-owned headers the entry included, sorted by path.
+    ///
+    /// The entry header's digest alone does not describe what was read: a
+    /// declaration can live in a file the entry includes, and editing *that*
+    /// leaves every recorded digest unchanged. System includes are excluded on
+    /// purpose -- they are machine-specific, and a checked-in manifest that
+    /// digested `stdint.h` would go stale on a different machine that is not
+    /// wrong.
+    pub includes: Vec<ImportInclude>,
     /// Pinned sibling revisions, as `parc=<rev>` style entries in order.
     pub components: Vec<String>,
+}
+
+/// One package-owned header the entry pulled in, and what it said.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ImportInclude {
+    /// Package-relative path.
+    pub path: String,
+    pub digest: String,
 }
 
 /// A recorded input whose bytes no longer match the manifest.
@@ -136,18 +170,35 @@ impl ImportManifest {
             Some(value) => quoted(value),
             None => "null".to_string(),
         };
+        // Sorted at construction; rendered in that order so two scans that
+        // visited the same files in a different sequence agree.
+        let includes = self
+            .provenance
+            .includes
+            .iter()
+            .map(|include| {
+                format!(
+                    "{{\"digest\":{},\"path\":{}}}",
+                    quoted(&include.digest),
+                    quoted(&include.path)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
         format!(
             "{{\"interface\":{interface},\"interface_fingerprint\":{},\
              \"provenance\":{{\"annotations\":{},\"annotations_digest\":{},\
-             \"compiler\":{},\"components\":[{components}],\"defines\":[{}],\
+             \"compiler\":{},\"compiler_digest\":{},\"components\":[{components}],\"defines\":[{}],\
              \"dialect\":{},\"header\":{},\"header_digest\":{},\
-             \"include_roots\":[{}],\"provider\":{},\"provider_digest\":{},\"provider_kind\":{},\
+             \"include_roots\":[{}],\"includes\":[{includes}],\
+             \"provider\":{},\"provider_digest\":{},\"provider_kind\":{},\
              \"system_include_roots\":[{}],\"sysroot\":{},\"target\":{}}},\
              \"provenance_fingerprint\":{}}}",
             quoted(&self.interface_fingerprint()),
             optional(&self.provenance.annotations),
             optional(&self.provenance.annotations_digest),
             quoted(&self.provenance.compiler),
+            quoted(&self.provenance.compiler_digest),
             list(&self.provenance.defines),
             quoted(&self.provenance.dialect),
             quoted(&self.provenance.header),
@@ -180,11 +231,18 @@ impl ImportManifest {
             self.provenance.annotations.as_deref().unwrap_or(""),
             self.provenance.annotations_digest.as_deref().unwrap_or(""),
             self.provenance.compiler.as_str(),
+            self.provenance.compiler_digest.as_str(),
             self.provenance.target.as_str(),
             self.provenance.dialect.as_str(),
             self.provenance.sysroot.as_deref().unwrap_or(""),
         ] {
             rendered.push_str(part);
+            rendered.push('\n');
+        }
+        for include in &self.provenance.includes {
+            rendered.push_str(&include.path);
+            rendered.push('=');
+            rendered.push_str(&include.digest);
             rendered.push('\n');
         }
         // Order is significant for all three: an include root that comes first
@@ -248,12 +306,25 @@ impl ImportManifest {
             annotations: optional("annotations")?,
             annotations_digest: optional("annotations_digest")?,
             compiler: provenance_value.string_field("compiler")?.to_string(),
+            compiler_digest: provenance_value
+                .string_field("compiler_digest")?
+                .to_string(),
             target: provenance_value.string_field("target")?.to_string(),
             dialect: provenance_value.string_field("dialect")?.to_string(),
             include_roots: list("include_roots")?,
             system_include_roots: list("system_include_roots")?,
             defines: list("defines")?,
             sysroot: optional("sysroot")?,
+            includes: {
+                let mut includes = Vec::new();
+                for entry in provenance_value.array_field("includes")? {
+                    includes.push(ImportInclude {
+                        path: entry.string_field("path")?.to_string(),
+                        digest: entry.string_field("digest")?.to_string(),
+                    });
+                }
+                includes
+            },
             components: list("components")?,
         };
         let manifest = Self {
@@ -296,7 +367,16 @@ impl ImportManifest {
         header_digest: &str,
         annotations_digest: Option<&str>,
         provider_digest: &str,
+        includes: &std::collections::BTreeMap<String, String>,
     ) -> Option<StaleImportInput> {
+        // The compiler is deliberately *not* checked here, though its digest is
+        // recorded. The inputs above are package-relative and checked in, so
+        // every machine reads the same bytes; the compiler is an absolute path
+        // into whatever toolchain this machine has. Gating on it would refuse a
+        // manifest bound on one machine and built on another, which is the
+        // normal case for a checked-in manifest. It reaches cache identity
+        // instead, through `provenance_fingerprint`, so a local rebuild after a
+        // compiler change re-measures rather than reusing.
         if self.provenance.header_digest != header_digest {
             return Some(StaleImportInput {
                 alias: self.interface.alias.clone(),
@@ -310,6 +390,15 @@ impl ImportManifest {
                 input: "provider",
                 path: self.provenance.provider.clone(),
             });
+        }
+        for include in &self.provenance.includes {
+            if includes.get(include.path.as_str()) != Some(&include.digest) {
+                return Some(StaleImportInput {
+                    alias: self.interface.alias.clone(),
+                    input: "included header",
+                    path: include.path.clone(),
+                });
+            }
         }
         if self.provenance.annotations_digest.as_deref() != annotations_digest {
             return Some(StaleImportInput {
@@ -1194,6 +1283,8 @@ mod tests {
                 annotations: Some("interop/c_math.toml".to_string()),
                 annotations_digest: Some(digest(b"[routine.c_math_add_one]\n")),
                 compiler: "/usr/bin/gcc".to_string(),
+                compiler_digest: "0f1e2d3c4b5a6978".to_string(),
+                includes: Vec::new(),
                 target: "x86_64-unknown-linux-gnu".to_string(),
                 dialect: "c17".to_string(),
                 include_roots: vec!["native".to_string()],
