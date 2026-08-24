@@ -138,12 +138,21 @@ pub(crate) fn prepare_h7_interop_for_selection(
         vec![build.raw_crate_name().to_owned()],
     )
     .map_err(backend_plan_error)?;
-    let entry_call = fol_backend::BackendMainEntryCall::try_new_with_result_observation(
-        build.anchor_crate_name(),
-        vec![build.anchor_function_name().to_owned()],
-        fol_backend::BackendMainEntryResultObservation::StdoutI32,
-    )
-    .map_err(backend_plan_error)?;
+    // The H7 smoke's binary exists to call the anchor and print what it read,
+    // so it replaces `main`. A real import must not: the FOL program has its
+    // own `main`, and the adapters are simply a crate it calls into.
+    let entry_call = if build.is_anchor_smoke() {
+        Some(
+            fol_backend::BackendMainEntryCall::try_new_with_result_observation(
+                build.anchor_crate_name(),
+                vec![build.anchor_function_name().to_owned()],
+                fol_backend::BackendMainEntryResultObservation::StdoutI32,
+            )
+            .map_err(backend_plan_error)?,
+        )
+    } else {
+        None
+    };
     let backend_plan = fol_backend::BackendAuxiliaryRustPlan::try_new(
         selection.target.clone(),
         profile,

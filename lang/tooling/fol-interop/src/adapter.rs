@@ -119,18 +119,21 @@ fn render_adapter(
                 .collect::<Vec<_>>()
                 .join(" | ");
 
+            // A plain `Result`, not the FOL runtime's carrier: this crate is
+            // linked without the runtime, and the call site converts. That
+            // keeps the adapter layer dependency-free.
             Ok(format!(
                 "    #[inline]\n\
-                 \x20   pub fn {name}({params}) -> rt::FolRecover<{out_type}, {status_type}> {{\n\
+                 \x20   pub fn {name}({params}) -> Result<{out_type}, {status_type}> {{\n\
                  \x20       let mut __fol_out: {out_type} = Default::default();\n\
                  \x20       let __fol_status = unsafe {{ {raw}({call_args}) }};\n\
                  \x20       match __fol_status {{\n\
-                 \x20           {success_arms} => rt::FolRecover::Ok(__fol_out),\n\
+                 \x20           {success_arms} => Ok(__fol_out),\n\
                  \x20           // Any other code is a failure, including one the\n\
                  \x20           // overlay did not enumerate: reading the out value\n\
                  \x20           // for an unknown status would be reading whatever\n\
                  \x20           // the provider happened to leave there.\n\
-                 \x20           other => rt::FolRecover::Err(other),\n\
+                 \x20           other => Err(other),\n\
                  \x20       }}\n\
                  \x20   }}\n",
                 name = rust_param_name(&routine.fol_name),
@@ -326,7 +329,7 @@ mod tests {
 
         // The caller's signature has no out-parameter.
         assert!(
-            rendered.contains("pub fn checked_div(lhs: i32) -> rt::FolRecover<i32, i32>"),
+            rendered.contains("pub fn checked_div(lhs: i32) -> Result<i32, i32>"),
             "got:\n{rendered}"
         );
         // The adapter declares the storage and passes a pointer to its own.
@@ -339,12 +342,9 @@ mod tests {
             "got:\n{rendered}"
         );
         // The out value is read only on an enumerated success code.
+        assert!(rendered.contains("0 => Ok(__fol_out),"), "got:\n{rendered}");
         assert!(
-            rendered.contains("0 => rt::FolRecover::Ok(__fol_out),"),
-            "got:\n{rendered}"
-        );
-        assert!(
-            rendered.contains("other => rt::FolRecover::Err(other),"),
+            rendered.contains("other => Err(other),"),
             "got:\n{rendered}"
         );
     }
@@ -356,12 +356,8 @@ mod tests {
 
         // The catch-all arm must come last and must be the Err arm: treating an
         // unknown code as success would read uninitialized out storage.
-        let ok_at = rendered
-            .find("rt::FolRecover::Ok(__fol_out)")
-            .expect("an Ok arm");
-        let err_at = rendered
-            .find("rt::FolRecover::Err(other)")
-            .expect("an Err arm");
+        let ok_at = rendered.find("Ok(__fol_out)").expect("an Ok arm");
+        let err_at = rendered.find("Err(other)").expect("an Err arm");
         assert!(ok_at < err_at, "the catch-all must be the failure arm");
     }
 
@@ -372,6 +368,15 @@ mod tests {
 
         // Two routines, two unsafe blocks, no others.
         assert_eq!(rendered.matches("unsafe {").count(), 2, "got:\n{rendered}");
+    }
+
+    #[test]
+    fn the_adapter_crate_name_matches_the_interop_spelling() {
+        // The backend emits `<crate>::cimp__<alias>::<fn>` at every foreign
+        // call site, and this crate writes the file that has to define it. The
+        // two names live in different crates because neither depends on the
+        // other, so the agreement is asserted rather than assumed.
+        assert_eq!(crate::anchor::H7_ANCHOR_CRATE_NAME, "fol_h7_anchor");
     }
 
     #[test]

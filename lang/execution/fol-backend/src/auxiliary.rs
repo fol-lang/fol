@@ -163,7 +163,13 @@ pub struct BackendAuxiliaryRustPlan {
     machine_target: BackendMachineTarget,
     build_profile: BackendBuildProfile,
     crates: Vec<BackendAuxiliaryRustCrate>,
-    entry_call: BackendMainEntryCall,
+    /// A function generated `main` calls before the FOL entry point.
+    ///
+    /// `None` for an ordinary C import: the auxiliary crates are linked and
+    /// the FOL program calls into them itself, so nothing needs prepending to
+    /// `main`. The H7 smoke is the case that has one, because its binary's
+    /// only job is to call the anchor and print what it read.
+    entry_call: Option<BackendMainEntryCall>,
     final_rustc_argv: Vec<OsString>,
 }
 
@@ -172,7 +178,7 @@ impl BackendAuxiliaryRustPlan {
         machine_target: BackendMachineTarget,
         build_profile: BackendBuildProfile,
         crates: Vec<BackendAuxiliaryRustCrate>,
-        entry_call: BackendMainEntryCall,
+        entry_call: Option<BackendMainEntryCall>,
         final_rustc_argv: Vec<OsString>,
     ) -> BackendResult<Self> {
         let plan = Self {
@@ -198,8 +204,8 @@ impl BackendAuxiliaryRustPlan {
         &self.crates
     }
 
-    pub fn entry_call(&self) -> &BackendMainEntryCall {
-        &self.entry_call
+    pub fn entry_call(&self) -> Option<&BackendMainEntryCall> {
+        self.entry_call.as_ref()
     }
 
     pub fn final_rustc_argv(&self) -> &[OsString] {
@@ -263,12 +269,16 @@ impl BackendAuxiliaryRustPlan {
             .crates
             .last()
             .expect("non-empty auxiliary plan checked above");
-        if self.entry_call.crate_name() != final_crate.crate_name() {
-            return Err(invalid_plan(format!(
-                "auxiliary main entry crate '{}' is not the final plan crate '{}'",
-                self.entry_call.crate_name(),
-                final_crate.crate_name()
-            )));
+        // Only meaningful when there is an entry call: it has to name the last
+        // crate, because that is the one generated `main` can see.
+        if let Some(entry_call) = self.entry_call.as_ref() {
+            if entry_call.crate_name() != final_crate.crate_name() {
+                return Err(invalid_plan(format!(
+                    "auxiliary main entry crate '{}' is not the final plan crate '{}'",
+                    entry_call.crate_name(),
+                    final_crate.crate_name()
+                )));
+            }
         }
         Ok(())
     }
@@ -471,7 +481,7 @@ mod tests {
             BackendMachineTarget::host().unwrap(),
             BackendBuildProfile::Debug,
             vec![raw, anchor],
-            BackendMainEntryCall::try_new("fol_anchor", vec!["invoke".to_string()]).unwrap(),
+            Some(BackendMainEntryCall::try_new("fol_anchor", vec!["invoke".to_string()]).unwrap()),
             argv.clone(),
         )
         .unwrap();
@@ -523,7 +533,7 @@ mod tests {
                 BackendAuxiliaryRustCrate::try_new("fol_raw", raw_path.clone(), vec![]).unwrap(),
                 BackendAuxiliaryRustCrate::try_new("fol_raw", anchor_path.clone(), vec![]).unwrap(),
             ],
-            BackendMainEntryCall::try_new("fol_raw", vec!["invoke".to_string()]).unwrap(),
+            Some(BackendMainEntryCall::try_new("fol_raw", vec!["invoke".to_string()]).unwrap()),
             vec![],
         );
         assert!(duplicate.is_err());
@@ -540,7 +550,7 @@ mod tests {
                 .unwrap(),
                 BackendAuxiliaryRustCrate::try_new("fol_raw", raw_path.clone(), vec![]).unwrap(),
             ],
-            BackendMainEntryCall::try_new("fol_raw", vec!["invoke".to_string()]).unwrap(),
+            Some(BackendMainEntryCall::try_new("fol_raw", vec!["invoke".to_string()]).unwrap()),
             vec![],
         );
         assert!(forward.is_err());
@@ -557,7 +567,7 @@ mod tests {
                 )
                 .unwrap(),
             ],
-            BackendMainEntryCall::try_new("fol_raw", vec!["invoke".to_string()]).unwrap(),
+            Some(BackendMainEntryCall::try_new("fol_raw", vec!["invoke".to_string()]).unwrap()),
             vec![],
         );
         assert!(wrong_entry.is_err());
@@ -573,7 +583,7 @@ mod tests {
             target.clone(),
             BackendBuildProfile::Debug,
             vec![BackendAuxiliaryRustCrate::try_new("fol_anchor", source.clone(), vec![]).unwrap()],
-            BackendMainEntryCall::try_new("fol_anchor", vec!["invoke".to_string()]).unwrap(),
+            Some(BackendMainEntryCall::try_new("fol_anchor", vec!["invoke".to_string()]).unwrap()),
             vec![],
         )
         .unwrap();

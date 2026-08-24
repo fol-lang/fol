@@ -58,6 +58,14 @@ pub fn escape_rust_field_ident(name: &str) -> String {
     }
 }
 
+/// The auxiliary crate that carries every import's generated safe adapters.
+///
+/// One crate holds them all, each import in its own module, because the
+/// auxiliary plan's last crate is the one generated `main` links directly.
+/// `fol-interop` writes it under the same name; the two are checked against
+/// each other by `the_adapter_crate_name_matches_the_interop_spelling`.
+pub const FOREIGN_ADAPTER_CRATE: &str = "fol_h7_anchor";
+
 /// The private module holding one C import's FOL-owned safe adapters.
 ///
 /// Named from the import alias, which the build layer already constrains to

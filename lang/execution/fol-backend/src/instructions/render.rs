@@ -415,20 +415,32 @@ pub fn render_core_instruction_in_workspace(
             let rendered_args = render_local_list(type_table, package_identity, routine, args)?;
             let module = crate::mangle::foreign_adapter_module_name(alias);
             let callee_name = format!(
-                "{module}::{}",
+                "{}::{module}::{}",
+                crate::mangle::FOREIGN_ADAPTER_CRATE,
                 crate::mangle::escape_rust_field_ident(adapter)
             );
+            // A fallible adapter returns a plain `Result`, because the adapter
+            // crate is linked without the runtime. The conversion into FOL's
+            // carrier happens here, where `rt` is in scope.
+            let expression = if error_type.is_some() {
+                format!(
+                    "match {callee_name}({rendered_args}) {{ \
+                     Ok(__fol_ok) => rt::FolRecover::Ok(__fol_ok), \
+                     Err(__fol_err) => rt::FolRecover::Err(__fol_err) }}"
+                )
+            } else {
+                format!("{callee_name}({rendered_args})")
+            };
             // The symbol is not in the emitted expression -- the adapter owns
             // it -- so it is recorded as a comment, which is what makes a
             // generated file greppable back to the provider it calls.
             let call = match instruction.result {
                 Some(_) => {
                     let result = rendered_result_local(package_identity, routine, instruction)?;
-                    format!("{result} = {callee_name}({rendered_args});")
+                    format!("{result} = {expression};")
                 }
-                None => format!("{callee_name}({rendered_args});"),
+                None => format!("{expression};"),
             };
-            let _ = error_type;
             Ok(format!("{call} // c: {symbol}"))
         }
         LoweredInstrKind::SpawnCall {

@@ -4,8 +4,6 @@ use fol_build::{
 };
 use gerc::GenerationBundle;
 
-use crate::anchor::H7InteropAnchor;
-
 /// Graph-bound write plan for one deterministic GERC raw-binding crate.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct InteropGeneratedPlan {
@@ -86,12 +84,17 @@ pub(crate) fn attach_generated_bindings(
     })
 }
 
-/// Add the FOL-owned H7 provider-call wrapper to the same exact graph/plan.
-pub(crate) fn attach_h7_anchor(
+/// Attach the FOL-owned Rust layer that sits above the raw GERC module.
+///
+/// Two things use it: the H7 smoke's fixed anchor, and the general adapter
+/// module an annotated import generates. They occupy the same slot because
+/// they play the same role -- the only crate allowed to contain an `unsafe`
+/// call to the provider.
+pub(crate) fn attach_safe_layer(
     graph: &mut BuildGraph,
     artifact: BuildArtifactId,
     plan: &mut InteropGeneratedPlan,
-    anchor: &H7InteropAnchor,
+    source: &[u8],
 ) -> Result<(), InteropMaterializationPlanError> {
     if plan.artifact != artifact {
         return Err(InteropMaterializationPlanError::ArtifactMismatch {
@@ -130,7 +133,7 @@ pub(crate) fn attach_h7_anchor(
         generated_file,
         relative_path,
         action: GeneratedFileAction::Write {
-            contents: anchor.source().to_vec(),
+            contents: source.to_vec(),
         },
     });
     plan.anchor_crate_root = Some(anchor_crate_root);

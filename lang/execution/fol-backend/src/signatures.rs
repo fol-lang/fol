@@ -210,6 +210,7 @@ fn recoverable_error_type_for_local_inner(
         .find_map(|instruction| match &instruction.kind {
             fol_lower::LoweredInstrKind::Call { error_type, .. }
             | fol_lower::LoweredInstrKind::CallIndirect { error_type, .. }
+            | fol_lower::LoweredInstrKind::ForeignCall { error_type, .. }
             | fol_lower::LoweredInstrKind::AwaitEventual { error_type, .. }
             | fol_lower::LoweredInstrKind::RuntimeHook { error_type, .. }
                 if instruction.result == Some(local_id) =>

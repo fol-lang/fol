@@ -448,7 +448,19 @@ fn build_auxiliary_rust_plan(
         compiled_rlibs.insert(auxiliary_crate.crate_name().to_string(), rlib);
     }
 
-    let entry_crate_name = plan.entry_call().crate_name().to_string();
+    // The crate generated `main` links directly is the last one in the plan,
+    // whether or not it also supplies an entry call: an ordinary C import has
+    // no entry call but still needs its adapters linked.
+    let entry_crate_name = plan
+        .crates()
+        .last()
+        .map(|last| last.crate_name().to_string())
+        .ok_or_else(|| {
+            BackendError::new(
+                BackendErrorKind::InvalidInput,
+                "auxiliary plan has no crates".to_string(),
+            )
+        })?;
     let entry_rlib = compiled_rlibs
         .get(&entry_crate_name)
         .cloned()

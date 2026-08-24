@@ -46,14 +46,15 @@ pub fn emit_main_rs_for_config(
     let auxiliary_entry_call = config
         .auxiliary_rust_plan
         .as_ref()
-        .map(|plan| match plan.entry_call().result_observation() {
+        .and_then(|plan| plan.entry_call())
+        .map(|entry_call| match entry_call.result_observation() {
             BackendMainEntryResultObservation::Discard => format!(
                 "\n    let _ = core::hint::black_box({}());",
-                plan.entry_call().render_rust_path(),
+                entry_call.render_rust_path(),
             ),
             BackendMainEntryResultObservation::StdoutI32 => format!(
                 "\n    let __fol_auxiliary_result: i32 = core::hint::black_box({}());\n    println!(\"{{}}\", __fol_auxiliary_result);",
-                plan.entry_call().render_rust_path(),
+                entry_call.render_rust_path(),
             ),
         })
         .unwrap_or_default();

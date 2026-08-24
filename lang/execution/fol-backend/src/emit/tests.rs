@@ -102,12 +102,14 @@ fn test_auxiliary_plan_with_observation(
         target,
         profile,
         vec![raw, anchor],
-        BackendMainEntryCall::try_new_with_result_observation(
-            "fol_test_anchor",
-            vec!["invoke".to_string()],
-            result_observation,
-        )
-        .expect("safe auxiliary entry call"),
+        Some(
+            BackendMainEntryCall::try_new_with_result_observation(
+                "fol_test_anchor",
+                vec!["invoke".to_string()],
+                result_observation,
+            )
+            .expect("safe auxiliary entry call"),
+        ),
         final_rustc_argv,
     )
     .expect("auxiliary Rust plan")

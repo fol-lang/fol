@@ -29,9 +29,7 @@ use crate::{
     },
     generation::generate_raw_bindings,
     identity::compiled_component_revisions,
-    materialization::{
-        attach_generated_bindings, attach_h7_anchor, InteropMaterializationPlanError,
-    },
+    materialization::{attach_generated_bindings, InteropMaterializationPlanError},
     source::{scan_complete_header, InteropSourceError},
     toolchain::{CertifiedCToolchain, InteropToolchainError},
 };
@@ -49,6 +47,45 @@ pub(crate) fn native_input_for(
         BuildCImportProviderKind::Object => NativeInput::ObjectPath(provider),
         BuildCImportProviderKind::Static => NativeInput::StaticLibraryPath(provider),
         BuildCImportProviderKind::Shared => NativeInput::DynamicLibraryPath(provider),
+    }
+}
+
+/// The FOL-owned Rust layer generated above the raw GERC module.
+enum SafeLayer {
+    /// The H7 smoke's fixed one-function anchor.
+    Anchor(crate::anchor::H7InteropAnchor),
+    /// Generated adapters for an annotated import.
+    Adapters { source: Vec<u8> },
+}
+
+impl SafeLayer {
+    fn source(&self) -> &[u8] {
+        match self {
+            Self::Anchor(anchor) => anchor.source(),
+            Self::Adapters { source } => source,
+        }
+    }
+
+    /// Whether the final binary's entry point is the anchor read rather than
+    /// the FOL program's own `main`.
+    const fn is_anchor(&self) -> bool {
+        matches!(self, Self::Anchor(_))
+    }
+}
+
+/// The link role a declared provider kind must appear in.
+fn expected_link_kind(kind: BuildCImportProviderKind) -> RustLinkArtifactKind {
+    match kind {
+        BuildCImportProviderKind::Object => RustLinkArtifactKind::Object,
+        BuildCImportProviderKind::Static => RustLinkArtifactKind::StaticLibrary,
+        BuildCImportProviderKind::Shared => RustLinkArtifactKind::DynamicLibrary,
+    }
+}
+
+fn capability_model(model: fol_build::BuildArtifactFolModel) -> fol_abi::CapabilityModel {
+    match model {
+        fol_build::BuildArtifactFolModel::Core => fol_abi::CapabilityModel::Core,
+        fol_build::BuildArtifactFolModel::Memo => fol_abi::CapabilityModel::Memo,
     }
 }
 
@@ -170,6 +207,7 @@ pub struct H7InteropBuild {
     artifact: BuildArtifactId,
     raw_crate_root: PathBuf,
     anchor_crate_root: PathBuf,
+    is_anchor_smoke: bool,
     rustc_link_arguments: Vec<OsString>,
     report: H7InteropReport,
 }
@@ -205,6 +243,15 @@ impl H7InteropBuild {
 
     pub const fn anchor_crate_name(&self) -> &'static str {
         H7_ANCHOR_CRATE_NAME
+    }
+
+    /// Whether this build is the H7 smoke, whose binary's whole job is to
+    /// call the anchor and print what it read.
+    ///
+    /// A real import leaves `main` alone: the adapters are just another crate
+    /// the FOL program calls into.
+    pub const fn is_anchor_smoke(&self) -> bool {
+        self.is_anchor_smoke
     }
 
     pub const fn anchor_function_name(&self) -> &'static str {
@@ -254,6 +301,26 @@ pub fn prepare_h7_interop(request: H7InteropRequest<'_>) -> Result<H7InteropBuil
         return Err(H7InteropError::MultipleCImports);
     }
     let provider_kind = c_import.provider_kind;
+    // Read the overlay before any external process runs: a typo in it is cheap
+    // to report and should not cost a preprocessor invocation.
+    let overlay = match c_import.annotations.as_deref() {
+        Some(relative) => {
+            let path = std::path::Path::new(request.package_root).join(relative);
+            let text = std::fs::read_to_string(&path).map_err(|error| {
+                H7InteropError::AnnotationUnreadable {
+                    path: path.clone(),
+                    detail: error.to_string(),
+                }
+            })?;
+            Some(fol_abi::AnnotationOverlay::parse(&text).map_err(|error| {
+                H7InteropError::AnnotationUnreadable {
+                    path,
+                    detail: error.to_string(),
+                }
+            })?)
+        }
+        None => None,
+    };
     if request
         .graph
         .artifact_inputs_for(request.artifact)
@@ -297,7 +364,29 @@ pub fn prepare_h7_interop(request: H7InteropRequest<'_>) -> Result<H7InteropBuil
     let evidence =
         NativeAnalyzer::new(resolver).certify(&analysis_request, toolchain.certification())?;
     let bundle = generate_raw_bindings(&source, &evidence)?;
-    let anchor = h7_c_int_function_anchor(&bundle)?;
+    // An import with an annotation overlay is a real one: it names which
+    // declarations are callable and how they report failure, so it gets
+    // generated adapters. Without an overlay this is the H7 smoke, whose whole
+    // job is to prove one measured symbol survives to the final binary.
+    let safe_layer = match overlay.as_ref() {
+        Some(overlay) => {
+            let interface = crate::interface::project_imported_interface(
+                &c_import.alias,
+                artifact.target.clone(),
+                &source,
+                &bundle,
+                overlay,
+                capability_model(artifact.fol_model),
+            )
+            .map_err(H7InteropError::ImportRejected)?;
+            let rendered = crate::adapter::render_adapter_module(&interface, H7_RAW_CRATE_NAME)
+                .map_err(H7InteropError::Adapter)?;
+            SafeLayer::Adapters {
+                source: format!("pub use {H7_RAW_CRATE_NAME} as _raw;\n{rendered}").into_bytes(),
+            }
+        }
+        None => SafeLayer::Anchor(h7_c_int_function_anchor(&bundle)?),
+    };
 
     let source_fingerprint = source.source().fingerprint();
     let target_fingerprint = source.source().target_fingerprint();
@@ -321,7 +410,10 @@ pub fn prepare_h7_interop(request: H7InteropRequest<'_>) -> Result<H7InteropBuil
     let [RustLinkAtom::Artifact(linked_provider)] = bundle.link_plan().atoms() else {
         return Err(H7InteropError::UnexpectedLinkPlan);
     };
-    if linked_provider.kind() != RustLinkArtifactKind::Object
+    // The link plan must carry exactly the provider that was declared, in the
+    // role it was declared in. A mismatch here means LINC resolved something
+    // other than the file the build named.
+    if linked_provider.kind() != expected_link_kind(provider_kind)
         || linked_provider.canonical_path() != provider
     {
         return Err(H7InteropError::UnexpectedLinkPlan);
@@ -330,7 +422,12 @@ pub fn prepare_h7_interop(request: H7InteropRequest<'_>) -> Result<H7InteropBuil
 
     let mut graph = request.graph.clone();
     let mut generated = attach_generated_bindings(&mut graph, request.artifact, &bundle)?;
-    attach_h7_anchor(&mut graph, request.artifact, &mut generated, &anchor)?;
+    crate::materialization::attach_safe_layer(
+        &mut graph,
+        request.artifact,
+        &mut generated,
+        safe_layer.source(),
+    )?;
     let raw_crate_root = generated_output_root.join(generated.raw_crate_root());
     let anchor_crate_root = generated_output_root.join(
         generated
@@ -351,6 +448,7 @@ pub fn prepare_h7_interop(request: H7InteropRequest<'_>) -> Result<H7InteropBuil
         artifact: request.artifact,
         raw_crate_root,
         anchor_crate_root,
+        is_anchor_smoke: safe_layer.is_anchor(),
         rustc_link_arguments,
         report: H7InteropReport {
             triple: certified_triple,
@@ -593,6 +691,13 @@ pub enum H7InteropError {
     FingerprintMismatch(&'static str),
     UnexpectedLinkPlan,
     MissingAnchor,
+    AnnotationUnreadable {
+        path: PathBuf,
+        detail: String,
+    },
+    /// Selected declarations that cannot become callable FOL routines.
+    ImportRejected(Vec<fol_abi::ImportRejection>),
+    Adapter(crate::adapter::AdapterError),
     Toolchain(InteropToolchainError),
     Source(InteropSourceError),
     Policy(InteropAnalysisPolicyError),
@@ -666,6 +771,21 @@ impl std::fmt::Display for H7InteropError {
             Self::MissingAnchor => {
                 formatter.write_str("H7 interop materialization omitted its mandatory anchor")
             }
+            Self::AnnotationUnreadable { path, detail } => {
+                write!(formatter, "{}: {detail}", path.display())
+            }
+            Self::ImportRejected(rejections) => {
+                writeln!(
+                    formatter,
+                    "{} selected declaration(s) cannot be imported:",
+                    rejections.len()
+                )?;
+                for rejection in rejections {
+                    writeln!(formatter, "  [{}] {rejection}", rejection.diagnostic_code())?;
+                }
+                Ok(())
+            }
+            Self::Adapter(error) => write!(formatter, "{error}"),
             Self::Toolchain(error) => write!(formatter, "{error}"),
             Self::Source(error) => write!(formatter, "{error}"),
             Self::Policy(error) => write!(formatter, "{error}"),

@@ -19,7 +19,44 @@ fun[] describe_add_one(value: int[32]): str = {
     }
 };
 
+// `checked_div` is annotated with a status mapping, so FOL sees it on the
+// recoverable channel: the provider's out-parameter is the success value and
+// its status code is the failure. The out value cannot be read without
+// handling the failure first, which is the whole point of the mapping.
+// The fallback is what a caller sees when the provider reports failure; it is
+// reachable only through the failure channel, so a caller cannot accidentally
+// read the out value the provider never wrote.
+fun[] quotient_or(lhs: int[32], rhs: int[32], fallback: int[32]): int[32] = {
+    return math::checked_div(lhs, rhs) || fallback;
+};
+
+fun[] describe_div(lhs: int[32], rhs: int[32]): str = {
+    var sentinel: int[32] = 99;
+    var quotient: int[32] = quotient_or(lhs, rhs, sentinel);
+    var six: int[32] = 6;
+    when(.eq(quotient, six)) {
+        case(true) { return "checked_div(42, 7) = 6"; }
+        * { return "checked_div(42, 7) WRONG"; }
+    }
+};
+
+// Dividing by zero makes the provider return status 1, which the annotation
+// maps to the failure channel -- so the fallback is what comes back.
+fun[] describe_div_by_zero(lhs: int[32]): str = {
+    var zero: int[32] = 0;
+    var sentinel: int[32] = 99;
+    var quotient: int[32] = quotient_or(lhs, zero, sentinel);
+    when(.eq(quotient, sentinel)) {
+        case(true) { return "checked_div(42, 0) reported failure"; }
+        * { return "checked_div(42, 0) DID NOT REPORT"; }
+    }
+};
+
 fun[] main(): non = {
     std::io::echo_str(describe_add_one(41));
+    var lhs: int[32] = 42;
+    var rhs: int[32] = 7;
+    std::io::echo_str(describe_div(lhs, rhs));
+    std::io::echo_str(describe_div_by_zero(lhs));
     return;
 };
