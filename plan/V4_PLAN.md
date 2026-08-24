@@ -3897,15 +3897,39 @@ At the FOL level `FolHandle` has no `Clone`, `Copy`, or `Drop`, `into_raw`
 takes `self`, and linear analysis makes a never-consumed handle a compile
 error; the four `fail_v4_c_handle_*` examples cover leak, double free, use
 after free, and duplicate.
-- [ ] Prevent callback retention, post-destroy invocation, unapproved reentry,
+- [~] Prevent callback retention, post-destroy invocation, unapproved reentry,
   and cross-thread invocation.
 
-Only the null-context case is detected. Everything else here is something the
-*provider* does after FOL has returned, and nothing on FOL's side observes it:
-the context is a stack local, so a retained pointer dangles rather than being
-caught, and there is no generation counter, thread-id check, reentry flag, or
-context destroyer. Section 12.5 records the same gap; the negatives this item
-names have no tests because there is nothing yet to test.
+**Retention and post-return invocation are now refused**, and cross-thread
+invocation falls out of the same mechanism.
+
+The context was a pointer to a stack local. Dereferencing it works while the
+call is on the stack and reads reused memory afterwards, so a provider that
+kept the callback and invoked it later ran a closure that no longer existed --
+the quiet kind of failure, because it usually looks like it worked.
+
+The closure now reaches the trampoline through a thread-local slot that is live
+for exactly the duration of the call, so an invocation from outside that window
+finds it empty and is refused by name. The context pointer is still the
+closure's address, so a provider that logs or compares it sees something
+meaningful; it is simply never dereferenced. Being thread-local covers
+cross-thread invocation at no extra cost: another thread's slot was never
+filled. The slot is saved and restored rather than cleared, because a FOL
+closure may itself call back into the same foreign routine and clearing would
+strand the outer call.
+
+`examples/fail_v4_c_callback_retained` is the checked-in negative: a provider
+declared exactly like the honest one that loops correctly, stashes the pointer,
+and replays it afterwards.
+`a_callback_invoked_after_the_call_returns_is_refused` requires the in-call
+half to still produce its right answer before the replay aborts, so it cannot
+pass by failing early.
+
+Two things this does not do, stated rather than implied. Cross-thread refusal
+follows from the slot being thread-local and is not separately exercised by a
+test. And *reentry* is permitted: a provider may invoke the callback again from
+inside the same call, which is the ordinary case and indistinguishable, at the
+boundary, from the reentry this item would want to reject.
 - [~] Treat headers, annotations, providers, preprocessors/compilers, and
   sysroots as explicit trusted and fingerprinted build inputs; FOL does not
   execute undeclared dependency code implicitly.
