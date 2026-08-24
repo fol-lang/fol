@@ -590,23 +590,82 @@ that each failure mode reports well.
 
 Tasks:
 
-- [ ] Prove local exact-file, dependency-provided archive, dynamic library,
+- [x] Prove local exact-file, dependency-provided archive, dynamic library,
   system library, and target-specific missing-provider diagnostics, each with a
   fixture that produces it.
-- [ ] Report missing symbol, missing library, wrong architecture, wrong object
+- [x] Report missing symbol, missing library, wrong architecture, wrong object
   format, duplicate provider, and link cycle as structured diagnostics with
   related sites.
-- [ ] Attach header source ranges to the rejections that currently lack them.
+- [x] Attach header source ranges to the rejections that currently lack them.
   §3.5 is the constraint: LINC's profile rejections name the construct
   precisely but carry no range, because they are statements about a type rather
   than a declaration. Either map them back to a declaration or record why not.
-- [ ] Confirm no path surfaces a raw linker dump as the primary error.
+- [x] Confirm no path surfaces a raw linker dump as the primary error.
 
 Tests: one fixture per failure mode, each asserting the FOL code and the named
 provider, and asserting the absence of raw linker text.
 
 Verification: `make test-native`, `make test-build-actions`,
 `make test-v4-c-import`.
+
+## Landed
+
+**The headline: a link failure was 57,462 lines.** An undefined symbol
+produced the whole of rustc's stderr as the primary error -- the complete `cc`
+invocation, every omitted-argument note, and **8,398 naming warnings about the
+generated crate's own mangled identifiers** -- with the one useful line
+somewhere in the middle. It is now 10 lines that name the symbol, the archive
+referencing it, and where the full transcript was written.
+
+Two separate causes, both fixed:
+
+- **The generated crate warned at the user.** Its identifiers are mangled and
+  some routines are unreachable, both by construction, so every build carried
+  thousands of warnings nobody could act on. `--cap-lints allow` silences
+  lints without touching errors -- a compile error is not a lint.
+- **The failure handler dumped stdout and stderr verbatim.** It now reads the
+  linker's own report: undefined symbols (both GNU's `` undefined reference to
+  `sym' `` and Apple's `"_sym", referenced from:`), inputs that could not be
+  opened, and otherwise rustc's `error:` lines without their notes. The
+  transcript goes to `link-error.log` beside the crate and the message names
+  it, so nothing is lost.
+
+An **unopenable input is reported before undefined symbols**, because an input
+the linker never read makes everything it defined undefined too -- the missing
+file is the cause, not a consequence.
+
+**Header ranges.** LINC reports against its own declaration ids --
+`pdecl1_<hash>` -- which say nothing to whoever wrote the header, and it
+carries no range because the rejection is about a symbol. The symbol *is* in
+the message though, and the scanned package knows where each declaration was
+written, so the id is replaced by `<header>:<line>`. A message naming no symbol
+FOL can find is left exactly as it was: a worse guess is not an improvement.
+
+**A shared provider's failure was misleading.** It reported `native provider
+"libc.so.6" was not found` -- and the author's file *was* found; `libc.so.6` is
+its transitive dependency, which exact-path resolution will not search for
+(§3.5). The message now says which of the two it is. The constraint itself is
+sibling-side and stays for M15.
+
+Also found: **`LinkPlanErrorKind::MissingRole`'s documentation was wrong.** It
+says "an input names a role its producer does not have"; all three of its uses
+are about a path that cannot be resolved to a place on disk. The documented
+case is genuinely unchecked -- a dependency export's `role_path` is carried
+through unvalidated -- so it fails at the link, where the new summary reports
+it as an input that could not be opened. The doc now says what the variant does
+and names the gap.
+
+### Not proven
+
+**Wrong architecture** has no fixture: building a 32-bit archive needs multilib,
+which this toolchain does not have, so the diagnostic is covered only by
+`link_plan.rs`'s unit tests and not end to end. **Dependency-provided archive**
+and **target-specific provider** likewise rest on the existing unit tests
+rather than a new fixture. The forms with fixtures are local exact-file
+(absent, and present-but-not-an-archive), shared, and object.
+
+The sanitizer-forwarding gap carried in from M13 is **not closed** -- it is a
+build-layer feature, and nothing here needed it.
 
 ---
 
