@@ -2927,8 +2927,23 @@ unsupported declarations may remain in the header held only for `bind c`. The
 build now selects the same closure the bind did, proven by
 `an_unselected_unsupported_declaration_does_not_break_the_build`, which fails
 without the fix.
-- [ ] Emit structured diagnostics with header source ranges and exact unsupported
+- [~] Emit structured diagnostics with header source ranges and exact unsupported
   construct names.
+
+A rejection on the selection path now carries PARC's stable code, its own
+words, and a `header.h:line:column` origin per declaration, instead of the bare
+name it used to keep. The whole rejection lists every offending declaration
+rather than a count, so an author is not sent back to the header to guess which
+part of it was the problem.
+
+Being exact about how much this buys: **the selection path is rarely the one
+that fires.** PARC's scanner marks most real constructs supported, and the
+refusal for a variadic, a `_Complex`, a `long double`, or a bitfield comes from
+LINC's profile check further down -- which names the construct precisely
+("variadic and unprototyped functions are outside the certified profile",
+"complex values are outside the initial SysV64 surface") but carries no source
+range, because it is a statement about a type rather than about a declaration.
+Mapping those back to a header range is what remains.
 - [x] Detect stale generated interfaces when headers/annotations/toolchain/
   target change.
 
