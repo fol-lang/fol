@@ -3095,8 +3095,16 @@ the same source in two trees on two threads at once and requires each to
 produce its own complete prefix -- library, header, manifest, and allowlist.
 FOL caches by content fingerprint, so a cache keyed too coarsely would let one
 build satisfy the other and leave a prefix short a file.
-- [ ] Install matching static and shared FOL libraries into clean prefixes with
+- [x] Install matching static and shared FOL libraries into clean prefixes with
   only their declared headers, manifests, link metadata, and runtime roles.
+
+`both_linkage_forms_install_only_their_declared_roles` asserts the prefix
+contents by *equality*, not by presence. Presence is the easy half and it was
+already covered; "only" is the half worth testing, because the build tree
+sitting beside the prefix is full of generated Rust, Cargo manifests, and
+intermediate objects, and an install step that copied a directory instead of
+the declared roles would publish all of it. Both linkage forms are checked,
+since they install different library roles through the same code.
 - [x] Re-read each installed header with PARC, measure and validate each
   installed library with LINC, and run GERC as private independent projection
   evidence over those exact checked states.
@@ -3209,8 +3217,21 @@ path and one library, both inside the extraction directory. Nothing reaches
 back into the repository or the build tree. The shared consumer resolves
 through `-l` and `LD_LIBRARY_PATH`, which works because the archive's library
 carries the SONAME set earlier in this milestone.
-- [ ] Make the certified `x86_64-unknown-linux-gnu` lane release-blocking and
+- [x] Make the certified `x86_64-unknown-linux-gnu` lane release-blocking and
   keep candidate/experimental compile lanes explicitly non-certifying.
+
+The release workflow is a chain, not a set of independent jobs: `guard` (the
+tag must agree with the workspace version) then `verify`, which *is* the
+certified lane -- it calls `tests.yml`, which runs `make verify` with
+`FOL_H7_REQUIRED=1` -- and only then `create_release` and `toolchain`. Nothing
+publishes without the certified lane passing, and with skips now fatal it
+cannot pass by checking less.
+
+Non-certifying is enforced in code rather than by convention:
+`is_certified_interop_target` admits exactly the two promoted triples, and
+every other target is refused by name with the list of what is certified. The
+release matrix builds toolchain binaries for aarch64 as well, which is a
+toolchain build and makes no ABI certification claim.
 - [x] Pin GitHub Actions and Rust/mdBook/tree-sitter/Clang/LLVM/C toolchain
   inputs rather than using mutable `latest` references.
 
