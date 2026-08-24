@@ -675,21 +675,92 @@ Goal: every `V4_PLAN.md` §18 item is `[x]` or cites code for why not.
 
 Tasks:
 
-- [ ] Digest the compiler binary into import provenance, not just its path.
-- [ ] Wire `fingerprint_tool` into the exec path. It is written and tested and
+- [x] Digest the compiler binary into import provenance, not just its path.
+- [x] Wire `fingerprint_tool` into the exec path. It is written and tested and
   called from nowhere; the work is folding it into the cache identity, which is
   computed before execution rather than at the exec site where the tool check
   lives.
-- [ ] Decide the sysroot identity question: either define what a
+- [x] Decide the sysroot identity question: either define what a
   `ContentFingerprint` over a sysroot hashes, or record that FOL will not put
   sysroot in target identity and why.
-- [ ] Give cross-thread callback invocation a test of its own rather than
+- [x] Give cross-thread callback invocation a test of its own rather than
   relying on `thread_local!` semantics.
-- [ ] Raise the interop pin and re-measure §3.5. If a newer LINC certifies
+- [x] Raise the interop pin and re-measure §3.5. If a newer LINC certifies
   hermetic search, the dynamic and system-library provider forms unblock and
   `library_paths` stops being a refusal.
 
 Verification: `make verify`, `make interop-locked`, `make abi-check`.
+
+## Landed
+
+**Two dead functions and a hole they were covering for.**
+
+`fingerprint_tool` was written, tested, and called from nowhere -- so a
+`SystemTool` action's cache identity used the tool's *path* and not its
+contents. Replace `/usr/bin/cc` with a different compiler and every path in the
+plan is unchanged, so the cache hands back results the new compiler never
+produced. The digest is now folded in at identity computation, one read per
+distinct tool rather than one per action, because a plan that compiles forty
+files invokes one compiler forty times. A tool that cannot be read contributes
+nothing rather than a placeholder: it will be refused at execution anyway, and
+inventing an identity for an absent file would make two different absences
+equal.
+
+`verify_against` is the second one -- written, tested, called from nowhere.
+Finding it led to the real defect below.
+
+**Only the entry header was checked for staleness.** A declaration can live in
+a file the entry includes, and editing *that* left every recorded digest
+matching. Probed: the build re-ran the C pipeline, picked up the new signature
+in the raw bindings, and failed as a **Rust type error in generated code** --
+the right outcome for entirely the wrong reason, with nothing telling the
+author to re-bind. Package-owned includes are now recorded with their digests
+and checked, and the same edit reports *"the included header 'native/shapes.h'
+has changed since C import 'digest' was bound"*.
+
+System includes are deliberately excluded: they are not checked in and differ
+between machines that are both correct, so digesting `stdint.h` would report
+staleness for a manifest that is fine.
+
+**The compiler is recorded by content.** Every offset, width, and signedness in
+an interface came out of that binary; the path alone does not identify it. It
+is recorded and reaches cache identity through `provenance_fingerprint`, and is
+deliberately **not** a staleness gate -- the header, provider, and overlay are
+package-relative and checked in, so every machine reads the same bytes, while
+the compiler is an absolute path into whatever toolchain this machine has.
+Gating on it would refuse a manifest bound on one machine and built on another,
+which is the normal case for a checked-in manifest. (`verify_against` compares
+only the interface fingerprint, so provenance stays machine-local.)
+
+**Sysroot: FOL will not put it in target identity.** Two reasons, and the first
+alone settles it. The compiler's own sysroot is *refused* -- certified interop
+requires the default empty sysroot identity, so there is nothing to hash. An
+external scan sysroot is recorded as a path and not digested: it is a directory
+tree of tens of thousands of files on this machine, hashing it per build is not
+affordable, and it is not checked in, so a digest would differ between machines
+that are both correct. What actually reaches the interface from it are headers,
+and those are now covered by `includes` (package-owned) or deliberately not
+(system-owned).
+
+**Cross-thread callback invocation has its own fixture.**
+`examples/fail_v4_c_callback_thread` has C hand the callback to a worker
+thread and join it, so the closure is still alive and the context still points
+at a live stack local -- a null check and a liveness check both pass. The
+thread-local slot is what catches it, and that was a property of the mechanism
+that nothing tested.
+
+**The interop pin cannot be raised.** Measured rather than assumed:
+`git ls-remote` reports upstream HEAD for all three siblings, and all three
+equal the pinned revisions -- parc `0f52aee`, linc `38f73db`, gerc `df0479a`.
+There is no newer LINC.
+
+§3.5 re-measured against that revision and **confirmed unchanged**:
+`validate_certification_request` requires `ResolutionPolicy::ExactPathsOnly`
+(`certify.rs:130`), and exact-path resolution rejects `SearchNative`,
+`StaticLibraryName`, `DynamicLibraryName`, `ImportLibraryName`, and
+`FrameworkName` (`package.rs:187`, `request.rs:240`). The dynamic and
+system-library provider forms stay blocked, and `library_paths` stays a
+refusal. This is sibling-side and FOL cannot fix it in FOL.
 
 ---
 
