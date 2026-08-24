@@ -124,6 +124,12 @@ path = "test/v4_c_platform.rs"
 name = "v4_c_roundtrip"
 path = "test/v4_c_roundtrip.rs"
 
+# M9 release archives: pack an installed prefix, extract it in a clean
+# directory, and build C consumers against nothing but what came out.
+[[test]]
+name = "v4_c_release"
+path = "test/v4_c_release.rs"
+
 [dev-dependencies]
 fol-types = { path = "lang/compiler/fol-types" }
 fol-stream = { path = "lang/compiler/fol-stream" }

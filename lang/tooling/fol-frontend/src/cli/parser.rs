@@ -1456,6 +1456,9 @@ fn parse_abi_command(
     let mut baseline = String::new();
     let mut candidate = String::new();
     let mut allow_breaking = false;
+    let mut prefix = String::new();
+    let mut out = String::new();
+    let mut license = None;
     while let Some(token) = cursor.peek() {
         if token == "--help" || token == "-h" {
             return Err(ParseError::help(abi_usage()));
@@ -1474,6 +1477,9 @@ fn parse_abi_command(
         match key {
             "--baseline" => baseline = value,
             "--candidate" => candidate = value,
+            "--prefix" => prefix = value,
+            "--out" => out = value,
+            "--license" => license = Some(value),
             _ => {
                 return Err(ParseError::invalid(format!(
                     "unknown flag for tool abi {sub}: {key}"
@@ -1510,6 +1516,20 @@ fn parse_abi_command(
                 allow_breaking,
             })
         }
+        "package" => {
+            for (value, flag) in [(&prefix, "--prefix"), (&out, "--out")] {
+                if value.is_empty() {
+                    return Err(ParseError::missing(format!(
+                        "tool abi package requires {flag}"
+                    )));
+                }
+            }
+            AbiSubcommand::Package(AbiPackageCommand {
+                prefix,
+                out,
+                license,
+            })
+        }
         other => {
             return Err(ParseError::invalid_subcommand(format!(
                 "unknown abi subcommand: {other}"
@@ -1522,7 +1542,8 @@ fn parse_abi_command(
 fn abi_usage() -> String {
     "Usage: fol tool abi inspect <MANIFEST>\n\
      \x20      fol tool abi check --baseline <MANIFEST> --candidate <MANIFEST> \
-     [--allow-breaking]"
+     [--allow-breaking]\n\
+     \x20      fol tool abi package --prefix <DIR> --out <ARCHIVE> [--license <PATH>]"
         .to_string()
 }
 

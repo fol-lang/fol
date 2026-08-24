@@ -111,6 +111,7 @@ pub fn dispatch_cli(
             ToolSubcommand::Abi(command) => match &command.command {
                 cli::AbiSubcommand::Inspect(command) => crate::abi_inspect_command(command, config),
                 cli::AbiSubcommand::Check(command) => crate::abi_check_command(command, config),
+                cli::AbiSubcommand::Package(command) => crate::abi_package_command(command, config),
             },
             ToolSubcommand::Clean(_) => {
                 let discovered = discovered_root_for_command(cmd, &config.working_directory)?;

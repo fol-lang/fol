@@ -28,6 +28,8 @@ pub enum FrontendArtifactKind {
     EmittedRust,
     LoweredSnapshot,
     InteropEvidence,
+    /// A packed release archive of an installed prefix.
+    ReleaseArchive,
 }
 
 impl FrontendArtifactKind {
@@ -38,6 +40,7 @@ impl FrontendArtifactKind {
             Self::BuildRoot => "build-root",
             Self::CacheRoot => "cache-root",
             Self::Binary => "binary",
+            Self::ReleaseArchive => "release-archive",
             Self::StaticLibrary => "static-library",
             Self::SharedLibrary => "shared-library",
             Self::Object => "object",

@@ -327,6 +327,7 @@ pub struct BindCCommand {
 pub enum AbiSubcommand {
     Inspect(AbiInspectCommand),
     Check(AbiCheckCommand),
+    Package(AbiPackageCommand),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -351,6 +352,17 @@ pub struct AbiCheckCommand {
     /// purpose. Spelled as a flag so the acceptance is in the command that ran,
     /// not in a file someone edited.
     pub allow_breaking: bool,
+}
+
+/// `fol tool abi package`: an installed prefix becomes a release archive.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AbiPackageCommand {
+    /// The installed prefix to publish.
+    pub prefix: String,
+    /// The archive to write.
+    pub out: String,
+    /// A license file to carry into the archive root.
+    pub license: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

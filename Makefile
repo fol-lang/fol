@@ -180,6 +180,11 @@ test-v4-c-platform:
 test-v4-c-roundtrip:
 	@cargo test -p fol --test v4_c_roundtrip -- --nocapture
 
+# M9's release lane: pack an installed prefix into an archive, extract it in a
+# clean directory, and build C consumers against only what came out of it.
+test-v4-c-release:
+	@cargo test -p fol --test v4_c_release -- --nocapture
+
 # The ABI model gate: the canonical type vocabulary, the classifier's required
 # negative cases, the verifier, the manifest encoding, and the two fingerprints.
 # Separate from `test` because a failure here means the compiler's idea of the C
@@ -199,7 +204,7 @@ print-version:
 
 t: test
 
-verify: fmt-check lint test test-build-actions test-native abi-check test-v4-c test-v4-c-import test-v4-c-handle test-v4-c-callback test-v4-linear test-v4-sanitize test-v4-c-platform test-v4-c-roundtrip interop-check test-interop
+verify: fmt-check lint test test-build-actions test-native abi-check test-v4-c test-v4-c-import test-v4-c-handle test-v4-c-callback test-v4-linear test-v4-sanitize test-v4-c-platform test-v4-c-roundtrip test-v4-c-release interop-check test-interop
 
 verify-all: verify test-network
 
