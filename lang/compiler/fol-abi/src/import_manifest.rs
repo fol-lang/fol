@@ -48,6 +48,19 @@ pub struct ImportProvenance {
     pub header_digest: String,
     /// The provider artifact, package-relative.
     pub provider: String,
+    /// Content digest of the provider artifact.
+    ///
+    /// Without it a swapped archive is invisible: the manifest would still
+    /// name the same path and still verify against itself, and an archive can
+    /// carry the same symbol names with different code behind them.
+    ///
+    /// This assumes the provider is built reproducibly. GNU `ar` has defaulted
+    /// to deterministic mode -- zeroed member timestamps, uid, and gid -- for
+    /// years, so rebuilding the same source produces the same bytes. A toolchain
+    /// that stamps its archives makes this report staleness after every rebuild;
+    /// the diagnostic names the command that fixes it rather than failing
+    /// obscurely.
+    pub provider_digest: String,
     /// `object`, `static`, or `shared`.
     pub provider_kind: String,
     /// The annotation overlay, package-relative, when there is one.
@@ -128,7 +141,7 @@ impl ImportManifest {
              \"provenance\":{{\"annotations\":{},\"annotations_digest\":{},\
              \"compiler\":{},\"components\":[{components}],\"defines\":[{}],\
              \"dialect\":{},\"header\":{},\"header_digest\":{},\
-             \"include_roots\":[{}],\"provider\":{},\"provider_kind\":{},\
+             \"include_roots\":[{}],\"provider\":{},\"provider_digest\":{},\"provider_kind\":{},\
              \"system_include_roots\":[{}],\"sysroot\":{},\"target\":{}}},\
              \"provenance_fingerprint\":{}}}",
             quoted(&self.interface_fingerprint()),
@@ -141,6 +154,7 @@ impl ImportManifest {
             quoted(&self.provenance.header_digest),
             list(&self.provenance.include_roots),
             quoted(&self.provenance.provider),
+            quoted(&self.provenance.provider_digest),
             quoted(&self.provenance.provider_kind),
             list(&self.provenance.system_include_roots),
             optional(&self.provenance.sysroot),
@@ -161,6 +175,7 @@ impl ImportManifest {
             self.provenance.header.as_str(),
             self.provenance.header_digest.as_str(),
             self.provenance.provider.as_str(),
+            self.provenance.provider_digest.as_str(),
             self.provenance.provider_kind.as_str(),
             self.provenance.annotations.as_deref().unwrap_or(""),
             self.provenance.annotations_digest.as_deref().unwrap_or(""),
@@ -226,6 +241,9 @@ impl ImportManifest {
             header: provenance_value.string_field("header")?.to_string(),
             header_digest: provenance_value.string_field("header_digest")?.to_string(),
             provider: provenance_value.string_field("provider")?.to_string(),
+            provider_digest: provenance_value
+                .string_field("provider_digest")?
+                .to_string(),
             provider_kind: provenance_value.string_field("provider_kind")?.to_string(),
             annotations: optional("annotations")?,
             annotations_digest: optional("annotations_digest")?,
@@ -277,12 +295,20 @@ impl ImportManifest {
         &self,
         header_digest: &str,
         annotations_digest: Option<&str>,
+        provider_digest: &str,
     ) -> Option<StaleImportInput> {
         if self.provenance.header_digest != header_digest {
             return Some(StaleImportInput {
                 alias: self.interface.alias.clone(),
                 input: "header",
                 path: self.provenance.header.clone(),
+            });
+        }
+        if self.provenance.provider_digest != provider_digest {
+            return Some(StaleImportInput {
+                alias: self.interface.alias.clone(),
+                input: "provider",
+                path: self.provenance.provider.clone(),
             });
         }
         if self.provenance.annotations_digest.as_deref() != annotations_digest {
@@ -1014,6 +1040,7 @@ mod tests {
                 header: "native/c_math.h".to_string(),
                 header_digest: digest(b"int c_math_add_one(int);\n"),
                 provider: "native/libc_math.a".to_string(),
+                provider_digest: digest(b"!<arch>\n"),
                 provider_kind: "static".to_string(),
                 annotations: Some("interop/c_math.toml".to_string()),
                 annotations_digest: Some(digest(b"[routine.c_math_add_one]\n")),

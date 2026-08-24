@@ -579,6 +579,29 @@ pub struct AddModuleRequest {
     pub root_module: String,
 }
 
+/// What a system library name may contain.
+///
+/// Deliberately not `validate_build_name`: that one requires lowercase, and
+/// real libraries are named `SDL2` and `stdc++`. What matters here is that the
+/// name cannot be mistaken for something other than a library name by the time
+/// it reaches the linker -- no leading dash, no path separator, no whitespace.
+pub fn validate_system_library_name(name: &str) -> Result<(), BuildApiNameError> {
+    if name.is_empty() {
+        return Err(BuildApiNameError::Empty);
+    }
+    // A leading dash would read as a flag rather than a name.
+    if name.starts_with('-') {
+        return Err(BuildApiNameError::InvalidCharacter('-'));
+    }
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '+') {
+            continue;
+        }
+        return Err(BuildApiNameError::InvalidCharacter(ch));
+    }
+    Ok(())
+}
+
 pub fn validate_build_name(name: &str) -> Result<(), BuildApiNameError> {
     if name.is_empty() {
         return Err(BuildApiNameError::Empty);
@@ -592,4 +615,36 @@ pub fn validate_build_name(name: &str) -> Result<(), BuildApiNameError> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod system_library_name_tests {
+    use super::{validate_system_library_name, BuildApiNameError};
+
+    /// Real library names, which `validate_build_name` would reject for case.
+    #[test]
+    fn accepts_the_names_libraries_actually_have() {
+        for name in ["m", "pthread", "SDL2", "stdc++", "boost_system", "z.1"] {
+            assert!(
+                validate_system_library_name(name).is_ok(),
+                "{name} should be accepted"
+            );
+        }
+    }
+
+    /// A name that could read as something other than a library name by the
+    /// time it reaches the linker.
+    #[test]
+    fn refuses_names_that_are_not_names() {
+        assert_eq!(
+            validate_system_library_name(""),
+            Err(BuildApiNameError::Empty)
+        );
+        for name in ["-Wl,--script=x", "-lm", "../../evil", "a b", "a/b", "a;b"] {
+            assert!(
+                validate_system_library_name(name).is_err(),
+                "{name} should be refused"
+            );
+        }
+    }
 }

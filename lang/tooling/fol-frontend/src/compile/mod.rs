@@ -834,6 +834,15 @@ pub(crate) fn build_selected_artifacts_for_profile_with_config(
                     format!("native link plan is invalid: {first}"),
                 ));
             }
+            // Declared metadata agrees by now; whether each file *is* what the
+            // graph says needs the file itself.
+            let errors = link_plan.validate_native_inputs();
+            if let Some(first) = errors.first() {
+                return Err(FrontendError::new(
+                    FrontendErrorKind::InvalidInput,
+                    format!("a native link input is not what it claims: {first}"),
+                ));
+            }
             selected_backend_config.native_link_plan = Some(link_plan);
 
             // The artifact's declared C surface. Absent unless the build

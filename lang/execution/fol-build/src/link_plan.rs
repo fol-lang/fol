@@ -284,17 +284,55 @@ impl NativeLinkPlan {
                 ));
                 continue;
             }
-            if target.object_format() != self.target.object_format() {
+        }
+        errors
+    }
+
+    /// What the declared checks cannot see: whether each input file actually is
+    /// what the graph says it is.
+    ///
+    /// `validate_targets` rejects an atom whose target differs, so by the time
+    /// two atoms agree on a target they agree on an object format by
+    /// construction -- comparing the declared formats there could never fail.
+    /// Finding a mislabelled archive means reading it, which needs I/O and so
+    /// lives here rather than in the pure `validate`.
+    ///
+    /// A file that cannot be identified is not an error: the plan carries
+    /// inputs this is not the judge of, and a linker that disagrees will say
+    /// so with more context than a guess here would.
+    pub fn validate_native_inputs(&self) -> Vec<LinkPlanError> {
+        let mut errors = Vec::new();
+        for atom in &self.atoms {
+            let Some(path) = &atom.path else { continue };
+            let Some(facts) = inspect_native_file(std::path::Path::new(path)) else {
+                continue;
+            };
+            if facts.format != self.target.object_format() {
                 errors.push(LinkPlanError::new(
                     LinkPlanErrorKind::ObjectFormatMismatch,
                     format!(
-                        "'{}' is {:?} and '{}' needs {:?}",
+                        "'{}' is {:?} on disk and '{}' needs {:?}",
                         atom.name,
-                        target.object_format(),
+                        facts.format,
                         self.artifact,
                         self.target.object_format()
                     ),
                 ));
+                continue;
+            }
+            if let Some(arch) = facts.arch {
+                if arch != self.target.arch() {
+                    errors.push(LinkPlanError::new(
+                        LinkPlanErrorKind::TargetMismatch,
+                        format!(
+                            "'{}' is built for {:?} on disk and '{}' targets {:?}",
+                            atom.name,
+                            arch,
+                            self.artifact,
+                            self.target.arch()
+                        ),
+                    ));
+                }
             }
         }
         errors
@@ -492,6 +530,93 @@ pub fn order_dependents_before_providers(
     Ok(ordered)
 }
 
+/// What a native file's own bytes say it is.
+///
+/// The declared-metadata checks cannot catch a mislabelled input: an atom
+/// whose target differs is already rejected, so by the time two atoms agree on
+/// a target they agree on an object format by construction. The only way to
+/// find an archive that is not what the graph says it is, is to look at it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NativeFileFacts {
+    pub format: fol_types::ObjectFormat,
+    /// `None` when the format carries no architecture FOL models, or when the
+    /// architecture is one FOL has no target for.
+    pub arch: Option<fol_types::TargetArch>,
+}
+
+/// Read the leading bytes of a native input and say what they are.
+///
+/// `None` for a file that is not a native object, archive, or shared library,
+/// and for one that cannot be read. Neither is an error here: this reports what
+/// it can identify, and the caller decides what an unidentifiable input means.
+pub fn inspect_native_file(path: &std::path::Path) -> Option<NativeFileFacts> {
+    inspect_bytes(&read_prefix(path, 1024)?)
+}
+
+fn inspect_bytes(bytes: &[u8]) -> Option<NativeFileFacts> {
+    // A static archive: an 8-byte magic, a 60-byte member header, then the
+    // first member. Its format is the members' format, so identify one. A
+    // mixed-architecture archive is not something a linker accepts either, so
+    // the first member is enough.
+    if bytes.starts_with(b"!<arch>\n") {
+        return bytes.get(68..).and_then(inspect_bytes);
+    }
+    if bytes.starts_with(b"\x7fELF") {
+        return Some(NativeFileFacts {
+            format: fol_types::ObjectFormat::Elf,
+            arch: elf_arch(bytes),
+        });
+    }
+    if bytes.starts_with(b"MZ") {
+        return Some(NativeFileFacts {
+            format: fol_types::ObjectFormat::Pe,
+            arch: None,
+        });
+    }
+    // Mach-O, in the four byte orders and widths it is written in.
+    let macho = [
+        [0xfeu8, 0xed, 0xfa, 0xce],
+        [0xce, 0xfa, 0xed, 0xfe],
+        [0xfe, 0xed, 0xfa, 0xcf],
+        [0xcf, 0xfa, 0xed, 0xfe],
+    ];
+    if macho.iter().any(|magic| bytes.starts_with(magic)) {
+        return Some(NativeFileFacts {
+            format: fol_types::ObjectFormat::MachO,
+            arch: None,
+        });
+    }
+    None
+}
+
+/// `e_machine` from an ELF header, for the architectures FOL has targets for.
+fn elf_arch(bytes: &[u8]) -> Option<fol_types::TargetArch> {
+    // Byte 5 is EI_DATA: 1 little-endian, 2 big-endian. `e_machine` is a
+    // two-byte field at offset 18 written in that order.
+    let little = *bytes.get(5)? == 1;
+    let low = *bytes.get(18)?;
+    let high = *bytes.get(19)?;
+    let machine = if little {
+        u16::from(low) | (u16::from(high) << 8)
+    } else {
+        u16::from(high) | (u16::from(low) << 8)
+    };
+    match machine {
+        0x3e => Some(fol_types::TargetArch::X86_64),
+        0xb7 => Some(fol_types::TargetArch::Aarch64),
+        _ => None,
+    }
+}
+
+fn read_prefix(path: &std::path::Path, limit: usize) -> Option<Vec<u8>> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut buffer = vec![0u8; limit];
+    let read = file.read(&mut buffer).ok()?;
+    buffer.truncate(read);
+    Some(buffer)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -502,6 +627,130 @@ mod tests {
 
     fn plan() -> NativeLinkPlan {
         NativeLinkPlan::new("app", target("x86_64-unknown-linux-gnu"))
+    }
+
+    /// The magic bytes of each format FOL has a target for.
+    #[test]
+    fn native_files_are_identified_by_their_bytes() {
+        use super::inspect_bytes;
+        use fol_types::{ObjectFormat, TargetArch};
+
+        // A little-endian 64-bit x86-64 ELF header prefix: magic, EI_CLASS,
+        // EI_DATA, then e_machine 0x3e at offset 18.
+        let mut elf = vec![0u8; 32];
+        elf[..4].copy_from_slice(b"\x7fELF");
+        elf[4] = 2;
+        elf[5] = 1;
+        elf[18] = 0x3e;
+        let facts = inspect_bytes(&elf).expect("an ELF header is identifiable");
+        assert_eq!(facts.format, ObjectFormat::Elf);
+        assert_eq!(facts.arch, Some(TargetArch::X86_64));
+
+        // The same header claiming aarch64.
+        elf[18] = 0xb7;
+        assert_eq!(
+            inspect_bytes(&elf).expect("still ELF").arch,
+            Some(TargetArch::Aarch64)
+        );
+
+        assert_eq!(
+            inspect_bytes(b"MZ\x90\x00").expect("PE").format,
+            ObjectFormat::Pe
+        );
+        assert_eq!(
+            inspect_bytes(&[0xcf, 0xfa, 0xed, 0xfe])
+                .expect("Mach-O")
+                .format,
+            ObjectFormat::MachO
+        );
+        assert!(inspect_bytes(b"not an object file").is_none());
+    }
+
+    /// An archive is identified by its first member, not by its own magic.
+    #[test]
+    fn an_archive_is_identified_through_its_first_member() {
+        use super::inspect_bytes;
+        use fol_types::{ObjectFormat, TargetArch};
+
+        let mut archive = Vec::new();
+        archive.extend_from_slice(b"!<arch>\n");
+        archive.extend_from_slice(&[b' '; 60]); // the member header
+        let mut member = vec![0u8; 32];
+        member[..4].copy_from_slice(b"\x7fELF");
+        member[4] = 2;
+        member[5] = 1;
+        member[18] = 0x3e;
+        archive.extend_from_slice(&member);
+
+        let facts = inspect_bytes(&archive).expect("an archive is identifiable");
+        assert_eq!(facts.format, ObjectFormat::Elf);
+        assert_eq!(facts.arch, Some(TargetArch::X86_64));
+    }
+
+    /// The check that could not fire before: an input whose bytes disagree with
+    /// the target it is being linked into.
+    #[test]
+    fn an_input_whose_bytes_are_the_wrong_format_is_rejected() {
+        let scratch = std::env::temp_dir().join(format!(
+            "fol-link-inspect-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&scratch).expect("scratch");
+
+        // A PE object handed to an ELF link.
+        let intruder = scratch.join("libwrong.a");
+        std::fs::write(&intruder, b"MZ\x90\x00padding").expect("write");
+
+        let mut plan = plan();
+        plan.push(NativeLinkAtom::local_artifact(
+            "wrong".to_string(),
+            intruder.display().to_string(),
+            NativeArtifactKind::StaticLibrary,
+            target("x86_64-unknown-linux-gnu"),
+        ));
+
+        let errors = plan.validate_native_inputs();
+        let _ = std::fs::remove_dir_all(&scratch);
+
+        assert_eq!(errors.len(), 1, "expected one rejection: {errors:?}");
+        assert_eq!(errors[0].kind, LinkPlanErrorKind::ObjectFormatMismatch);
+        assert!(
+            errors[0].message.contains("on disk"),
+            "the message should say the evidence came from the file: {}",
+            errors[0].message
+        );
+    }
+
+    /// An input the inspector cannot identify is not an error: the plan carries
+    /// inputs this is not the judge of.
+    #[test]
+    fn an_unidentifiable_input_is_left_alone() {
+        let scratch = std::env::temp_dir().join(format!(
+            "fol-link-unknown-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&scratch).expect("scratch");
+        let opaque = scratch.join("libopaque.a");
+        std::fs::write(&opaque, b"something else entirely").expect("write");
+
+        let mut plan = plan();
+        plan.push(NativeLinkAtom::local_artifact(
+            "opaque".to_string(),
+            opaque.display().to_string(),
+            NativeArtifactKind::StaticLibrary,
+            target("x86_64-unknown-linux-gnu"),
+        ));
+        let errors = plan.validate_native_inputs();
+        let _ = std::fs::remove_dir_all(&scratch);
+        assert!(errors.is_empty(), "{errors:?}");
     }
 
     /// A shared library names itself; nothing else does.

@@ -162,6 +162,7 @@ pub fn bind_c(request: BindCRequest<'_>) -> Result<ImportManifest, BindCError> {
             header: relative_to(&package_root, &header),
             header_digest: content_digest(&header)?,
             provider: relative_to(&package_root, &provider),
+            provider_digest: content_digest(&provider)?,
             provider_kind: request.provider_kind.as_str().to_string(),
             annotations: request
                 .annotations
@@ -190,13 +191,16 @@ pub fn bind_c(request: BindCRequest<'_>) -> Result<ImportManifest, BindCError> {
 /// The digest of a file's exact bytes.
 ///
 /// Recorded beside the path so a reader can tell whether the file still says
-/// what it said when the manifest was written.
+/// what it said when the manifest was written. SHA-256 rather than the FNV-64
+/// used for FOL's internal identity comparisons: these cover files a build
+/// consumes from outside the compiler, so a collision has to be infeasible to
+/// arrange rather than merely unlikely to occur.
 fn content_digest(path: &Path) -> Result<String, BindCError> {
     let bytes = std::fs::read(path).map_err(|source| BindCError::Io {
         path: path.to_owned(),
         source,
     })?;
-    Ok(fol_abi::digest(&bytes))
+    Ok(fol_abi::sha256_hex(&bytes))
 }
 
 /// Paths in the manifest are package-relative, so the same package binds to the

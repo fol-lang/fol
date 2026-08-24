@@ -160,7 +160,7 @@ fn recorded_input_digest(package_root: &Path, relative: &str) -> FrontendResult<
             "the manifest records '{relative}', which could not be read: {error}"
         ))
     })?;
-    Ok(fol_abi::digest(&bytes))
+    Ok(fol_abi::sha256_hex(&bytes))
 }
 
 /// Load the checked import manifests for one package's C imports.
@@ -216,7 +216,12 @@ pub fn load_c_import_interfaces(
             Some(relative) => Some(recorded_input_digest(package_root, relative)?),
             None => None,
         };
-        if let Some(stale) = manifest.stale_input(&header_digest, annotations_digest.as_deref()) {
+        let provider_digest = recorded_input_digest(package_root, &manifest.provenance.provider)?;
+        if let Some(stale) = manifest.stale_input(
+            &header_digest,
+            annotations_digest.as_deref(),
+            &provider_digest,
+        ) {
             return Err(invalid(format!("{stale}")).with_note(format!(
                 "run `fol tool bind c --alias {alias} ...` again and check the result in",
             )));

@@ -237,6 +237,49 @@ fn fol_calls_a_checked_c_scalar_library_and_observes_both_outcomes() {
 
     let _ = std::fs::remove_dir_all(&root);
 }
+/// The provider is the one input whose *contents* nothing else re-checks.
+///
+/// A changed header or overlay changes the projected interface, so a stale
+/// manifest shows up as a type error sooner or later. A swapped archive need
+/// not: it can carry the same symbol names with different code behind them,
+/// and the manifest would still name the same path and still verify against
+/// itself. Its digest is what closes that.
+#[test]
+fn swapping_the_provider_after_binding_is_refused() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the interop lane");
+        return;
+    };
+    let root = stage_example();
+    build_provider(&root, &compiler);
+
+    let (ok, text) = bind(
+        &root,
+        &compiler,
+        &temp,
+        "interop/c_math.toml",
+        "interop/c_math.folabi.json",
+    );
+    assert!(ok, "the initial bind should succeed:\n{text}");
+    let (ok, text) = run_folc(&root, &compiler, &temp, &["code", "build"]);
+    assert!(ok, "the package should build before the swap:\n{text}");
+
+    // Same declarations, different code behind them: the archive that gets
+    // linked is not the one that was measured.
+    let source = root.join("native/c_math.c");
+    let original = std::fs::read_to_string(&source).expect("readable provider source");
+    std::fs::write(&source, original.replace("+ 1", "+ 2")).expect("writable provider source");
+    build_provider(&root, &compiler);
+
+    let (ok, text) = run_folc(&root, &compiler, &temp, &["code", "build"]);
+    assert!(!ok, "a swapped provider must be refused:\n{text}");
+    assert!(
+        text.contains("provider") && text.contains("was bound"),
+        "the refusal should name the provider; got:\n{text}"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
 
 /// A manifest's own fingerprints prove only that nobody edited the manifest.
 /// Whether it still describes the header is a different question, and it used

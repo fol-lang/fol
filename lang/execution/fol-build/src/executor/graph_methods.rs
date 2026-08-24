@@ -534,10 +534,19 @@ impl BuildBodyExecutor {
                         "add_system_lib config is invalid: missing 'name'".to_string(),
                     )
                 })?;
-                if name.trim().is_empty() {
+                if let Err(error) = crate::api::validate_system_library_name(name.trim()) {
                     return Err(BuildEvaluationError::new(
                         BuildEvaluationErrorKind::InvalidInput,
-                        "add_system_lib config is invalid: 'name' must not be empty".to_string(),
+                        match error {
+                            crate::api::BuildApiNameError::Empty => {
+                                "add_system_lib config is invalid: 'name' must not be empty"
+                                    .to_string()
+                            }
+                            crate::api::BuildApiNameError::InvalidCharacter(ch) => format!(
+                                "add_system_lib config is invalid: 'name' contains '{ch}'; a \
+                                 system library name may hold letters, digits, and -_.+"
+                            ),
+                        },
                     ));
                 }
                 let mode = match self.resolve_field_string(fields, "mode") {
