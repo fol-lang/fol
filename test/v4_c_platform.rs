@@ -132,7 +132,16 @@ fn dynamic_section(readelf: &str, file: &Path) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
+/// Report a missing tool as a skip, or as a failure on the certified lane.
+///
+/// A lane that quietly skips is indistinguishable from one that passed, which
+/// is exactly what M9's STOP rules out. `FOL_H7_REQUIRED` is how the certified
+/// build says every inspection must actually run.
 fn skip(reason: &str) {
+    assert!(
+        std::env::var_os("FOL_H7_REQUIRED").is_none(),
+        "FOL_H7_REQUIRED is set but this lane cannot run: {reason}"
+    );
     eprintln!("SKIP: {reason}");
 }
 

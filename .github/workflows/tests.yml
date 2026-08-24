@@ -22,7 +22,7 @@ env:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout FOL
@@ -46,8 +46,13 @@ jobs:
       # The flake is the single toolchain source: pinned Rust, the pinned
       # tree-sitter CLI that fol-editor's build script needs, gcc for the
       # interop smoke, and mdbook for the docs target.
+      # `FOL_H7_REQUIRED` turns every interop and ABI-inspection skip into a
+      # failure. This is the certified `x86_64-unknown-linux-gnu` lane, and a
+      # lane that skips silently is indistinguishable from one that passed.
       - name: Run repository verification
         working-directory: fol
+        env:
+          FOL_H7_REQUIRED: "1"
         run: |
           nix develop --command sh -euc '
             rustc --version

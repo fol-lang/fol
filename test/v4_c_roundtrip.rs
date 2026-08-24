@@ -52,18 +52,31 @@ fn which(program: &str) -> Option<String> {
 }
 
 /// The interop lane needs an explicit compiler and an explicit temp root.
+///
+/// Without them the lane skips, which is right on a machine that has no C
+/// toolchain and wrong on the certified one: `FOL_H7_REQUIRED` is how the
+/// certified lane says a skip is a failure.
 fn require_or_skip() -> Option<(String, PathBuf)> {
-    let compiler = std::env::var("FOL_INTEROP_GCC")
-        .ok()
-        .filter(|value| !value.is_empty())
-        .or_else(|| which("gcc"))
-        .or_else(|| which("cc"))?;
-    let temp = std::env::var("FOL_INTEROP_TEMP")
-        .ok()
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir);
-    Some((compiler, temp))
+    let environment = (|| {
+        let compiler = std::env::var("FOL_INTEROP_GCC")
+            .ok()
+            .filter(|value| !value.is_empty())
+            .or_else(|| which("gcc"))
+            .or_else(|| which("cc"))?;
+        let temp = std::env::var("FOL_INTEROP_TEMP")
+            .ok()
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir);
+        Some((compiler, temp))
+    })();
+    match environment {
+        Some(environment) => Some(environment),
+        None if std::env::var_os("FOL_H7_REQUIRED").is_some() => {
+            panic!("FOL_H7_REQUIRED is set but no C toolchain is available")
+        }
+        None => None,
+    }
 }
 
 fn copy_tree(from: &Path, to: &Path) {
