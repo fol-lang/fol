@@ -401,6 +401,36 @@ pub fn render_core_instruction_in_workspace(
                 None => Ok(format!("{callee_name}({rendered_args});")),
             }
         }
+        LoweredInstrKind::ForeignCall {
+            alias,
+            adapter,
+            symbol,
+            args,
+            error_type,
+        } => {
+            // The callee is a FOL-generated safe adapter, not the raw provider
+            // symbol. Section 4.13 keeps validation, the error convention, and
+            // the capability check inside that adapter, so the emitted call
+            // looks exactly like an ordinary one from here.
+            let rendered_args = render_local_list(type_table, package_identity, routine, args)?;
+            let module = crate::mangle::foreign_adapter_module_name(alias);
+            let callee_name = format!(
+                "{module}::{}",
+                crate::mangle::escape_rust_field_ident(adapter)
+            );
+            // The symbol is not in the emitted expression -- the adapter owns
+            // it -- so it is recorded as a comment, which is what makes a
+            // generated file greppable back to the provider it calls.
+            let call = match instruction.result {
+                Some(_) => {
+                    let result = rendered_result_local(package_identity, routine, instruction)?;
+                    format!("{result} = {callee_name}({rendered_args});")
+                }
+                None => format!("{callee_name}({rendered_args});"),
+            };
+            let _ = error_type;
+            Ok(format!("{call} // c: {symbol}"))
+        }
         LoweredInstrKind::SpawnCall {
             callee,
             args,

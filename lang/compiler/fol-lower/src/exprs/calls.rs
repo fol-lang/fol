@@ -1118,6 +1118,30 @@ pub(crate) fn lower_function_call(
                 };
             }
         }
+        // An imported C routine has no lowered definition by construction:
+        // the body is in the provider, not in this workspace.
+        if let Some(binding) = typed_package
+            .program
+            .resolved()
+            .foreign_routine(resolved_symbol.id)
+            .cloned()
+        {
+            return lower_foreign_call(
+                typed_package,
+                type_table,
+                checked_type_map,
+                current_identity,
+                decl_index,
+                cursor,
+                source_unit_id,
+                scope_id,
+                syntax_id,
+                kind,
+                display_name,
+                args,
+                &binding,
+            );
+        }
         return Err(LoweringError::with_kind(
             LoweringErrorKind::InvalidInput,
             format!("call target '{display_name}' does not map to a lowered routine definition"),
@@ -1933,6 +1957,117 @@ pub(crate) fn reference_type_id(
         .program
         .typed_reference(reference_id)?
         .resolved_type
+}
+
+/// Lower a call into an imported C provider.
+///
+/// Separate from `lower_function_call`'s main path because a foreign routine
+/// has no `LoweredRoutineId` and none of the FOL call machinery it would need
+/// one for: no defaults, no generics, no variadic pack, no receiver. What it
+/// does have is exact parameter types, taken from the checked manifest, which
+/// is what shapes a literal argument correctly.
+#[allow(clippy::too_many_arguments)]
+fn lower_foreign_call(
+    typed_package: &fol_typecheck::TypedPackage,
+    type_table: &crate::LoweredTypeTable,
+    checked_type_map: &BTreeMap<fol_typecheck::CheckedTypeId, LoweredTypeId>,
+    current_identity: &PackageIdentity,
+    decl_index: &WorkspaceDeclIndex,
+    cursor: &mut RoutineCursor<'_>,
+    source_unit_id: SourceUnitId,
+    scope_id: ScopeId,
+    syntax_id: Option<fol_parser::ast::SyntaxNodeId>,
+    kind: ReferenceKind,
+    display_name: &str,
+    args: &[AstNode],
+    binding: &fol_resolver::ForeignRoutineBinding,
+) -> Result<LoweredValue, LoweringError> {
+    let signature = foreign_signature(typed_package, binding).ok_or_else(|| {
+        LoweringError::with_kind(
+            LoweringErrorKind::InvalidInput,
+            format!("imported routine '{display_name}' has no checked signature"),
+        )
+    })?;
+    if args.len() != signature.params.len() {
+        return Err(LoweringError::with_kind(
+            LoweringErrorKind::InvalidInput,
+            format!(
+                "imported routine '{display_name}' takes {} argument(s), got {}",
+                signature.params.len(),
+                args.len()
+            ),
+        ));
+    }
+
+    let mut lowered_args = Vec::with_capacity(args.len());
+    for (arg, param) in args.iter().zip(signature.params.iter()) {
+        let expected = checked_type_map.get(param).copied();
+        let value = lower_expression_expected(
+            typed_package,
+            type_table,
+            checked_type_map,
+            current_identity,
+            decl_index,
+            cursor,
+            source_unit_id,
+            scope_id,
+            expected,
+            arg,
+        )?;
+        lowered_args.push(value.local_id);
+    }
+
+    let error_type = signature
+        .error_type
+        .and_then(|error_type| checked_type_map.get(&error_type).copied());
+    let Some(result_type) =
+        resolve_reference_type_id(typed_package, checked_type_map, syntax_id, kind)
+    else {
+        return Err(LoweringError::with_kind(
+            LoweringErrorKind::Unsupported,
+            format!("imported routine '{display_name}' call has no lowered result type"),
+        ));
+    };
+    let result_local = cursor.allocate_local(result_type, None);
+    cursor.push_instr(
+        Some(result_local),
+        LoweredInstrKind::ForeignCall {
+            alias: binding.alias.clone(),
+            adapter: binding.fol_name.clone(),
+            symbol: binding.symbol.clone(),
+            args: lowered_args,
+            error_type,
+        },
+    )?;
+    Ok(LoweredValue {
+        local_id: result_local,
+        type_id: result_type,
+        recoverable_error_type: error_type,
+    })
+}
+
+fn foreign_signature(
+    typed_package: &fol_typecheck::TypedPackage,
+    binding: &fol_resolver::ForeignRoutineBinding,
+) -> Option<fol_typecheck::types::RoutineType> {
+    let scope = typed_package
+        .program
+        .resolved()
+        .namespace_scope(&binding.alias)?;
+    let symbol = typed_package
+        .program
+        .resolved()
+        .symbols_in_scope(scope)
+        .into_iter()
+        .find(|symbol| symbol.name == binding.fol_name)?;
+    let declared = typed_package
+        .program
+        .typed_symbol(symbol.id)?
+        .declared_type?;
+    match typed_package.program.type_table().get(declared) {
+        Some(fol_typecheck::CheckedType::Routine(signature)) => Some(signature.clone()),
+        _ => None,
+    }
 }
 
 fn lowered_symbol_error_type(

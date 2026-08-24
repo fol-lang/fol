@@ -38,9 +38,9 @@ pub use fol_parser::ast::ParsedSourceUnitKind;
 pub use ids::{IdTable, ImportId, ReferenceId, ScopeId, SourceUnitId, SymbolId};
 pub use inject::inject_build_stdlib_types;
 pub use model::{
-    MountedSymbolProvenance, ReferenceKind, ResolvedImport, ResolvedPackage, ResolvedProgram,
-    ResolvedReference, ResolvedScope, ResolvedSourceUnit, ResolvedSymbol, ResolvedWorkspace,
-    ScopeKind, SymbolKind,
+    ForeignRoutineBinding, MountedSymbolProvenance, ReferenceKind, ResolvedImport, ResolvedPackage,
+    ResolvedProgram, ResolvedReference, ResolvedScope, ResolvedSourceUnit, ResolvedSymbol,
+    ResolvedWorkspace, ScopeKind, SymbolKind,
 };
 pub use session::{PackageIdentity, PackageSourceKind, ResolverConfig, ResolverSession};
 

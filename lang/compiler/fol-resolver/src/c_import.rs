@@ -17,7 +17,8 @@ use fol_parser::ast::ParsedSourceUnitKind;
 
 use crate::{
     model::{
-        ResolvedProgram, ResolvedScope, ResolvedSourceUnit, ResolvedSymbol, ScopeKind, SymbolKind,
+        ForeignRoutineBinding, ResolvedProgram, ResolvedScope, ResolvedSourceUnit, ResolvedSymbol,
+        ScopeKind, SymbolKind,
     },
     ScopeId, SourceUnitId, SymbolId,
 };
@@ -107,6 +108,14 @@ fn inject_one(program: &mut ResolvedProgram, interface: &ImportedInterface) {
                 .or_default()
                 .push(symbol_id);
         }
+        program.register_foreign_routine(
+            symbol_id,
+            ForeignRoutineBinding {
+                alias: interface.alias.clone(),
+                symbol: routine.symbol.clone(),
+                fol_name: routine.fol_name.clone(),
+            },
+        );
     }
 }
 

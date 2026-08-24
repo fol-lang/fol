@@ -102,6 +102,17 @@ pub enum ReferenceKind {
     InquiryTarget,
 }
 
+/// What a foreign routine symbol resolves to on the C side.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForeignRoutineBinding {
+    /// The import's namespace alias, which names the generated adapter module.
+    pub alias: String,
+    /// The exact provider symbol.
+    pub symbol: String,
+    /// The name FOL calls it, which is also the adapter function's name.
+    pub fol_name: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MountedSymbolProvenance {
     pub package_identity: PackageIdentity,
@@ -250,6 +261,12 @@ pub struct ResolvedProgram {
     namespace_scopes: BTreeMap<String, ScopeId>,
     syntax_scopes: BTreeMap<SyntaxNodeId, ScopeId>,
     mounted_package_roots: BTreeMap<String, ScopeId>,
+    /// Routine symbols that are imported C declarations rather than FOL ones.
+    ///
+    /// Recorded here rather than inferred later from the synthetic source-unit
+    /// path, so lowering asks an authoritative question instead of matching a
+    /// string that happens to look distinctive.
+    foreign_routines: BTreeMap<SymbolId, ForeignRoutineBinding>,
     pub source_units: IdTable<SourceUnitId, ResolvedSourceUnit>,
     pub scopes: IdTable<ScopeId, ResolvedScope>,
     pub symbols: IdTable<SymbolId, ResolvedSymbol>,
@@ -340,6 +357,7 @@ impl ResolvedProgram {
             namespace_scopes,
             syntax_scopes: BTreeMap::new(),
             mounted_package_roots: BTreeMap::new(),
+            foreign_routines: BTreeMap::new(),
             source_units,
             scopes,
             symbols: IdTable::new(),
@@ -429,6 +447,22 @@ impl ResolvedProgram {
     /// derive one from.
     pub(crate) fn register_namespace_scope(&mut self, namespace: String, scope_id: ScopeId) {
         self.namespace_scopes.insert(namespace, scope_id);
+    }
+
+    pub(crate) fn register_foreign_routine(
+        &mut self,
+        symbol_id: SymbolId,
+        binding: ForeignRoutineBinding,
+    ) {
+        self.foreign_routines.insert(symbol_id, binding);
+    }
+
+    /// What this routine symbol resolves to on the C side, if anything.
+    ///
+    /// `None` for every ordinary FOL routine, which is what lets lowering ask
+    /// the question without knowing whether any import exists.
+    pub fn foreign_routine(&self, symbol_id: SymbolId) -> Option<&ForeignRoutineBinding> {
+        self.foreign_routines.get(&symbol_id)
     }
 
     pub fn scope_for_syntax(&self, syntax_id: SyntaxNodeId) -> Option<ScopeId> {

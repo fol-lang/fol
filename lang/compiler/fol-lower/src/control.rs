@@ -243,6 +243,23 @@ pub enum LoweredInstrKind {
         args: Vec<LoweredLocalId>,
         error_type: Option<LoweredTypeId>,
     },
+    /// A call into an imported C provider.
+    ///
+    /// Deliberately not a `Call`: there is no `LoweredRoutineId` because there
+    /// is no FOL routine, and the backend has to reach a generated adapter
+    /// rather than an internal path. Section 4.13 keeps the C error convention
+    /// inside that adapter, so this instruction carries only which adapter to
+    /// call and whether the result is recoverable.
+    ForeignCall {
+        /// The import's namespace alias, which names the adapter module.
+        alias: String,
+        /// The safe adapter function inside that module.
+        adapter: String,
+        /// The exact provider symbol, kept for diagnostics and traceability.
+        symbol: String,
+        args: Vec<LoweredLocalId>,
+        error_type: Option<LoweredTypeId>,
+    },
     SpawnCall {
         callee: LoweredRoutineId,
         args: Vec<LoweredLocalId>,

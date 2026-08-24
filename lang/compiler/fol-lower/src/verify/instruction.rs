@@ -26,6 +26,7 @@ fn recoverable_error_type_for_local_inner(
         .find_map(|instr| match &instr.kind {
             crate::LoweredInstrKind::Call { error_type, .. }
             | crate::LoweredInstrKind::CallIndirect { error_type, .. }
+            | crate::LoweredInstrKind::ForeignCall { error_type, .. }
             | crate::LoweredInstrKind::AwaitEventual { error_type, .. }
             | crate::LoweredInstrKind::RuntimeHook { error_type, .. }
                 if instr.result == Some(local_id) =>
@@ -124,6 +125,43 @@ pub(super) fn verify_instruction(
                     routine,
                     instr.id.0,
                     "call error type",
+                    *error_type,
+                    errors,
+                );
+            }
+        }
+        crate::LoweredInstrKind::ForeignCall {
+            alias,
+            adapter,
+            symbol,
+            args,
+            error_type,
+        } => {
+            // There is no routine id to validate: the callee is a generated
+            // adapter, not a FOL routine. What must hold is that the three
+            // names are present, since an empty one would render as a
+            // syntactically valid call into nothing.
+            for (value, field) in [(alias, "alias"), (adapter, "adapter"), (symbol, "symbol")] {
+                if value.is_empty() {
+                    errors.push(LoweringError::with_kind(
+                        LoweringErrorKind::InvalidInput,
+                        format!(
+                            "lowered routine '{}' has a foreign call with an empty {field}",
+                            routine.name
+                        ),
+                    ));
+                }
+            }
+            for arg in args {
+                verify_local_reference(routine, instr.id.0, "foreign call arg", *arg, errors);
+            }
+            if let Some(error_type) = error_type {
+                verify_type_reference(
+                    workspace,
+                    package,
+                    routine,
+                    instr.id.0,
+                    "foreign call error type",
                     *error_type,
                     errors,
                 );

@@ -58,6 +58,15 @@ pub fn escape_rust_field_ident(name: &str) -> String {
     }
 }
 
+/// The private module holding one C import's FOL-owned safe adapters.
+///
+/// Named from the import alias, which the build layer already constrains to
+/// `[a-z][a-z0-9_]*`, so no sanitizing is needed -- but it is prefixed, so an
+/// import cannot collide with a package module or a generated type.
+pub fn foreign_adapter_module_name(alias: &str) -> String {
+    format!("cimp__{}", sanitize_backend_ident(alias))
+}
+
 pub fn mangle_package_module_name(identity: &PackageIdentity) -> String {
     let name = sanitize_backend_ident(&identity.display_name);
     let tag = package_kind_tag(identity.source_kind);
