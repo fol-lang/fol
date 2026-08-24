@@ -2894,10 +2894,36 @@ Landed with M6; the command takes every input explicitly and discovers nothing
 from the environment. It gained `--include-root`, `--system-include-root`,
 `--define`, `--sysroot`, and `--dialect` here, which is what makes it usable on
 a header that needs more than its own directory.
-- [ ] Complete the explicit C-import annotation format for ownership,
+- [~] Complete the explicit C-import annotation format for ownership,
   pointer/length pairing, direction, nullability, effect, escape, destructor
   pairs, imported error convention/mapping, unwind prohibition, and callable
   selection.
+
+Callable selection, error convention and mapping, effects, destructor pairing
+through handle domains, and the unwind/`longjmp`/`errno` prohibition all landed
+with M6 and M7.
+
+**Nullability, ownership, and escape** are now declarable per parameter, where
+they were hardcoded to non-null/borrowed/call-scoped for every pointer with no
+way to say otherwise:
+
+```toml
+nullable = ["maybe"]
+transferred = ["owned"]
+retained = ["kept", "owned"]
+```
+
+Each key names the parameters it applies to, so one routine states all of its
+pointer contracts without a table per parameter, and a parameter may carry more
+than one. Undeclared still means the conservative reading -- C says none of
+this, and guessing the permissive answer is how a borrowed pointer becomes a
+use-after-free. Verified through the whole path: an overlay saying `nullable`
+and `retained` produces exactly those facts in the written manifest.
+
+Still open: **pointer/length pairing**. `AbiType::BorrowedSlice` exists in the
+model and no overlay key produces one on the import path, so a
+`(const uint8_t *, size_t)` pair still imports as two unrelated parameters.
+Direction is inferred from pointee constness rather than declared.
 - [x] Canonicalize include roots and reject traversal/symlink escape; record
   header, annotation, toolchain, target, and relevant sysroot identities in the
   build fingerprint.
