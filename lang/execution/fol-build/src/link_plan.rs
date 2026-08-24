@@ -186,6 +186,12 @@ pub struct NativeLinkPlan {
     pub atoms: Vec<NativeLinkAtom>,
     /// Directories to search, in declaration order.
     pub search_paths: Vec<String>,
+    /// The installed file name a shared library records as its own identity.
+    ///
+    /// `None` for every other product kind. Without it a consumer records
+    /// whatever path it happened to link through, so linking by absolute path
+    /// bakes a build-machine path into the consumer.
+    pub soname: Option<String>,
 }
 
 impl NativeLinkPlan {
@@ -195,7 +201,13 @@ impl NativeLinkPlan {
             target,
             atoms: Vec::new(),
             search_paths: Vec::new(),
+            soname: None,
         }
+    }
+
+    /// Record the installed name a shared library carries as its identity.
+    pub fn set_soname(&mut self, name: impl Into<String>) {
+        self.soname = Some(name.into());
     }
 
     pub fn push(&mut self, atom: NativeLinkAtom) {
@@ -354,6 +366,22 @@ impl NativeLinkPlan {
     /// two arguments -- which is how raw-flag concatenation goes wrong.
     pub fn to_rustc_args(&self) -> Vec<OsString> {
         let mut args: Vec<OsString> = Vec::new();
+        // The flag and its value stay two `-Wl` items rather than one comma
+        // list, so a name is never split on a comma it contains.
+        if let Some(soname) = &self.soname {
+            let flag = match self.target.object_format() {
+                fol_types::ObjectFormat::Elf => Some("-Wl,-soname"),
+                fol_types::ObjectFormat::MachO => Some("-Wl,-install_name"),
+                // PE has no equivalent: a DLL's identity is its file name.
+                fol_types::ObjectFormat::Pe => None,
+            };
+            if let Some(flag) = flag {
+                args.push(OsString::from("-C"));
+                args.push(OsString::from(format!("link-arg={flag}")));
+                args.push(OsString::from("-C"));
+                args.push(OsString::from(format!("link-arg=-Wl,{soname}")));
+            }
+        }
         for path in &self.search_paths {
             args.push(OsString::from("-L"));
             args.push(OsString::from(format!("native={path}")));
@@ -393,6 +421,11 @@ impl NativeLinkPlan {
         let mut rendered = String::new();
         rendered.push_str(self.target.rust_target_triple());
         rendered.push('\n');
+        if let Some(soname) = &self.soname {
+            rendered.push_str("soname:");
+            rendered.push_str(soname);
+            rendered.push('\n');
+        }
         for path in &self.search_paths {
             rendered.push_str("L:");
             rendered.push_str(path);
@@ -469,6 +502,77 @@ mod tests {
 
     fn plan() -> NativeLinkPlan {
         NativeLinkPlan::new("app", target("x86_64-unknown-linux-gnu"))
+    }
+
+    /// A shared library names itself; nothing else does.
+    ///
+    /// Without this a consumer records whatever spelling it linked through, so
+    /// linking by absolute path bakes a build-machine path into the consumer.
+    #[test]
+    fn a_shared_library_plan_sets_its_soname() {
+        let mut plan = plan();
+        plan.set_soname("libapp.so");
+        let args = plan.to_rustc_args();
+
+        let position = args
+            .iter()
+            .position(|arg| arg == &OsString::from("link-arg=-Wl,-soname"))
+            .expect("the soname flag should be present");
+        assert_eq!(args[position - 1], OsString::from("-C"));
+        assert_eq!(args[position + 1], OsString::from("-C"));
+        assert_eq!(args[position + 2], OsString::from("link-arg=-Wl,libapp.so"));
+    }
+
+    /// Runtime lookup is not bought with an rpath nobody was told about.
+    #[test]
+    fn no_plan_injects_an_rpath() {
+        let mut plan = plan();
+        plan.set_soname("libapp.so");
+        plan.push_search_path("/build/lib");
+        plan.push(NativeLinkAtom::local_artifact(
+            "core".to_string(),
+            "libcore.a".to_string(),
+            NativeArtifactKind::StaticLibrary,
+            target("x86_64-unknown-linux-gnu"),
+        ));
+
+        for arg in plan.to_rustc_args() {
+            let rendered = arg.to_string_lossy().into_owned();
+            assert!(
+                !rendered.contains("rpath"),
+                "the link plan injected an rpath: {rendered}"
+            );
+        }
+    }
+
+    /// An executable or a static archive has no self-identity to record.
+    #[test]
+    fn only_a_shared_library_gets_a_soname() {
+        assert!(plan()
+            .to_rustc_args()
+            .iter()
+            .all(|arg| !arg.to_string_lossy().contains("soname")));
+    }
+
+    /// PE has no SONAME equivalent: a DLL's identity is its file name, so
+    /// asking the linker for one would be an error rather than a no-op.
+    #[test]
+    fn a_windows_target_gets_no_soname_flag() {
+        let mut plan = NativeLinkPlan::new("app", target("x86_64-pc-windows-gnu"));
+        plan.set_soname("app.dll");
+        assert!(plan
+            .to_rustc_args()
+            .iter()
+            .all(|arg| !arg.to_string_lossy().contains("soname")));
+    }
+
+    /// The soname changes the produced file, so it must change the fingerprint.
+    #[test]
+    fn the_soname_is_part_of_the_fingerprint() {
+        let bare = plan();
+        let mut named = plan();
+        named.set_soname("libapp.so");
+        assert_ne!(bare.fingerprint_rendering(), named.fingerprint_rendering());
     }
 
     #[test]
@@ -774,6 +878,12 @@ pub fn resolve_link_plan(
         ));
     };
     let mut plan = NativeLinkPlan::new(artifact.name.clone(), artifact.target.clone());
+    if matches!(
+        artifact.kind,
+        crate::graph::BuildArtifactKind::SharedLibrary
+    ) {
+        plan.set_soname(artifact.target.shared_library_file_name(&artifact.name));
+    }
 
     // Local providers, dependents before providers.
     let mut links: BTreeMap<String, Vec<String>> = BTreeMap::new();
