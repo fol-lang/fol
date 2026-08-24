@@ -27,9 +27,75 @@ fn c_type(table: &AbiTypeTable, id: AbiTypeId) -> String {
     match table.get(id) {
         Some(AbiType::Scalar(scalar)) => scalar.c_type(),
         Some(AbiType::Void) => "void".to_string(),
-        Some(AbiType::Record { name, .. }) => c_struct_name(name),
+        Some(AbiType::Record { name, .. }) | Some(AbiType::Entry { name, .. }) => {
+            c_struct_name(name)
+        }
         _ => "void".to_string(),
     }
+}
+
+/// The C spelling of an entry's tag enum.
+fn c_tag_name(entry: &str) -> String {
+    format!("fol_{}_tag_t", entry.to_lowercase())
+}
+
+/// The C spelling of one variant's tag constant.
+fn c_tag_constant(entry: &str, variant: &str) -> String {
+    format!("FOL_{}_{}", entry.to_uppercase(), variant.to_uppercase())
+}
+
+/// Render one entry as an explicitly tagged struct.
+///
+/// A bare C `union` cannot say which member is live, so the generated form is
+/// a struct pairing a fixed-width tag with the payload union. The tag values
+/// are the FOL discriminants, written out rather than left to C's implicit
+/// numbering: section 12.2 requires that reordering the declaration cannot
+/// renumber a tag, and only explicit values give that.
+fn render_entry_definition(
+    table: &AbiTypeTable,
+    name: &str,
+    variants: &[fol_abi::AbiVariant],
+) -> String {
+    let mut out = String::new();
+    let tag_name = c_tag_name(name);
+    let struct_name = c_struct_name(name);
+
+    out.push_str(&format!(
+        "/* FOL `{name}`. The tag values are the FOL discriminants; they are written\n \
+         * out so reordering the declaration cannot renumber them. */\ntypedef enum {{\n"
+    ));
+    for variant in variants {
+        out.push_str(&format!(
+            "    {} = {},\n",
+            c_tag_constant(name, &variant.name),
+            variant.discriminant
+        ));
+    }
+    out.push_str(&format!("}} {tag_name};\n\n"));
+
+    let payloads: Vec<&fol_abi::AbiVariant> = variants
+        .iter()
+        .filter(|variant| variant.payload.is_some())
+        .collect();
+
+    out.push_str(&format!("typedef struct {{\n    {tag_name} tag;\n"));
+    if payloads.is_empty() {
+        // A tag-only entry gets no union member: an empty union is not C.
+        out.push_str("    /* Every variant is tag-only, so there is no payload. */\n");
+    } else {
+        out.push_str("    union {\n");
+        for variant in &payloads {
+            let payload = variant.payload.expect("filtered to payload variants");
+            out.push_str(&format!(
+                "        {} {};\n",
+                c_type(table, payload),
+                variant.name
+            ));
+        }
+        out.push_str("    } payload;\n");
+    }
+    out.push_str(&format!("}} {struct_name};\n\n"));
+    out
 }
 
 /// The C spelling of an exported record.
@@ -50,6 +116,10 @@ pub fn c_struct_name(record: &str) -> String {
 fn render_record_definitions(table: &AbiTypeTable) -> String {
     let mut out = String::new();
     for (type_id, ty) in table.iter() {
+        if let AbiType::Entry { name, variants, .. } = ty {
+            out.push_str(&render_entry_definition(table, name, variants));
+            continue;
+        }
         let AbiType::Record { name, fields } = ty else {
             continue;
         };

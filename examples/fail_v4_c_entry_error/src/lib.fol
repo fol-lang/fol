@@ -1,0 +1,23 @@
+// An entry cannot cross the C boundary, and this fixture is why.
+//
+// FOL has no syntax for an explicit ABI discriminant. The `= 0` / `= 7` / `= 9`
+// below are the variants' *default values*, not tags: the same spelling with a
+// non-integer default (`var Err: str = "broken"`) makes that plain. The tag FOL
+// uses internally is positional, so inserting a variant here would renumber
+// every later one -- a silent ABI break for anyone holding a stored value.
+//
+// So the export is refused, and the diagnostic says which entry and why. When
+// FOL gains explicit tag syntax this fixture becomes a positive one.
+typ[exp] Severity: ent = {
+    con CLEAN: int = 0;
+    con RETRY: int = 7;
+    con FATAL: int = 9;
+};
+
+fun[exp] classify(code: int[32]): Severity = {
+    var retry_code: int[32] = 1;
+    if(.eq(code, retry_code)) {
+        return Severity.RETRY;
+    }
+    return Severity.CLEAN;
+};

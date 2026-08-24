@@ -94,19 +94,34 @@ fn record_declarations(session: &BackendSession) -> fol_lower::abi::AbiRecordMap
     let mut records = fol_lower::abi::AbiRecordMap::new();
     for package in session.workspace().packages() {
         for declaration in package.type_decls.values() {
-            let fol_lower::LoweredTypeDeclKind::Record { fields } = &declaration.kind else {
-                continue;
+            let projected = match &declaration.kind {
+                fol_lower::LoweredTypeDeclKind::Record { fields } => {
+                    fol_lower::abi::AbiAggregateDecl::Record {
+                        name: declaration.name.clone(),
+                        fields: fields
+                            .iter()
+                            .map(|field| (field.name.clone(), field.type_id))
+                            .collect(),
+                    }
+                }
+                fol_lower::LoweredTypeDeclKind::Entry { variants } => {
+                    fol_lower::abi::AbiAggregateDecl::Entry {
+                        name: declaration.name.clone(),
+                        variants: variants
+                            .iter()
+                            .map(|variant| {
+                                (
+                                    variant.name.clone(),
+                                    variant.discriminant,
+                                    variant.payload_type,
+                                )
+                            })
+                            .collect(),
+                    }
+                }
+                fol_lower::LoweredTypeDeclKind::Alias { .. } => continue,
             };
-            records.insert(
-                declaration.runtime_type,
-                fol_lower::abi::AbiRecordDecl {
-                    name: declaration.name.clone(),
-                    fields: fields
-                        .iter()
-                        .map(|field| (field.name.clone(), field.type_id))
-                        .collect(),
-                },
-            );
+            records.insert(declaration.runtime_type, projected);
         }
     }
     records
@@ -123,7 +138,7 @@ fn internal_record_paths(
 ) -> std::collections::BTreeMap<String, String> {
     let mut wanted = std::collections::BTreeSet::new();
     for (_, ty) in surface.interface.types.iter() {
-        if let fol_abi::AbiType::Record { name, .. } = ty {
+        if let fol_abi::AbiType::Record { name, .. } | fol_abi::AbiType::Entry { name, .. } = ty {
             wanted.insert(name.clone());
         }
     }

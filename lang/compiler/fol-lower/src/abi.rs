@@ -33,22 +33,39 @@ impl AbiProjection {
     }
 }
 
-/// One named record declaration, in source field order.
+/// One named aggregate declaration, in source order.
 ///
-/// The ordered field list is the *declaration's*, not the interned type's:
-/// `LoweredType::Record` holds a `BTreeMap` because that is its structural
-/// identity, and two records whose fields differ only in order are the same
-/// interned type but different C structs. So field order can only come from
-/// the declaration, which `fol-lower/src/decls/type_decls.rs` already builds in
-/// source order.
+/// The ordered member list is the *declaration's*, not the interned type's:
+/// `LoweredType::Record` and `LoweredType::Entry` hold `BTreeMap`s because that
+/// is their structural identity, and two records whose fields differ only in
+/// order are the same interned type but different C structs. So order can only
+/// come from the declaration, which `fol-lower/src/decls/type_decls.rs` already
+/// builds in source order.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AbiRecordDecl {
-    pub name: String,
-    pub fields: Vec<(String, LoweredTypeId)>,
+pub enum AbiAggregateDecl {
+    Record {
+        name: String,
+        fields: Vec<(String, LoweredTypeId)>,
+    },
+    Entry {
+        name: String,
+        /// Each variant's declared tag and optional payload. The tag is
+        /// explicit rather than positional, so inserting a variant cannot
+        /// renumber the ones after it.
+        variants: Vec<(String, i64, Option<LoweredTypeId>)>,
+    },
 }
 
-/// Named record declarations, keyed by the type they declare.
-pub type AbiRecordMap = std::collections::BTreeMap<LoweredTypeId, AbiRecordDecl>;
+impl AbiAggregateDecl {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Record { name, .. } | Self::Entry { name, .. } => name,
+        }
+    }
+}
+
+/// Named aggregate declarations, keyed by the type they declare.
+pub type AbiRecordMap = std::collections::BTreeMap<LoweredTypeId, AbiAggregateDecl>;
 
 /// Describe a lowered type for the classifier.
 ///
@@ -101,29 +118,49 @@ pub fn describe(
         Some(LoweredType::Pointer { .. }) => CandidateType::ManagedPointer {
             spelling: table.render_type(id),
         },
-        Some(LoweredType::Record { .. }) => match records.get(&id) {
-            // A declared record projects with its source field order, which is
-            // what decides every offset in the generated struct.
-            Some(declaration) => CandidateType::Record {
-                name: Some(declaration.name.clone()),
-                fields: declaration
-                    .fields
-                    .iter()
-                    .map(|(field, field_type)| {
-                        (field.clone(), describe(table, records, *field_type))
-                    })
-                    .collect(),
-            },
-            // A structural aggregate has no declared name to give the C type.
-            None => CandidateType::Record {
-                name: None,
-                fields: Vec::new(),
-            },
-        },
-        Some(LoweredType::Entry { .. }) => CandidateType::Record {
-            name: None,
-            fields: Vec::new(),
-        },
+        // A declared aggregate projects with its source order, which is what
+        // decides every offset in the generated struct and every tag value in
+        // the generated union.
+        Some(LoweredType::Record { .. }) | Some(LoweredType::Entry { .. }) => {
+            match records.get(&id) {
+                Some(AbiAggregateDecl::Record { name, fields }) => CandidateType::Record {
+                    name: Some(name.clone()),
+                    fields: fields
+                        .iter()
+                        .map(|(field, field_type)| {
+                            (field.clone(), describe(table, records, *field_type))
+                        })
+                        .collect(),
+                },
+                Some(AbiAggregateDecl::Entry { name, variants }) => CandidateType::Entry {
+                    name: Some(name.clone()),
+                    variants: variants
+                        .iter()
+                        .map(|(variant, _, payload)| {
+                            (
+                                variant.clone(),
+                                // `None`: FOL has no syntax for an explicit ABI
+                                // discriminant, and the tag it uses internally
+                                // is positional -- inserting a variant would
+                                // renumber every later one, which is a silent
+                                // ABI break. The verifier turns this into
+                                // `UnstableEntryTag`, so an entry is refused
+                                // with the reason rather than shipped with a
+                                // tag that cannot be promised. See
+                                // `fol-typecheck`'s `explicit_variant_tag`.
+                                None,
+                                payload.map(|id| describe(table, records, id)),
+                            )
+                        })
+                        .collect(),
+                },
+                // A structural aggregate has no declared name to give the C type.
+                None => CandidateType::Record {
+                    name: None,
+                    fields: Vec::new(),
+                },
+            }
+        }
         Some(LoweredType::Named { name, .. }) => CandidateType::Record {
             name: Some(name.clone()),
             fields: Vec::new(),
@@ -147,21 +184,49 @@ fn intern(
     records: &AbiRecordMap,
     id: LoweredTypeId,
 ) -> Option<AbiTypeId> {
-    // A record interns its fields first, in declaration order, so the ABI
-    // table's field list is the one the C struct is generated from.
-    if let Some(LoweredType::Record { .. }) = table.get(id) {
-        let declaration = records.get(&id)?;
-        let mut fields = Vec::with_capacity(declaration.fields.len());
-        for (name, field_type) in &declaration.fields {
-            fields.push(fol_abi::AbiField {
-                name: name.clone(),
-                type_id: intern(abi, table, records, *field_type)?,
-            });
-        }
-        return Some(abi.intern(AbiType::Record {
-            name: declaration.name.clone(),
-            fields,
-        }));
+    // An aggregate interns its members first, in declaration order, so the ABI
+    // table's list is the one the C type is generated from.
+    if matches!(
+        table.get(id),
+        Some(LoweredType::Record { .. }) | Some(LoweredType::Entry { .. })
+    ) {
+        return match records.get(&id)? {
+            AbiAggregateDecl::Record { name, fields } => {
+                let mut interned = Vec::with_capacity(fields.len());
+                for (field, field_type) in fields {
+                    interned.push(fol_abi::AbiField {
+                        name: field.clone(),
+                        type_id: intern(abi, table, records, *field_type)?,
+                    });
+                }
+                Some(abi.intern(AbiType::Record {
+                    name: name.clone(),
+                    fields: interned,
+                }))
+            }
+            AbiAggregateDecl::Entry { name, variants } => {
+                let mut interned = Vec::with_capacity(variants.len());
+                for (variant, tag, payload) in variants {
+                    interned.push(fol_abi::AbiVariant {
+                        name: variant.clone(),
+                        discriminant: *tag,
+                        payload: match payload {
+                            Some(payload) => Some(intern(abi, table, records, *payload)?),
+                            None => None,
+                        },
+                    });
+                }
+                Some(abi.intern(AbiType::Entry {
+                    name: name.clone(),
+                    // A fixed 32-bit tag, matching C's `int` enum convention.
+                    // Fixed rather than derived from the values present, so
+                    // adding a variant cannot silently widen the tag and
+                    // change the struct's layout.
+                    tag: fol_types::IntWidth::I32,
+                    variants: interned,
+                }))
+            }
+        };
     }
 
     let scalar = match table.get(id)? {

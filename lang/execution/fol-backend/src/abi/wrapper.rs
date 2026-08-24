@@ -19,7 +19,9 @@ pub fn rust_repr(table: &AbiTypeTable, id: AbiTypeId) -> String {
         Some(AbiType::Scalar(AbiScalar::Bool)) => "u8".to_string(),
         Some(AbiType::Scalar(AbiScalar::Char)) => "u32".to_string(),
         Some(AbiType::Void) => "()".to_string(),
-        Some(AbiType::Record { name, .. }) => c_repr_struct_name(name),
+        Some(AbiType::Record { name, .. }) | Some(AbiType::Entry { name, .. }) => {
+            c_repr_struct_name(name)
+        }
         _ => "()".to_string(),
     }
 }
@@ -40,6 +42,10 @@ pub fn c_repr_struct_name(record: &str) -> String {
 pub fn render_record_structs(table: &AbiTypeTable) -> String {
     let mut out = String::new();
     for (_, ty) in table.iter() {
+        if let AbiType::Entry { name, variants, .. } = ty {
+            out.push_str(&render_entry_struct(table, name, variants));
+            continue;
+        }
         let AbiType::Record { name, fields } = ty else {
             continue;
         };
@@ -63,6 +69,59 @@ pub fn render_record_structs(table: &AbiTypeTable) -> String {
     out
 }
 
+/// The union member holding one entry's payloads.
+fn c_repr_union_name(entry: &str) -> String {
+    format!("FolAbi{entry}Payload")
+}
+
+/// Render the `#[repr(C)]` twin of one entry: a tag beside a payload union.
+///
+/// The union is `repr(C)` and its members are `Copy`, so no Rust drop glue is
+/// involved. Reading the wrong member is what the tag exists to prevent, and
+/// the wrapper checks the tag before reading anything.
+fn render_entry_struct(
+    table: &AbiTypeTable,
+    name: &str,
+    variants: &[fol_abi::AbiVariant],
+) -> String {
+    let struct_name = c_repr_struct_name(name);
+    let union_name = c_repr_union_name(name);
+    let payloads: Vec<&fol_abi::AbiVariant> = variants
+        .iter()
+        .filter(|variant| variant.payload.is_some())
+        .collect();
+
+    let mut out = String::new();
+    if payloads.is_empty() {
+        out.push_str(&format!(
+            "/// The C representation of FOL's `{name}`. Every variant is tag-only.\n\
+             #[repr(C)]\n#[derive(Clone, Copy)]\npub struct {struct_name} {{\n    pub tag: i32,\n}}\n\n"
+        ));
+        return out;
+    }
+
+    out.push_str(&format!(
+        "/// Payloads of FOL's `{name}`. Only the member the tag names is live.\n\
+         #[repr(C)]\n#[derive(Clone, Copy)]\npub union {union_name} {{\n"
+    ));
+    for variant in &payloads {
+        let payload = variant.payload.expect("filtered to payload variants");
+        out.push_str(&format!(
+            "    pub {}: {},\n",
+            crate::mangle::escape_rust_field_ident(&variant.name),
+            rust_repr(table, payload)
+        ));
+    }
+    out.push_str("}\n\n");
+
+    out.push_str(&format!(
+        "/// The C representation of FOL's `{name}`.\n\
+         #[repr(C)]\n#[derive(Clone, Copy)]\npub struct {struct_name} {{\n    \
+         pub tag: i32,\n    pub payload: {union_name},\n}}\n\n"
+    ));
+    out
+}
+
 /// Validation and conversion from the C representation to the FOL value.
 ///
 /// Returns `None` when no validation is needed. A boolean and a character are
@@ -77,6 +136,40 @@ fn inbound_conversion(
     // A record arrives as its `repr(C)` twin and is rebuilt field by field
     // into FOL's own type. Transmuting instead would assume the two layouts
     // match, which is exactly what `repr(Rust)` does not promise.
+    // An entry's tag is checked before any payload is read. C can hand over a
+    // tag that names no variant, and reading the union for one would be
+    // reading whatever bytes happen to be there.
+    if let Some(AbiType::Entry {
+        name: entry,
+        variants,
+        ..
+    }) = table.get(id)
+    {
+        let Some(path) = record_paths.get(entry) else {
+            return String::new();
+        };
+        let mut arms = String::new();
+        for variant in variants {
+            let ident = crate::mangle::escape_rust_field_ident(&variant.name);
+            let construction = match variant.payload {
+                // The union read is the one place `unsafe` is needed, and it
+                // happens only on the arm whose tag was just matched.
+                Some(_) => format!("{path}::{ident}(unsafe {{ {name}.payload.{ident} }})"),
+                None => format!("{path}::{ident}"),
+            };
+            arms.push_str(&format!(
+                "        {} => {construction},\n",
+                variant.discriminant
+            ));
+        }
+        return format!(
+            "    let {name} = match {name}.tag {{\n{arms}        \
+             // A tag naming no variant is not an entry value.\n        \
+             _ => return {},\n    }};\n",
+            super::status::INVALID_ARGUMENT
+        );
+    }
+
     if let Some(AbiType::Record {
         name: record,
         fields,
@@ -118,7 +211,42 @@ fn inbound_conversion(
 }
 
 /// Conversion from the FOL value back to the C representation.
-fn outbound_conversion(table: &AbiTypeTable, id: AbiTypeId, expr: &str) -> String {
+fn outbound_conversion(
+    table: &AbiTypeTable,
+    id: AbiTypeId,
+    expr: &str,
+    record_paths: &std::collections::BTreeMap<String, String>,
+) -> String {
+    if let Some(AbiType::Entry { name, variants, .. }) = table.get(id) {
+        let Some(path) = record_paths.get(name) else {
+            return expr.to_string();
+        };
+        let struct_name = c_repr_struct_name(name);
+        let union_name = c_repr_union_name(name);
+        let has_payload = variants.iter().any(|variant| variant.payload.is_some());
+        let mut arms = String::new();
+        for variant in variants {
+            let ident = crate::mangle::escape_rust_field_ident(&variant.name);
+            let tag = variant.discriminant;
+            let arm = match (variant.payload.is_some(), has_payload) {
+                (true, _) => format!(
+                    "{path}::{ident}(__fol_payload) => {struct_name} {{ tag: {tag}, \
+                     payload: {union_name} {{ {ident}: __fol_payload }} }}"
+                ),
+                // A tag-only variant of an entry that has payloads still needs
+                // a union value; any member will do, and the tag says it is
+                // not to be read.
+                (false, true) => format!(
+                    "{path}::{ident} => {struct_name} {{ tag: {tag}, \
+                     payload: unsafe {{ core::mem::zeroed() }} }}"
+                ),
+                (false, false) => format!("{path}::{ident} => {struct_name} {{ tag: {tag} }}"),
+            };
+            arms.push_str(&format!("        {arm},\n"));
+        }
+        return format!("match {expr} {{\n{arms}    }}");
+    }
+
     if let Some(AbiType::Record { name, fields }) = table.get(id) {
         let assignments = fields
             .iter()
@@ -233,7 +361,7 @@ pub fn render_wrapper(
             if has_result {
                 out.push_str(&format!(
                     "        Ok(__fol_value) => {{\n            unsafe {{ *out_result = {}; }}\n            {}\n        }}\n",
-                    outbound_conversion(table, routine.result, "__fol_value"),
+                    outbound_conversion(table, routine.result, "__fol_value", record_paths),
                     super::status::OK
                 ));
             } else {
@@ -248,7 +376,7 @@ pub fn render_wrapper(
             let write_result = if has_result {
                 format!(
                     "                    unsafe {{ *out_result = {}; }}\n",
-                    outbound_conversion(table, routine.result, "__fol_ok")
+                    outbound_conversion(table, routine.result, "__fol_ok", record_paths)
                 )
             } else {
                 String::new()
@@ -258,7 +386,7 @@ pub fn render_wrapper(
                  \x20           Ok(__fol_ok) => {{\n{write_result}                    {}\n                }}\n\
                  \x20           Err(__fol_error) => {{\n                    unsafe {{ *out_error = {}; }}\n                    {}\n                }}\n        }},\n",
                 super::status::OK,
-                outbound_conversion(table, *error_type, "__fol_error"),
+                outbound_conversion(table, *error_type, "__fol_error", record_paths),
                 super::status::REPORT
             ));
         }

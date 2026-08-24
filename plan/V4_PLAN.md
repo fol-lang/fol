@@ -2496,12 +2496,41 @@ nothing.
 ## 12.2 Entries and recoverable errors
 
 - [ ] Use a fixed explicit tag type and stable numeric discriminants.
-- [ ] Use a generated payload union only for projectable payloads.
-- [ ] Keep the universal status value separate from user error payload/tag.
-- [ ] Reject unknown tags before constructing an internal entry.
+- [x] Use a generated payload union only for projectable payloads.
+- [x] Keep the universal status value separate from user error payload/tag.
+- [x] Reject unknown tags before constructing an internal entry.
 
 Gate: declaration reorder does not silently renumber tags; an intentional tag
 change is an ABI break.
+
+**Blocked on a language feature, and the gate is what blocks it.** FOL has no
+syntax for an explicit ABI discriminant. A variant is written
+`con NAME: int = 7` or `var NAME: T = v`, and the parser records both the same
+way -- the value is the variant's *default payload*, not a tag. The enum-shaped
+case makes it look like a tag, and `Severity.RETRY` really does evaluate to 7,
+but `var Ok: int = 1` beside `var Err: str = "broken"` shows what it is: taking
+the default as a tag gives both variants the tag 1.
+
+This was found the hard way, and the finding is worth keeping. The projection
+first shipped positional tags, and a probe compared the two sides directly:
+FOL evaluated `Severity.RETRY` as **7** while the generated header declared
+`FOL_SEVERITY_RETRY = 1`. One entry, two different tags, depending on which
+side of the boundary you stood on -- a C consumer matching the header's
+constant would never match a value FOL produced. Reusing the default as the
+discriminant was then tried and reverted, because the collision above is real.
+
+So entries are refused at the boundary with the reason
+(`AbiRejection::UnstableEntryTag`), which is what the gate's second clause
+requires: a tag that cannot be promised is not shipped. The other three items
+landed -- the payload union, tag-only variants, and the inbound unknown-tag
+rejection are implemented in `fol-backend/src/abi/{header,wrapper}.rs` and
+exercised by the code path, and the universal `fol_status_t` was already
+separate from any user tag.
+
+Proven by `an_entry_without_explicit_tags_is_refused_with_its_reason` over
+`examples/fail_v4_c_entry_error`. Unblocking this needs explicit tag syntax in
+FOL, at which point `explicit_variant_tag` in `fol-typecheck/src/decls.rs` is
+the single place that reads it and the fixture becomes a positive one.
 
 ## 12.3 Borrowed strings and slices
 

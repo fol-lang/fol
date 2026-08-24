@@ -505,3 +505,47 @@ fn a_record_crosses_as_a_c_struct_whose_layout_c_agrees_with() {
         "got:\n{stdout}"
     );
 }
+
+/// M7.2: an entry is refused at the boundary, with the reason.
+///
+/// FOL has no syntax for an explicit ABI discriminant, and the tag it uses
+/// internally is positional — inserting a variant would renumber every later
+/// one, which is a silent ABI break. Section 12.2's gate is that a
+/// declaration reorder must not renumber tags, and the only honest way to hold
+/// that today is to refuse the export and say why.
+#[test]
+fn an_entry_without_explicit_tags_is_refused_with_its_reason() {
+    let fixture = fol_testkit::TempFixture::new("fol_v4_c_entry_reject");
+    let source = repo_root().join("examples/fail_v4_c_entry_error");
+    let root = fixture.path().join("entry");
+    copy_dir(&source, &root);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_folc"))
+        .args(["code", "build", "--package-store-root"])
+        .arg(store_root())
+        .current_dir(&root)
+        .output()
+        .expect("the build should run");
+    let text = strip_ansi(&format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    ));
+
+    assert!(
+        !output.status.success(),
+        "the entry export must fail:\n{text}"
+    );
+    assert!(
+        text.contains("has no explicit discriminants"),
+        "the diagnostic should name the missing tags:\n{text}"
+    );
+    assert!(
+        text.contains("Severity"),
+        "the diagnostic should name the entry:\n{text}"
+    );
+    assert!(
+        text.contains("renumber"),
+        "the diagnostic should say what would break:\n{text}"
+    );
+}
