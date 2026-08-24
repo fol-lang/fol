@@ -67,6 +67,7 @@ pub fn bind_c_command(
         // disables ambient `CPATH`/SDK/sysroot discovery in reproducible mode,
         // and this command is reproducible mode.
         dialect: command.dialect.as_deref(),
+        library_paths: &command.library_paths,
         search: fol_interop::HeaderSearch {
             include_roots: command.include_roots.clone(),
             system_include_roots: command.system_include_roots.clone(),

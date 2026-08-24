@@ -222,6 +222,7 @@ impl<'a> BuildApi<'a> {
                     sysroot: request.sysroot,
                     include_roots: request.include_roots,
                     system_include_roots: request.system_include_roots,
+                    library_paths: request.library_paths,
                     defines: request.defines,
                 },
             )

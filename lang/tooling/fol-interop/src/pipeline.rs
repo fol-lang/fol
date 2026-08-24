@@ -369,6 +369,13 @@ pub fn prepare_h7_interop(request: H7InteropRequest<'_>) -> Result<H7InteropBuil
     let wanted: Option<std::collections::BTreeSet<String>> = overlay
         .as_ref()
         .map(|overlay| overlay.routines().map(|r| r.symbol.clone()).collect());
+    // Same refusal as `bind c`: the record can carry library search paths, and
+    // the certified analysis profile cannot act on them.
+    if let Some(first) = c_import.library_paths.first() {
+        return Err(H7InteropError::LibrarySearchPathsUnsupported {
+            first: first.clone(),
+        });
+    }
     let source = scan_complete_header(
         &package_root,
         &header,
@@ -697,6 +704,11 @@ pub enum H7InteropError {
     UnsupportedOptimize(BuildOptimizeMode),
     InvalidGraph(usize),
     MissingCImport,
+    /// The import declares library search paths the certified analysis profile
+    /// cannot use.
+    LibrarySearchPathsUnsupported {
+        first: String,
+    },
     MultipleCImports,
     ExistingGeneratedInputs,
     InvalidPath {
@@ -761,6 +773,14 @@ impl std::fmt::Display for H7InteropError {
             }
             Self::MissingCImport => formatter.write_str(
                 "H7 interop artifact has no authoritative C import attachment",
+            ),
+            Self::LibrarySearchPathsUnsupported { first } => write!(
+                formatter,
+                "this import declares the library search path '{first}', which the certified \
+                 analysis profile cannot use: it resolves exact paths only, and exact-path \
+                 resolution refuses a search path as an input. A shared provider that carries \
+                 dependencies of its own therefore cannot be imported yet; supply a static or \
+                 object provider, or one whose dependencies are already resolved"
             ),
             Self::MultipleCImports => formatter.write_str(
                 "H7 interop artifact has more than one C import attachment",

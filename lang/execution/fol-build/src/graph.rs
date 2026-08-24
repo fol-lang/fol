@@ -165,6 +165,8 @@ pub struct BuildCImportAttachment {
     pub include_roots: Vec<String>,
     pub system_include_roots: Vec<String>,
     pub defines: Vec<String>,
+    /// Directories the linker searches for the provider's own dependencies.
+    pub library_paths: Vec<String>,
 }
 
 /// One `add_c_import` record before the graph binds it to an artifact.
@@ -185,6 +187,8 @@ pub struct BuildCImportDeclaration {
     pub include_roots: Vec<String>,
     pub system_include_roots: Vec<String>,
     pub defines: Vec<String>,
+    /// Directories the linker searches for the provider's own dependencies.
+    pub library_paths: Vec<String>,
 }
 
 impl BuildCImportDeclaration {
@@ -209,6 +213,7 @@ impl BuildCImportDeclaration {
             include_roots: self.include_roots,
             system_include_roots: self.system_include_roots,
             defines: self.defines,
+            library_paths: self.library_paths,
         }
     }
 }
@@ -1075,6 +1080,7 @@ mod tests {
                 sysroot: None,
                 include_roots: Vec::new(),
                 system_include_roots: Vec::new(),
+                library_paths: Vec::new(),
                 defines: Vec::new(),
             }
         );

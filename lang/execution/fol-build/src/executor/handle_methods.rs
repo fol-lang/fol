@@ -854,6 +854,8 @@ impl BuildBodyExecutor {
                     self.resolve_c_import_strings(method, fields, "include_roots")?;
                 let system_include_roots =
                     self.resolve_c_import_strings(method, fields, "system_include_roots")?;
+                let library_paths =
+                    self.resolve_c_import_strings(method, fields, "library_paths")?;
                 let defines = self.resolve_c_import_strings(method, fields, "defines")?;
                 self.output.operations.push(BuildEvaluationOperation {
                     origin: None,
@@ -872,6 +874,7 @@ impl BuildBodyExecutor {
                             include_roots,
                             system_include_roots,
                             defines,
+                            library_paths,
                         },
                     },
                 });

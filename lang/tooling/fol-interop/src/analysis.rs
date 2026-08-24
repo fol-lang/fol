@@ -59,11 +59,18 @@ pub(crate) struct ValidatedTemporaryParent(PathBuf);
 pub(crate) fn strict_compile_only_policy(
     temporary_parent: ValidatedTemporaryParent,
 ) -> Result<AnalysisPolicy, InteropAnalysisPolicyError> {
+    strict_policy_with_resolution(temporary_parent, ResolutionPolicy::ExactPathsOnly)
+}
+
+fn strict_policy_with_resolution(
+    temporary_parent: ValidatedTemporaryParent,
+    resolution: ResolutionPolicy,
+) -> Result<AnalysisPolicy, InteropAnalysisPolicyError> {
     let environment = ProbeEnvironmentIdentity::try_new(ProbeEnvironmentPolicy::Empty, Vec::new())?;
     let limits = certification_resource_limits()?;
     let execution = ProbeExecutionPolicy::try_new(temporary_parent.0, environment, limits)?;
     AnalysisPolicy::strict(
-        ResolutionPolicy::ExactPathsOnly,
+        resolution,
         ProbePolicy::CompileOnly,
         RunnerPolicy::Unavailable,
         execution,

@@ -50,6 +50,11 @@ pub struct BindCRequest<'a> {
     pub search: crate::source::HeaderSearch,
     /// The C standard the header is read as. `None` means C17.
     pub dialect: Option<&'a str>,
+    /// Directories the resolver searches for the provider's own dependencies.
+    ///
+    /// Declared, never discovered: a shared provider carries a `DT_NEEDED` on
+    /// its libc, and the policy resolves exact paths only.
+    pub library_paths: &'a [String],
 }
 
 /// Run the pipeline and return the manifest it accepted.
@@ -104,6 +109,26 @@ pub fn bind_c(request: BindCRequest<'_>) -> Result<ImportManifest, BindCError> {
         &request.search,
     )
     .map_err(|error| BindCError::Source(error.to_string()))?;
+
+    // Declared library search paths are validated here and then refused,
+    // which is worth the apparent contradiction: the record carries them so a
+    // build program can state what a shared provider needs, and the pinned
+    // LINC cannot act on them. Its certification profile requires
+    // exact-path resolution, and exact-path resolution rejects a search path
+    // as an input outright -- so passing them through would surface an
+    // internal policy error instead of the real reason.
+    if let Some(first) = request.library_paths.first() {
+        for path in request.library_paths {
+            crate::source::canonical_directory(&crate::source::resolve_against(
+                &package_root,
+                path,
+            ))
+            .map_err(|error| BindCError::Source(error.to_string()))?;
+        }
+        return Err(BindCError::LibrarySearchPathsUnsupported {
+            first: first.clone(),
+        });
+    }
 
     let native_inputs = [crate::pipeline::native_input_for(
         request.provider_kind,
@@ -250,6 +275,11 @@ pub enum BindCError {
         error: AnnotationError,
     },
     EmptySelection,
+    /// The import declares library search paths the certified analysis profile
+    /// cannot use.
+    LibrarySearchPathsUnsupported {
+        first: String,
+    },
     Policy(String),
     Toolchain(String),
     Source(String),
@@ -277,6 +307,14 @@ impl std::fmt::Display for BindCError {
                 f,
                 "the annotation overlay selects no routines, so the import would define nothing; \
                  add a [routine.<symbol>] table for each declaration FOL should call"
+            ),
+            Self::LibrarySearchPathsUnsupported { first } => write!(
+                f,
+                "this import declares the library search path '{first}', which the certified \
+                 analysis profile cannot use: it resolves exact paths only, and exact-path \
+                 resolution refuses a search path as an input. A shared provider that carries \
+                 dependencies of its own therefore cannot be imported yet; supply a static or \
+                 object provider, or one whose dependencies are already resolved"
             ),
             Self::Policy(detail) => write!(f, "invalid analysis policy: {detail}"),
             Self::Toolchain(detail) => write!(f, "could not certify the C toolchain: {detail}"),

@@ -315,6 +315,8 @@ pub struct BindCCommand {
     pub sysroot: Option<String>,
     /// The C standard the header is read as. `None` means c17.
     pub dialect: Option<String>,
+    /// Library search roots, repeatable. May live outside the package.
+    pub library_paths: Vec<String>,
 }
 
 /// `fol tool abi inspect` and `fol tool abi check`.

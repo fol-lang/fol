@@ -1407,6 +1407,7 @@ fn parse_bind_command(
             "--define" => command.defines.push(value),
             "--sysroot" => command.sysroot = Some(value),
             "--dialect" => command.dialect = Some(value),
+            "--library-path" => command.library_paths.push(value),
             _ => {
                 return Err(ParseError::invalid(format!(
                     "unknown flag for tool bind c: {key}"
@@ -1439,7 +1440,8 @@ fn bind_usage() -> String {
      --out <PATH> [--target <TRIPLE>] [--provider-kind object|static|shared] \
      [--annotations <PATH>] [--fol-model core|memo|std] \
      [--include-root <DIR>]... [--system-include-root <DIR>]... \
-     [--define <NAME[=VALUE]>]... [--sysroot <DIR>] [--dialect <STD>]"
+     [--define <NAME[=VALUE]>]... [--sysroot <DIR>] [--dialect <STD>] \
+     [--library-path <DIR>]..."
         .to_string()
 }
 

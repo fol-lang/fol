@@ -612,6 +612,7 @@ pub fn canonical_artifact_config_shapes() -> Vec<BuildSemanticRecordShape> {
                 BuildSemanticRecordField::optional("sysroot"),
                 BuildSemanticRecordField::optional("include_roots"),
                 BuildSemanticRecordField::optional("system_include_roots"),
+                BuildSemanticRecordField::optional("library_paths"),
                 BuildSemanticRecordField::optional("defines"),
             ],
         ),
@@ -1460,6 +1461,7 @@ mod config_shape_tests {
                 "sysroot".to_string(),
                 "include_roots".to_string(),
                 "system_include_roots".to_string(),
+                "library_paths".to_string(),
                 "defines".to_string(),
             ])
         );

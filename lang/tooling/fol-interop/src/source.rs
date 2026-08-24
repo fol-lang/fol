@@ -338,7 +338,17 @@ fn canonical_include_root(root: &Path, include: &str) -> Result<PathBuf, Interop
     Ok(canonical)
 }
 
-fn canonical_directory(path: &Path) -> Result<PathBuf, InteropSourceError> {
+/// A declared path against the package root, or as given when absolute.
+pub(crate) fn resolve_against(root: &Path, declared: &str) -> PathBuf {
+    let candidate = Path::new(declared);
+    if candidate.is_absolute() {
+        candidate.to_owned()
+    } else {
+        root.join(candidate)
+    }
+}
+
+pub(crate) fn canonical_directory(path: &Path) -> Result<PathBuf, InteropSourceError> {
     if !path.is_absolute() {
         return Err(InteropSourceError::InvalidPackageRoot(path.to_owned()));
     }

@@ -320,6 +320,12 @@ pub struct BuildCImportRequest {
     pub sysroot: Option<String>,
     pub include_roots: Vec<String>,
     pub system_include_roots: Vec<String>,
+    /// Directories the linker searches for the provider's own dependencies.
+    ///
+    /// Declared, never discovered: a shared provider carries a `DT_NEEDED` on
+    /// its libc, and FOL's analysis policy resolves exact paths only, so
+    /// without these the dynamic form cannot resolve what it needs.
+    pub library_paths: Vec<String>,
     pub defines: Vec<String>,
 }
 
