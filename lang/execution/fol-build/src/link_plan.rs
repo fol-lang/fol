@@ -629,6 +629,72 @@ mod tests {
         NativeLinkPlan::new("app", target("x86_64-unknown-linux-gnu"))
     }
 
+    /// A package-owned search path that leaves the package is refused.
+    ///
+    /// The origin is why this can be decided at all: by the time a path
+    /// becomes `-L native=<path>` it is a bare string with no owner attached.
+    #[test]
+    fn a_package_search_path_may_not_leave_the_package() {
+        use crate::native::{NativeLibraryPath, NativeSearchPathOrigin};
+
+        for escaping in ["../outside/lib", "lib/../../outside", "/absolute/lib"] {
+            let error = super::validate_search_path(
+                "app",
+                &NativeLibraryPath {
+                    origin: NativeSearchPathOrigin::PackageRoot,
+                    relative_path: escaping.to_string(),
+                },
+            )
+            .unwrap_or_else(|| panic!("{escaping} should be refused"));
+            assert!(
+                error.message.contains(escaping),
+                "the refusal should quote the path: {}",
+                error.message
+            );
+        }
+    }
+
+    /// An ordinary package-relative path is accepted.
+    #[test]
+    fn a_contained_package_search_path_is_accepted() {
+        use crate::native::{NativeLibraryPath, NativeSearchPathOrigin};
+
+        for contained in ["lib", "native/lib", "build/x86_64/lib"] {
+            assert!(
+                super::validate_search_path(
+                    "app",
+                    &NativeLibraryPath {
+                        origin: NativeSearchPathOrigin::PackageRoot,
+                        relative_path: contained.to_string(),
+                    },
+                )
+                .is_none(),
+                "{contained} should be accepted"
+            );
+        }
+    }
+
+    /// A system search path is exempt: an SDK is not inside the package, which
+    /// is the same reason angled include roots are exempt on the header side.
+    #[test]
+    fn a_system_search_path_may_live_anywhere() {
+        use crate::native::{NativeLibraryPath, NativeSearchPathOrigin};
+
+        for outside in ["/opt/sdk/lib", "../elsewhere"] {
+            assert!(
+                super::validate_search_path(
+                    "app",
+                    &NativeLibraryPath {
+                        origin: NativeSearchPathOrigin::System,
+                        relative_path: outside.to_string(),
+                    },
+                )
+                .is_none(),
+                "{outside} should be accepted as a system path"
+            );
+        }
+    }
+
     /// The magic bytes of each format FOL has a target for.
     #[test]
     fn native_files_are_identified_by_their_bytes() {
@@ -1109,6 +1175,55 @@ mod tests {
     }
 }
 
+/// Reject a package-owned search path that leaves the package.
+///
+/// The origin is the whole point and it is lost downstream: by the time a path
+/// becomes `-L native=<path>` it is a bare string, so containment has to be
+/// decided here while `NativeSearchPathOrigin` still says who owns it. A
+/// `System` root may be anywhere -- an SDK is not in the package -- but a
+/// `PackageRoot` or `BuildRoot` path that escapes would let the accepted link
+/// inputs change without the package's own fingerprint moving.
+///
+/// A pure string check rather than `canonicalize`: these paths are declared
+/// relative to a root that may not exist yet when the plan is built, and a
+/// directory that is absent is not the same failure as one that escapes.
+fn validate_search_path(
+    artifact: &str,
+    path: &crate::native::NativeLibraryPath,
+) -> Option<LinkPlanError> {
+    use crate::native::NativeSearchPathOrigin;
+
+    if matches!(path.origin, NativeSearchPathOrigin::System) {
+        return None;
+    }
+    let candidate = std::path::Path::new(&path.relative_path);
+    if candidate.is_absolute() {
+        return Some(LinkPlanError::new(
+            LinkPlanErrorKind::MissingRole,
+            format!(
+                "artifact '{artifact}' declares the absolute library search path '{}'; a \
+                 package-owned path is relative to the package, and an absolute one describes \
+                 this machine rather than this package",
+                path.relative_path
+            ),
+        ));
+    }
+    if candidate
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Some(LinkPlanError::new(
+            LinkPlanErrorKind::MissingRole,
+            format!(
+                "artifact '{artifact}' declares the library search path '{}', which leaves the \
+                 package; declare it as a system search path if it is meant to",
+                path.relative_path
+            ),
+        ));
+    }
+    None
+}
+
 /// Build the ordered link plan for one graph artifact.
 ///
 /// Resolves every handle kind section 4.5 names: locally produced artifacts,
@@ -1182,6 +1297,9 @@ pub fn resolve_link_plan(
     }
 
     for path in &artifact.library_paths {
+        if let Some(error) = validate_search_path(&artifact.name, path) {
+            return Err(error);
+        }
         plan.push_search_path(path.relative_path.clone());
     }
     for directive in &artifact.link_inputs {

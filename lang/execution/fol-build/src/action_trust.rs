@@ -27,11 +27,19 @@ pub enum ToolTrustError {
     /// The tool is not an absolute path, so which binary runs would depend on
     /// `PATH` at execution time.
     ToolPathIsNotAbsolute { tool: String },
+    /// The tool path is absolute but not normalized, so what it names depends
+    /// on the working directory or on what a link points at.
+    ToolPathIsNotNormalized { tool: String, component: String },
 }
 
 impl std::fmt::Display for ToolTrustError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::ToolPathIsNotNormalized { tool, component } => write!(
+                f,
+                "tool path '{tool}' contains '{component}'; an absolute path that still has to \
+                 be resolved does not name one binary"
+            ),
             Self::DependencyProvidedToolsAreDisabled { tool } => write!(
                 f,
                 "'{tool}' is provided by a dependency, and running a dependency-provided \
@@ -59,10 +67,26 @@ pub fn check_tool_is_runnable(
             tool: tool.to_string(),
         });
     }
-    if !Path::new(tool).is_absolute() {
+    let path = Path::new(tool);
+    if !path.is_absolute() {
         return Err(ToolTrustError::ToolPathIsNotAbsolute {
             tool: tool.to_string(),
         });
+    }
+    // Absolute is not the same as settled: `/usr/bin/../bin/cc` and
+    // `/usr/bin/./cc` are both absolute and both still depend on resolution,
+    // so a fingerprint taken over the spelling would not identify one binary.
+    //
+    // The raw segments rather than `Path::components`, which silently drops a
+    // `.` -- it normalizes as it iterates, so the very thing being looked for
+    // is invisible through it.
+    for segment in tool.split('/') {
+        if segment == ".." || segment == "." {
+            return Err(ToolTrustError::ToolPathIsNotNormalized {
+                tool: tool.to_string(),
+                component: segment.to_string(),
+            });
+        }
     }
     Ok(())
 }
@@ -110,6 +134,37 @@ fn digest(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Absolute is not the same as settled.
+    ///
+    /// `/usr/bin/../bin/cc` names a binary only after resolution, so a
+    /// fingerprint taken over the spelling would not identify what actually
+    /// ran, and two spellings of one tool would look like two tools.
+    #[test]
+    fn an_unnormalized_absolute_tool_path_is_refused() {
+        for (path, component) in [
+            ("/usr/bin/../bin/cc", ".."),
+            ("/usr/bin/./cc", "."),
+            ("/../cc", ".."),
+        ] {
+            let error = check_tool_is_runnable(path, ToolProvenance::System)
+                .expect_err("{path} should be refused");
+            assert!(
+                matches!(
+                    &error,
+                    ToolTrustError::ToolPathIsNotNormalized { component: found, .. }
+                        if found == component
+                ),
+                "for {path}: {error:?}"
+            );
+        }
+    }
+
+    /// A normalized absolute path still runs.
+    #[test]
+    fn a_normalized_absolute_tool_path_is_accepted() {
+        assert!(check_tool_is_runnable("/usr/bin/cc", ToolProvenance::System).is_ok());
+    }
 
     #[test]
     fn a_dependency_provided_tool_is_refused() {
