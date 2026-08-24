@@ -142,17 +142,26 @@ where
     items.into_iter().collect::<Vec<_>>().join(", ")
 }
 
-impl FolEchoFormat for i64 {
-    fn fol_echo_format(&self) -> String {
-        self.to_string()
-    }
+/// Every scalar width FOL can spell, not only the defaults.
+///
+/// `int` is `i64` and `flt` is `f64`, so those two were enough for a record
+/// whose fields all took the default width. A field written `int[32]` lowers
+/// to `i32`, which had no impl -- and since a record's echo rendering is
+/// generated unconditionally, *declaring* such a record failed to compile,
+/// with no ABI or echo call anywhere in the program.
+macro_rules! echo_via_display {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl FolEchoFormat for $ty {
+                fn fol_echo_format(&self) -> String {
+                    self.to_string()
+                }
+            }
+        )*
+    };
 }
 
-impl FolEchoFormat for f64 {
-    fn fol_echo_format(&self) -> String {
-        self.to_string()
-    }
-}
+echo_via_display!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize, f32, f64);
 
 impl FolEchoFormat for bool {
     fn fol_echo_format(&self) -> String {
@@ -274,6 +283,27 @@ mod tests {
         render_echo, render_entry, render_entry_debug, render_record, render_record_debug,
         FolEchoFormat, FolEntry, FolNamedValue, FolRecord,
     };
+
+    /// Every width a FOL scalar can be written at renders.
+    ///
+    /// A record's echo rendering is generated for its declaration, not for a
+    /// call, so a missing impl made *declaring* `rec = { value: int[32] }` a
+    /// compile error in generated Rust -- with no echo anywhere in the FOL
+    /// program. Only `i64`/`f64` were covered, which is exactly the set a
+    /// default-width record uses.
+    #[test]
+    fn every_scalar_width_renders() {
+        assert_eq!(FolEchoFormat::fol_echo_format(&-1i8), "-1");
+        assert_eq!(FolEchoFormat::fol_echo_format(&-2i16), "-2");
+        assert_eq!(FolEchoFormat::fol_echo_format(&-3i32), "-3");
+        assert_eq!(FolEchoFormat::fol_echo_format(&-4i64), "-4");
+        assert_eq!(FolEchoFormat::fol_echo_format(&5u8), "5");
+        assert_eq!(FolEchoFormat::fol_echo_format(&6u16), "6");
+        assert_eq!(FolEchoFormat::fol_echo_format(&7u32), "7");
+        assert_eq!(FolEchoFormat::fol_echo_format(&8u64), "8");
+        assert_eq!(FolEchoFormat::fol_echo_format(&1.5f32), "1.5");
+        assert_eq!(FolEchoFormat::fol_echo_format(&2.5f64), "2.5");
+    }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     struct DemoPoint {
