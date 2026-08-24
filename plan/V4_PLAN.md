@@ -3600,10 +3600,17 @@ an absolute path is followed; and native library search paths reach
 - [~] Validate native filenames/library names and never interpolate them into a
   shell command.
 
-The shell half is fully satisfied -- see the next item. The validation half is
-not: a system library name is checked for being non-empty and nothing else,
-then becomes `-l dylib={name}`. `validate_build_name` already enforces a sane
-charset and is simply never applied to library names or search paths.
+The shell half is fully satisfied -- see the next item.
+
+A system library name was checked for being non-empty and nothing else before
+becoming `-l dylib={name}`. `validate_system_library_name` now requires it to
+look like a library name: letters, digits, and `-_.+`, with no leading dash, no
+path separator, and no whitespace. Deliberately *not* `validate_build_name`,
+which requires lowercase -- real libraries are named `SDL2` and `stdc++`, and a
+validator that rejected them would be worse than none.
+
+Still open: native library *search paths* are neither canonicalized nor
+contained.
 - [x] Use structured `Command` arguments; no shell-expanded linker fragments.
 
 There is no `sh -c` anywhere in `lang/`. `to_rustc_args` returns `OsString`
@@ -3611,29 +3618,47 @@ items with every flag and value separate -- the SONAME is split into two `-Wl`
 items rather than a comma list for exactly this reason -- and
 `arguments_are_structured_never_concatenated` proves a path containing a space
 stays one argv element.
-- [ ] Inspect object format/architecture before linking.
+- [x] Inspect object format/architecture before linking.
 
-**Worse than absent: it currently reads as covered and is not.**
-`validate_targets` compares declared targets, `continue`s on mismatch, and only
-then tests `object_format()` -- which by that point is equal by construction.
-The `ObjectFormatMismatch` variant is constructed at exactly one unreachable
-line and has no test. Nothing anywhere reads the magic bytes of a `.a`, `.o`,
-or `.so`. Either the dead branch goes or a real inspection replaces it; leaving
-it is the worst of the three, because it looks like a check.
+The check that was here read as coverage and could never fire:
+`validate_targets` rejects an atom whose target differs and `continue`s, so by
+the time it compared object formats they were equal by construction. The
+variant was constructed at one unreachable line and had no test.
+
+It is replaced by `validate_native_inputs`, which reads the files.
+`inspect_native_file` identifies ELF, PE, and Mach-O by magic bytes, resolves a
+static archive through its first member rather than assuming the archive's own
+format, and pulls `e_machine` out of an ELF header for the architecture. The
+declared checks stay pure; this one needs I/O and says so.
+
+An input it cannot identify is deliberately *not* an error -- the plan carries
+inputs this is not the judge of, and a linker that disagrees will say so with
+more context than a guess here would. Both directions are tested: a PE object
+handed to an ELF link is rejected naming the evidence as on-disk, and an
+unidentifiable file is left alone. It runs on the real build path, and every
+existing lane still links.
 - [~] Cryptographically digest exact native binary/header/annotation inputs and
   record provider provenance in lock/build metadata.
 
-The header and the annotation overlay now carry content digests, which is what
-makes stale-interface detection possible. Two gaps remain, and the first is the
-real one: **the native provider binary has no digest field at all**, so
-`stale_input` cannot notice a swapped `.a` -- the manifest records its path and
-nothing about its contents. The compiler is likewise recorded as a path.
+The header, the annotation overlay, and the provider now all carry **SHA-256**
+content digests. FNV-1a stays where it belongs -- comparing a value against one
+this same code produced -- and the three inputs a build consumes from outside
+the compiler moved to a hash whose collisions have to be infeasible to arrange
+rather than merely unlikely to occur.
 
-The second is the word *cryptographically*: these digests are FNV-1a 64-bit,
-matching every other fingerprint in the tree. That is sound for comparing a
-value against one this same code produced, and wrong for anything an adversary
-touches. `sha256_hex` now exists and is used for release checksums, so the
-material for closing this is in place.
+The provider digest is the one that mattered. A changed header or overlay
+changes the projected interface, so a stale manifest surfaces as a type error
+eventually; a swapped archive need not, because it can carry the same symbol
+names with different code behind them.
+`swapping_the_provider_after_binding_is_refused` rebuilds the provider from
+edited source and requires the build to refuse.
+
+This assumes reproducible archives. GNU `ar` has defaulted to deterministic
+mode for years, so the same source produces the same bytes; a toolchain that
+stamps its archives reports staleness after every rebuild, with a diagnostic
+naming the command that fixes it.
+
+Still open: the compiler is recorded as a path rather than a digest.
 - [x] Do not use `DefaultHasher` as a native-content identity.
 
 The single live `DefaultHasher` hashes package-lock identity strings, not
