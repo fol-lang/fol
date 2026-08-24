@@ -332,7 +332,56 @@ Working on a component locally without editing the pins:
 follang-parc = { path = "/absolute/path/to/parc" }
 ```
 
-With repository-wide hardening complete, this boundary unblocks the first
-broader V4 work. It does not itself expose general foreign declaration
-syntax, general pointers or ownership, C export, bounded header-import
-tooling, C++ ABI support, Rust facade generation, or a stable Rust binary ABI.
+This boundary does not expose general foreign declaration syntax, general
+pointers or ownership, C++ ABI support, Rust facade generation, or a stable
+Rust binary ABI. C export and bounded header import are built on top of it and
+are described above.
+
+## ABI versioning
+
+A library that other people link needs to say when its surface changed, and to
+distinguish that from having been rebuilt. An exporting artifact declares a
+version beside its exports:
+
+```fol
+lib.set_abi_version({ major = 1, minor = 0 });
+lib.add_abi_export({ routine = "add_i32", symbol = "fol_slice_add_i32" });
+```
+
+The installed manifest carries **two** fingerprints, and the split is the whole
+point. The *interface* fingerprint covers what a caller can see: symbols,
+types, layouts, error contracts, ownership. The *build* fingerprint covers how
+the surface was produced — compiler, component revisions, link inputs. A new
+compiler moves the build fingerprint and leaves the interface fingerprint
+alone, so a toolchain upgrade does not read as an ABI event.
+
+`fol tool abi check --baseline <MANIFEST> --candidate <MANIFEST>` compares a
+checked-in baseline against a freshly built manifest and reports one of four
+verdicts:
+
+| Verdict | Meaning |
+|---|---|
+| unchanged | the interface is identical; if the build fingerprint moved, it says so |
+| compatible | symbols were added and nothing existing changed |
+| breaking | an existing symbol, type, layout, or contract changed |
+| target mismatch | the two manifests describe different targets |
+
+A break is accepted only with `--allow-breaking`, which says *this break is
+intended* and belongs in the command that ran rather than in a file someone
+edited. A target mismatch is never accepted by that flag: nothing about the
+source changed, so treating it as an intended break would send a reader looking
+for a change that is not there.
+
+Both commands read written manifests and nothing else — no package root, no
+compilation — because an installed prefix and an extracted release archive are
+exactly where a consumer needs to ask what a library's C surface is, and
+neither has a source tree. Reading recomputes both recorded fingerprints, so a
+hand-edited manifest is refused rather than compared.
+
+`fol tool abi package --prefix <DIR> --out <ARCHIVE>` turns an installed prefix
+into a release archive carrying the headers, libraries, manifests, a
+`CHECKSUMS.sha256` any consumer can verify with `sha256sum -c`, a `PROVENANCE`
+record, and an `SBOM` naming the pinned components that measured the layouts.
+It refuses a prefix containing generated Rust or a Cargo manifest rather than
+filtering them out: that is implementation, not interface, and a prefix holding
+it is a bug worth reporting rather than papering over.
