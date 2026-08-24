@@ -3693,9 +3693,25 @@ compiler executable must be absolute with no `.`/`..`, and
 write. System include roots and the sysroot are canonicalized but deliberately
 not contained, because an SDK legitimately lives outside the package.
 
-Open: build *tool* paths are only checked for being absolute, so a symlink at
-an absolute path is followed; and native library search paths reach
-`-L native={path}` with no canonicalization or containment at all.
+Native library search paths reached `-L native={path}` with no containment at
+all. `validate_search_path` now refuses a `PackageRoot` or `BuildRoot` path
+that is absolute or walks out through `..`, while a `System` path may live
+anywhere -- an SDK is not inside the package, the same asymmetry angled include
+roots have. It has to be decided in `resolve_link_plan`, because by the time a
+path becomes a `-L` argument it is a bare string and the origin that says who
+owns it is gone.
+
+Tool paths were checked for being absolute and nothing else, and absolute is
+not the same as settled: `/usr/bin/../bin/cc` and `/usr/bin/./cc` both name a
+binary only after resolution, so a fingerprint over the spelling would not
+identify what ran and two spellings of one tool would look like two tools. Both
+are now refused by name. The check scans the raw path segments rather than
+`Path::components`, which normalizes a `.` away as it iterates and so cannot
+see the thing being looked for -- a trap worth recording, since the obvious
+implementation silently passes.
+
+Still open: a symlink at an otherwise-normalized absolute tool path is followed
+rather than resolved and re-checked.
 - [~] Validate native filenames/library names and never interpolate them into a
   shell command.
 
