@@ -408,6 +408,7 @@ pub fn render_core_instruction_in_workspace(
             args,
             error_type,
             callback_arg,
+            buffer_arg,
         } => {
             // The callee is a FOL-generated safe adapter, not the raw provider
             // symbol. Section 4.13 keeps validation, the error convention, and
@@ -429,6 +430,30 @@ pub fn render_core_instruction_in_workspace(
                     // the closure's address.
                     if *callback_arg == Some(position) {
                         return Ok("Some(__fol_trampoline)".to_string());
+                    }
+                    // A paired buffer is one FOL value and two C arguments.
+                    // The length is derived from the value rather than passed
+                    // beside it, which is the point of the pairing: there is no
+                    // second number a caller could get wrong. `as _` takes the
+                    // provider's own width from the adapter's signature.
+                    if *buffer_arg == Some(position) {
+                        // The loan's own rendering is peeled off first. A
+                        // mutable loan arrives as `&mut *local`, and taking a
+                        // slice of that would be dereferencing the length.
+                        let base = rendered
+                            .trim_end_matches(".clone()")
+                            .trim_start_matches("&mut *")
+                            .trim_start_matches("&*")
+                            .to_string();
+                        let slice = match buffer_is_mutable(type_table, routine, *arg) {
+                            true => format!("{base}.as_mut_slice()"),
+                            false => format!("{base}.as_slice()"),
+                        };
+                        let address = match buffer_is_mutable(type_table, routine, *arg) {
+                            true => format!("{slice}.as_mut_ptr()"),
+                            false => format!("{slice}.as_ptr()"),
+                        };
+                        return Ok(format!("{address}, {slice}.len() as _"));
                     }
                     // A record is passed as its fields, matching the adapter,
                     // which rebuilds the provider's struct from them. FOL's
@@ -1901,6 +1926,24 @@ fn handle_passing(
         .then_some(HandlePassing::Borrowed),
         _ => None,
     }
+}
+
+/// Whether a paired buffer is lent mutably.
+///
+/// A provider that writes through the address needs a mutable loan on FOL's
+/// side too; the const-ness the header declared is what decided which.
+fn buffer_is_mutable(
+    type_table: &fol_lower::LoweredTypeTable,
+    routine: &fol_lower::LoweredRoutine,
+    local_id: fol_lower::LoweredLocalId,
+) -> bool {
+    let Some(Some(type_id)) = routine.locals.get(local_id).map(|local| local.type_id) else {
+        return false;
+    };
+    matches!(
+        type_table.get(type_id),
+        Some(fol_lower::LoweredType::Borrowed { mutable: true, .. })
+    )
 }
 
 /// The `extern "C"` shim a provider calls back through.

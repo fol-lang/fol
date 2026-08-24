@@ -410,8 +410,18 @@ fn render_routine(routine: &ImportedRoutine) -> String {
         ),
         None => "null".to_string(),
     };
+    // Part of the interface for the same reason the handle is: unpairing a
+    // buffer changes the routine's arity as FOL sees it.
+    let buffer = match &routine.buffer {
+        Some(use_) => format!(
+            "{{\"length\":{},\"parameter\":{}}}",
+            quoted(&use_.length),
+            quoted(&use_.parameter)
+        ),
+        None => "null".to_string(),
+    };
     format!(
-        "{{\"callback\":{callback},\"convention\":{},\
+        "{{\"buffer\":{buffer},\"callback\":{callback},\"convention\":{},\
          \"effects\":{{\"allocates\":{},\"hosted\":{}}},\
          \"error\":{},\"fol_name\":{},\"handle\":{handle},\
          \"origin\":{{\"column\":{},\"file\":{},\"line\":{}}},\
@@ -528,6 +538,20 @@ fn render_type(id: AbiTypeId, ty: &AbiType) -> String {
                 quoted(name)
             )
         }
+        // A slice's element and mutability are the whole type: an address
+        // with no element size counts nothing, and whether the provider may
+        // write through it decides which loan FOL has to hold.
+        AbiType::BorrowedSlice {
+            element,
+            mutability,
+        } => format!(
+            "\"element\":{},\"kind\":\"borrowed-slice\",\"mutability\":{}",
+            element.0,
+            quoted(match mutability {
+                AbiMutability::Const => "const",
+                AbiMutability::Mutable => "mutable",
+            })
+        ),
         // Anything still unwritten would put a type in the manifest that
         // nothing can parse, so it must not have been projected in the first
         // place.
@@ -681,6 +705,20 @@ fn read_type(entry: &JsonValue) -> Result<AbiType, ImportManifestError> {
                 other => other.as_str().map(str::to_string),
             },
         },
+        "borrowed-slice" => AbiType::BorrowedSlice {
+            element: AbiTypeId(
+                usize::try_from(entry.integer_field("element")?).map_err(|_| {
+                    ImportManifestError::Json(JsonError::WrongType {
+                        field: "element".to_string(),
+                        expected: "a type index",
+                    })
+                })?,
+            ),
+            mutability: match entry.string_field("mutability")? {
+                "mutable" => AbiMutability::Mutable,
+                _ => AbiMutability::Const,
+            },
+        },
         "opaque-handle" => AbiType::OpaqueHandle {
             name: entry.string_field("name")?.to_string(),
         },
@@ -747,6 +785,7 @@ fn read_routine(
         },
         handle: read_handle(entry.field("handle")?)?,
         callback: read_callback(entry.field("callback")?)?,
+        buffer: read_buffer(entry.field("buffer")?)?,
         origin: AbiSourceOrigin {
             file: origin_value.string_field("file")?.to_string(),
             line: u32::try_from(origin_value.integer_field("line")?).unwrap_or(0),
@@ -766,6 +805,18 @@ fn callback_type_index(raw: i64) -> Result<AbiTypeId, ImportManifestError> {
             expected: "a type index",
         })
     })
+}
+
+fn read_buffer(
+    value: &JsonValue,
+) -> Result<Option<crate::annotation::BufferUse>, ImportManifestError> {
+    if matches!(value, JsonValue::Null) {
+        return Ok(None);
+    }
+    Ok(Some(crate::annotation::BufferUse {
+        parameter: value.string_field("parameter")?.to_string(),
+        length: value.string_field("length")?.to_string(),
+    }))
 }
 
 fn read_callback(
@@ -1033,6 +1084,7 @@ mod tests {
                         effects: ImportEffects::default(),
                         handle: None,
                         callback: None,
+                        buffer: None,
                         origin: AbiSourceOrigin {
                             file: "native/c_math.h".to_string(),
                             line: 7,
@@ -1067,6 +1119,7 @@ mod tests {
                         },
                         handle: None,
                         callback: None,
+                        buffer: None,
                         origin: AbiSourceOrigin {
                             file: "native/c_math.h".to_string(),
                             line: 11,

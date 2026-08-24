@@ -19,7 +19,7 @@ $(info Project: $(PROJECT_NAME))
 $(info Version: $(CURRENT_VERSION))
 $(info ------------------------------------------)
 
-.PHONY: build b compile c fmt f fmt-changed fmt-check lint run r test t test-network print-version tree tree-test interop-check interop-locked test-interop test-build-actions test-native abi-check test-v4-c test-v4-c-import test-v4-c-handle test-v4-c-callback test-v4-linear test-v4-sanitize verify verify-all help h clean docs release
+.PHONY: build b compile c fmt f fmt-changed fmt-check lint run r test t test-network print-version tree tree-test interop-check interop-locked test-interop test-build-actions test-native abi-check test-v4-c test-v4-c-import test-v4-c-handle test-v4-c-callback test-v4-c-buffer test-v4-linear test-v4-sanitize verify verify-all help h clean docs release
 
 SHELL := /bin/bash
 
@@ -169,6 +169,11 @@ test-v4-c-handle:
 test-v4-c-callback:
 	@cargo test -p fol --test v4_c_callback -- --nocapture
 
+# M13 buffers: a pointer/length pair crossing as one FOL value, in both
+# directions, with the length derived rather than passed beside it.
+test-v4-c-buffer:
+	@cargo test -p fol --test v4_c_buffer -- --nocapture
+
 # M9's platform lane: SONAME/runtime-lookup behaviour of an installed shared
 # library, its dynamic export set, and cache isolation between concurrent
 # builds. Skips the inspection tests when readelf/nm are absent.
@@ -204,7 +209,7 @@ print-version:
 
 t: test
 
-verify: fmt-check lint test test-build-actions test-native abi-check test-v4-c test-v4-c-import test-v4-c-handle test-v4-c-callback test-v4-linear test-v4-sanitize test-v4-c-platform test-v4-c-roundtrip test-v4-c-release interop-check test-interop
+verify: fmt-check lint test test-build-actions test-native abi-check test-v4-c test-v4-c-import test-v4-c-handle test-v4-c-callback test-v4-c-buffer test-v4-linear test-v4-sanitize test-v4-c-platform test-v4-c-roundtrip test-v4-c-release interop-check test-interop
 
 verify-all: verify test-network
 

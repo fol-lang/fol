@@ -323,6 +323,25 @@ fn checked_type_for(
             .type_table_mut()
             .intern(CheckedType::Routine(signature)));
     }
+    // A paired buffer reaches FOL as one borrowed vector. Borrowed rather than
+    // owned because the provider is lent the storage for the call and FOL keeps
+    // it: an owned `vec` would mean handing over memory the caller still holds.
+    // The length is not a FOL parameter at all -- it comes off this value.
+    if let AbiType::BorrowedSlice {
+        element,
+        mutability,
+    } = abi_type
+    {
+        let (element, mutability) = (*element, *mutability);
+        let element = checked_type_for(typed, alias, types, element, context)?;
+        let inner = typed.type_table_mut().intern(CheckedType::Vector {
+            element_type: element,
+        });
+        return Ok(typed.type_table_mut().intern(CheckedType::Borrowed {
+            inner,
+            mutable: matches!(mutability, fol_abi::AbiMutability::Mutable),
+        }));
+    }
     // A record is nominal: it reaches FOL as a reference to the type symbol the
     // resolver mounted, not as a fresh structural shape.
     if let AbiType::Record { name, .. } = abi_type {
@@ -417,6 +436,7 @@ mod tests {
                     effects: ImportEffects::default(),
                     handle: None,
                     callback: None,
+                    buffer: None,
                     origin: AbiSourceOrigin::default(),
                 },
                 ImportedRoutine {
@@ -449,6 +469,7 @@ mod tests {
                     effects: ImportEffects::default(),
                     handle: None,
                     callback: None,
+                    buffer: None,
                     origin: AbiSourceOrigin::default(),
                 },
             ],

@@ -1,0 +1,54 @@
+// A buffer crossing as one FOL value, not as a pointer and a number.
+//
+// C carries a buffer as two unrelated parameters:
+//
+//     uint32_t digest_sum(const uint8_t *bytes, size_t count);
+//
+// Nothing in that signature says `count` is the extent of `bytes` -- it could
+// as easily be an unrelated tally. The overlay says it:
+//
+//     [routine.digest_sum]
+//     buffer = "bytes"
+//     buffer_length = "count"
+//
+// `count` is then not a FOL parameter at all. The length comes off the value
+// FOL passes, which is the whole point: there is no second number for a caller
+// to get wrong, and no way to describe a buffer longer than the one that
+// exists.
+//
+// Direction is declared rather than read off constness. A `uint8_t *` that the
+// provider only writes and one it also reads are the same C type, so the
+// overlay states which.
+
+use std: pkg = {"std"};
+use dig: pkg = {"digest"};
+
+fun[] main(): int = {
+    var bytes: vec[u8] = {1, 2, 3, 4};
+
+    // 1+2+3+4 is 10, and 10 can only come from C having read exactly four
+    // elements: a length FOL did not derive would read too few or too many.
+    var total: u32 = dig::digest_sum([bor]bytes);
+
+    // The other direction: C writes through the same paired shape. The
+    // overlay declares it `writes`, so the loan FOL has to hold is a mutable
+    // one -- a `[bor]` here would be a type error rather than a silent write
+    // through a read-only view.
+    var filled: vec[u8] = {0, 0, 0};
+    dig::digest_fill([mut, bor]filled, 5);
+    var after: u32 = dig::digest_sum([bor]filled);
+
+    // 10 from four elements read, then 15 from three written and summed back.
+    var marker: int = 0;
+    when(total) {
+        is(10) {
+            when(after) {
+                is(15) { marker = 7; }
+                * { marker = 2; }
+            };
+        }
+        * { marker = 1; }
+    };
+    var shown: int = std::io::echo_int(marker);
+    return 0;
+};

@@ -137,6 +137,21 @@ pub struct CallbackUse {
     pub context: String,
 }
 
+/// A routine's pointer/length pair, named by the overlay.
+///
+/// C carries a buffer as two unrelated parameters, and nothing in the type
+/// system says they belong together: `checksum(const uint8_t *, size_t)` could
+/// as easily be a pointer and an unrelated count. Pairing them is what lets
+/// the length be *derived* from the FOL value rather than passed beside it,
+/// which is the only version a caller cannot get wrong.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BufferUse {
+    /// The parameter holding the address.
+    pub parameter: String,
+    /// The parameter carrying the element count.
+    pub length: String,
+}
+
 /// What an overlay says about one pointer parameter.
 ///
 /// C states none of this. A `const char *` might be borrowed for the call or
@@ -152,6 +167,8 @@ pub struct PointerContract {
     pub transferred: bool,
     /// `true` when the pointer may be retained past the call.
     pub retained: bool,
+    /// The declared direction, or `None` to infer it from constness.
+    pub direction: Option<crate::interface::AbiDirection>,
 }
 
 /// One selected declaration.
@@ -167,6 +184,8 @@ pub struct RoutineAnnotation {
     pub handle: Option<HandleUse>,
     /// The synchronous callback this routine invokes during the call.
     pub callback: Option<CallbackUse>,
+    /// The pointer/length pair this routine takes as one buffer.
+    pub buffer: Option<BufferUse>,
     /// Declared pointer contracts, by parameter name.
     pub pointers: BTreeMap<String, PointerContract>,
 }
@@ -252,6 +271,11 @@ pub enum AnnotationError {
     MissingKey {
         symbol: String,
         key: &'static str,
+    },
+    /// A buffer paired with itself as its own length.
+    BufferIsItsOwnLength {
+        symbol: String,
+        parameter: String,
     },
     /// A convention section 4.13 rejects outright rather than approximating.
     RejectedConvention {
@@ -357,6 +381,10 @@ impl std::fmt::Display for AnnotationError {
             Self::MissingKey { symbol, key } => {
                 write!(f, "routine '{symbol}' is missing required key '{key}'")
             }
+            Self::BufferIsItsOwnLength { symbol, parameter } => write!(
+                f,
+                "routine '{symbol}' names '{parameter}' as both its buffer and its length"
+            ),
             Self::RejectedConvention { line, convention } => write!(
                 f,
                 "line {line}: error convention '{convention}' is rejected; V4 supports \
@@ -440,6 +468,8 @@ struct PendingRoutine {
     handle_role: Option<HandleRole>,
     callback: Option<String>,
     callback_context: Option<String>,
+    buffer: Option<String>,
+    buffer_length: Option<String>,
     /// `nullable`, `transferred`, and `retained` sets, by parameter name.
     pointers: BTreeMap<String, PointerContract>,
 }
@@ -613,10 +643,18 @@ impl<'a> Parser<'a> {
                 routine.callback_context =
                     Some(parse_string(value).ok_or(AnnotationError::MalformedLine { line })?);
             }
-            // The three pointer contracts C cannot state. Each names the
-            // parameters it applies to, so one routine declares all of its
-            // pointers without a table per parameter.
-            "nullable" | "transferred" | "retained" => {
+            "buffer" => {
+                routine.buffer =
+                    Some(parse_string(value).ok_or(AnnotationError::MalformedLine { line })?);
+            }
+            "buffer_length" => {
+                routine.buffer_length =
+                    Some(parse_string(value).ok_or(AnnotationError::MalformedLine { line })?);
+            }
+            // The pointer contracts C cannot state. Each names the parameters
+            // it applies to, so one routine declares all of its pointers
+            // without a table per parameter.
+            "nullable" | "transferred" | "retained" | "reads" | "writes" | "reads_writes" => {
                 let names =
                     parse_string_array(value).ok_or(AnnotationError::MalformedLine { line })?;
                 for name in names {
@@ -624,7 +662,10 @@ impl<'a> Parser<'a> {
                     match key {
                         "nullable" => contract.nullable = true,
                         "transferred" => contract.transferred = true,
-                        _ => contract.retained = true,
+                        "retained" => contract.retained = true,
+                        "reads" => contract.direction = Some(crate::interface::AbiDirection::In),
+                        "writes" => contract.direction = Some(crate::interface::AbiDirection::Out),
+                        _ => contract.direction = Some(crate::interface::AbiDirection::InOut),
                     }
                 }
             }
@@ -837,6 +878,35 @@ impl PendingRoutine {
             }
             (None, None) => None,
         };
+        // Same rule again: an address with no named length is a buffer whose
+        // extent nobody knows, and a length with no named address counts
+        // nothing.
+        let buffer = match (self.buffer, self.buffer_length) {
+            (Some(parameter), Some(length)) => {
+                // Pairing a parameter with itself would make the length its
+                // own extent, which is not a shape C can produce.
+                if parameter == length {
+                    return Err(AnnotationError::BufferIsItsOwnLength {
+                        symbol: symbol.to_string(),
+                        parameter,
+                    });
+                }
+                Some(BufferUse { parameter, length })
+            }
+            (Some(_), None) => {
+                return Err(AnnotationError::MissingKey {
+                    symbol: symbol.to_string(),
+                    key: "buffer_length",
+                })
+            }
+            (None, Some(_)) => {
+                return Err(AnnotationError::MissingKey {
+                    symbol: symbol.to_string(),
+                    key: "buffer",
+                })
+            }
+            (None, None) => None,
+        };
         Ok(RoutineAnnotation {
             symbol: symbol.to_string(),
             fol_name: self.fol_name.unwrap_or_else(|| symbol.to_string()),
@@ -844,6 +914,7 @@ impl PendingRoutine {
             effects: self.effects,
             handle,
             callback,
+            buffer,
             pointers: self.pointers,
         })
     }

@@ -225,6 +225,7 @@ mod tests {
                     effects: ImportEffects::default(),
                     handle: None,
                     callback: None,
+                    buffer: None,
                     origin: AbiSourceOrigin::default(),
                 })
                 .collect(),

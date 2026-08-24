@@ -267,6 +267,13 @@ pub enum LoweredInstrKind {
         /// `Rc<dyn Fn>`. Only the import manifest knows, and this is where that
         /// knowledge reaches codegen.
         callback_arg: Option<usize>,
+        /// The position in `args` holding a buffer whose length the provider
+        /// takes as a separate parameter.
+        ///
+        /// Carried for the same reason the callback position is: the pairing
+        /// exists only in the import manifest. The backend expands this one
+        /// argument into the provider's two.
+        buffer_arg: Option<usize>,
     },
     SpawnCall {
         callee: LoweredRoutineId,

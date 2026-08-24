@@ -127,6 +127,11 @@ fn project_routine(
     // is: `project_type` refuses a function pointer by design, so replacing it
     // afterwards would mean refusing the shape the overlay just declared legal.
     let callback = callback_positions(&symbol, function, annotation, types, shapes)?;
+    // The buffer's two positions and the slice its address becomes. Resolved
+    // before projection because the pair is one FOL value: projecting the
+    // pointer on its own would produce the two unrelated parameters the
+    // pairing exists to replace.
+    let buffer = buffer_positions(&symbol, function, annotation, types, shapes)?;
 
     let result = match handle_positions.result {
         Some(domain) => types.intern(AbiType::OpaqueHandle { name: domain }),
@@ -156,6 +161,9 @@ fn project_routine(
             _ if callback.as_ref().is_some_and(|c| c.parameter == index) => {
                 callback.as_ref().expect("checked").type_id
             }
+            _ if buffer.as_ref().is_some_and(|b| b.parameter == index) => {
+                buffer.as_ref().expect("checked").type_id
+            }
             _ => project_type(
                 &symbol,
                 parameter.ty(),
@@ -164,10 +172,16 @@ fn project_routine(
                 annotation.pointers.get(&name).unwrap_or(&default_contract),
             )?,
         };
+        let direction = direction_for(
+            &symbol,
+            &name,
+            parameter.ty(),
+            annotation.pointers.get(&name).unwrap_or(&default_contract),
+        )?;
         parameters.push(AbiParameter {
             name,
             type_id,
-            direction: direction_for(parameter.ty()),
+            direction,
         });
     }
 
@@ -198,6 +212,7 @@ fn project_routine(
         effects: annotation.effects,
         handle: annotation.handle.clone(),
         callback: annotation.callback.clone(),
+        buffer: annotation.buffer.clone(),
         origin: origin_for(function, source),
     })
 }
@@ -392,11 +407,148 @@ fn handle_positions(
 ///
 /// This is a default, not a promise: the overlay's status mapping is what
 /// actually makes a parameter an out-parameter, and it is checked separately.
-fn direction_for(ty: &RustType) -> AbiDirection {
-    match ty.kind() {
-        RustTypeKind::Pointer(target) if !target.qualifiers().is_const => AbiDirection::Out,
-        _ => AbiDirection::In,
+/// One parameter's direction: what the overlay declared, or what constness
+/// suggests when it declared nothing.
+///
+/// Constness is a poor witness. `void *base` in `qsort` is read and written,
+/// `char *dst` in `strcpy` is only written, and a mutable pointer a provider
+/// happens never to write is indistinguishable from either. The inference
+/// stays as the default because most parameters are unremarkable, but a
+/// declaration overrides it -- and a declaration C contradicts is refused
+/// rather than silently believed.
+fn direction_for(
+    symbol: &str,
+    name: &str,
+    ty: &RustType,
+    contract: &fol_abi::PointerContract,
+) -> Result<AbiDirection, ImportRejection> {
+    let Some(declared) = contract.direction else {
+        return Ok(match ty.kind() {
+            RustTypeKind::Pointer(target) if !target.qualifiers().is_const => AbiDirection::Out,
+            _ => AbiDirection::In,
+        });
+    };
+    let RustTypeKind::Pointer(target) = ty.kind() else {
+        // A by-value parameter is read and nothing else; there is no second
+        // reading for a direction to select between.
+        return Err(ImportRejection::ContradictoryDirection {
+            symbol: symbol.to_string(),
+            parameter: name.to_string(),
+            declared: declared.as_str(),
+            detail: "only a pointer parameter has a direction",
+        });
+    };
+    if declared != AbiDirection::In && target.qualifiers().is_const {
+        return Err(ImportRejection::ContradictoryDirection {
+            symbol: symbol.to_string(),
+            parameter: name.to_string(),
+            declared: declared.as_str(),
+            detail: "C declares its pointee const, so the provider cannot write through it",
+        });
     }
+    Ok(declared)
+}
+
+/// Where a paired buffer sits, and the slice type its address becomes.
+struct BufferPositions {
+    parameter: usize,
+    type_id: fol_abi::AbiTypeId,
+}
+
+/// Resolve and check the overlay's pointer/length pair.
+///
+/// Both halves have to be real parameters of this signature, the address has
+/// to point at something with a size, and the length has to be a count. None
+/// of that is inferable: C's two parameters are as unrelated to each other as
+/// any other two.
+fn buffer_positions(
+    symbol: &str,
+    function: &RustFunction,
+    annotation: &fol_abi::RoutineAnnotation,
+    types: &mut AbiTypeTable,
+    shapes: &Shapes<'_>,
+) -> Result<Option<BufferPositions>, ImportRejection> {
+    let Some(use_) = &annotation.buffer else {
+        return Ok(None);
+    };
+
+    let named = |wanted: &str| -> Option<usize> {
+        function.parameters().iter().position(|parameter| {
+            parameter
+                .source_name()
+                .is_some_and(|name| name.original == wanted)
+        })
+    };
+    let parameter =
+        named(&use_.parameter).ok_or_else(|| ImportRejection::UnknownBufferParameter {
+            symbol: symbol.to_string(),
+            parameter: use_.parameter.clone(),
+            role: "address",
+        })?;
+    let length = named(&use_.length).ok_or_else(|| ImportRejection::UnknownBufferParameter {
+        symbol: symbol.to_string(),
+        parameter: use_.length.clone(),
+        role: "length",
+    })?;
+
+    // A count, not a number: a signed length can be negative, and there is no
+    // buffer of -1 elements for FOL to hand over.
+    let length_type = project_type(
+        symbol,
+        function.parameters()[length].ty(),
+        types,
+        shapes,
+        &fol_abi::PointerContract::default(),
+    )?;
+    let counts = matches!(
+        types.get(length_type),
+        Some(AbiType::Scalar(fol_abi::AbiScalar::Int(width))) if !width.is_signed()
+    );
+    if !counts {
+        return Err(ImportRejection::BufferShapeMismatch {
+            symbol: symbol.to_string(),
+            parameter: use_.length.clone(),
+            expected: "an unsigned integer",
+        });
+    }
+
+    let RustTypeKind::Pointer(target) = function.parameters()[parameter].ty().kind() else {
+        return Err(ImportRejection::BufferShapeMismatch {
+            symbol: symbol.to_string(),
+            parameter: use_.parameter.clone(),
+            expected: "a pointer",
+        });
+    };
+    // `void *` is the common C spelling for an untyped buffer and the one
+    // shape a slice cannot be: with no element there is no element size, so
+    // the length counts nothing measurable.
+    let element = project_type(
+        symbol,
+        target,
+        types,
+        shapes,
+        &fol_abi::PointerContract::default(),
+    )?;
+    if !matches!(types.get(element), Some(AbiType::Scalar(_))) {
+        return Err(ImportRejection::BufferShapeMismatch {
+            symbol: symbol.to_string(),
+            parameter: use_.parameter.clone(),
+            expected: "a pointer to a sized scalar",
+        });
+    }
+
+    let mutability = if target.qualifiers().is_const {
+        fol_abi::AbiMutability::Const
+    } else {
+        fol_abi::AbiMutability::Mutable
+    };
+    Ok(Some(BufferPositions {
+        parameter,
+        type_id: types.intern(AbiType::BorrowedSlice {
+            element,
+            mutability,
+        }),
+    }))
 }
 
 /// Resolve a declaration's header location into a path and a line.

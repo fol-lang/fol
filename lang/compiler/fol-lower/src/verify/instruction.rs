@@ -137,6 +137,7 @@ pub(super) fn verify_instruction(
             args,
             error_type,
             callback_arg: _,
+            buffer_arg: _,
         } => {
             // There is no routine id to validate: the callee is a generated
             // adapter, not a FOL routine. What must hold is that the three

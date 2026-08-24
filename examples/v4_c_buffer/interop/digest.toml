@@ -1,0 +1,17 @@
+version = 1
+
+# C carries a buffer as two unrelated parameters. The overlay pairs them, so
+# FOL passes one value and the length is derived from it rather than trusted.
+[routine.digest_sum]
+error = "infallible"
+buffer = "bytes"
+buffer_length = "count"
+reads = ["bytes"]
+
+# The same pair, declared as written rather than read. Without the direction
+# the pointee's non-constness would be taken as the answer, which is a guess.
+[routine.digest_fill]
+error = "infallible"
+buffer = "bytes"
+buffer_length = "count"
+writes = ["bytes"]

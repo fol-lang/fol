@@ -86,6 +86,27 @@ fn render_adapter(
             rust_param_name(&parameter.name),
             rust_scalar(&interface.types, parameter.type_id, &routine.symbol)?
         ));
+        // A paired buffer is one FOL value and two C parameters, so its length
+        // is declared here rather than beside the other visible parameters:
+        // the provider takes it right after the address, and the call site
+        // derives it from the value it just passed.
+        if routine
+            .buffer
+            .as_ref()
+            .is_some_and(|use_| use_.parameter == parameter.name)
+        {
+            let index = routine
+                .buffer_length_index()
+                .ok_or_else(|| AdapterError::UnknownType {
+                    symbol: routine.symbol.clone(),
+                })?;
+            let length = &routine.parameters[index];
+            params.push(format!(
+                "{}: {}",
+                rust_param_name(&length.name),
+                rust_scalar(&interface.types, length.type_id, &routine.symbol)?
+            ));
+        }
     }
     // The context is hidden from FOL but not from the adapter: FOL passes the
     // trampoline and the closure address as two ordinary arguments here, and
@@ -312,6 +333,19 @@ fn rust_scalar(
         // crate never names GERC's projected types: the raw call site casts
         // with `as *mut _`, which infers the pointee from the callee.
         AbiType::OpaqueHandle { .. } => "*mut core::ffi::c_void".to_string(),
+        // Only the address: the length travels as its own parameter, which is
+        // the shape C has and the reason the pairing had to be declared.
+        AbiType::BorrowedSlice {
+            element,
+            mutability,
+        } => format!(
+            "*{} {}",
+            match mutability {
+                fol_abi::AbiMutability::Const => "const",
+                fol_abi::AbiMutability::Mutable => "mut",
+            },
+            rust_scalar(types, *element, symbol)?
+        ),
         // A record parameter never reaches here -- it is flattened into its
         // fields before this is called -- so a record in this position is a
         // result, and returning one would mean handing back the provider's own
@@ -418,6 +452,7 @@ mod tests {
                     effects: ImportEffects::default(),
                     handle: None,
                     callback: None,
+                    buffer: None,
                     origin: AbiSourceOrigin::default(),
                 },
                 ImportedRoutine {
@@ -445,6 +480,7 @@ mod tests {
                     effects: ImportEffects::default(),
                     handle: None,
                     callback: None,
+                    buffer: None,
                     origin: AbiSourceOrigin::default(),
                 },
             ],

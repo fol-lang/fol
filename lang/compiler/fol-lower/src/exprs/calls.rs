@@ -2063,6 +2063,21 @@ fn lower_foreign_call(
         )
     });
 
+    // Which argument carries a paired buffer, read off the same signature for
+    // the same reason. A borrowed vector reaches an imported signature only
+    // through `AbiType::BorrowedSlice`, so the shape is the pairing.
+    let buffer_arg = signature.params.iter().position(|param| {
+        let Some(fol_typecheck::CheckedType::Borrowed { inner, .. }) =
+            typed_package.program.type_table().get(*param)
+        else {
+            return false;
+        };
+        matches!(
+            typed_package.program.type_table().get(*inner),
+            Some(fol_typecheck::CheckedType::Vector { .. })
+        )
+    });
+
     let error_type = signature
         .error_type
         .and_then(|error_type| checked_type_map.get(&error_type).copied());
@@ -2078,6 +2093,7 @@ fn lower_foreign_call(
                 args: lowered_args,
                 error_type,
                 callback_arg,
+                buffer_arg,
             },
         )?;
         return Ok(None);
@@ -2101,6 +2117,7 @@ fn lower_foreign_call(
             args: lowered_args,
             error_type,
             callback_arg,
+            buffer_arg,
         },
     )?;
     Ok(Some(LoweredValue {

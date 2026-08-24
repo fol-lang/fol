@@ -34,6 +34,12 @@ pub struct ImportedRoutine {
     pub handle: Option<crate::annotation::HandleUse>,
     /// The synchronous callback this routine invokes, when it takes one.
     pub callback: Option<crate::annotation::CallbackUse>,
+    /// The pointer/length pair this routine takes as one buffer.
+    ///
+    /// Carried on the routine for the same reason the handle is: C's two
+    /// parameters say nothing about belonging together, and no measurement of
+    /// the types can recover the pairing.
+    pub buffer: Option<crate::annotation::BufferUse>,
     /// The header location, for diagnostics and navigation.
     pub origin: AbiSourceOrigin,
 }
@@ -60,20 +66,41 @@ impl ImportedRoutine {
             .position(|parameter| parameter.name == use_.context)
     }
 
+    /// The parameter holding a paired buffer's address, by index.
+    pub fn buffer_index(&self) -> Option<usize> {
+        let use_ = self.buffer.as_ref()?;
+        self.parameters
+            .iter()
+            .position(|parameter| parameter.name == use_.parameter)
+    }
+
+    /// The parameter carrying a paired buffer's length, by index.
+    pub fn buffer_length_index(&self) -> Option<usize> {
+        let use_ = self.buffer.as_ref()?;
+        self.parameters
+            .iter()
+            .position(|parameter| parameter.name == use_.length)
+    }
+
     /// Parameters a FOL caller passes, in order.
     ///
     /// Two positions are hidden, for the same reason in both cases: FOL owns
     /// the storage, so a caller passing it would be answering its own question.
     /// Under a status mapping that is the out-parameter; with a callback it is
     /// the context, which FOL fills with a pointer to the closure it is about
-    /// to lend.
+    /// to lend. A paired buffer hides its length for the same reason: the FOL
+    /// value already carries its own extent, and a caller passing a second
+    /// number could contradict it.
     pub fn call_parameters(&self) -> Vec<&AbiParameter> {
         let out = self.out_parameter_index();
         let context = self.callback_context_index();
+        let length = self.buffer_length_index();
         self.parameters
             .iter()
             .enumerate()
-            .filter(|(index, _)| Some(*index) != out && Some(*index) != context)
+            .filter(|(index, _)| {
+                Some(*index) != out && Some(*index) != context && Some(*index) != length
+            })
             .map(|(_, parameter)| parameter)
             .collect()
     }
@@ -235,6 +262,26 @@ pub enum ImportRejection {
         parameter: String,
         detail: String,
     },
+    /// The overlay names a buffer or length parameter the signature lacks.
+    UnknownBufferParameter {
+        symbol: String,
+        parameter: String,
+        role: &'static str,
+    },
+    /// The named buffer is not a pointer to a sized element, or the named
+    /// length is not an unsigned integer.
+    BufferShapeMismatch {
+        symbol: String,
+        parameter: String,
+        expected: &'static str,
+    },
+    /// A declared direction the parameter's own type contradicts.
+    ContradictoryDirection {
+        symbol: String,
+        parameter: String,
+        declared: &'static str,
+        detail: &'static str,
+    },
 }
 
 impl ImportRejection {
@@ -267,6 +314,9 @@ impl ImportRejection {
             Self::HandleResultIsNotAPointer { .. } => "handle-result-is-not-a-pointer",
             Self::AmbiguousHandleParameter { .. } => "ambiguous-handle-parameter",
             Self::UnknownCallbackParameter { .. } => "unknown-callback-parameter",
+            Self::UnknownBufferParameter { .. } => "unknown-buffer-parameter",
+            Self::BufferShapeMismatch { .. } => "buffer-shape-mismatch",
+            Self::ContradictoryDirection { .. } => "contradictory-direction",
             Self::CallbackShapeMismatch { .. } => "callback-shape-mismatch",
             Self::CallbackContextNotFirst { .. } => "callback-context-not-first",
             Self::UnsupportedCallbackSignature { .. } => "unsupported-callback-signature",
@@ -290,6 +340,9 @@ impl ImportRejection {
             | Self::HandleResultIsNotAPointer { symbol, .. }
             | Self::AmbiguousHandleParameter { symbol, .. }
             | Self::UnknownCallbackParameter { symbol, .. }
+            | Self::UnknownBufferParameter { symbol, .. }
+            | Self::BufferShapeMismatch { symbol, .. }
+            | Self::ContradictoryDirection { symbol, .. }
             | Self::CallbackShapeMismatch { symbol, .. }
             | Self::CallbackContextNotFirst { symbol, .. }
             | Self::UnsupportedCallbackSignature { symbol, .. } => symbol,
@@ -394,6 +447,33 @@ impl std::fmt::Display for ImportRejection {
                 f,
                 "'{symbol}' names '{parameter}' as part of its callback, but that parameter is \
                  not {expected}"
+            ),
+            Self::UnknownBufferParameter {
+                symbol,
+                parameter,
+                role,
+            } => write!(
+                f,
+                "'{symbol}' names '{parameter}' as its buffer {role}, which is not one of its \
+                 parameters"
+            ),
+            Self::BufferShapeMismatch {
+                symbol,
+                parameter,
+                expected,
+            } => write!(
+                f,
+                "'{symbol}' names '{parameter}' as part of its buffer, but that parameter is \
+                 not {expected}"
+            ),
+            Self::ContradictoryDirection {
+                symbol,
+                parameter,
+                declared,
+                detail,
+            } => write!(
+                f,
+                "'{symbol}' declares '{parameter}' as '{declared}', but {detail}"
             ),
             Self::CallbackContextNotFirst { symbol, parameter } => write!(
                 f,
@@ -878,6 +958,7 @@ mod tests {
             effects: annotation.effects,
             handle: None,
             callback: None,
+            buffer: None,
             origin: AbiSourceOrigin::default(),
         };
 
@@ -904,6 +985,7 @@ mod tests {
             effects: ImportEffects::default(),
             handle: None,
             callback: None,
+            buffer: None,
             origin: AbiSourceOrigin::default(),
         };
 
@@ -930,6 +1012,7 @@ mod tests {
                     effects: ImportEffects::default(),
                     handle: None,
                     callback: None,
+                    buffer: None,
                     origin: AbiSourceOrigin::default(),
                 })
                 .collect(),
