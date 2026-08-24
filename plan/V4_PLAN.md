@@ -2985,8 +2985,20 @@ costs two reads, and `load_c_import_interfaces` calls it on every compile. The
 refusal names what went stale and the command that fixes it.
 `editing_the_header_after_binding_is_refused_at_compile_time` also re-binds at
 the end, so the check is a staleness check and not a permanent wedge.
-- [ ] Make build-record completion offer only fields/values owned by the shared
+- [x] Make build-record completion offer only fields/values owned by the shared
   semantic registry.
+
+`canonical_artifact_config_shapes` owned `CImportConfig` and every artifact
+config, and completion never consulted it: the only record that completed was a
+git dependency, behind a hardcoded `prefix.contains("add_dep(") &&
+prefix.contains("\"git")` test. Typing `add_c_import({` offered nothing.
+
+`config_field_completions` maps a method to its registered shape and reads the
+fields from the same registry the executor validates against, so a field the
+executor would reject is never offered and a required one is never missing --
+required-ness comes from the registry too, not from the completion's own idea
+of it. The innermost unclosed call decides the shape, and a call that has
+already closed is not completed into.
 - [x] Keep unsupported functions absent/unusable rather than approximating
   their types.
 
