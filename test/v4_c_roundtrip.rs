@@ -254,3 +254,158 @@ fn a_typedef_resolves_to_the_type_it_names() {
         "the manifest should record the measured integers:\n{manifest}"
     );
 }
+
+/// The installed C surface, measured independently, must describe the same
+/// thing the export manifest claims.
+///
+/// The export manifest is what FOL *says* it built. The import manifest is
+/// what PARC, LINC, and GERC *measured* from the installed header and archive,
+/// with no access to FOL's own record. Comparing them is the only check that
+/// can catch the export manifest describing a library that was not built that
+/// way -- every other test reads one side or the other.
+///
+/// The two are related by the wrapper convention rather than being identical:
+/// an exported `add_i32(int32, int32) -> int32` is a C
+/// `fol_slice_add_i32(int32_t, int32_t, int32_t *out)` returning a status. So
+/// the exported parameters must be the imported *in* parameters, and the
+/// exported result must be what the imported out-parameter points at.
+#[test]
+fn the_measured_surface_matches_the_declared_export_surface() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the round-trip lane");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("fol_v4_roundtrip_correlate");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root");
+
+    let prefix = build_library(fixture.path(), &compiler, &temp);
+    let consumer = stage_consumer(fixture.path(), &prefix);
+    let (ok, text) = bind(&consumer, &compiler, &temp);
+    assert!(ok, "the bind should succeed:\n{text}");
+
+    let export: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(prefix.join("share/fol/abi/v4_c_export_scalar.folabi.json"))
+            .expect("the export manifest should install"),
+    )
+    .expect("the export manifest should parse");
+    let import: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(consumer.join("interop/folslice.folabi.json"))
+            .expect("the import manifest should be written"),
+    )
+    .expect("the import manifest should parse");
+
+    let export = &export["interface"];
+    let import = &import["interface"];
+    assert_eq!(
+        export["target"], import["target"],
+        "the two sides disagree about the target"
+    );
+
+    let scalar = |types: &serde_json::Value, id: u64| -> String {
+        types
+            .as_array()
+            .expect("types is an array")
+            .iter()
+            .find(|entry| entry["id"] == id)
+            .map(|entry| {
+                entry["scalar"]
+                    .as_str()
+                    .unwrap_or_else(|| entry["kind"].as_str().unwrap_or("?"))
+                    .to_string()
+            })
+            .expect("every referenced type is in the table")
+    };
+    let pointee = |types: &serde_json::Value, id: u64| -> u64 {
+        types
+            .as_array()
+            .expect("types is an array")
+            .iter()
+            .find(|entry| entry["id"] == id)
+            .and_then(|entry| entry["target"].as_u64())
+            .expect("an out parameter is a pointer")
+    };
+
+    // `bol` and `chr` are FOL's validated scalars: the header carries them as
+    // `uint8_t` and `uint32_t` with the valid range stated in a comment, and
+    // the import measures the representation because that is all C has. This
+    // mapping is the ABI's representation choice, so it is pinned here rather
+    // than papered over.
+    fn representation(declared: &str) -> &str {
+        match declared {
+            "bol" => "u8",
+            "chr" => "u32",
+            other => other,
+        }
+    }
+
+    let exported: std::collections::HashMap<String, &serde_json::Value> = export["routines"]
+        .as_array()
+        .expect("routines is an array")
+        .iter()
+        .map(|routine| {
+            (
+                routine["symbol"].as_str().expect("a symbol").to_string(),
+                routine,
+            )
+        })
+        .collect();
+
+    let imported = import["routines"].as_array().expect("routines is an array");
+    assert!(
+        imported.len() >= 9,
+        "the round trip should correlate the whole bound surface, not a token one"
+    );
+
+    for routine in imported {
+        let symbol = routine["symbol"].as_str().expect("a symbol");
+        let declared = exported
+            .get(symbol)
+            .unwrap_or_else(|| panic!("{symbol} was measured but is not an exported symbol"));
+
+        assert_eq!(
+            declared["convention"], routine["convention"],
+            "{symbol}: calling convention disagrees"
+        );
+
+        let parameters = routine["parameters"].as_array().expect("parameters");
+        let inputs: Vec<String> = parameters
+            .iter()
+            .filter(|parameter| parameter["direction"] == "in")
+            .map(|parameter| {
+                scalar(
+                    &import["types"],
+                    parameter["type"].as_u64().expect("a type id"),
+                )
+            })
+            .collect();
+        let expected: Vec<String> = declared["parameters"]
+            .as_array()
+            .expect("parameters")
+            .iter()
+            .map(|parameter| {
+                let declared = scalar(
+                    &export["types"],
+                    parameter["type"].as_u64().expect("a type id"),
+                );
+                representation(&declared).to_string()
+            })
+            .collect();
+        assert_eq!(inputs, expected, "{symbol}: parameter types disagree");
+
+        // The exported result travels through the out parameter.
+        let out = parameters
+            .iter()
+            .find(|parameter| parameter["direction"] == "out")
+            .unwrap_or_else(|| panic!("{symbol}: no out parameter was measured"));
+        let measured = scalar(
+            &import["types"],
+            pointee(&import["types"], out["type"].as_u64().expect("a type id")),
+        );
+        let result = declared["result"].as_u64().expect("a result type id");
+        let expected = representation(&scalar(&export["types"], result)).to_string();
+        assert_eq!(
+            measured, expected,
+            "{symbol}: the out parameter does not carry the exported result type"
+        );
+    }
+}

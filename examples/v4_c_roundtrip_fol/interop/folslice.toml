@@ -1,8 +1,22 @@
 version = 1
 
-# The provider here is a FOL library, imported through the ordinary C path.
-# Nothing in this file knows that: these are annotated exactly as any other C
-# function with a status convention and an out-parameter would be.
+# The provider is a FOL library, imported through the ordinary C path. Nothing
+# here knows that: these are annotated exactly as any other C function with a
+# status convention and an out-parameter would be.
+
+[routine.fol_slice_add_i8]
+fol_name = "add_i8"
+error = "status"
+status_ok = [0]
+status_error = [1]
+out = "out_result"
+
+[routine.fol_slice_add_i16]
+fol_name = "add_i16"
+error = "status"
+status_ok = [0]
+status_error = [1]
+out = "out_result"
 
 [routine.fol_slice_add_i32]
 fol_name = "add_i32"
@@ -13,6 +27,41 @@ out = "out_result"
 
 [routine.fol_slice_add_i64]
 fol_name = "add_i64"
+error = "status"
+status_ok = [0]
+status_error = [1]
+out = "out_result"
+
+[routine.fol_slice_add_u8]
+fol_name = "add_u8"
+error = "status"
+status_ok = [0]
+status_error = [1]
+out = "out_result"
+
+[routine.fol_slice_add_u32]
+fol_name = "add_u32"
+error = "status"
+status_ok = [0]
+status_error = [1]
+out = "out_result"
+
+[routine.fol_slice_scale_f64]
+fol_name = "scale_f64"
+error = "status"
+status_ok = [0]
+status_error = [1]
+out = "out_result"
+
+[routine.fol_slice_negate]
+fol_name = "negate"
+error = "status"
+status_ok = [0]
+status_error = [1]
+out = "out_result"
+
+[routine.fol_slice_code_point]
+fol_name = "code_point"
 error = "status"
 status_ok = [0]
 status_error = [1]
