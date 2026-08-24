@@ -30,6 +30,7 @@ impl CertifiedCToolchain {
     pub fn observe(
         selected_target: &ResolvedTarget,
         compiler_executable: impl Into<PathBuf>,
+        dialect: Option<&str>,
     ) -> Result<Self, InteropToolchainError> {
         if !crate::is_certified_interop_target(selected_target.as_str()) {
             return Err(InteropToolchainError::UnsupportedTarget(
@@ -79,6 +80,7 @@ impl CertifiedCToolchain {
         let target = certified_target(
             selected_target.as_str(),
             certification.compiler_identity().clone(),
+            dialect,
         )?;
 
         Ok(Self {
@@ -108,6 +110,8 @@ pub enum InteropToolchainError {
     CompilerFamilyMismatch(CompilerFamily),
     CompilerSysrootUnsupported(PathBuf),
     InvalidTarget(String),
+    /// A `dialect` the build program declared that is not a C standard.
+    UnknownDialect(String),
     Native(NativeError),
     Contract(linc::contract::ContractError),
 }
@@ -140,6 +144,11 @@ impl std::fmt::Display for InteropToolchainError {
                 path.display()
             ),
             Self::InvalidTarget(detail) => write!(formatter, "invalid interop target: {detail}"),
+            Self::UnknownDialect(dialect) => write!(
+                formatter,
+                "'{dialect}' is not a C standard; expected one of {}",
+                SUPPORTED_DIALECTS.join(", ")
+            ),
             Self::Native(error) => write!(formatter, "LINC compiler observation failed: {error}"),
             Self::Contract(error) => write!(formatter, "invalid LINC probe limits: {error}"),
         }
@@ -169,6 +178,25 @@ impl From<linc::contract::ContractError> for InteropToolchainError {
     }
 }
 
+/// The C standards a build program may name, in the spelling it writes.
+pub(crate) const SUPPORTED_DIALECTS: &[&str] = &["c89", "c95", "c99", "c11", "c17", "c23"];
+
+/// The declared dialect, or C17 when the build program named none.
+fn language_standard(dialect: Option<&str>) -> Result<LanguageStandard, InteropToolchainError> {
+    let Some(dialect) = dialect else {
+        return Ok(LanguageStandard::C17);
+    };
+    match dialect {
+        "c89" => Ok(LanguageStandard::C89),
+        "c95" => Ok(LanguageStandard::C95),
+        "c99" => Ok(LanguageStandard::C99),
+        "c11" => Ok(LanguageStandard::C11),
+        "c17" => Ok(LanguageStandard::C17),
+        "c23" => Ok(LanguageStandard::C23),
+        other => Err(InteropToolchainError::UnknownDialect(other.to_owned())),
+    }
+}
+
 /// The certified `TargetSpec` for the selected triple.
 ///
 /// The shared columns -- architecture, vendor, OS, environment, object format,
@@ -180,6 +208,7 @@ impl From<linc::contract::ContractError> for InteropToolchainError {
 fn certified_target(
     triple: &str,
     compiler: CompilerIdentity,
+    dialect: Option<&str>,
 ) -> Result<TargetSpec, InteropToolchainError> {
     let resolved = fol_types::ResolvedTarget::resolve(triple)
         .map_err(|_| InteropToolchainError::UnsupportedTarget(triple.to_owned()))?;
@@ -236,7 +265,7 @@ fn certified_target(
         endian,
         pointer_width: resolved.pointer_width(),
         c_data_model: lp64_data_model(),
-        language_standard: LanguageStandard::C17,
+        language_standard: language_standard(dialect)?,
         extension_profile: ExtensionProfile::new(ExtensionFamily::Gnu, []),
         compiler,
         sysroot: None,
@@ -299,7 +328,7 @@ pub(crate) mod tests {
 
     use fol_types::ResolvedTarget;
 
-    use super::{CertifiedCToolchain, InteropToolchainError};
+    use super::{CertifiedCToolchain, InteropToolchainError, LanguageStandard};
     use crate::CERTIFIED_INTEROP_TARGETS;
 
     pub(crate) fn synthetic_target() -> parc::contract::TargetSpec {
@@ -312,24 +341,78 @@ pub(crate) mod tests {
             "test compiler",
         )
         .unwrap();
-        super::certified_target(CERTIFIED_INTEROP_TARGETS[0], compiler).unwrap()
+        super::certified_target(CERTIFIED_INTEROP_TARGETS[0], compiler, None).unwrap()
     }
 
     #[test]
     fn rejects_uncertified_target_before_compiler_io() {
         let target = ResolvedTarget::resolve("aarch64-unknown-linux-gnu").unwrap();
         let error =
-            CertifiedCToolchain::observe(&target, PathBuf::from("not-absolute")).unwrap_err();
+            CertifiedCToolchain::observe(&target, PathBuf::from("not-absolute"), None).unwrap_err();
         assert!(matches!(error, InteropToolchainError::UnsupportedTarget(_)));
     }
 
     #[test]
     fn rejects_relative_compiler_before_invocation() {
         let target = ResolvedTarget::resolve(CERTIFIED_INTEROP_TARGETS[0]).unwrap();
-        let error = CertifiedCToolchain::observe(&target, PathBuf::from("gcc")).unwrap_err();
+        let error = CertifiedCToolchain::observe(&target, PathBuf::from("gcc"), None).unwrap_err();
         assert!(matches!(
             error,
             InteropToolchainError::InvalidCompilerPath(_)
         ));
+    }
+
+    /// A declared `dialect` reaches PARC's target rather than being stored and
+    /// ignored, which is what it was: every scan ran as C17 whatever the build
+    /// program said.
+    #[test]
+    fn the_declared_dialect_reaches_the_target() {
+        let compiler = || {
+            parc::contract::CompilerIdentity::try_new(
+                parc::contract::CompilerFamily::Gcc,
+                "toolchains/gcc/bin/gcc",
+                parc::contract::ContentFingerprint::from_content(b"test compiler"),
+                parc::contract::ContentFingerprint::from_content(b"test compiler version"),
+                CERTIFIED_INTEROP_TARGETS[0],
+                "test compiler",
+            )
+            .unwrap()
+        };
+
+        for (spelling, expected) in [
+            ("c89", LanguageStandard::C89),
+            ("c99", LanguageStandard::C99),
+            ("c11", LanguageStandard::C11),
+            ("c23", LanguageStandard::C23),
+        ] {
+            let target =
+                super::certified_target(CERTIFIED_INTEROP_TARGETS[0], compiler(), Some(spelling))
+                    .unwrap();
+            assert_eq!(target.language_standard(), expected, "for {spelling}");
+        }
+
+        // No declaration is C17, and the target must say so rather than
+        // carrying an absent value.
+        let target =
+            super::certified_target(CERTIFIED_INTEROP_TARGETS[0], compiler(), None).unwrap();
+        assert_eq!(target.language_standard(), LanguageStandard::C17);
+    }
+
+    /// An unrecognized dialect is refused by name instead of falling back.
+    #[test]
+    fn an_unknown_dialect_is_refused_by_name() {
+        let compiler = parc::contract::CompilerIdentity::try_new(
+            parc::contract::CompilerFamily::Gcc,
+            "toolchains/gcc/bin/gcc",
+            parc::contract::ContentFingerprint::from_content(b"test compiler"),
+            parc::contract::ContentFingerprint::from_content(b"test compiler version"),
+            CERTIFIED_INTEROP_TARGETS[0],
+            "test compiler",
+        )
+        .unwrap();
+        let error = super::certified_target(CERTIFIED_INTEROP_TARGETS[0], compiler, Some("gnu17"))
+            .unwrap_err();
+        assert!(matches!(error, InteropToolchainError::UnknownDialect(ref d) if d == "gnu17"));
+        assert!(error.to_string().contains("c17"), "{error}");
     }
 }

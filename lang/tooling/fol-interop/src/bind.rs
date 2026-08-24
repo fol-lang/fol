@@ -48,6 +48,8 @@ pub struct BindCRequest<'a> {
     /// Where the preprocessor may look, and what it starts with. Stated by the
     /// build declaration; nothing here is discovered from the environment.
     pub search: crate::source::HeaderSearch,
+    /// The C standard the header is read as. `None` means C17.
+    pub dialect: Option<&'a str>,
 }
 
 /// Run the pipeline and return the manifest it accepted.
@@ -86,7 +88,7 @@ pub fn bind_c(request: BindCRequest<'_>) -> Result<ImportManifest, BindCError> {
 
     let policy = strict_compile_only_policy(temporary_parent)
         .map_err(|error| BindCError::Policy(error.to_string()))?;
-    let toolchain = CertifiedCToolchain::observe(&request.target, &compiler)
+    let toolchain = CertifiedCToolchain::observe(&request.target, &compiler, request.dialect)
         .map_err(|error| BindCError::Toolchain(error.to_string()))?;
     // Only the overlay's chosen symbols enter the closure, so an unrelated
     // variadic elsewhere in the header does not make the header unusable.

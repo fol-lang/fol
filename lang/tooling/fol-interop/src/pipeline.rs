@@ -347,7 +347,8 @@ pub fn prepare_h7_interop(request: H7InteropRequest<'_>) -> Result<H7InteropBuil
     let revisions = compiled_component_revisions();
 
     let policy = strict_compile_only_policy(temporary_parent)?;
-    let toolchain = CertifiedCToolchain::observe(&artifact.target, compiler)?;
+    let toolchain =
+        CertifiedCToolchain::observe(&artifact.target, compiler, c_import.dialect.as_deref())?;
     // The H7 smoke has no overlay: it takes the single-declaration header
     // whole, which is what makes its anchor check meaningful.
     // Built from the declaration rather than passed in: the search paths are a

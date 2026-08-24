@@ -313,6 +313,8 @@ pub struct BindCCommand {
     pub defines: Vec<String>,
     /// An external sysroot the provider was built against.
     pub sysroot: Option<String>,
+    /// The C standard the header is read as. `None` means c17.
+    pub dialect: Option<String>,
 }
 
 /// `fol tool abi inspect` and `fol tool abi check`.
