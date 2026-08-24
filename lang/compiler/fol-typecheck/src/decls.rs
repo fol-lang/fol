@@ -71,27 +71,6 @@ fn is_type_decl_item(node: &AstNode) -> bool {
 /// initializers) for a record type and validate that each default expression
 /// is assignable to its field's declared type.
 #[allow(clippy::too_many_arguments)]
-/// Whether an entry variant carries a tag FOL can promise to a C consumer.
-///
-/// Always `None` today, and deliberately so. A variant is written
-/// `con NAME: int = 7` or `var NAME: T = v`, and the parser records both the
-/// same way: the value is the variant's *default payload*, not a tag. It
-/// happens to read like a tag in the enum-shaped case, where `Severity.RETRY`
-/// really does evaluate to 7 -- but `var Ok: int = 1` beside
-/// `var Err: str = "broken"` shows what it actually is, and taking the default
-/// as a tag there gives both variants the tag 1.
-///
-/// So FOL has no syntax for an explicit ABI discriminant, and the positional
-/// tag it uses internally cannot be promised across a boundary: inserting a
-/// variant renumbers every later one. The C projection refuses entries for
-/// that reason rather than shipping a tag that silently changes.
-///
-/// This function is the place the rule is written down. When FOL gains explicit
-/// tag syntax, this is what reads it.
-fn explicit_variant_tag(_default: &AstNode) -> Option<i64> {
-    None
-}
-
 fn lower_record_field_layout(
     typed: &mut TypedProgram,
     resolved: &ResolvedProgram,
@@ -568,8 +547,19 @@ fn lower_top_level_declaration(
                         // iteration happens to produce.
                         //
                         // This is *not* an ABI-stable tag, and the C boundary
-                        // refuses entries for exactly that reason; see the note
-                        // on `explicit_variant_tag` below.
+                        // refuses entries for exactly that reason. FOL has no
+                        // syntax for an explicit discriminant: a variant is
+                        // written `con NAME: int = 7` or `var NAME: T = v`, and
+                        // the parser records both the same way, so the value is
+                        // the variant's *default payload*, not a tag. It reads
+                        // like a tag in the enum-shaped case -- `Severity.RETRY`
+                        // really does evaluate to 7 -- but `var Ok: int = 1`
+                        // beside `var Err: str = "broken"` shows what it is:
+                        // taking the default as a tag gives both variants 1.
+                        //
+                        // When FOL gains explicit tag syntax, this is the line
+                        // that reads it, and `fol-lower/src/abi.rs` stops
+                        // reporting entries as having no explicit tags.
                         layout.push(crate::model::EntryVariantLayout {
                             name: variant_name.clone(),
                             payload,

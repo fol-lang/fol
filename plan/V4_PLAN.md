@@ -2529,8 +2529,10 @@ separate from any user tag.
 
 Proven by `an_entry_without_explicit_tags_is_refused_with_its_reason` over
 `examples/fail_v4_c_entry_error`. Unblocking this needs explicit tag syntax in
-FOL, at which point `explicit_variant_tag` in `fol-typecheck/src/decls.rs` is
-the single place that reads it and the fixture becomes a positive one.
+FOL, at which point the discriminant assignment in
+`fol-typecheck/src/decls.rs` is the single place that reads it,
+`fol-lower/src/abi.rs` stops reporting entries as untagged, and the fixture
+becomes a positive one. Both sites carry a comment saying so.
 
 ## 12.3 Borrowed strings and slices
 
