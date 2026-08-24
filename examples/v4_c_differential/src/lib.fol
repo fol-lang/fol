@@ -1,0 +1,25 @@
+// Identity across the boundary, for every scalar FOL exports.
+//
+// Identity rather than arithmetic on purpose: any width, signedness, or
+// bit-pattern error shows up as a changed value, with nothing else that could
+// explain it. An `add` would confound a boundary bug with an overflow.
+//
+// What this is for is the range edges. A routine that returns what it was
+// given works for 42 under almost any mistake; it stops working at -128, at
+// 18446744073709551615, and at negative zero.
+
+fun[exp] echo_i8(value: i8): i8 = { return value; };
+fun[exp] echo_i16(value: i16): i16 = { return value; };
+fun[exp] echo_i32(value: i32): i32 = { return value; };
+fun[exp] echo_i64(value: i64): i64 = { return value; };
+
+fun[exp] echo_u8(value: u8): u8 = { return value; };
+fun[exp] echo_u16(value: u16): u16 = { return value; };
+fun[exp] echo_u32(value: u32): u32 = { return value; };
+fun[exp] echo_u64(value: u64): u64 = { return value; };
+
+fun[exp] echo_f32(value: f32): f32 = { return value; };
+fun[exp] echo_f64(value: f64): f64 = { return value; };
+
+fun[exp] echo_bol(value: bol): bol = { return value; };
+fun[exp] echo_chr(value: chr): chr = { return value; };

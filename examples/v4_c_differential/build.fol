@@ -1,0 +1,31 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "v4_c_differential", version = "0.1.0", kind = "lib",
+        description = "identity across the boundary at every range edge",
+        license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+    var lib = graph.add_static_lib({
+        name = "v4_c_differential", root = "src/lib.fol", fol_model = "memo",
+        target = target, optimize = optimize,
+    });
+    lib.set_abi_version({ major = 1, minor = 0 });
+    lib.add_abi_export({ routine = "echo_i8", symbol = "fol_echo_i8" });
+    lib.add_abi_export({ routine = "echo_i16", symbol = "fol_echo_i16" });
+    lib.add_abi_export({ routine = "echo_i32", symbol = "fol_echo_i32" });
+    lib.add_abi_export({ routine = "echo_i64", symbol = "fol_echo_i64" });
+    lib.add_abi_export({ routine = "echo_u8", symbol = "fol_echo_u8" });
+    lib.add_abi_export({ routine = "echo_u16", symbol = "fol_echo_u16" });
+    lib.add_abi_export({ routine = "echo_u32", symbol = "fol_echo_u32" });
+    lib.add_abi_export({ routine = "echo_u64", symbol = "fol_echo_u64" });
+    lib.add_abi_export({ routine = "echo_f32", symbol = "fol_echo_f32" });
+    lib.add_abi_export({ routine = "echo_f64", symbol = "fol_echo_f64" });
+    lib.add_abi_export({ routine = "echo_bol", symbol = "fol_echo_bol" });
+    lib.add_abi_export({ routine = "echo_chr", symbol = "fol_echo_chr" });
+    graph.install(lib);
+    return;
+};

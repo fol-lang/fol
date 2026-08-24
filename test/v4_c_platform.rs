@@ -869,3 +869,117 @@ fn incoherent_entry_tagging_is_refused() {
         );
     }
 }
+
+/// FOL's belief about every scalar, checked against the C compiler's own.
+///
+/// The rest of the suite crosses representative values, and a boundary that
+/// returns what it was given works for 42 under almost any mistake -- a wrong
+/// width, a lost sign, a truncating cast. It stops working at `INT8_MIN`, at
+/// `UINT64_MAX`, and at the largest float that is not infinity.
+///
+/// Floats are compared as bit patterns rather than values, because `-0.0 ==
+/// 0.0` is true in C: an equality check cannot see a boundary that dropped a
+/// sign bit. The consumer's own control run -- comparing against a flipped
+/// bit -- reports 32 failures, so passing means the comparison is live.
+#[test]
+fn every_scalar_survives_both_edges_of_its_range() {
+    let Some(cc) = c_compiler() else {
+        skip("no C compiler; cannot link a consumer");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("v4-differential");
+    let prefix = build_kind_named(fixture.path(), "v4_c_differential", "add_static_lib");
+
+    let stdout = run_named_consumer(
+        &cc,
+        &prefix,
+        "v4_c_differential",
+        "v4_c_differential",
+        false,
+    );
+    assert!(
+        stdout.contains("all differential checks passed"),
+        "FOL and C disagree about a scalar at its range edge:\n{stdout}"
+    );
+}
+
+/// What a rebuild reproduces, and what it does not.
+///
+/// Two different facts, and conflating them hides both. Rebuilt **at the same
+/// path**, every artefact is byte-identical, so the build has no clock, no
+/// randomness, and no iteration-order dependence. Built at a **different
+/// path**, the header, manifest, and symbol list are still identical -- the
+/// whole ABI surface is path-independent -- while the static library is not:
+/// its archive member names carry the generated crate's build id, which hashes
+/// the build directory.
+///
+/// This locks both halves. A regression in the first is a determinism bug; a
+/// change in the second is what a `--remap-path-prefix` fix would look like,
+/// and this test is what would notice it.
+#[test]
+fn a_rebuild_reproduces_the_abi_surface_at_any_path() {
+    let fixture = fol_testkit::TempFixture::new("v4-reproducible");
+    let example = "v4_c_export_scalar";
+
+    let digest_of = |path: &Path| -> Option<String> {
+        std::fs::read(path).ok().map(|bytes| {
+            let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+            for byte in &bytes {
+                hash ^= u64::from(*byte);
+                hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+            format!("{hash:016x}")
+        })
+    };
+    let artefacts = |prefix: &Path| -> Vec<Option<String>> {
+        [
+            format!("include/{example}.h"),
+            format!("share/fol/abi/{example}.folabi.json"),
+            format!("share/fol/abi/{example}.symbols"),
+            format!("lib/lib{example}.a"),
+        ]
+        .iter()
+        .map(|relative| digest_of(&prefix.join(relative)))
+        .collect()
+    };
+
+    // Same path, built twice from clean.
+    let root = fixture.path().join("same");
+    copy_dir(&repo_root().join("examples").join(example), &root);
+    let build_here = |root: &Path| {
+        let _ = std::fs::remove_dir_all(root.join(".fol"));
+        let output = Command::new(env!("CARGO_BIN_EXE_folc"))
+            .args(["code", "build", "--package-store-root"])
+            .arg(store_root())
+            .current_dir(root)
+            .output()
+            .expect("the build should run");
+        assert!(output.status.success(), "{example} should build");
+        root.join(".fol/install")
+    };
+    let first = artefacts(&build_here(&root));
+    let second = artefacts(&build_here(&root));
+    assert_eq!(
+        first, second,
+        "a clean rebuild at the same path must reproduce every artefact"
+    );
+    assert!(
+        first.iter().all(Option::is_some),
+        "every artefact should have been produced: {first:?}"
+    );
+
+    // A different path. Only the last artefact -- the library -- may move.
+    let elsewhere = fixture.path().join("elsewhere");
+    copy_dir(&repo_root().join("examples").join(example), &elsewhere);
+    let moved = artefacts(&build_here(&elsewhere));
+    assert_eq!(
+        first[..3],
+        moved[..3],
+        "the ABI surface must not depend on where the package was built"
+    );
+    assert_ne!(
+        first[3], moved[3],
+        "the library is path-dependent through its build id; if this now matches, \
+         the dependence was removed and this expectation should be tightened"
+    );
+}
