@@ -1,0 +1,38 @@
+// A FOL package calling a FOL library through the C ABI.
+//
+// The provider is `v4_c_export_scalar`, built and installed as an ordinary
+// static library, and imported through the same `add_c_import` path any
+// third-party C library uses. There is no FOL-to-FOL shortcut here: this
+// package sees a header, an archive, and an annotation overlay.
+use std: pkg = {"std"};
+use slice: pkg = {"folslice"};
+
+fun[] describe_add_i32(lhs: int[32], rhs: int[32]): str = {
+    var fallback: int[32] = 0;
+    var actual: int[32] = slice::add_i32(lhs, rhs) || fallback;
+    var expected: int[32] = 5;
+    when(.eq(actual, expected)) {
+        case(true) { return "add_i32(2, 3) = 5"; }
+        * { return "add_i32(2, 3) WRONG"; }
+    }
+};
+
+fun[] describe_add_i64(lhs: int[64], rhs: int[64]): str = {
+    var fallback: int[64] = 0;
+    var actual: int[64] = slice::add_i64(lhs, rhs) || fallback;
+    var expected: int[64] = 30;
+    when(.eq(actual, expected)) {
+        case(true) { return "add_i64(10, 20) = 30"; }
+        * { return "add_i64(10, 20) WRONG"; }
+    }
+};
+
+fun[] main(): non = {
+    var two: int[32] = 2;
+    var three: int[32] = 3;
+    std::io::echo_str(describe_add_i32(two, three));
+    var ten: int[64] = 10;
+    var twenty: int[64] = 20;
+    std::io::echo_str(describe_add_i64(ten, twenty));
+    return;
+};

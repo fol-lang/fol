@@ -36,6 +36,12 @@ pub fn project_imported_interface(
     let mut routines = Vec::new();
     let mut rejections = Vec::new();
 
+    // A C typedef is a spelling, not a type: `fol_status_t` and `int32_t` are
+    // both `int` on this target. Without resolving them every stdint-typed
+    // declaration -- which is most real headers, and every header FOL itself
+    // generates -- would be refused as a named aggregate.
+    let aliases = type_aliases(bundle);
+
     let mut projected: Vec<&str> = Vec::new();
     for item in bundle.projection().items() {
         let RustItem::Function(function) = item else {
@@ -50,7 +56,7 @@ pub fn project_imported_interface(
         let Some(annotation) = overlay.routine(symbol) else {
             continue;
         };
-        match project_routine(function, annotation, source, &mut types, model) {
+        match project_routine(function, annotation, source, &mut types, model, &aliases) {
             Ok(routine) => routines.push(routine),
             Err(rejection) => rejections.push(rejection),
         }
@@ -86,6 +92,7 @@ fn project_routine(
     source: &CompleteSourcePackage,
     types: &mut AbiTypeTable,
     model: CapabilityModel,
+    aliases: &TypeAliases<'_>,
 ) -> Result<ImportedRoutine, ImportRejection> {
     let symbol = function.link_name().to_string();
 
@@ -119,11 +126,11 @@ fn project_routine(
     // pointer becomes. Resolved before projection for the same reason a handle
     // is: `project_type` refuses a function pointer by design, so replacing it
     // afterwards would mean refusing the shape the overlay just declared legal.
-    let callback = callback_positions(&symbol, function, annotation, types)?;
+    let callback = callback_positions(&symbol, function, annotation, types, aliases)?;
 
     let result = match handle_positions.result {
         Some(domain) => types.intern(AbiType::OpaqueHandle { name: domain }),
-        None => project_type(&symbol, function.return_type(), types)?,
+        None => project_type(&symbol, function.return_type(), types, aliases)?,
     };
     let mut parameters = Vec::new();
     for (index, parameter) in function.parameters().iter().enumerate() {
@@ -134,7 +141,7 @@ fn project_routine(
             _ if callback.as_ref().is_some_and(|c| c.parameter == index) => {
                 callback.as_ref().expect("checked").type_id
             }
-            _ => project_type(&symbol, parameter.ty(), types)?,
+            _ => project_type(&symbol, parameter.ty(), types, aliases)?,
         };
         // A C parameter may be unnamed; the position is the only stable
         // identity then, and the overlay has to be able to name it.
@@ -186,6 +193,7 @@ fn callback_positions(
     function: &RustFunction,
     annotation: &fol_abi::RoutineAnnotation,
     types: &mut AbiTypeTable,
+    aliases: &TypeAliases<'_>,
 ) -> Result<Option<CallbackPositions>, ImportRejection> {
     let Some(use_) = &annotation.callback else {
         return Ok(None);
@@ -271,9 +279,9 @@ fn callback_positions(
     // Everything after the context is what a FOL routine value receives.
     let mut projected = Vec::new();
     for argument in signature.iter().skip(1) {
-        projected.push(project_type(symbol, argument, types)?);
+        projected.push(project_type(symbol, argument, types, aliases)?);
     }
-    let result = project_type(symbol, return_type, types)?;
+    let result = project_type(symbol, return_type, types, aliases)?;
     let type_id = types.intern(AbiType::Callback {
         parameters: projected,
         result,
@@ -384,12 +392,50 @@ fn origin_for(function: &RustFunction, source: &CompleteSourcePackage) -> AbiSou
     }
 }
 
+/// Every `typedef` in the projection, by the declaration a `Named` refers to.
+type TypeAliases<'a> = std::collections::HashMap<parc::contract::DeclarationId, &'a RustType>;
+
+fn type_aliases(bundle: &GenerationBundle) -> TypeAliases<'_> {
+    bundle
+        .projection()
+        .items()
+        .iter()
+        .filter_map(|item| match item {
+            RustItem::TypeAlias(alias) => Some((alias.declaration(), alias.target())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Follow a chain of typedefs to the type they finally name.
+///
+/// `fol_status_t` is `int32_t` is `int`, so one hop is not enough. The bound is
+/// the alias count: C forbids a cycle, but a malformed projection must not
+/// spin here.
+fn resolve_alias<'a>(ty: &'a RustType, aliases: &TypeAliases<'a>) -> &'a RustType {
+    let mut current = ty;
+    for _ in 0..aliases.len().saturating_add(1) {
+        let RustTypeKind::Named { declaration, .. } = current.kind() else {
+            return current;
+        };
+        match aliases.get(declaration) {
+            Some(target) => current = target,
+            None => return current,
+        }
+    }
+    current
+}
+
 /// Intern one measured C type, or say why it does not cross.
 fn project_type(
     symbol: &str,
     ty: &RustType,
     types: &mut AbiTypeTable,
+    aliases: &TypeAliases<'_>,
 ) -> Result<AbiTypeId, ImportRejection> {
+    // Resolved first: a typedef's own qualifiers and support status are the
+    // spelling's, and what matters is the type underneath.
+    let ty = resolve_alias(ty, aliases);
     if !ty.support().is_supported() {
         return Err(ImportRejection::UnsupportedDeclaration {
             symbol: symbol.to_string(),
@@ -410,7 +456,7 @@ fn project_type(
         RustTypeKind::Void => AbiType::Void,
         RustTypeKind::Scalar(scalar) => AbiType::Scalar(project_scalar(symbol, *scalar)?),
         RustTypeKind::Pointer(target) => {
-            let target_id = project_type(symbol, target, types)?;
+            let target_id = project_type(symbol, target, types, aliases)?;
             AbiType::Pointer {
                 target: target_id,
                 mutability: if target.qualifiers().is_const {

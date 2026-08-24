@@ -1,0 +1,19 @@
+version = 1
+
+# The provider here is a FOL library, imported through the ordinary C path.
+# Nothing in this file knows that: these are annotated exactly as any other C
+# function with a status convention and an out-parameter would be.
+
+[routine.fol_slice_add_i32]
+fol_name = "add_i32"
+error = "status"
+status_ok = [0]
+status_error = [1]
+out = "out_result"
+
+[routine.fol_slice_add_i64]
+fol_name = "add_i64"
+error = "status"
+status_ok = [0]
+status_error = [1]
+out = "out_result"
