@@ -523,6 +523,7 @@ fn lower_top_level_declaration(
                 }
                 TypeDefinition::Entry {
                     variants,
+                    variant_meta,
                     variant_order,
                     ..
                 } => {
@@ -541,29 +542,28 @@ fn lower_top_level_declaration(
                             .map(|variant| lower_type(typed, resolved, type_scope, variant))
                             .transpose()?;
                         lowered.insert(variant_name.clone(), payload);
-                        // Assigned from declaration position at first sight and
-                        // then recorded, so the tag is a stored fact rather than
+                        // The tag a variant carries: what `con[tag = N]`
+                        // wrote down, or its declaration position when the
+                        // entry states none.
+                        //
+                        // Position is assigned at first sight and then
+                        // recorded, so it is a stored fact rather than
                         // something re-derived from whatever order a later map
-                        // iteration happens to produce.
+                        // iteration happens to produce. It is also not
+                        // ABI-stable, which is why `explicit` travels beside it
+                        // and the C boundary refuses an entry without it.
                         //
-                        // This is *not* an ABI-stable tag, and the C boundary
-                        // refuses entries for exactly that reason. FOL has no
-                        // syntax for an explicit discriminant: a variant is
-                        // written `con NAME: int = 7` or `var NAME: T = v`, and
-                        // the parser records both the same way, so the value is
-                        // the variant's *default payload*, not a tag. It reads
-                        // like a tag in the enum-shaped case -- `Severity.RETRY`
-                        // really does evaluate to 7 -- but `var Ok: int = 1`
-                        // beside `var Err: str = "broken"` shows what it is:
-                        // taking the default as a tag gives both variants 1.
-                        //
-                        // When FOL gains explicit tag syntax, this is the line
-                        // that reads it, and `fol-lower/src/abi.rs` stops
-                        // reporting entries as having no explicit tags.
+                        // The default is *not* a tag. `con NAME: int = 7`
+                        // records 7 as the variant's default payload, and
+                        // `var Ok: int = 1` beside `var Err: str = "broken"`
+                        // shows why reading it as one cannot work: both
+                        // variants would land on 1.
+                        let declared = variant_meta.get(variant_name).and_then(|meta| meta.tag);
                         layout.push(crate::model::EntryVariantLayout {
                             name: variant_name.clone(),
                             payload,
-                            discriminant: index as i64,
+                            discriminant: declared.unwrap_or(index as i64),
+                            explicit: declared.is_some(),
                         });
                     }
                     let entry_type_id = typed

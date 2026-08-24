@@ -646,6 +646,7 @@ fn synthesize_structural_type_decl(
                     // tag from, and the ABI rejects anonymous aggregates, so it
                     // never reaches a manifest.
                     discriminant: index as i64,
+                    explicit: false,
                 });
             }
             Some(LoweredTypeDecl {
@@ -839,13 +840,20 @@ fn lower_entry_decl(
     // Declaration order and explicit tags come from the typed side table;
     // `CheckedType::Entry` stores a `BTreeMap`, so iterating it would order
     // variants alphabetically and number them by that order.
-    let declared: Vec<(String, Option<fol_typecheck::CheckedTypeId>, i64)> = typed_package
+    let declared: Vec<(String, Option<fol_typecheck::CheckedTypeId>, i64, bool)> = typed_package
         .program
         .entry_layout(checked_type)
         .map(|layout| {
             layout
                 .iter()
-                .map(|variant| (variant.name.clone(), variant.payload, variant.discriminant))
+                .map(|variant| {
+                    (
+                        variant.name.clone(),
+                        variant.payload,
+                        variant.discriminant,
+                        variant.explicit,
+                    )
+                })
                 .collect()
         })
         .unwrap_or_else(|| {
@@ -853,12 +861,12 @@ fn lower_entry_decl(
                 .clone()
                 .into_iter()
                 .enumerate()
-                .map(|(index, (name, payload))| (name, payload, index as i64))
+                .map(|(index, (name, payload))| (name, payload, index as i64, false))
                 .collect()
         });
 
     let mut lowered_variants = Vec::new();
-    for (variant_name, variant_type, discriminant) in declared {
+    for (variant_name, variant_type, discriminant, explicit) in declared {
         let lowered_variant_type = variant_type
             .map(|variant_type| {
                 lowered_package
@@ -880,6 +888,7 @@ fn lower_entry_decl(
             name: variant_name,
             payload_type: lowered_variant_type,
             discriminant,
+            explicit,
         });
     }
 

@@ -331,6 +331,12 @@ pub struct RecordFieldMeta {
 pub struct EntryVariantMeta {
     pub default: Option<AstNode>,
     pub options: Vec<super::options::VarOption>,
+    /// The ABI discriminant written as `con[tag = 7] NAME`.
+    ///
+    /// `None` means the variant is numbered by its declaration position, which
+    /// is fine inside FOL and refused at the C boundary: inserting a variant
+    /// would renumber every later one.
+    pub tag: Option<i64>,
 }
 
 /// Type definitions for structs/records/entries

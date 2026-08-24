@@ -728,3 +728,144 @@ fn c_supplies_a_callback_that_fol_invokes() {
         "the callback consumer did not pass:\n{stdout}"
     );
 }
+
+/// An entry crosses as a C enum carrying the tags its variants state.
+///
+/// The consumer is the real check: it compares the header's constants against
+/// what FOL evaluates, then round-trips each variant through both directions.
+/// That is the exact probe that caught the original mismatch, when FOL made a
+/// variant 7 and the header declared it 1.
+#[test]
+fn an_entry_crosses_with_the_tags_its_variants_state() {
+    let Some(cc) = c_compiler() else {
+        skip("no C compiler; cannot link a consumer");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("v4-export-entry");
+    let prefix = build_kind_named(fixture.path(), "v4_c_export_entry", "add_static_lib");
+
+    let header = std::fs::read_to_string(prefix.join("include/v4_c_export_entry.h"))
+        .expect("the header should install");
+    // Not 0/1/2 and not in declaration order, so a positional numbering
+    // disagrees with the source on every variant.
+    for (constant, tag) in [
+        ("FOL_LOOKUP_MISSING", 4),
+        ("FOL_LOOKUP_FOUND", 1),
+        ("FOL_LOOKUP_DENIED", 9),
+    ] {
+        assert!(
+            header.contains(&format!("{constant} = {tag},")),
+            "the header should carry the declared tag for {constant}:\n{header}"
+        );
+    }
+
+    let stdout = run_named_consumer(
+        &cc,
+        &prefix,
+        "v4_c_export_entry",
+        "v4_c_export_entry",
+        false,
+    );
+    assert!(
+        stdout.contains("all entry checks passed"),
+        "the entry consumer did not pass:\n{stdout}"
+    );
+}
+
+/// Moving a variant in the source changes nothing an ABI consumer can see.
+///
+/// This is the property explicit tags exist to buy, and it cannot be checked by
+/// reading the tags back: it needs two builds whose manifests are compared byte
+/// for byte. Changing a tag is the control — the same comparison must differ.
+#[test]
+fn reordering_tagged_variants_leaves_the_manifest_byte_identical() {
+    let fixture = fol_testkit::TempFixture::new("v4-entry-reorder");
+
+    let manifest_of = |name: &str, edit: &dyn Fn(&str) -> String| -> Vec<u8> {
+        let root = fixture.path().join(name);
+        copy_dir(&repo_root().join("examples/v4_c_export_entry"), &root);
+        let source = root.join("src/lib.fol");
+        let text = std::fs::read_to_string(&source).expect("lib.fol readable");
+        std::fs::write(&source, edit(&text)).expect("lib.fol writable");
+        let output = Command::new(env!("CARGO_BIN_EXE_folc"))
+            .args(["code", "build", "--package-store-root"])
+            .arg(store_root())
+            .current_dir(&root)
+            .output()
+            .expect("the build should run");
+        assert!(output.status.success(), "{name} failed to build");
+        std::fs::read(root.join(".fol/install/share/fol/abi/v4_c_export_entry.folabi.json"))
+            .expect("the manifest should install")
+    };
+
+    let baseline = manifest_of("baseline", &|text| text.to_string());
+    let reordered = manifest_of("reordered", &|text| {
+        let moved = text.replace("    con[tag = 9] DENIED;\n", "");
+        moved.replace(
+            "    con[tag = 4] MISSING;",
+            "    con[tag = 9] DENIED;\n    con[tag = 4] MISSING;",
+        )
+    });
+    let retagged = manifest_of("retagged", &|text| {
+        text.replace("con[tag = 9] DENIED;", "con[tag = 11] DENIED;")
+    });
+
+    assert_eq!(
+        baseline, reordered,
+        "reordering tagged variants must not change the manifest"
+    );
+    assert_ne!(
+        baseline, retagged,
+        "changing a tag must change the manifest, or the comparison proves nothing"
+    );
+}
+
+/// The three ways of tagging an entry incoherently, each refused by name.
+#[test]
+fn incoherent_entry_tagging_is_refused() {
+    let fixture = fol_testkit::TempFixture::new("v4-entry-tagging");
+    for (name, edit, expected) in [
+        (
+            "duplicate",
+            "con[tag = 4] DENIED;",
+            "reuses tag 4, already given to 'MISSING'",
+        ),
+        (
+            "out_of_range",
+            "con[tag = 5000000000] DENIED;",
+            "outside the 32-bit range",
+        ),
+        (
+            "partial",
+            "con DENIED;",
+            "2 of 3 entry variants state a tag",
+        ),
+    ] {
+        let root = fixture.path().join(name);
+        copy_dir(&repo_root().join("examples/v4_c_export_entry"), &root);
+        let source = root.join("src/lib.fol");
+        let text = std::fs::read_to_string(&source).expect("lib.fol readable");
+        std::fs::write(&source, text.replace("con[tag = 9] DENIED;", edit))
+            .expect("lib.fol writable");
+
+        let output = Command::new(env!("CARGO_BIN_EXE_folc"))
+            .args(["code", "check", "--package-store-root"])
+            .arg(store_root())
+            .current_dir(&root)
+            .output()
+            .expect("the check should run");
+        let reported = strip_ansi(&format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+        assert!(
+            !output.status.success(),
+            "{name} must be refused:\n{reported}"
+        );
+        assert!(
+            reported.contains(expected),
+            "{name} should be refused by name:\n{reported}"
+        );
+    }
+}

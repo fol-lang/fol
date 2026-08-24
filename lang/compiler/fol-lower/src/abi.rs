@@ -86,10 +86,10 @@ pub enum AbiAggregateDecl {
     },
     Entry {
         name: String,
-        /// Each variant's declared tag and optional payload. The tag is
-        /// explicit rather than positional, so inserting a variant cannot
-        /// renumber the ones after it.
-        variants: Vec<(String, i64, Option<LoweredTypeId>)>,
+        /// Each variant's tag and optional payload. `None` is a positional
+        /// tag -- one nobody wrote down, which inserting a variant would
+        /// renumber, and which the verifier therefore refuses to promise.
+        variants: Vec<(String, Option<i64>, Option<LoweredTypeId>)>,
     },
 }
 
@@ -354,19 +354,15 @@ pub fn describe(
                     name: Some(name.clone()),
                     variants: variants
                         .iter()
-                        .map(|(variant, _, payload)| {
+                        .map(|(variant, tag, payload)| {
                             (
                                 variant.clone(),
-                                // `None`: FOL has no syntax for an explicit ABI
-                                // discriminant, and the tag it uses internally
-                                // is positional -- inserting a variant would
-                                // renumber every later one, which is a silent
-                                // ABI break. The verifier turns this into
-                                // `UnstableEntryTag`, so an entry is refused
-                                // with the reason rather than shipped with a
-                                // tag that cannot be promised. See
-                                // `fol-typecheck`'s `explicit_variant_tag`.
-                                None,
+                                // `None` is a tag nobody wrote down. The
+                                // verifier turns it into `UnstableEntryTag`, so
+                                // the entry is refused with the reason rather
+                                // than shipped with a number that would move
+                                // the next time a variant is inserted.
+                                *tag,
                                 payload.map(|id| describe(table, records, id)),
                             )
                         })
@@ -441,10 +437,13 @@ fn intern(
             }
             AbiAggregateDecl::Entry { name, variants } => {
                 let mut interned = Vec::with_capacity(variants.len());
-                for (variant, tag, payload) in variants {
+                for (index, (variant, tag, payload)) in variants.iter().enumerate() {
                     interned.push(fol_abi::AbiVariant {
                         name: variant.clone(),
-                        discriminant: *tag,
+                        // Interning happens only after the verifier accepted
+                        // the entry, and it accepts none whose tags are
+                        // positional; the fallback keeps this total.
+                        discriminant: tag.unwrap_or(index as i64),
                         payload: match payload {
                             Some(payload) => Some(intern(abi, table, records, *payload)?),
                             None => None,

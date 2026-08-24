@@ -105,16 +105,31 @@ fn record_declarations(session: &BackendSession) -> fol_lower::abi::AbiRecordMap
                     }
                 }
                 fol_lower::LoweredTypeDeclKind::Entry { variants } => {
+                    // Ordered by tag rather than by declaration, so moving a
+                    // variant in the source is a no-op on the manifest. A
+                    // record cannot do this -- field order decides offsets --
+                    // but a tagged variant's position means nothing once the
+                    // tag is written down. An untagged entry sorts by the
+                    // position it was already numbered from, so this is
+                    // identity there.
+                    let mut ordered: Vec<_> = variants
+                        .iter()
+                        .enumerate()
+                        .map(|(index, variant)| {
+                            (
+                                variant.explicit.then_some(variant.discriminant),
+                                index,
+                                variant,
+                            )
+                        })
+                        .collect();
+                    ordered.sort_by_key(|(tag, index, _)| tag.unwrap_or(*index as i64));
                     fol_lower::abi::AbiAggregateDecl::Entry {
                         name: declaration.name.clone(),
-                        variants: variants
-                            .iter()
-                            .map(|variant| {
-                                (
-                                    variant.name.clone(),
-                                    variant.discriminant,
-                                    variant.payload_type,
-                                )
+                        variants: ordered
+                            .into_iter()
+                            .map(|(tag, _, variant)| {
+                                (variant.name.clone(), tag, variant.payload_type)
                             })
                             .collect(),
                     }

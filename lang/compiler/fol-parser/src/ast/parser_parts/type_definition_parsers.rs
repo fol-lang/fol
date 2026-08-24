@@ -1,6 +1,28 @@
 use super::*;
 
 impl AstParser {
+    /// Every variant states a tag, or none does.
+    ///
+    /// A half-tagged entry has no honest numbering: the untagged variants would
+    /// fall back to their position, which is exactly the renumbering the tags
+    /// were written to prevent.
+    fn reject_partial_entry_tagging(
+        token: &fol_lexer::lexer::stage3::Element,
+        tagged: usize,
+        total: usize,
+    ) -> Result<(), ParseError> {
+        if tagged == 0 || tagged == total {
+            return Ok(());
+        }
+        Err(ParseError::from_token(
+            token,
+            format!(
+                "{tagged} of {total} entry variants state a tag; either every \
+                 variant states one or none does"
+            ),
+        ))
+    }
+
     pub(super) fn parse_entry_type_definition(
         &self,
         tokens: &mut fol_lexer::lexer::stage3::Elements,
@@ -20,12 +42,15 @@ impl AstParser {
         let mut variant_order: Vec<String> = Vec::new();
         let mut seen_variant_names = HashSet::new();
         let mut seen_members = HashSet::new();
+        let mut tagged_variants = 0usize;
+        let mut seen_tags: HashMap<i64, String> = HashMap::new();
         for _ in 0..256 {
             self.skip_ignorable(tokens)?;
             let token = tokens.curr(false)?;
 
             if matches!(token.key(), KEYWORD::Symbol(SYMBOL::CurlyC)) {
                 let _ = tokens.bump();
+                Self::reject_partial_entry_tagging(&token, tagged_variants, variant_order.len())?;
                 return Ok(TypeDefinition::Entry {
                     variants,
                     variant_meta,
@@ -50,6 +75,11 @@ impl AstParser {
                 }
                 if matches!(sep.key(), KEYWORD::Symbol(SYMBOL::CurlyC)) {
                     let _ = tokens.bump();
+                    Self::reject_partial_entry_tagging(
+                        &token,
+                        tagged_variants,
+                        variant_order.len(),
+                    )?;
                     return Ok(TypeDefinition::Entry {
                         variants,
                         variant_meta,
@@ -80,6 +110,11 @@ impl AstParser {
                 }
                 if matches!(sep.key(), KEYWORD::Symbol(SYMBOL::CurlyC)) {
                     let _ = tokens.bump();
+                    Self::reject_partial_entry_tagging(
+                        &token,
+                        tagged_variants,
+                        variant_order.len(),
+                    )?;
                     return Ok(TypeDefinition::Entry {
                         variants,
                         variant_meta,
@@ -110,6 +145,11 @@ impl AstParser {
                 }
                 if matches!(sep.key(), KEYWORD::Symbol(SYMBOL::CurlyC)) {
                     let _ = tokens.bump();
+                    Self::reject_partial_entry_tagging(
+                        &token,
+                        tagged_variants,
+                        variant_order.len(),
+                    )?;
                     return Ok(TypeDefinition::Entry {
                         variants,
                         variant_meta,
@@ -141,6 +181,11 @@ impl AstParser {
                 }
                 if matches!(sep.key(), KEYWORD::Symbol(SYMBOL::CurlyC)) {
                     let _ = tokens.bump();
+                    Self::reject_partial_entry_tagging(
+                        &token,
+                        tagged_variants,
+                        variant_order.len(),
+                    )?;
                     return Ok(TypeDefinition::Entry {
                         variants,
                         variant_meta,
@@ -154,7 +199,7 @@ impl AstParser {
                 ));
             }
 
-            let default_options = if let Some((keyword, options)) =
+            let (default_options, variant_tag) = if let Some((keyword, options)) =
                 self.lookahead_binding_alternative(tokens)
             {
                 match keyword {
@@ -163,7 +208,7 @@ impl AstParser {
                         self.skip_ignorable(tokens)?;
                         let _ = tokens.bump();
                         self.skip_ignorable(tokens)?;
-                        options
+                        (options, None)
                     }
                     _ => {
                         return Err(ParseError::from_token(
@@ -176,21 +221,21 @@ impl AstParser {
                 match token.key() {
                     KEYWORD::Keyword(BUILDIN::Var) => {
                         let _ = tokens.bump();
-                        self.parse_binding_options(
+                        self.parse_entry_variant_options(
                             tokens,
                             vec![VarOption::Mutable, VarOption::Normal],
                         )?
                     }
                     KEYWORD::Keyword(BUILDIN::Lab) => {
                         let _ = tokens.bump();
-                        self.parse_binding_options(
+                        self.parse_entry_variant_options(
                             tokens,
                             vec![VarOption::Immutable, VarOption::Normal],
                         )?
                     }
                     KEYWORD::Keyword(BUILDIN::Con) => {
                         let _ = tokens.bump();
-                        self.parse_binding_options(
+                        self.parse_entry_variant_options(
                             tokens,
                             vec![VarOption::Immutable, VarOption::Normal],
                         )?
@@ -255,11 +300,36 @@ impl AstParser {
                 if !seen_members.insert(canonical_identifier_key(&name)) {
                     return Err(self.duplicate_type_member_error(&name_token, &name));
                 }
+                if let Some(tag) = variant_tag {
+                    // The tag type is fixed at 32 bits, matching C's `int`
+                    // enum convention, so the range is checked here rather
+                    // than left to whatever the platform's `int` happens to be.
+                    if tag < i64::from(i32::MIN) || tag > i64::from(i32::MAX) {
+                        return Err(ParseError::from_token(
+                            &name_token,
+                            format!(
+                                "Entry variant tag {tag} is outside the 32-bit range \
+                                 an ABI discriminant carries"
+                            ),
+                        ));
+                    }
+                    if let Some(existing) = seen_tags.insert(tag, name.clone()) {
+                        return Err(ParseError::from_token(
+                            &name_token,
+                            format!(
+                                "Entry variant '{name}' reuses tag {tag}, already \
+                                 given to '{existing}'"
+                            ),
+                        ));
+                    }
+                    tagged_variants += 1;
+                }
                 variant_meta.insert(
                     name,
                     EntryVariantMeta {
                         default: default.clone(),
                         options: default_options.clone(),
+                        tag: variant_tag,
                     },
                 );
             }
@@ -274,6 +344,7 @@ impl AstParser {
             }
             if matches!(sep.key(), KEYWORD::Symbol(SYMBOL::CurlyC)) {
                 let _ = tokens.bump();
+                Self::reject_partial_entry_tagging(&token, tagged_variants, variant_order.len())?;
                 return Ok(TypeDefinition::Entry {
                     variants,
                     variant_meta,

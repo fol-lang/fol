@@ -114,6 +114,8 @@ pub struct LoweredVariantLayout {
     /// renumber every variant after it, silently changing the meaning of a
     /// value already written to a file or sent over a wire.
     pub discriminant: i64,
+    /// Whether the tag was written down rather than taken from the position.
+    pub explicit: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

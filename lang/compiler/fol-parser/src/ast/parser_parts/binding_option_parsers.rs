@@ -186,4 +186,74 @@ impl AstParser {
             VarOption::Borrowing => "bor",
         }
     }
+
+    /// Binding options on an entry variant, plus the ABI discriminant.
+    ///
+    /// `[tag = N]` is its own bracket group rather than one option among
+    /// several: it takes a value, and the option list is a list of bare names.
+    pub(super) fn parse_entry_variant_options(
+        &self,
+        tokens: &mut fol_lexer::lexer::stage3::Elements,
+        default_options: Vec<VarOption>,
+    ) -> Result<(Vec<VarOption>, Option<i64>), ParseError> {
+        if !self.looks_like_entry_variant_tag(tokens) {
+            return Ok((self.parse_binding_options(tokens, default_options)?, None));
+        }
+        let _ = tokens.bump();
+        self.skip_ignorable(tokens)?;
+        let _ = tokens.bump();
+        self.skip_ignorable(tokens)?;
+
+        let equal = tokens.curr(false)?;
+        if !matches!(equal.key(), KEYWORD::Symbol(SYMBOL::Equal)) {
+            return Err(ParseError::from_token(
+                &equal,
+                "Expected '=' after 'tag' in an entry variant option".to_string(),
+            ));
+        }
+        let _ = tokens.bump();
+        self.skip_ignorable(tokens)?;
+
+        let mut negative = false;
+        let mut token = tokens.curr(false)?;
+        if matches!(token.key(), KEYWORD::Symbol(SYMBOL::Minus)) {
+            negative = true;
+            let _ = tokens.bump();
+            self.skip_ignorable(tokens)?;
+            token = tokens.curr(false)?;
+        }
+        let digits = token.con();
+        let magnitude = digits.trim().parse::<i64>().map_err(|_| {
+            ParseError::from_token(
+                &token,
+                "Expected an integer literal for an entry variant tag".to_string(),
+            )
+        })?;
+        let tag = if negative { -magnitude } else { magnitude };
+        let _ = tokens.bump();
+        self.skip_ignorable(tokens)?;
+
+        let close = tokens.curr(false)?;
+        if !matches!(close.key(), KEYWORD::Symbol(SYMBOL::SquarC)) {
+            return Err(ParseError::from_token(
+                &close,
+                "Expected ']' to close an entry variant tag; a tag is written \
+                 alone as '[tag = N]'"
+                    .to_string(),
+            ));
+        }
+        let _ = tokens.bump();
+        Ok((default_options, Some(tag)))
+    }
+
+    fn looks_like_entry_variant_tag(&self, tokens: &fol_lexer::lexer::stage3::Elements) -> bool {
+        let Ok(open) = tokens.curr(false) else {
+            return false;
+        };
+        if !matches!(open.key(), KEYWORD::Symbol(SYMBOL::SquarO)) {
+            return false;
+        }
+        self.next_significant_token_from_window(tokens)
+            .is_some_and(|next| next.con().trim() == "tag")
+    }
 }

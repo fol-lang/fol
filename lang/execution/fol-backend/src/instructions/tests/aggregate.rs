@@ -575,6 +575,7 @@ fn aggregate_and_container_rendering_emits_record_and_entry_constructors() {
                     name: "Ok".to_string(),
                     payload_type: Some(int_id),
                     discriminant: 0,
+                    explicit: false,
                 }],
             },
         },

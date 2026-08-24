@@ -1,0 +1,37 @@
+// An entry crosses the C boundary because every variant states its tag.
+//
+// `[tag = N]` is what makes the crossing possible. Without it a variant is
+// numbered by where it was written, so inserting one renumbers every later
+// one -- a silent break for anyone holding a stored value. The tags below are
+// deliberately not 0/1/2 and deliberately not in order, so a positional
+// numbering would disagree with the header on every variant.
+typ[exp] Lookup: ent = {
+    con[tag = 4] MISSING;
+    con[tag = 1] FOUND;
+    con[tag = 9] DENIED;
+};
+
+fun[exp] classify(code: int[32]): Lookup = {
+    var found_code: int[32] = 1;
+    var denied_code: int[32] = 2;
+    if(.eq(code, found_code)) {
+        return Lookup.FOUND;
+    }
+    if(.eq(code, denied_code)) {
+        return Lookup.DENIED;
+    }
+    return Lookup.MISSING;
+};
+
+// The inbound direction: C hands back a tag and FOL reads it as a variant.
+fun[exp] weight(state: Lookup): int[32] = {
+    var found: Lookup = Lookup.FOUND;
+    var denied: Lookup = Lookup.DENIED;
+    if(.eq(state, found)) {
+        return 10;
+    }
+    if(.eq(state, denied)) {
+        return 20;
+    }
+    return 30;
+};

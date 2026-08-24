@@ -51,8 +51,8 @@ fn test_entry_type_retains_variant_defaults_and_options() {
                     ..
                 }
                 if name == "Maybe"
-                    && matches!(variant_meta.get("None"), Some(EntryVariantMeta { default: None, options }) if options.contains(&VarOption::Immutable))
-                    && matches!(variant_meta.get("Some"), Some(EntryVariantMeta { default: Some(_), options }) if options.contains(&VarOption::Mutable))
+                    && matches!(variant_meta.get("None"), Some(EntryVariantMeta { default: None, options, tag: None }) if options.contains(&VarOption::Immutable))
+                    && matches!(variant_meta.get("Some"), Some(EntryVariantMeta { default: Some(_), options, tag: None }) if options.contains(&VarOption::Mutable))
             )));
         }
         _ => panic!("Expected program node"),
@@ -109,8 +109,8 @@ fn test_entry_const_variant_metadata_is_retained() {
                     ..
                 }
                 if name == "Result"
-                    && matches!(variant_meta.get("Ok"), Some(EntryVariantMeta { default: Some(_), options }) if options.contains(&VarOption::Immutable))
-                    && matches!(variant_meta.get("Err"), Some(EntryVariantMeta { default: Some(_), options }) if options.contains(&VarOption::Immutable))
+                    && matches!(variant_meta.get("Ok"), Some(EntryVariantMeta { default: Some(_), options, tag: None }) if options.contains(&VarOption::Immutable))
+                    && matches!(variant_meta.get("Err"), Some(EntryVariantMeta { default: Some(_), options, tag: None }) if options.contains(&VarOption::Immutable))
             )));
         }
         _ => panic!("Expected program node"),
@@ -265,7 +265,7 @@ fn test_entry_variant_binding_alternatives_are_retained() {
                 }
                 if name == "Result"
                     && matches!(variant_meta.get("Ok"), Some(EntryVariantMeta { options, .. }) if options.contains(&VarOption::Export) && options.contains(&VarOption::Mutable))
-                    && matches!(variant_meta.get("Err"), Some(EntryVariantMeta { options, default: Some(_) }) if options.contains(&VarOption::Hidden) && options.contains(&VarOption::Immutable))
+                    && matches!(variant_meta.get("Err"), Some(EntryVariantMeta { options, default: Some(_), tag: None }) if options.contains(&VarOption::Hidden) && options.contains(&VarOption::Immutable))
             )));
         }
         _ => panic!("Expected program node"),

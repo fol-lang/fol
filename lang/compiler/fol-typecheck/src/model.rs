@@ -162,6 +162,11 @@ pub struct EntryVariantLayout {
     pub name: String,
     pub payload: Option<CheckedTypeId>,
     pub discriminant: i64,
+    /// Whether the tag was written down rather than taken from the position.
+    ///
+    /// The C boundary needs the difference: a positional tag is fine inside
+    /// FOL and cannot be promised to anyone holding a stored value.
+    pub explicit: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

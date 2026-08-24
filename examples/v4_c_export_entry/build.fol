@@ -1,0 +1,21 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "v4_c_export_entry", version = "0.1.0", kind = "lib",
+        description = "an entry crosses the C boundary with explicit tags",
+        license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+    var lib = graph.add_static_lib({
+        name = "v4_c_export_entry", root = "src/lib.fol",
+        fol_model = "memo", target = target, optimize = optimize,
+    });
+    lib.set_abi_version({ major = 1, minor = 0 });
+    lib.add_abi_export({ routine = "classify", symbol = "fol_classify" });
+    lib.add_abi_export({ routine = "weight", symbol = "fol_weight" });
+    graph.install(lib);
+    return;
+};

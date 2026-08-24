@@ -428,6 +428,7 @@ fn declaration_lowering_records_explicit_entry_variant_layouts() {
                             [&typed_package.program.builtin_types().int],
                     ),
                     discriminant: 0,
+                    explicit: false,
                 },
                 LoweredVariantLayout {
                     name: "Err".to_string(),
@@ -436,6 +437,7 @@ fn declaration_lowering_records_explicit_entry_variant_layouts() {
                             [&typed_package.program.builtin_types().str_],
                     ),
                     discriminant: 1,
+                    explicit: false,
                 },
             ],
         }

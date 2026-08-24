@@ -1037,6 +1037,7 @@ fn synthesize_missing_structural_decls(
                                 // A monomorphized entry is synthesized rather than
                                 // declared, so there is no source tag to preserve.
                                 discriminant: index as i64,
+                                explicit: false,
                             },
                         )
                         .collect(),
