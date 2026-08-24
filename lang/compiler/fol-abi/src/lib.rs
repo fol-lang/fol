@@ -14,6 +14,7 @@ pub mod json;
 pub mod layout;
 pub mod manifest;
 pub mod metadata;
+pub mod sha256;
 pub mod types;
 pub mod verify;
 
@@ -50,6 +51,7 @@ pub use manifest::{
 pub use metadata::{
     aggregate_matrix, c_projection_for, full_matrix, scalar_matrix, AbiTypeMatrixRow, STATUS_VALUES,
 };
+pub use sha256::{sha256, sha256_hex};
 pub use types::{
     AbiEscape, AbiField, AbiMutability, AbiNullability, AbiOwnership, AbiScalar, AbiType,
     AbiTypeId, AbiTypeTable, AbiVariant,
