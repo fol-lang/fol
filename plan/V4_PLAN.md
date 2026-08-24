@@ -3097,12 +3097,36 @@ FOL caches by content fingerprint, so a cache keyed too coarsely would let one
 build satisfy the other and leave a prefix short a file.
 - [ ] Install matching static and shared FOL libraries into clean prefixes with
   only their declared headers, manifests, link metadata, and runtime roles.
-- [ ] Re-read each installed header with PARC, measure and validate each
+- [x] Re-read each installed header with PARC, measure and validate each
   installed library with LINC, and run GERC as private independent projection
   evidence over those exact checked states.
-- [ ] Normalize that installed C surface back into `fol-abi` and compare every
+
+This is what `fol tool bind c` does, and the round-trip lane points it at the
+*installed* header and archive rather than at a hand-written fixture. The
+evidence line the build prints carries the PARC source and target fingerprints,
+the LINC analysis fingerprint, the GERC projection fingerprint, and the
+provider artifact fingerprint, all over those exact files.
+- [x] Normalize that installed C surface back into `fol-abi` and compare every
   symbol, calling convention, type, layout, status, ownership, destructor, and
   target fact with the original export `ResolvedAbiSurface`.
+
+`the_measured_surface_matches_the_declared_export_surface` compares the two
+written manifests: the export manifest is what FOL *says* it built, and the
+import manifest is what the C toolchain *measured* from the installed artifacts
+with no access to FOL's record. Nothing else in the suite can catch an export
+manifest that describes a library which was not built that way, because every
+other test reads one side or the other.
+
+The two are related by the wrapper convention rather than being equal: an
+exported `add_i32(int32, int32) -> int32` is a C
+`fol_slice_add_i32(int32_t, int32_t, int32_t *out)` returning a status, so the
+exported parameters must be the measured *in* parameters and the exported
+result must be what the measured out-parameter points at. Nine routines are
+correlated, including `bol` and `chr`, whose representation as `uint8_t` and
+`uint32_t` the test pins explicitly rather than papering over -- that mapping
+is an ABI decision, and a test that quietly accepted any width would not be
+checking it. Confirmed to bite: changing the pinned `bol` representation fails
+the lane by name.
 - [x] Import one installed FOL library into a separate FOL package through the
   ordinary M8 C-import path and call it, proving there is no privileged
   FOL-to-FOL or repository-relative shortcut in the round trip.
