@@ -2428,6 +2428,7 @@ Verification:
 - `make test-v4-c`
 - `make abi-check`
 - `make test-v4-c-platform`
+- `make test-v4-c-roundtrip`
 
 **STOP:** an imported function cannot ship if its provider path, target,
 provenance, effect, calling convention, error mapping, unwind behavior, or
@@ -2829,6 +2830,7 @@ Verification after every sub-slice:
 - `make test-v4-c`
 - `make abi-check`
 - `make test-v4-c-platform`
+- `make test-v4-c-roundtrip`
 - required sanitizer target for pointer/resource slices
 - `make tree-test` and LSP inventory tests when the source/build surface changes
 
@@ -2975,6 +2977,7 @@ Verification:
 - `make interop-locked`
 - `make abi-check`
 - `make test-v4-c-platform`
+- `make test-v4-c-roundtrip`
 - `make docs TYPE=mdbook`
 
 **STOP:** header import cannot be called complete if it depends on the host
@@ -3097,9 +3100,30 @@ build satisfy the other and leave a prefix short a file.
 - [ ] Normalize that installed C surface back into `fol-abi` and compare every
   symbol, calling convention, type, layout, status, ownership, destructor, and
   target fact with the original export `ResolvedAbiSurface`.
-- [ ] Import one installed FOL library into a separate FOL package through the
+- [x] Import one installed FOL library into a separate FOL package through the
   ordinary M8 C-import path and call it, proving there is no privileged
   FOL-to-FOL or repository-relative shortcut in the round trip.
+
+`examples/v4_c_roundtrip_fol` imports `v4_c_export_scalar` from its *installed
+prefix* -- the generated header and the installed archive, nothing else -- via
+an ordinary `add_c_import` with an annotation overlay. It cannot carry a
+checked-in manifest, because its provider is built rather than committed, so
+`test/v4_c_roundtrip.rs` builds the library, stages the installed artifacts as
+the consumer's native inputs, binds, builds, and runs.
+
+Closing the loop found the defect that only a round trip could: **FOL could not
+import its own generated header.** Every generated routine returns
+`fol_status_t`, and a typedef reached `project_type` as `RustTypeKind::Named`,
+which was refused as "a named aggregate". Since `int32_t` and every other
+`stdint.h` name is also a typedef, this was not a niche problem -- it made most
+real third-party headers unimportable too, and no existing test could see it
+because the one import fixture was hand-written with plain `int`.
+
+Typedefs now resolve to the type they name, following a chain (`fol_status_t`
+is `int32_t` is `int`) with an iteration bound so a malformed projection cannot
+spin. The manifest records the *measured* scalar, never the C spelling, which
+`a_typedef_resolves_to_the_type_it_names` asserts by requiring the spellings to
+be absent.
 - [ ] Compile, link, and run clean C11 consumers against the installed static
   and shared forms, exercising scalars, records, recoverable errors, views,
   owned handles, destroy paths, and the supported callback contract.
