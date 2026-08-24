@@ -150,7 +150,12 @@ pub fn bind_c(request: BindCRequest<'_>) -> Result<ImportManifest, BindCError> {
     // carries that result; it never runs a second resolver of its own.
     let evidence = NativeAnalyzer::new(resolver)
         .certify(&analysis_request, toolchain.certification())
-        .map_err(|error| BindCError::Analysis(name_the_declaration(&source, error.to_string())))?;
+        .map_err(|error| {
+            BindCError::Analysis(name_the_declaration(
+                &source,
+                explain_provider_resolution(&provider, error.to_string()),
+            ))
+        })?;
     let bundle = generate_raw_bindings(&source, &evidence)
         .map_err(|error| BindCError::Generation(error.to_string()))?;
 
@@ -328,6 +333,35 @@ fn name_the_declaration(source: &parc::contract::CompleteSourcePackage, detail: 
         .collect::<Vec<_>>()
         .join(" ");
     format!("{without_id}\n  = declared at {}:{line}", file.logical_path)
+}
+
+/// Explain a provider that resolution could not find but the author did supply.
+///
+/// A shared library carries its own dependencies, and the certified analysis
+/// profile resolves exact paths only -- it will not search for `libc.so.6`,
+/// and refuses a search path as an input. What surfaces is the *dependency*
+/// reported as a missing provider, which reads as though the file the author
+/// passed were absent. Naming the difference is the whole of the fix: the
+/// constraint is real and FOL cannot lift it here.
+fn explain_provider_resolution(requested: &Path, detail: String) -> String {
+    let Some(named) = detail.split('"').nth(1) else {
+        return detail;
+    };
+    // Only when the missing provider is *not* what the author supplied. A
+    // genuinely absent file should keep saying so.
+    let supplied = requested
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if named == supplied || supplied.is_empty() {
+        return detail;
+    }
+    format!(
+        "{detail}\n  = note: '{named}' is a dependency of the provider you supplied, not the \
+         provider itself. The certified analysis profile resolves exact paths only and refuses \
+         a search path as an input, so a shared provider that carries dependencies of its own \
+         cannot be imported yet; supply a static or object provider instead"
+    )
 }
 
 impl std::fmt::Display for BindCError {

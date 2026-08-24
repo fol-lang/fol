@@ -651,3 +651,85 @@ fn a_missing_provider_symbol_names_its_header_line() {
         "an internal declaration id is not a place:\n{output}"
     );
 }
+
+/// Every provider form that can fail reports which failure it was.
+///
+/// These are the shapes an author actually hits, and they are easy to confuse:
+/// a file that is not there, a file that is not what it claims, and a file that
+/// is fine but whose dependencies cannot be resolved. Each says so.
+#[test]
+fn each_provider_failure_says_which_one_it_is() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the buffer slice");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("fol_v4_provider_forms");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root");
+    let root = stage(fixture.path(), "v4_c_buffer", &compiler);
+
+    let bind_with = |provider: &str, kind: &str| -> (bool, String) {
+        run_folc(
+            &root,
+            &compiler,
+            &temp,
+            &[
+                "tool",
+                "bind",
+                "c",
+                "--alias",
+                "digest",
+                "--target",
+                "x86_64-unknown-linux-gnu",
+                "--header",
+                "native/digest.h",
+                "--provider",
+                provider,
+                "--provider-kind",
+                kind,
+                "--annotations",
+                "interop/digest.toml",
+                "--out",
+                "interop/digest.folabi.json",
+            ],
+        )
+    };
+
+    // Not there at all: the path the author wrote, and why it could not be read.
+    let (ok, output) = bind_with("native/absent.a", "static");
+    assert!(!ok, "an absent provider should be refused:\n{output}");
+    assert!(
+        output.contains("native/absent.a") && output.contains("No such file"),
+        "an absent provider should name the path:\n{output}"
+    );
+
+    // There, but not an archive. The bytes decide, not the extension.
+    std::fs::write(root.join("native/text.a"), "this is not an archive\n")
+        .expect("the decoy should be writable");
+    let (ok, output) = bind_with("native/text.a", "static");
+    assert!(!ok, "a non-archive should be refused:\n{output}");
+    assert!(
+        output.contains("truncated or corrupt") || output.contains("file magic"),
+        "a non-archive should say what was wrong with it:\n{output}"
+    );
+
+    // A shared provider carries its own dependencies, which exact-path
+    // resolution cannot search for. The reported name is one of *those*, so
+    // without the note it reads as though the author's file were missing.
+    let shared = Command::new(&compiler)
+        .args(["-shared", "-fPIC", "-o"])
+        .arg(root.join("native/libdigest.so"))
+        .arg(root.join("native/digest.c"))
+        .status();
+    if shared.is_ok_and(|status| status.success()) {
+        let (ok, output) = bind_with("native/libdigest.so", "shared");
+        assert!(!ok, "a shared provider cannot certify yet:\n{output}");
+        assert!(
+            output.contains("is a dependency of the provider you supplied"),
+            "the real cause should be named, not just the missing name:\n{output}"
+        );
+    }
+
+    // A good provider stays good: none of the above is a false positive.
+    let (ok, output) = bind_with("native/libdigest.a", "static");
+    assert!(ok, "the real provider should still bind:\n{output}");
+}
