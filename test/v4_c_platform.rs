@@ -453,3 +453,83 @@ fn borrowed_text_crosses_through_a_shared_library() {
         "the string view consumer did not pass against the shared form:\n{stdout}"
     );
 }
+
+/// An install prefix holds exactly the declared roles and nothing else.
+///
+/// "Nothing else" is the part worth testing. The build tree beside it is full
+/// of generated Rust, Cargo manifests, and intermediate objects, and an install
+/// step that copied a directory rather than the declared roles would publish
+/// them. Both linkage forms are checked, because they install different library
+/// roles through the same code.
+#[test]
+fn both_linkage_forms_install_only_their_declared_roles() {
+    let fixture = fol_testkit::TempFixture::new("v4-platform-install");
+
+    for (kind, library) in [
+        ("add_static_lib", "lib/libv4_c_export_scalar.a"),
+        ("add_shared_lib", "lib/libv4_c_export_scalar.so"),
+    ] {
+        let prefix = build_kind(fixture.path(), kind);
+        let mut found = Vec::new();
+        every_file(&prefix, &prefix, &mut found);
+        found.sort();
+
+        let mut expected = vec![
+            library.to_string(),
+            "include/v4_c_export_scalar.h".to_string(),
+            "share/fol/abi/v4_c_export_scalar.folabi.json".to_string(),
+            "share/fol/abi/v4_c_export_scalar.symbols".to_string(),
+        ];
+        expected.sort();
+
+        assert_eq!(
+            found, expected,
+            "the {kind} prefix does not hold exactly its declared roles"
+        );
+    }
+}
+
+/// Build the scalar example under a named artifact kind.
+fn build_kind(fixture: &Path, kind: &str) -> PathBuf {
+    let root = fixture.join(kind);
+    copy_dir(&repo_root().join("examples/v4_c_export_scalar"), &root);
+    if kind != "add_static_lib" {
+        let build = root.join("build.fol");
+        let text = std::fs::read_to_string(&build).expect("build.fol readable");
+        std::fs::write(&build, text.replace("add_static_lib", kind)).expect("build.fol writable");
+    }
+    let output = Command::new(env!("CARGO_BIN_EXE_folc"))
+        .args(["code", "build", "--package-store-root"])
+        .arg(store_root())
+        .current_dir(&root)
+        .output()
+        .expect("the build should run");
+    assert!(
+        output.status.success(),
+        "{kind} failed to build:\n{}",
+        strip_ansi(&format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    );
+    root.join(".fol/install")
+}
+
+/// Every regular file under `root`, as paths relative to `base`.
+fn every_file(root: &Path, base: &Path, into: &mut Vec<String>) {
+    for entry in std::fs::read_dir(root).expect("readable prefix") {
+        let entry = entry.expect("entry");
+        let path = entry.path();
+        if path.is_dir() {
+            every_file(&path, base, into);
+        } else {
+            into.push(
+                path.strip_prefix(base)
+                    .expect("inside the prefix")
+                    .display()
+                    .to_string(),
+            );
+        }
+    }
+}
