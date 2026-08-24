@@ -19,8 +19,48 @@ pub fn rust_repr(table: &AbiTypeTable, id: AbiTypeId) -> String {
         Some(AbiType::Scalar(AbiScalar::Bool)) => "u8".to_string(),
         Some(AbiType::Scalar(AbiScalar::Char)) => "u32".to_string(),
         Some(AbiType::Void) => "()".to_string(),
+        Some(AbiType::Record { name, .. }) => c_repr_struct_name(name),
         _ => "()".to_string(),
     }
+}
+
+/// The generated `#[repr(C)]` struct standing for one exported record.
+///
+/// A record crosses as a C struct, so the wrapper cannot take FOL's internal
+/// record type: that one is `#[repr(Rust)]` and its layout is not guaranteed.
+/// The wrapper takes this instead and converts field by field.
+pub fn c_repr_struct_name(record: &str) -> String {
+    format!("FolAbi{record}")
+}
+
+/// Render the `#[repr(C)]` definitions for every record in the surface.
+///
+/// Fields are emitted in the ABI table's order, which is the FOL declaration
+/// order, because that is what decides every offset.
+pub fn render_record_structs(table: &AbiTypeTable) -> String {
+    let mut out = String::new();
+    for (_, ty) in table.iter() {
+        let AbiType::Record { name, fields } = ty else {
+            continue;
+        };
+        out.push_str(&format!(
+            "/// The C representation of FOL's `{name}`.\n\
+             ///\n\
+             /// `repr(C)` because the field order and padding below are the ABI;\n\
+             /// FOL's own record type is `repr(Rust)` and may be laid out any way.\n\
+             #[repr(C)]\n#[derive(Clone, Copy)]\npub struct {} {{\n",
+            c_repr_struct_name(name)
+        ));
+        for field in fields {
+            out.push_str(&format!(
+                "    pub {}: {},\n",
+                crate::mangle::escape_rust_field_ident(&field.name),
+                rust_repr(table, field.type_id)
+            ));
+        }
+        out.push_str("}\n\n");
+    }
+    out
 }
 
 /// Validation and conversion from the C representation to the FOL value.
@@ -28,7 +68,33 @@ pub fn rust_repr(table: &AbiTypeTable, id: AbiTypeId) -> String {
 /// Returns `None` when no validation is needed. A boolean and a character are
 /// the two scalars where a C caller can hand over a bit pattern FOL has no
 /// value for, so those are checked rather than transmuted.
-fn inbound_conversion(table: &AbiTypeTable, id: AbiTypeId, name: &str) -> String {
+fn inbound_conversion(
+    table: &AbiTypeTable,
+    id: AbiTypeId,
+    name: &str,
+    record_paths: &std::collections::BTreeMap<String, String>,
+) -> String {
+    // A record arrives as its `repr(C)` twin and is rebuilt field by field
+    // into FOL's own type. Transmuting instead would assume the two layouts
+    // match, which is exactly what `repr(Rust)` does not promise.
+    if let Some(AbiType::Record {
+        name: record,
+        fields,
+    }) = table.get(id)
+    {
+        let Some(path) = record_paths.get(record) else {
+            return String::new();
+        };
+        let assignments = fields
+            .iter()
+            .map(|field| {
+                let ident = crate::mangle::escape_rust_field_ident(&field.name);
+                format!("{ident}: {name}.{ident}")
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        return format!("    let {name} = {path} {{ {assignments} }};\n");
+    }
     match table.get(id) {
         Some(AbiType::Scalar(AbiScalar::Bool)) => format!(
             "    let {name} = match {name} {{\n        \
@@ -53,6 +119,20 @@ fn inbound_conversion(table: &AbiTypeTable, id: AbiTypeId, name: &str) -> String
 
 /// Conversion from the FOL value back to the C representation.
 fn outbound_conversion(table: &AbiTypeTable, id: AbiTypeId, expr: &str) -> String {
+    if let Some(AbiType::Record { name, fields }) = table.get(id) {
+        let assignments = fields
+            .iter()
+            .map(|field| {
+                let ident = crate::mangle::escape_rust_field_ident(&field.name);
+                format!("{ident}: __fol_record.{ident}")
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        return format!(
+            "{{ let __fol_record = {expr}; {} {{ {assignments} }} }}",
+            c_repr_struct_name(name)
+        );
+    }
     match table.get(id) {
         Some(AbiType::Scalar(AbiScalar::Bool)) => format!("if {expr} {{ 1u8 }} else {{ 0u8 }}"),
         Some(AbiType::Scalar(AbiScalar::Char)) => format!("({expr}) as u32"),
@@ -65,10 +145,14 @@ fn outbound_conversion(table: &AbiTypeTable, id: AbiTypeId, expr: &str) -> Strin
 /// `internal_path` is the private Rust path of the FOL routine, which keeps its
 /// ID-mangled name: section 4.10 requires a public symbol to carry no internal
 /// ID, and the wrapper is what carries the public name.
+///
+/// `record_paths` maps an exported record's name to the private Rust path of
+/// FOL's own type for it, which is what the wrapper converts to and from.
 pub fn render_wrapper(
     table: &AbiTypeTable,
     routine: &ForeignRoutine,
     internal_path: &str,
+    record_paths: &std::collections::BTreeMap<String, String>,
 ) -> String {
     let mut out = String::new();
 
@@ -124,6 +208,7 @@ pub fn render_wrapper(
             table,
             parameter.type_id,
             &parameter.name,
+            record_paths,
         ));
     }
 

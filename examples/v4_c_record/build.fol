@@ -1,0 +1,22 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "v4_c_record", version = "0.1.0", kind = "lib",
+        description = "FOL records projected as canonical C structs",
+        license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+    var lib = graph.add_static_lib({
+        name = "v4_c_record", root = "src/lib.fol",
+        fol_model = "memo", target = target, optimize = optimize,
+    });
+    lib.set_abi_version({ major = 1, minor = 0 });
+    lib.add_abi_export({ routine = "point_x", symbol = "fol_rec_point_x" });
+    lib.add_abi_export({ routine = "point_sum", symbol = "fol_rec_point_sum" });
+    lib.add_abi_export({ routine = "make_point", symbol = "fol_rec_make_point" });
+    graph.install(lib);
+    return;
+};

@@ -11,6 +11,7 @@ pub mod import;
 pub mod import_manifest;
 pub mod interface;
 pub mod json;
+pub mod layout;
 pub mod manifest;
 pub mod metadata;
 pub mod types;
@@ -38,6 +39,9 @@ pub use interface::{
     ResolvedAbiSurface,
 };
 pub use json::{JsonError, JsonValue};
+pub use layout::{
+    record_layout, record_layouts, size_and_align, FieldPlacement, LayoutError, RecordLayout,
+};
 pub use manifest::{
     canonical_interface_json, canonical_type_table_json, compare_surfaces, digest,
     AbiCompatibility, AbiManifest, BuildProvenance, MANIFEST_SCHEMA, MANIFEST_SCHEMA_VERSION,

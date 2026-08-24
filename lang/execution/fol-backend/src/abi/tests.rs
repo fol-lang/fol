@@ -5,6 +5,11 @@ fn target() -> fol_types::ResolvedTarget {
     fol_types::ResolvedTarget::resolve("x86_64-unknown-linux-gnu").unwrap()
 }
 
+/// A surface with no records needs no internal record paths.
+fn no_records() -> std::collections::BTreeMap<String, String> {
+    std::collections::BTreeMap::new()
+}
+
 fn scalar_routine(
     table: &mut AbiTypeTable,
     symbol: &str,
@@ -64,7 +69,12 @@ fn a_scalar_export_renders_a_wrapper() {
         Some(AbiScalar::Int(fol_types::IntWidth::I64)),
         None,
     );
-    let rendered = wrapper::render_wrapper(&table, &routine, "packages::api::fn__double__r7");
+    let rendered = wrapper::render_wrapper(
+        &table,
+        &routine,
+        "packages::api::fn__double__r7",
+        &no_records(),
+    );
 
     assert!(rendered.contains("#[unsafe(no_mangle)]"));
     assert!(rendered.contains("pub unsafe extern \"C\" fn fol_demo_double("));
@@ -87,7 +97,7 @@ fn a_null_out_pointer_returns_invalid_argument() {
         Some(AbiScalar::Int(fol_types::IntWidth::I32)),
         None,
     );
-    let rendered = wrapper::render_wrapper(&table, &routine, "internal");
+    let rendered = wrapper::render_wrapper(&table, &routine, "internal", &no_records());
 
     let guard = rendered
         .find("out_result.is_null()")
@@ -111,7 +121,7 @@ fn inbound_scalars_are_validated() {
         Some(AbiScalar::Bool),
         None,
     );
-    let rendered = wrapper::render_wrapper(&table, &boolean, "internal");
+    let rendered = wrapper::render_wrapper(&table, &boolean, "internal", &no_records());
     assert!(
         rendered.contains("value: u8"),
         "a C boolean crosses as uint8_t"
@@ -131,7 +141,7 @@ fn inbound_scalars_are_validated() {
         Some(AbiScalar::Char),
         None,
     );
-    let rendered = wrapper::render_wrapper(&table, &character, "internal");
+    let rendered = wrapper::render_wrapper(&table, &character, "internal", &no_records());
     assert!(rendered.contains("value: u32"));
     assert!(
         rendered.contains("char::from_u32"),
@@ -150,7 +160,7 @@ fn a_panic_is_contained() {
         None,
         None,
     );
-    let rendered = wrapper::render_wrapper(&table, &routine, "internal");
+    let rendered = wrapper::render_wrapper(&table, &routine, "internal", &no_records());
     assert!(rendered.contains("catch_unwind"));
     assert!(rendered.contains(&format!("Err(_) => {}", status::PANIC)));
 }
@@ -166,7 +176,7 @@ fn a_report_initializes_only_the_error_out() {
         Some(AbiScalar::Int(fol_types::IntWidth::I64)),
         Some(AbiScalar::Int(fol_types::IntWidth::I64)),
     );
-    let rendered = wrapper::render_wrapper(&table, &routine, "internal");
+    let rendered = wrapper::render_wrapper(&table, &routine, "internal", &no_records());
 
     assert!(rendered.contains("out_error: *mut i64"));
     assert!(rendered.contains("rt::abi::split_recoverable"));
@@ -193,7 +203,7 @@ fn a_no_value_routine_still_returns_a_status() {
         None,
         None,
     );
-    let rendered = wrapper::render_wrapper(&table, &routine, "internal");
+    let rendered = wrapper::render_wrapper(&table, &routine, "internal", &no_records());
     assert!(!rendered.contains("out_result"));
     assert!(rendered.contains("-> i32"));
     assert!(rendered.contains(&format!("Ok(_) => {}", status::OK)));

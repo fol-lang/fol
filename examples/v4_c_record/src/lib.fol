@@ -1,0 +1,25 @@
+// A POD record crossing the C boundary.
+//
+// The field order below is the struct's field order in the generated header,
+// and it decides every offset. It is deliberately NOT alphabetical: `zulu`
+// before `alpha` would come out reordered if anything on the path sorted the
+// fields, and the generated `_Static_assert`s would then disagree with the C
+// compiler's own measurements.
+typ[exp] Point: rec = {
+    zulu: int[32];
+    alpha: int[32];
+    mike: int[16]
+};
+
+fun[exp] point_x(point: Point): int[32] = {
+    return point.zulu;
+};
+
+fun[exp] point_sum(point: Point): int[32] = {
+    return point.zulu + point.alpha;
+};
+
+fun[exp] make_point(zulu: int[32], alpha: int[32]): Point = {
+    var mike: int[16] = 7;
+    return { zulu = zulu, alpha = alpha, mike = mike };
+};

@@ -33,11 +33,32 @@ impl AbiProjection {
     }
 }
 
+/// One named record declaration, in source field order.
+///
+/// The ordered field list is the *declaration's*, not the interned type's:
+/// `LoweredType::Record` holds a `BTreeMap` because that is its structural
+/// identity, and two records whose fields differ only in order are the same
+/// interned type but different C structs. So field order can only come from
+/// the declaration, which `fol-lower/src/decls/type_decls.rs` already builds in
+/// source order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AbiRecordDecl {
+    pub name: String,
+    pub fields: Vec<(String, LoweredTypeId)>,
+}
+
+/// Named record declarations, keyed by the type they declare.
+pub type AbiRecordMap = std::collections::BTreeMap<LoweredTypeId, AbiRecordDecl>;
+
 /// Describe a lowered type for the classifier.
 ///
 /// The classifier lives in `fol-abi`, which cannot see `LoweredType`, so the
 /// shape is translated here and the legality decision stays there.
-pub fn describe(table: &LoweredTypeTable, id: LoweredTypeId) -> CandidateType {
+pub fn describe(
+    table: &LoweredTypeTable,
+    records: &AbiRecordMap,
+    id: LoweredTypeId,
+) -> CandidateType {
     match table.get(id) {
         Some(LoweredType::Builtin(builtin)) => match builtin {
             LoweredBuiltinType::Int(width) => CandidateType::Int {
@@ -63,7 +84,7 @@ pub fn describe(table: &LoweredTypeTable, id: LoweredTypeId) -> CandidateType {
             ..
         }) => {
             CandidateType::RawPointer {
-                target: Box::new(describe(table, *target)),
+                target: Box::new(describe(table, records, *target)),
                 mutability: Some(*mutable),
                 // A bare `ptr[raw, T]` is non-null; `opt` wrapping is the
                 // nullable form, and an `opt` never reaches here because the
@@ -80,13 +101,29 @@ pub fn describe(table: &LoweredTypeTable, id: LoweredTypeId) -> CandidateType {
         Some(LoweredType::Pointer { .. }) => CandidateType::ManagedPointer {
             spelling: table.render_type(id),
         },
-        Some(LoweredType::Record { .. }) | Some(LoweredType::Entry { .. }) => {
+        Some(LoweredType::Record { .. }) => match records.get(&id) {
+            // A declared record projects with its source field order, which is
+            // what decides every offset in the generated struct.
+            Some(declaration) => CandidateType::Record {
+                name: Some(declaration.name.clone()),
+                fields: declaration
+                    .fields
+                    .iter()
+                    .map(|(field, field_type)| {
+                        (field.clone(), describe(table, records, *field_type))
+                    })
+                    .collect(),
+            },
             // A structural aggregate has no declared name to give the C type.
-            CandidateType::Record {
+            None => CandidateType::Record {
                 name: None,
                 fields: Vec::new(),
-            }
-        }
+            },
+        },
+        Some(LoweredType::Entry { .. }) => CandidateType::Record {
+            name: None,
+            fields: Vec::new(),
+        },
         Some(LoweredType::Named { name, .. }) => CandidateType::Record {
             name: Some(name.clone()),
             fields: Vec::new(),
@@ -107,8 +144,26 @@ pub fn describe(table: &LoweredTypeTable, id: LoweredTypeId) -> CandidateType {
 fn intern(
     abi: &mut AbiTypeTable,
     table: &LoweredTypeTable,
+    records: &AbiRecordMap,
     id: LoweredTypeId,
 ) -> Option<AbiTypeId> {
+    // A record interns its fields first, in declaration order, so the ABI
+    // table's field list is the one the C struct is generated from.
+    if let Some(LoweredType::Record { .. }) = table.get(id) {
+        let declaration = records.get(&id)?;
+        let mut fields = Vec::with_capacity(declaration.fields.len());
+        for (name, field_type) in &declaration.fields {
+            fields.push(fol_abi::AbiField {
+                name: name.clone(),
+                type_id: intern(abi, table, records, *field_type)?,
+            });
+        }
+        return Some(abi.intern(AbiType::Record {
+            name: declaration.name.clone(),
+            fields,
+        }));
+    }
+
     let scalar = match table.get(id)? {
         LoweredType::Builtin(LoweredBuiltinType::Int(width)) => AbiScalar::Int(*width),
         LoweredType::Builtin(LoweredBuiltinType::Float(width)) => AbiScalar::Float(*width),
@@ -134,6 +189,7 @@ pub type LoweredSignature = (
 /// this function's job is the ABI decision.
 pub fn project_exports(
     table: &LoweredTypeTable,
+    records: &AbiRecordMap,
     requests: &[AbiExportRequest],
     mut resolve: impl FnMut(
         &str,
@@ -175,7 +231,7 @@ pub fn project_exports(
         for (name, type_id) in &params {
             let found = fol_abi::verify_type(
                 &format!("{}.{name}", request.routine),
-                &describe(table, *type_id),
+                &describe(table, records, *type_id),
             );
             clean &= found.is_empty();
             rejections.extend(found);
@@ -183,7 +239,7 @@ pub fn project_exports(
         if let Some(result) = result {
             let found = fol_abi::verify_type(
                 &format!("{}.<result>", request.routine),
-                &describe(table, result),
+                &describe(table, records, result),
             );
             clean &= found.is_empty();
             rejections.extend(found);
@@ -191,7 +247,7 @@ pub fn project_exports(
         if let Some(error) = error {
             let found = fol_abi::verify_type(
                 &format!("{}.<error>", request.routine),
-                &describe(table, error),
+                &describe(table, records, error),
             );
             clean &= found.is_empty();
             rejections.extend(found);
@@ -202,7 +258,7 @@ pub fn project_exports(
 
         let mut parameters = Vec::new();
         for (name, type_id) in &params {
-            let Some(abi_id) = intern(&mut template.types, table, *type_id) else {
+            let Some(abi_id) = intern(&mut template.types, table, records, *type_id) else {
                 continue;
             };
             parameters.push(AbiParameter {
@@ -212,12 +268,13 @@ pub fn project_exports(
             });
         }
         let result_id = result
-            .and_then(|id| intern(&mut template.types, table, id))
+            .and_then(|id| intern(&mut template.types, table, records, id))
             .unwrap_or_else(|| template.types.intern(AbiType::Void));
-        let error_contract = match error.and_then(|id| intern(&mut template.types, table, id)) {
-            Some(error_type) => AbiErrorContract::Recoverable { error_type },
-            None => AbiErrorContract::Infallible,
-        };
+        let error_contract =
+            match error.and_then(|id| intern(&mut template.types, table, records, id)) {
+                Some(error_type) => AbiErrorContract::Recoverable { error_type },
+                None => AbiErrorContract::Infallible,
+            };
 
         template.push_routine(ForeignRoutine {
             fol_path: request.routine.clone(),

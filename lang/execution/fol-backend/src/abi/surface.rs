@@ -84,6 +84,81 @@ fn internal_path(session: &BackendSession, path: &str) -> Option<String> {
     None
 }
 
+/// Every named record declaration in the workspace, in source field order.
+///
+/// Collected from the type *declarations* rather than the interned types,
+/// because a record's interned form holds its fields in a `BTreeMap` and a C
+/// struct's field order decides every offset. Two records whose fields differ
+/// only in order are one interned type and two different structs.
+fn record_declarations(session: &BackendSession) -> fol_lower::abi::AbiRecordMap {
+    let mut records = fol_lower::abi::AbiRecordMap::new();
+    for package in session.workspace().packages() {
+        for declaration in package.type_decls.values() {
+            let fol_lower::LoweredTypeDeclKind::Record { fields } = &declaration.kind else {
+                continue;
+            };
+            records.insert(
+                declaration.runtime_type,
+                fol_lower::abi::AbiRecordDecl {
+                    name: declaration.name.clone(),
+                    fields: fields
+                        .iter()
+                        .map(|field| (field.name.clone(), field.type_id))
+                        .collect(),
+                },
+            );
+        }
+    }
+    records
+}
+
+/// The private Rust path of FOL's own type for each exported record.
+///
+/// The wrapper converts between this and the generated `repr(C)` twin, so it
+/// needs the real path rather than a guess: FOL's record types are namespaced
+/// and ID-mangled exactly like its routines.
+fn internal_record_paths(
+    session: &BackendSession,
+    surface: &ResolvedAbiSurface,
+) -> std::collections::BTreeMap<String, String> {
+    let mut wanted = std::collections::BTreeSet::new();
+    for (_, ty) in surface.interface.types.iter() {
+        if let fol_abi::AbiType::Record { name, .. } = ty {
+            wanted.insert(name.clone());
+        }
+    }
+
+    let mut paths = std::collections::BTreeMap::new();
+    let namespaces = crate::layout::plan_namespace_layouts(session);
+    for package in session.workspace().packages() {
+        for declaration in package.type_decls.values() {
+            if !wanted.contains(&declaration.name) {
+                continue;
+            }
+            let Some(namespace) = namespaces.iter().find(|plan| {
+                plan.package_identity == package.identity
+                    && plan.source_unit_ids.contains(&declaration.source_unit_id)
+            }) else {
+                continue;
+            };
+            paths.insert(
+                declaration.name.clone(),
+                format!(
+                    "crate::packages::{}::{}::{}",
+                    crate::mangle_package_module_name(&package.identity),
+                    namespace.module_name,
+                    crate::mangle_type_name(
+                        &package.identity,
+                        declaration.runtime_type,
+                        &declaration.name
+                    )
+                ),
+            );
+        }
+    }
+    paths
+}
+
 /// Build the surface for one artifact's allowlist.
 pub fn resolve_surface(
     session: &BackendSession,
@@ -93,10 +168,13 @@ pub fn resolve_surface(
     exports: &[AbiExportRequest],
     target: fol_types::ResolvedTarget,
 ) -> BackendResult<ResolvedAbiSurface> {
-    let projection =
-        fol_lower::abi::project_exports(session.workspace().type_table(), exports, |path| {
-            resolve_signature(session, path)
-        });
+    let records = record_declarations(session);
+    let projection = fol_lower::abi::project_exports(
+        session.workspace().type_table(),
+        &records,
+        exports,
+        |path| resolve_signature(session, path),
+    );
 
     if !projection.is_clean() {
         // Every rejection, not just the first: one build round should show a
@@ -138,6 +216,13 @@ pub fn emit_wrapper_module(
          // stay private and ID-mangled: a public symbol carries no internal ID.\n\n",
     );
     contents.push_str("use fol_runtime as rt;\n\n");
+    // The `repr(C)` twins come first: every wrapper below converts through
+    // them, and a reader sees the whole struct surface in one place.
+    contents.push_str(&super::wrapper::render_record_structs(
+        &surface.interface.types,
+    ));
+
+    let record_paths = internal_record_paths(session, surface);
 
     for routine in surface.interface.facing(fol_abi::AbiFacing::Export) {
         let path = internal_path(session, &routine.fol_path).ok_or_else(|| {
@@ -153,6 +238,7 @@ pub fn emit_wrapper_module(
             &surface.interface.types,
             routine,
             &path,
+            &record_paths,
         ));
         contents.push('\n');
     }

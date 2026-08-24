@@ -2447,12 +2447,12 @@ the listed order; omit a later slice rather than weakening an earlier contract.
 
 ## 12.1 POD records
 
-- [ ] Project only named ABI-safe records into canonical C ABI structs and
+- [x] Project only named ABI-safe records into canonical C ABI structs and
   matching private backend representations.
-- [ ] Preserve source field order; compute and record target size/alignment/
+- [x] Preserve source field order; compute and record target size/alignment/
   offset/padding.
-- [ ] Generate C `_Static_assert` and private backend Rust const/layout probes.
-- [ ] Reject recursion by value, hidden runtime fields, packing, and unsupported
+- [x] Generate C `_Static_assert` and private backend Rust const/layout probes.
+- [x] Reject recursion by value, hidden runtime fields, packing, and unsupported
   nested types.
 
 Gate: C compiler measurements and private backend layout probes agree for the
@@ -2460,17 +2460,38 @@ certified target.
 
 Starting state, measured before beginning: `fol-lower/src/abi.rs` projects
 every record as `CandidateType::Record { fields: Vec::new() }` -- the fields
-are not populated at all, so no record has ever crossed the boundary. The
-reason is upstream: `LoweredType::Record` holds its fields in a
-`BTreeMap<String, LoweredTypeId>`, which is alphabetical, and a C struct's
-field order decides every offset. `fol-abi` already models fields as an ordered
-`Vec`, so the ABI layer is ready and the lowered IR is the blocker.
+are not populated at all, so no record has ever crossed the boundary.
 
-The change is to `LoweredType::Record`'s representation rather than a
-side-table of declaration order: carrying order in a second field beside the
-map would be redundant state that can disagree with itself, and a record whose
-two halves disagree produces a struct whose offsets are silently wrong. One
-ordered representation with a lookup helper cannot desync.
+Declaration order is *not* the blocker, contrary to a first reading of
+`LoweredType::Record`, which does hold its fields in an alphabetical
+`BTreeMap`. That map is the record's structural *type identity*; the ordered
+field list already exists separately as `LoweredTypeDecl`'s
+`LoweredTypeDeclKind::Record { fields: Vec<LoweredFieldLayout> }`, built from
+the typed program's `record_layout` in source order, with a comment in
+`fol-lower/src/decls/type_decls.rs` recording the alphabetical bug that made
+someone add it. So the ordered source of truth is the type *declaration*, and
+the projection must read it there rather than from the interned type.
+
+That distinction matters beyond this slice: two records with the same fields in
+different orders are the same interned type and different C structs, so the ABI
+layer can never take field order from a `LoweredType`.
+
+Landed. `examples/v4_c_record` declares `Point { zulu; alpha; mike }` --
+deliberately not alphabetical -- and the generated header emits that order.
+`fol-abi/src/layout.rs` computes size, alignment, and every offset from the
+System V rules, and the header asserts them with `_Static_assert`, so the C
+compiler recomputes and refuses to compile on any disagreement. Proven by
+`a_record_crosses_as_a_c_struct_whose_layout_c_agrees_with`, which compiles a
+C consumer against the installed prefix and runs it. The asserts were
+negative-controlled: changing one offset to a wrong value makes gcc fail with
+"FOL and C disagree on fol_point_t.alpha", so they bind rather than decorate.
+
+One unrelated defect was found and fixed on the way: the runtime implemented
+`FolEchoFormat` only for `i64`/`f64`, and a record's echo rendering is
+generated for its *declaration*. So `rec = { value: int[32] }` failed to
+compile in generated Rust with no echo anywhere in the program -- a plain
+language bug with no ABI involvement, confirmed on a package that exports
+nothing.
 
 ## 12.2 Entries and recoverable errors
 

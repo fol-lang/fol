@@ -27,8 +27,69 @@ fn c_type(table: &AbiTypeTable, id: AbiTypeId) -> String {
     match table.get(id) {
         Some(AbiType::Scalar(scalar)) => scalar.c_type(),
         Some(AbiType::Void) => "void".to_string(),
+        Some(AbiType::Record { name, .. }) => c_struct_name(name),
         _ => "void".to_string(),
     }
+}
+
+/// The C spelling of an exported record.
+///
+/// Suffixed `_t` because the header emits a `typedef`, and prefixed with the
+/// artifact-neutral `fol_` so a consumer including two FOL headers does not
+/// collide on a common record name.
+pub fn c_struct_name(record: &str) -> String {
+    format!("fol_{}_t", record.to_lowercase())
+}
+
+/// Render the struct definitions and their layout assertions.
+///
+/// The `_Static_assert`s are the point: they make the C compiler check the
+/// size, alignment, and every field offset against what FOL computed. A
+/// disagreement is a compile error in the consumer's own translation unit,
+/// which is the only place the question can be settled honestly.
+fn render_record_definitions(table: &AbiTypeTable) -> String {
+    let mut out = String::new();
+    for (type_id, ty) in table.iter() {
+        let AbiType::Record { name, fields } = ty else {
+            continue;
+        };
+        let struct_name = c_struct_name(name);
+        out.push_str(&format!(
+            "/* FOL `{name}`. Field order is the FOL declaration order and decides\n \
+             * every offset; it is not sorted. */\ntypedef struct {{\n"
+        ));
+        for field in fields {
+            out.push_str(&format!(
+                "    {} {};\n",
+                c_type(table, field.type_id),
+                field.name
+            ));
+        }
+        out.push_str(&format!("}} {struct_name};\n\n"));
+
+        // FOL computed these from the System V rules; the C compiler recomputes
+        // them from its own. If the two ever disagree the consumer fails to
+        // compile, which is the only honest place to settle the question.
+        let Ok(layout) = fol_abi::record_layout(table, type_id) else {
+            continue;
+        };
+        out.push_str(&format!(
+            "_Static_assert(sizeof({struct_name}) == {}, \"FOL and C disagree on sizeof({struct_name})\");\n",
+            layout.size
+        ));
+        out.push_str(&format!(
+            "_Static_assert(_Alignof({struct_name}) == {}, \"FOL and C disagree on _Alignof({struct_name})\");\n",
+            layout.align
+        ));
+        for placement in &layout.fields {
+            out.push_str(&format!(
+                "_Static_assert(offsetof({struct_name}, {}) == {}, \"FOL and C disagree on {struct_name}.{}\");\n",
+                placement.name, placement.offset, placement.name
+            ));
+        }
+        out.push('\n');
+    }
+    out
 }
 
 /// Render the complete header for one surface.
@@ -72,6 +133,8 @@ pub fn render_header(surface: &ResolvedAbiSurface) -> String {
         out.push_str(&format!("/* {description} */\n#define {name} {rendered}\n"));
     }
     out.push('\n');
+
+    out.push_str(&render_record_definitions(table));
 
     out.push_str(
         "/* On any failure the success out values are left uninitialized. The caller\n \

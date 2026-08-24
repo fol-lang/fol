@@ -86,6 +86,33 @@ fn build_slice(fixture: &Path, kind: &str) -> PathBuf {
     root.join(".fol/install")
 }
 
+/// Build any checked-in example by name, unchanged.
+///
+/// `build_slice` exists to rewrite the scalar example's artifact kind; this
+/// one takes a different example as-is, which is what a second slice needs.
+fn build_named_slice(fixture: &fol_testkit::TempFixture, example: &str) -> PathBuf {
+    let source = repo_root().join("examples").join(example);
+    let root = fixture.path().join(example);
+    copy_dir(&source, &root);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_folc"))
+        .args(["code", "build", "--package-store-root"])
+        .arg(store_root())
+        .current_dir(&root)
+        .output()
+        .expect("the build should run");
+    let text = strip_ansi(&format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    ));
+    assert!(
+        output.status.success(),
+        "{example} failed to build:\n{text}"
+    );
+    root.join(".fol/install")
+}
+
 fn copy_dir(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).expect("destination should be creatable");
     for entry in std::fs::read_dir(from).expect("source should be readable") {
@@ -429,4 +456,52 @@ fn a_std_free_library_exports_without_bundled_std() {
         "the std-free consumer failed at runtime"
     );
     assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "42");
+}
+
+/// M7.1: a POD record crosses as a canonical C struct.
+///
+/// The header's `_Static_assert`s are the layout half of the gate: FOL
+/// computes size, alignment, and every offset from the System V rules, and
+/// this consumer fails to compile if the C compiler recomputes any of them
+/// differently. The calls are the behaviour half -- a struct passed by value
+/// arrives intact, and one returned comes back the same way.
+#[test]
+fn a_record_crosses_as_a_c_struct_whose_layout_c_agrees_with() {
+    let Some(compiler) = c_compiler() else {
+        eprintln!("skipping: no C compiler for the record slice");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("fol_v4_c_record");
+    let prefix = build_named_slice(&fixture, "v4_c_record");
+
+    let consumer = repo_root().join("examples/v4_c_record/consumer.c");
+    let binary = fixture.path().join("record_consumer");
+    let library = prefix.join("lib/libv4_c_record.a");
+    let output = Command::new(&compiler)
+        .arg("-std=c11")
+        .arg("-I")
+        .arg(prefix.join("include"))
+        .arg("-o")
+        .arg(&binary)
+        .arg(&consumer)
+        .arg(&library)
+        .args(["-lm", "-lpthread", "-ldl"])
+        .output()
+        .expect("the C consumer should compile");
+    let text = strip_ansi(&String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "the C compiler must agree with FOL's computed layout:\n{text}"
+    );
+
+    let run = Command::new(&binary).output().expect("run the C consumer");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert!(
+        run.status.success(),
+        "every record check should pass:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("all record checks passed"),
+        "got:\n{stdout}"
+    );
 }
