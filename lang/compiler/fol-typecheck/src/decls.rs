@@ -651,6 +651,48 @@ fn lower_top_level_declaration(
                 {
                     typed.record_fin_type(type_id);
                 }
+                if typed
+                    .capability_claims(symbol_id)
+                    .is_some_and(|capabilities| capabilities.contains("lin"))
+                {
+                    typed.record_lin_type(type_id);
+                }
+                // `lin` is must-consume-exactly-once, so a duplicate would
+                // create a second obligation nothing tracks. `fin` is
+                // deliberately *not* excluded: it supplies the finalizer that
+                // `[fin]handle` runs, which is the record's explicit
+                // discard-the-failure consumer. Linearity is what keeps that
+                // finalizer from ever being the silent scope-exit default,
+                // because there is no path on which the value goes unconsumed.
+                if let Some(capabilities) = typed.capability_claims(symbol_id) {
+                    if capabilities.contains("lin") {
+                        let conflict = ["copy", "clone"]
+                            .into_iter()
+                            .find(|other| capabilities.contains(*other));
+                        if let Some(conflict) = conflict {
+                            let message = format!(
+                                "a type cannot claim both 'lin' and '{conflict}'; duplicating a linear resource would create a release obligation nothing tracks"
+                            );
+                            let origin = node_origin(resolved, &item.node)
+                                .or_else(|| resolved.syntax_index().origin(item.node_id).cloned());
+                            return Err(origin.map_or_else(
+                                || {
+                                    TypecheckError::new(
+                                        TypecheckErrorKind::InvalidInput,
+                                        message.clone(),
+                                    )
+                                },
+                                |origin| {
+                                    TypecheckError::with_origin(
+                                        TypecheckErrorKind::InvalidInput,
+                                        message.clone(),
+                                        origin,
+                                    )
+                                },
+                            ));
+                        }
+                    }
+                }
                 if let Some(capabilities) = typed.capability_claims(symbol_id) {
                     if capabilities.contains("copy") && capabilities.contains("fin") {
                         let message =
@@ -1831,6 +1873,16 @@ fn check_standard_conformance(
             else {
                 continue;
             };
+            // The linear containment rule applies to every type, including one
+            // that declares no contracts at all -- that is precisely the case
+            // where a record would otherwise swallow a linear field and the
+            // release obligation would vanish with it.
+            if let Err(error) =
+                reject_unclaimed_linear_field(typed, resolved, source_unit_id, item, name)
+            {
+                errors.push(error);
+                continue;
+            }
             if explicit_contracts.is_empty() {
                 continue;
             }
@@ -2518,14 +2570,22 @@ fn type_satisfies_capability(
         let apparent = crate::exprs::helpers::apparent_type_id(typed, type_id)?;
         typed.type_resolves_to_fin(apparent)
     };
+    // A linear resource is under the same duplication ban, for the stronger
+    // reason: a copy would carry a release obligation the analysis never sees.
+    let claims_lin = {
+        let apparent = crate::exprs::helpers::apparent_type_id(typed, type_id)?;
+        typed.type_resolves_to_lin(apparent)
+    };
     Ok(match capability {
         "copy" => {
-            !claims_fin
+            !claims_lin
+                && !claims_fin
                 && !type_lacks_copy(typed, type_id)?
                 && !type_is_nominal_aggregate_lacking_copy(typed, type_id)?
         }
         "clone" => {
-            !claims_fin
+            !claims_lin
+                && !claims_fin
                 && !type_is_known_non_clone(typed, type_id)?
                 && first_field_transitively_non_clone(typed, type_id)?.is_none()
         }
@@ -2544,6 +2604,7 @@ fn type_satisfies_capability(
                 && first_field_transitively_non_thread_safe(typed, type_id)?.is_none()
         }
         "fin" => claims_fin,
+        "lin" => claims_lin,
         // Orderable when nothing blocks a total order — the same predicate that
         // gates `set[T]` members and `map[K,_]` keys.
         "ord" => {
@@ -4731,6 +4792,79 @@ fn record_symbol_generic_constraints(
 /// The first record field whose type is a known move-only/heap type, and thus
 /// cannot satisfy a `copy` claim. Record/entry fields are treated as acceptable
 /// here; their own `copy` obligation is verified on their own declaration.
+/// A type holding a linear field must itself be linear.
+///
+/// Without this rule a record is a hole in the analysis: wrapping a handle in
+/// an ordinary struct would hide it from the flow walk, and the release
+/// obligation would disappear at the moment the field was assigned. Propagating
+/// `lin` outward keeps the obligation attached to whatever now owns the
+/// resource -- the containing value has to be consumed, and its finalizer
+/// reaches the field.
+fn reject_unclaimed_linear_field(
+    typed: &TypedProgram,
+    resolved: &ResolvedProgram,
+    source_unit_id: SourceUnitId,
+    item: &fol_parser::ast::ParsedTopLevel,
+    name: &str,
+) -> Result<(), TypecheckError> {
+    let Ok(type_symbol_id) = find_symbol_id(resolved, source_unit_id, &[SymbolKind::Type], name)
+    else {
+        return Ok(());
+    };
+    if typed
+        .capability_claims(type_symbol_id)
+        .is_some_and(|caps| caps.contains("lin"))
+    {
+        return Ok(());
+    }
+    // Read the already-lowered type rather than lowering it again. Lowering
+    // here would intern a `Declared` shell for every type in the program,
+    // including the ones this pass previously skipped, and record identity in
+    // the backend depends on which interned id a declaration ends up carrying.
+    let Some(declared) = typed
+        .typed_symbol(type_symbol_id)
+        .and_then(|symbol| symbol.declared_type)
+    else {
+        return Ok(());
+    };
+    let Ok(apparent) = crate::exprs::helpers::apparent_type_id(typed, declared) else {
+        return Ok(());
+    };
+
+    let members: Vec<(String, CheckedTypeId)> = match typed.type_table().get(apparent) {
+        Some(CheckedType::Record { fields }) => fields
+            .iter()
+            .map(|(field, type_id)| (field.clone(), *type_id))
+            .collect(),
+        Some(CheckedType::Entry { variants }) => variants
+            .iter()
+            .filter_map(|(variant, payload)| payload.map(|type_id| (variant.clone(), type_id)))
+            .collect(),
+        _ => return Ok(()),
+    };
+
+    for (member, member_type) in members {
+        if typed.type_resolves_to_lin(member_type) {
+            let message = format!(
+                "'{name}' holds the linear resource '{member}' but does not claim 'lin'; a type containing a linear resource owes the same release, so declare it 'lin'"
+            );
+            let origin = node_origin(resolved, &item.node)
+                .or_else(|| resolved.syntax_index().origin(item.node_id).cloned());
+            return Err(origin.map_or_else(
+                || TypecheckError::new(TypecheckErrorKind::InvalidInput, message.clone()),
+                |origin| {
+                    TypecheckError::with_origin(
+                        TypecheckErrorKind::InvalidInput,
+                        message.clone(),
+                        origin,
+                    )
+                },
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn first_known_non_copy_field(
     typed: &TypedProgram,
     type_id: CheckedTypeId,

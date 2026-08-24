@@ -1,0 +1,53 @@
+// A linear resource: consumed exactly once, on every path, by name.
+//
+// `Handle` stands in for a C resource whose release can fail and whose failure
+// means something -- `fclose` losing buffered writes, `close` returning EIO.
+// `fin` alone cannot carry that failure anywhere, because scope-exit cleanup
+// has no caller waiting on a result. `lin` says instead that the value must be
+// consumed explicitly, so the release is an ordinary call whose error
+// propagates like any other.
+//
+// Both consumers appear below:
+//
+//   [mov]handle.close() || 8        the real release, whose failure is readable
+//   [fin]spare                      best-effort release, failure discarded
+//
+// The second is deliberately greppable: `[fin]` is the audit surface for
+// ignored release failures.
+
+use std: pkg = {"std"};
+
+typ Handle()(lin, fin): rec = { descriptor: int };
+
+// The backstop that `[fin]` runs. It cannot report, which is exactly why it is
+// not allowed to be the default path.
+pro (Handle)finalize(): non = {
+    var discarded: int = std::io::echo_int(0);
+    return;
+};
+
+// The real release. It consumes the handle by value and can fail.
+fun (Handle)close(): int / int = {
+    when(self.descriptor) {
+        is(0) { report 7; }
+        * { }
+    };
+    return self.descriptor;
+};
+
+fun[] main(): int = {
+    var handle: Handle = { descriptor = 3 };
+    // The release failure lands in `code` as an ordinary recoverable error --
+    // readable, and routable anywhere a caller can act on it. That is the
+    // whole difference from `fin`, where the same failure has nowhere to go.
+    var code: int = [mov]handle.close() || 8;
+    var reported: int = std::io::echo_int(code);
+
+    // A second resource, released the other way. The finalizer prints 0, which
+    // is what "the failure was thrown away" looks like from outside.
+    var spare: Handle = { descriptor = 5 };
+    [fin]spare;
+
+    var done: int = std::io::echo_int(1);
+    return 0;
+};

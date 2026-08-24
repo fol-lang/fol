@@ -197,7 +197,7 @@ impl OwnershipOption {
 /// The V3 compiler-owned capability standards usable in type conformance lists
 /// (`typ Point()(copy): rec`). Unlike user `std` declarations, these are
 /// recognized directly by the compiler and do not require a `std` declaration.
-pub const CAPABILITY_STANDARDS: &[&str] = &["copy", "clone", "fin", "send", "share", "ord"];
+pub const CAPABILITY_STANDARDS: &[&str] = &["copy", "clone", "fin", "lin", "send", "share", "ord"];
 
 /// Whether a contract name is one of the compiler-owned capability standards.
 pub fn is_capability_standard(name: &str) -> bool {

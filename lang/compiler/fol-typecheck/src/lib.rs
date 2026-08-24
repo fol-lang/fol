@@ -12,6 +12,7 @@ pub mod decls;
 pub mod editor;
 pub mod errors;
 pub mod exprs;
+mod linear_analysis;
 pub mod model;
 pub mod session;
 pub mod types;

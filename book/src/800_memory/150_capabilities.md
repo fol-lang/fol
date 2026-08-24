@@ -1,6 +1,6 @@
 # Capabilities
 
-Six compiler-owned standards describe what may be done with a value. A type
+Seven compiler-owned standards describe what may be done with a value. A type
 lists the ones it guarantees in its conformance position, and the compiler
 verifies each claim against the type's fields.
 
@@ -9,6 +9,7 @@ verifies each claim against the type's fields.
 | `copy` | `[cpy]value` may duplicate the value; the source stays usable |
 | `clone` | `[cln]value` may create an independent copy; the source stays usable |
 | `fin` | the type runs custom finalization when it is dropped |
+| `lin` | the value must be consumed exactly once, explicitly, on every path |
 | `send` | owned access may cross a task or thread boundary |
 | `share` | shared access may cross a task or thread boundary |
 | `ord` | the type has a total order, so `<` and `>` compare its values |
@@ -31,6 +32,12 @@ default — every aggregate field of a `copy` type must itself claim `copy`.
 
 `send` and `share` require every field to be thread-safe transitively, so a type
 holding a non-synchronized shared pointer or a `fin` resource cannot claim them.
+
+`lin` is the one standard that constrains **use** rather than describing a
+property, so its rules are their own chapter: [Linear resources](./170_linear.md).
+A `lin` type may not also claim `copy` or `clone` — a duplicate would carry a
+release obligation nothing tracks — and a type holding a `lin` field must itself
+claim `lin`, so the obligation cannot be hidden inside a wrapper.
 
 `ord` is the one standard that is **never claimed in a conformance header**. It
 is structural throughout: a record or entry is ordered when its fields are.

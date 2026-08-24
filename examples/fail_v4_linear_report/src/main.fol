@@ -1,0 +1,37 @@
+// Reporting while still holding a linear resource.
+//
+// Two errors would exist at once -- the reported one and whatever the release
+// returns -- and a routine has one result channel. Discarding either is the
+// data loss the linear capability exists to prevent, so the language refuses
+// the situation instead of choosing a winner. Release first, then report.
+//
+// The rule is the deliberately restrictive resolution 4 of
+// plan/V4_LINEAR_RESOURCES.md: relaxing it later to an aggregate error is a
+// widening, whereas shipping "the body's error wins" would be a narrowing to
+// undo.
+use std: pkg = {"std"};
+
+typ Handle()(lin, fin): rec = { descriptor: int };
+
+pro (Handle)finalize(): non = {
+    var discarded: int = std::io::echo_int(0);
+    return;
+};
+
+fun (Handle)close(): int / int = {
+    when(self.descriptor) {
+        is(0) { report 7; }
+        * { }
+    };
+    return self.descriptor;
+};
+
+fun[] main(): int / int = {
+    var handle: Handle = { descriptor = 3 };
+    when(handle.descriptor) {
+        is(3) { report 9; }
+        * { }
+    };
+    [fin]handle;
+    return std::io::echo_int(1);
+};

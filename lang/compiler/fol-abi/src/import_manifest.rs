@@ -242,9 +242,21 @@ fn render_routine(routine: &ImportedRoutine) -> String {
         })
         .collect::<Vec<_>>()
         .join(",");
+    // The handle fact is part of the interface, not the provenance: changing a
+    // routine from borrowing a handle to consuming it changes who owes the
+    // release, which every caller has to be recompiled against.
+    let handle = match &routine.handle {
+        Some(use_) => format!(
+            "{{\"domain\":{},\"role\":{}}}",
+            quoted(&use_.domain),
+            quoted(use_.role.as_str())
+        ),
+        None => "null".to_string(),
+    };
     format!(
         "{{\"convention\":{},\"effects\":{{\"allocates\":{},\"hosted\":{}}},\
-         \"error\":{},\"fol_name\":{},\"origin\":{{\"column\":{},\"file\":{},\"line\":{}}},\
+         \"error\":{},\"fol_name\":{},\"handle\":{handle},\
+         \"origin\":{{\"column\":{},\"file\":{},\"line\":{}}},\
          \"parameters\":[{parameters}],\"result\":{},\"symbol\":{}}}",
         quoted(routine.convention.as_str()),
         routine.effects.allocates,
@@ -322,9 +334,15 @@ fn render_type(id: AbiTypeId, ty: &AbiType) -> String {
             }),
             target.0,
         ),
+        // An opaque handle is a name and nothing else. That is the whole point:
+        // the domain is the identity, and a consumer may only pass it back.
+        AbiType::OpaqueHandle { name } => {
+            format!("\"kind\":\"opaque-handle\",\"name\":{}", quoted(name))
+        }
         // M6 imports scalars, void, and the pointers that carry an out-value.
-        // The aggregate shapes belong to M7, and writing a placeholder for one
-        // would put a type in the manifest that nothing can read back.
+        // The remaining aggregate shapes are not read back, and writing a
+        // placeholder for one would put a type in the manifest nothing can
+        // parse.
         other => format!("\"kind\":{}", quoted(other.kind_name())),
     };
     format!("{{\"id\":{},{body}}}", id.0)
@@ -455,6 +473,9 @@ fn read_type(entry: &JsonValue) -> Result<AbiType, ImportManifestError> {
                 other => other.as_str().map(str::to_string),
             },
         },
+        "opaque-handle" => AbiType::OpaqueHandle {
+            name: entry.string_field("name")?.to_string(),
+        },
         other => {
             return Err(ImportManifestError::UnsupportedTypeKind {
                 kind: other.to_string(),
@@ -499,6 +520,7 @@ fn read_routine(
             allocates: matches!(effects_value.field("allocates")?, JsonValue::Bool(true)),
             hosted: matches!(effects_value.field("hosted")?, JsonValue::Bool(true)),
         },
+        handle: read_handle(entry.field("handle")?)?,
         origin: AbiSourceOrigin {
             file: origin_value.string_field("file")?.to_string(),
             line: u32::try_from(origin_value.integer_field("line")?).unwrap_or(0),
@@ -507,6 +529,29 @@ fn read_routine(
         parameters,
         symbol,
     })
+}
+
+fn read_handle(
+    value: &JsonValue,
+) -> Result<Option<crate::annotation::HandleUse>, ImportManifestError> {
+    if matches!(value, JsonValue::Null) {
+        return Ok(None);
+    }
+    let role = value.string_field("role")?;
+    let role = match role {
+        "produces" => crate::annotation::HandleRole::Produces,
+        "borrows" => crate::annotation::HandleRole::Borrows,
+        "consumes" => crate::annotation::HandleRole::Consumes,
+        other => {
+            return Err(ImportManifestError::UnknownHandleRole {
+                role: other.to_string(),
+            })
+        }
+    };
+    Ok(Some(crate::annotation::HandleUse {
+        domain: value.string_field("domain")?.to_string(),
+        role,
+    }))
 }
 
 fn read_type_id(
@@ -584,6 +629,9 @@ pub enum ImportManifestError {
     UnknownErrorKind {
         kind: String,
     },
+    UnknownHandleRole {
+        role: String,
+    },
     TypeTableOutOfOrder {
         expected: usize,
         found: i64,
@@ -650,6 +698,9 @@ impl std::fmt::Display for ImportManifestError {
             ),
             Self::UnknownErrorKind { kind } => {
                 write!(f, "the import manifest names error convention '{kind}'")
+            }
+            Self::UnknownHandleRole { role } => {
+                write!(f, "the import manifest names handle role '{role}'")
             }
             Self::TypeTableOutOfOrder { expected, found } => write!(
                 f,
@@ -731,6 +782,7 @@ mod tests {
                         result: i32_id,
                         error: ImportErrorConvention::Infallible,
                         effects: ImportEffects::default(),
+                        handle: None,
                         origin: AbiSourceOrigin {
                             file: "native/c_math.h".to_string(),
                             line: 7,
@@ -763,6 +815,7 @@ mod tests {
                             allocates: true,
                             hosted: false,
                         },
+                        handle: None,
                         origin: AbiSourceOrigin {
                             file: "native/c_math.h".to_string(),
                             line: 11,
@@ -929,5 +982,49 @@ mod tests {
         assert_eq!(routine.out_parameter_index(), Some(1));
         assert!(routine.effects.allocates);
         assert_eq!(routine.origin.line, 11);
+    }
+
+    /// A handle domain survives the round trip and is part of the interface.
+    ///
+    /// Being *in the interface* rather than the provenance is the point: a
+    /// routine that changes from borrowing a handle to consuming it changes who
+    /// owes the release, so every caller must be recompiled against it. That
+    /// only happens if the change moves the interface fingerprint.
+    #[test]
+    fn a_handle_domain_round_trips_and_moves_the_interface_fingerprint() {
+        let mut manifest = scalar_manifest();
+        let handle = manifest.interface.types.intern(AbiType::OpaqueHandle {
+            name: "Widget".to_string(),
+        });
+        manifest.interface.routines[0].result = handle;
+        manifest.interface.routines[0].handle = Some(crate::annotation::HandleUse {
+            domain: "Widget".to_string(),
+            role: crate::annotation::HandleRole::Produces,
+        });
+
+        let parsed =
+            ImportManifest::parse(&manifest.canonical_json()).expect("manifest should read back");
+        let routine = parsed
+            .interface
+            .routine("add_one")
+            .expect("the producer should be present");
+        assert_eq!(
+            routine.handle,
+            Some(crate::annotation::HandleUse {
+                domain: "Widget".to_string(),
+                role: crate::annotation::HandleRole::Produces,
+            })
+        );
+
+        let mut borrowing = manifest.clone();
+        borrowing.interface.routines[0].handle = Some(crate::annotation::HandleUse {
+            domain: "Widget".to_string(),
+            role: crate::annotation::HandleRole::Borrows,
+        });
+        assert_ne!(
+            manifest.interface_fingerprint(),
+            borrowing.interface_fingerprint(),
+            "changing who owes the release must move the interface fingerprint"
+        );
     }
 }

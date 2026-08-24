@@ -145,6 +145,7 @@ mod tests {
                     result: int_id,
                     error: ImportErrorConvention::Infallible,
                     effects: ImportEffects::default(),
+                    handle: None,
                     origin: AbiSourceOrigin::default(),
                 })
                 .collect(),

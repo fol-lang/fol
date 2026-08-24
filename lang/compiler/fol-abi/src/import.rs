@@ -26,6 +26,12 @@ pub struct ImportedRoutine {
     pub result: AbiTypeId,
     pub error: ImportErrorConvention,
     pub effects: ImportEffects,
+    /// The handle domain this routine produces, borrows, or consumes.
+    ///
+    /// Carried on the routine rather than inferred from the types, because a
+    /// C pointer to an incomplete type says nothing about ownership: the same
+    /// `sqlite3 *` is produced by one call, lent to many, and released by one.
+    pub handle: Option<crate::annotation::HandleUse>,
     /// The header location, for diagnostics and navigation.
     pub origin: AbiSourceOrigin,
 }
@@ -77,6 +83,32 @@ impl ImportedInterface {
         self.routines
             .iter()
             .find(|routine| routine.fol_name == fol_name)
+    }
+
+    /// The routine that releases handles of `domain`, if this interface has
+    /// one.
+    ///
+    /// The destroy is looked up through the routines rather than stored beside
+    /// them, so an interface cannot end up naming a release it does not carry.
+    pub fn destroy_for(&self, domain: &str) -> Option<&ImportedRoutine> {
+        self.routines.iter().find(|routine| {
+            routine.handle.as_ref().is_some_and(|use_| {
+                use_.domain == domain && use_.role == crate::annotation::HandleRole::Consumes
+            })
+        })
+    }
+
+    /// Every handle domain this interface produces, in name order.
+    pub fn handle_domains(&self) -> Vec<&str> {
+        let mut domains: Vec<&str> = self
+            .routines
+            .iter()
+            .filter_map(|routine| routine.handle.as_ref())
+            .map(|use_| use_.domain.as_str())
+            .collect();
+        domains.sort_unstable();
+        domains.dedup();
+        domains
     }
 
     /// Every symbol this interface requires the provider to define.
@@ -132,6 +164,19 @@ pub enum ImportRejection {
         effect: String,
         model: String,
     },
+    /// A routine annotated as producing a handle does not return a pointer.
+    HandleResultIsNotAPointer {
+        symbol: String,
+        domain: String,
+        found: String,
+    },
+    /// A routine that borrows or consumes a handle has no single pointer
+    /// parameter to identify as the handle.
+    AmbiguousHandleParameter {
+        symbol: String,
+        domain: String,
+        found: usize,
+    },
 }
 
 impl ImportRejection {
@@ -161,6 +206,8 @@ impl ImportRejection {
             Self::NonIntegerStatus { .. } => "non-integer-status",
             Self::UnwritableOutParameter { .. } => "unwritable-out-parameter",
             Self::CapabilityTooStrong { .. } => "capability-too-strong",
+            Self::HandleResultIsNotAPointer { .. } => "handle-result-is-not-a-pointer",
+            Self::AmbiguousHandleParameter { .. } => "ambiguous-handle-parameter",
         }
     }
 
@@ -177,7 +224,9 @@ impl ImportRejection {
             | Self::UnknownOutParameter { symbol, .. }
             | Self::NonIntegerStatus { symbol, .. }
             | Self::UnwritableOutParameter { symbol, .. }
-            | Self::CapabilityTooStrong { symbol, .. } => symbol,
+            | Self::CapabilityTooStrong { symbol, .. }
+            | Self::HandleResultIsNotAPointer { symbol, .. }
+            | Self::AmbiguousHandleParameter { symbol, .. } => symbol,
         }
     }
 }
@@ -243,6 +292,24 @@ impl std::fmt::Display for ImportRejection {
                 f,
                 "'{symbol}' declares the '{effect}' effect, which a '{model}' artifact does not \
                  permit"
+            ),
+            Self::HandleResultIsNotAPointer {
+                symbol,
+                domain,
+                found,
+            } => write!(
+                f,
+                "'{symbol}' is annotated as producing handle domain '{domain}', but it returns \
+                 {found} rather than a pointer; a handle is the address the destroy takes back"
+            ),
+            Self::AmbiguousHandleParameter {
+                symbol,
+                domain,
+                found,
+            } => write!(
+                f,
+                "'{symbol}' uses handle domain '{domain}' but has {found} pointer parameters; \
+                 exactly one is needed so the handle is not chosen by position"
             ),
         }
     }
@@ -710,6 +777,7 @@ mod tests {
             result,
             error: annotation.error.clone(),
             effects: annotation.effects,
+            handle: None,
             origin: AbiSourceOrigin::default(),
         };
 
@@ -734,6 +802,7 @@ mod tests {
             result,
             error: ImportErrorConvention::Infallible,
             effects: ImportEffects::default(),
+            handle: None,
             origin: AbiSourceOrigin::default(),
         };
 
@@ -758,6 +827,7 @@ mod tests {
                     result: AbiTypeId(0),
                     error: ImportErrorConvention::Infallible,
                     effects: ImportEffects::default(),
+                    handle: None,
                     origin: AbiSourceOrigin::default(),
                 })
                 .collect(),

@@ -2601,24 +2601,95 @@ Handles are linear, per `plan/V4_LINEAR_RESOURCES.md`. The first four items
 below are the linear-resource design that decision requires; the rest is the
 existing provider and buffer work, which it does not change.
 
-- [ ] Add the linear capability (`lin`, spelling unconfirmed): a type whose
+- [x] Add the linear capability (`lin`, spelling unconfirmed): a type whose
   values must be consumed exactly once on every path.
-- [ ] Prove consumption across every exit — fall-through, early `return`, loop
+- [x] Prove consumption across every exit — fall-through, early `return`, loop
   `break`, and each `when` arm — and reject a scope that reaches its end still
   holding one.
-- [ ] Reject `report` from a scope holding an unreleased linear resource. The
+- [x] Reject `report` from a scope holding an unreleased linear resource. The
   diagnostic must name the resource and point at its acquisition, or the rule
   reads as arbitrary.
-- [ ] Accept `[fin]handle` as an explicit discard-the-failure consumer that
+- [x] Accept `[fin]handle` as an explicit discard-the-failure consumer that
   satisfies the obligation, and keep it greppable as the audit surface for
   ignored release failures.
-- [ ] Record ownership direction and exact generated/imported destroy symbol.
-- [ ] Give every allocator/provider domain a stable identity checked by the
+
+The spelling is confirmed as `lin`, now one of the seven capability standards.
+The flow analysis is `fol-typecheck/src/linear_analysis.rs`, modelled on the
+channel endpoint lifecycle walk: a structured abstract interpretation over
+statement lists that returns the fall-through state or `None` when every path
+diverges.
+
+Three rules were added beyond the four items, each because the analysis had a
+hole without it:
+
+- **A type holding a `lin` field must itself claim `lin`.** Otherwise an
+  ordinary record hides the handle and the obligation vanishes when the field is
+  assigned. Checked at declaration, for every type, including one declaring no
+  contracts at all.
+- **A call whose linear result nobody binds is refused.** FOL has no must-use
+  rule to lean on, so a discarded `acquire()` would leak before the walk had
+  anything to track. Covers direct, qualified, and method calls.
+- **`dfr`/`edf` may not consume one.** Those blocks run at scope exit with no
+  caller for a failed release, which is the shape `lin` exists to rule out.
+
+`lin` and `fin` **do** coexist, which the record assumed without saying: `[fin]`
+is the discard consumer, and it needs a finalizer to run. `lin` without `fin`
+is legal and simply has no `[fin]` form, which is refused with that reason
+rather than as a lowering failure. What keeps the finalizer from becoming the
+silent default is linearity itself — there is no path on which the value goes
+unconsumed. `lin` with `copy` or `clone` is refused: a duplicate would owe a
+release nothing tracks.
+
+Several rules turned out to be already enforced, with better messages than a new
+check would have produced — releasing twice, releasing inside a loop, and
+capturing into a closure are all caught by the existing ownership checker, which
+points at the first move. The analysis does not duplicate them.
+
+Verified by `examples/v4_linear_handle` (both consumers, printing `3 0 1`) and
+three `examples/fail_v4_linear_*` packages, run by `make test-v4-linear`.
+- [x] Record ownership direction and exact generated/imported destroy symbol.
+- [x] Give every allocator/provider domain a stable identity checked by the
   destroy adapter.
 - [ ] Generate FOL-owned C destroy wrappers and honor imported C destroy pairs,
   with the release typed fallible (`pro (T)close(): non / E`) rather than as a
   `fin` finalizer.
 - [ ] Validate capacity/length/domain before reconstructing owned buffers.
+
+The first two are landed in the model layer. The annotation overlay gained a
+`[handle.<Name>]` table with a required `destroy` symbol, and a per-routine
+`handle` / `handle_role` pair whose role is `produces`, `borrows`, or
+`consumes`. Ownership direction is that role: it is per-routine rather than
+per-type because a C pointer to an incomplete type says nothing about
+ownership -- the same `sqlite3 *` is produced by one call, lent to many, and
+released by one.
+
+Domain identity is nominal, and that is what makes it checkable. A handle is
+`AbiType::OpaqueHandle { name }`, so a handle from one provider is a different
+type from one produced by another and cannot reach the wrong destroy at all.
+The overlay refuses four ways for that identity to be incoherent: a domain
+whose destroy is not a selected routine, a destroy that does not declare itself
+the consumer, a second consumer of one domain, and a routine naming a domain no
+table declares. `ImportedInterface::destroy_for` resolves the release through
+the routines rather than storing it beside them, so an interface cannot name a
+release it does not carry.
+
+The handle fact is part of the **interface** fingerprint, not the provenance:
+changing a routine from borrowing to consuming changes who owes the release, so
+every caller must be recompiled against it.
+
+The remaining two items are the runtime half and are **not** done. They need,
+in order: a `lin`-claiming synthetic FOL type per domain, injected the way M6
+injects an import namespace; a move-only runtime value carrying the address;
+the adapter's Rust spelling for a handle, which depends on what GERC emits for
+a pointer to an incomplete type and cannot be settled by reading this
+repository; and a C round-trip fixture proving create/use/destroy, wrong
+destroyer, double destroy, use-after-destroy, and missing destroy. Until then
+`render_adapter_module` refuses a handle-typed signature by name rather than
+rendering a guess, so nothing half-wired can compile.
+
+Note that "wrong destroyer", "double destroy", "use-after-destroy", and
+"missing destroy" are already refused for FOL-declared `lin` types by the flow
+analysis above; what is missing is only the C-provided form.
 
 Gate: create/use/destroy, early-error cleanup, wrong destroyer, double destroy,
 use-after-destroy, missing destroy, and borrowed destroy tests pass. ASan/UBSan

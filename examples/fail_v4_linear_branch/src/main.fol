@@ -1,0 +1,31 @@
+// One branch releases the handle; the other does not.
+//
+// At the join there is no single answer to whether the resource is still held,
+// so every later statement would be checked against a state that depends on a
+// runtime value. FOL requires the branches to agree: release on both paths, or
+// on neither and release after the 'when'.
+use std: pkg = {"std"};
+
+typ Handle()(lin, fin): rec = { descriptor: int };
+
+pro (Handle)finalize(): non = {
+    var discarded: int = std::io::echo_int(0);
+    return;
+};
+
+fun (Handle)close(): int / int = {
+    when(self.descriptor) {
+        is(0) { report 7; }
+        * { }
+    };
+    return self.descriptor;
+};
+
+fun[] main(): int = {
+    var handle: Handle = { descriptor = 3 };
+    when(handle.descriptor) {
+        is(3) { [fin]handle; }
+        * { }
+    };
+    return std::io::echo_int(1);
+};

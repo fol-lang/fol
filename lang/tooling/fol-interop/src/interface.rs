@@ -124,6 +124,11 @@ fn project_routine(
         });
     }
 
+    // Handle projection replaces a measured pointer with the domain's opaque
+    // type. It runs before the status check so an out-parameter carrying a
+    // handle is validated against the shape it will actually have.
+    let result = project_handle(&symbol, annotation, &mut parameters, result, types)?;
+
     verify_status_mapping(annotation, &parameters, result, types)?;
     verify_effects(annotation, model)?;
 
@@ -135,8 +140,65 @@ fn project_routine(
         result,
         error: annotation.error.clone(),
         effects: annotation.effects,
+        handle: annotation.handle.clone(),
         origin: origin_for(function, source),
     })
+}
+
+/// Replace the routine's handle-carrying pointer with the domain's opaque type.
+///
+/// Which pointer is the handle has to be unambiguous, because getting it wrong
+/// means calling a destroy on the wrong address. A producer's handle is its
+/// result; a borrower's or consumer's is its single pointer parameter. Anything
+/// else is refused rather than resolved by position.
+fn project_handle(
+    symbol: &str,
+    annotation: &fol_abi::RoutineAnnotation,
+    parameters: &mut [AbiParameter],
+    result: AbiTypeId,
+    types: &mut AbiTypeTable,
+) -> Result<AbiTypeId, ImportRejection> {
+    let Some(use_) = &annotation.handle else {
+        return Ok(result);
+    };
+    let handle = types.intern(AbiType::OpaqueHandle {
+        name: use_.domain.clone(),
+    });
+
+    if use_.role == fol_abi::HandleRole::Produces {
+        if !matches!(types.get(result), Some(AbiType::Pointer { .. })) {
+            return Err(ImportRejection::HandleResultIsNotAPointer {
+                symbol: symbol.to_string(),
+                domain: use_.domain.clone(),
+                found: types
+                    .get(result)
+                    .map_or("nothing", |ty| ty.kind_name())
+                    .to_string(),
+            });
+        }
+        return Ok(handle);
+    }
+
+    let pointers: Vec<usize> = parameters
+        .iter()
+        .enumerate()
+        .filter(|(_, parameter)| {
+            matches!(types.get(parameter.type_id), Some(AbiType::Pointer { .. }))
+        })
+        .map(|(index, _)| index)
+        .collect();
+    let [index] = pointers[..] else {
+        return Err(ImportRejection::AmbiguousHandleParameter {
+            symbol: symbol.to_string(),
+            domain: use_.domain.clone(),
+            found: pointers.len(),
+        });
+    };
+    parameters[index].type_id = handle;
+    // A handle is passed by value, never written through, so the `Out`
+    // direction a writable pointer would have inferred is wrong here.
+    parameters[index].direction = AbiDirection::In;
+    Ok(result)
 }
 
 /// A `const` pointer is an input; a writable one may be written through.

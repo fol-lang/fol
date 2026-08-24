@@ -66,6 +66,63 @@ pub struct ImportEffects {
     pub hosted: bool,
 }
 
+/// What a routine does with an opaque handle.
+///
+/// A C pointer to an incomplete type carries no ownership information at all,
+/// so the three roles below are exactly the facts the overlay must supply. They
+/// are per-routine rather than per-type because the same `sqlite3 *` is
+/// produced by one call, lent to many, and consumed by one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HandleRole {
+    /// The routine's result is a new handle whose release FOL now owes.
+    Produces,
+    /// The routine borrows a handle for the duration of the call.
+    Borrows,
+    /// The routine releases the handle. This is the domain's destroy symbol.
+    Consumes,
+}
+
+impl HandleRole {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Produces => "produces",
+            Self::Borrows => "borrows",
+            Self::Consumes => "consumes",
+        }
+    }
+
+    fn from_keyword(value: &str) -> Option<Self> {
+        Some(match value {
+            "produces" => Self::Produces,
+            "borrows" => Self::Borrows,
+            "consumes" => Self::Consumes,
+            _ => return None,
+        })
+    }
+}
+
+/// A routine's relationship to one handle domain.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HandleUse {
+    /// The domain name, which is also the FOL type name.
+    pub domain: String,
+    pub role: HandleRole,
+}
+
+/// One declared handle domain.
+///
+/// The domain is the identity the destroy adapter checks: a handle produced by
+/// one provider is a different FOL type from one produced by another, so
+/// passing the wrong handle to a destroy is a type error rather than a runtime
+/// hazard. That is why the domain, not the C pointee spelling, is what the
+/// overlay names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HandleDomain {
+    pub name: String,
+    /// The exact C symbol that releases a handle of this domain.
+    pub destroy: String,
+}
+
 /// One selected declaration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoutineAnnotation {
@@ -75,15 +132,28 @@ pub struct RoutineAnnotation {
     pub fol_name: String,
     pub error: ImportErrorConvention,
     pub effects: ImportEffects,
+    /// The handle domain this routine produces, borrows, or consumes.
+    pub handle: Option<HandleUse>,
 }
 
 /// The accepted overlay for one import.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AnnotationOverlay {
     routines: BTreeMap<String, RoutineAnnotation>,
+    handles: BTreeMap<String, HandleDomain>,
 }
 
 impl AnnotationOverlay {
+    /// The declared handle domains, in name order.
+    pub fn handles(&self) -> impl Iterator<Item = &HandleDomain> {
+        self.handles.values()
+    }
+
+    /// One declared handle domain by name.
+    pub fn handle(&self, name: &str) -> Option<&HandleDomain> {
+        self.handles.get(name)
+    }
+
     /// The annotation for one C symbol, or `None` when the overlay does not
     /// select it. An unselected declaration is not callable, which is how a
     /// header can contain more than FOL imports.
@@ -169,6 +239,36 @@ pub enum AnnotationError {
         line: u32,
         effect: String,
     },
+    UnknownHandleRole {
+        line: u32,
+        role: String,
+    },
+    DuplicateHandle {
+        line: u32,
+        domain: String,
+    },
+    /// A routine names a handle domain the overlay never declares.
+    UndeclaredHandle {
+        symbol: String,
+        domain: String,
+    },
+    /// A domain's `destroy` symbol has no `[routine.<symbol>]` table, so the
+    /// release FOL would owe is not a call it can make.
+    UnboundDestroy {
+        domain: String,
+        destroy: String,
+    },
+    /// The declared destroy symbol does not consume the domain it releases.
+    DestroyRoleMismatch {
+        domain: String,
+        destroy: String,
+    },
+    /// A routine consumes a handle domain that names a different destroy.
+    ConsumerIsNotTheDestroy {
+        symbol: String,
+        domain: String,
+        destroy: String,
+    },
 }
 
 impl AnnotationError {
@@ -243,6 +343,36 @@ impl std::fmt::Display for AnnotationError {
                 f,
                 "line {line}: unknown effect '{effect}'; expected 'allocates' or 'hosted'"
             ),
+            Self::UnknownHandleRole { line, role } => write!(
+                f,
+                "line {line}: unknown handle role '{role}'; expected 'produces', 'borrows', or 'consumes'"
+            ),
+            Self::DuplicateHandle { line, domain } => {
+                write!(f, "line {line}: handle domain '{domain}' is declared twice")
+            }
+            Self::UndeclaredHandle { symbol, domain } => write!(
+                f,
+                "routine '{symbol}' names handle domain '{domain}', which no '[handle.{domain}]' table declares"
+            ),
+            Self::UnboundDestroy { domain, destroy } => write!(
+                f,
+                "handle domain '{domain}' names destroy symbol '{destroy}', which is not a selected routine; \
+                 FOL would owe a release it cannot call"
+            ),
+            Self::DestroyRoleMismatch { domain, destroy } => write!(
+                f,
+                "'{destroy}' is the destroy for handle domain '{domain}' but does not declare \
+                 `handle = \"{domain}\"` with `handle_role = \"consumes\"`"
+            ),
+            Self::ConsumerIsNotTheDestroy {
+                symbol,
+                domain,
+                destroy,
+            } => write!(
+                f,
+                "routine '{symbol}' consumes handle domain '{domain}', whose declared destroy is '{destroy}'; \
+                 a domain has exactly one release"
+            ),
         }
     }
 }
@@ -271,6 +401,15 @@ struct PendingRoutine {
     failure: Option<Vec<i64>>,
     out_parameter: Option<String>,
     effects: ImportEffects,
+    handle: Option<String>,
+    handle_role: Option<HandleRole>,
+}
+
+/// Which kind of table the parser is currently inside.
+#[derive(Clone)]
+enum Table {
+    Routine(String),
+    Handle(String),
 }
 
 struct Parser<'a> {
@@ -278,7 +417,8 @@ struct Parser<'a> {
     version: Option<u32>,
     order: Vec<String>,
     pending: BTreeMap<String, PendingRoutine>,
-    current: Option<String>,
+    handles: BTreeMap<String, Option<String>>,
+    current: Option<Table>,
 }
 
 impl<'a> Parser<'a> {
@@ -288,6 +428,7 @@ impl<'a> Parser<'a> {
             version: None,
             order: Vec::new(),
             pending: BTreeMap::new(),
+            handles: BTreeMap::new(),
             current: None,
         }
     }
@@ -312,6 +453,25 @@ impl<'a> Parser<'a> {
         let name = table
             .strip_suffix(']')
             .ok_or(AnnotationError::MalformedLine { line })?;
+        if let Some(domain) = name.strip_prefix("handle.") {
+            let domain = domain.trim();
+            if !is_c_identifier(domain) {
+                return Err(AnnotationError::InvalidSymbol {
+                    line,
+                    symbol: domain.to_string(),
+                });
+            }
+            if self.handles.contains_key(domain) {
+                return Err(AnnotationError::DuplicateHandle {
+                    line,
+                    domain: domain.to_string(),
+                });
+            }
+            self.handles.insert(domain.to_string(), None);
+            self.current = Some(Table::Handle(domain.to_string()));
+            return Ok(());
+        }
+
         let symbol = name
             .strip_prefix("routine.")
             .ok_or_else(|| AnnotationError::UnknownTable {
@@ -339,7 +499,7 @@ impl<'a> Parser<'a> {
             },
         );
         self.order.push(symbol.to_string());
-        self.current = Some(symbol.to_string());
+        self.current = Some(Table::Routine(symbol.to_string()));
         Ok(())
     }
 
@@ -350,7 +510,7 @@ impl<'a> Parser<'a> {
         let key = key.trim();
         let value = value.trim();
 
-        let Some(symbol) = self.current.clone() else {
+        let Some(table) = self.current.clone() else {
             if key == "version" {
                 let parsed = parse_integer(value).ok_or(AnnotationError::MalformedLine { line })?;
                 let parsed =
@@ -370,11 +530,42 @@ impl<'a> Parser<'a> {
             });
         };
 
+        let symbol = match table {
+            Table::Handle(domain) => {
+                if key != "destroy" {
+                    return Err(AnnotationError::UnknownKey {
+                        line,
+                        key: key.to_string(),
+                    });
+                }
+                let destroy = parse_string(value).ok_or(AnnotationError::MalformedLine { line })?;
+                if !is_c_identifier(&destroy) {
+                    return Err(AnnotationError::InvalidSymbol {
+                        line,
+                        symbol: destroy,
+                    });
+                }
+                self.handles.insert(domain, Some(destroy));
+                return Ok(());
+            }
+            Table::Routine(symbol) => symbol,
+        };
+
         let routine = self
             .pending
             .get_mut(&symbol)
             .expect("the current table was inserted when it was opened");
         match key {
+            "handle" => {
+                let domain = parse_string(value).ok_or(AnnotationError::MalformedLine { line })?;
+                routine.handle = Some(domain);
+            }
+            "handle_role" => {
+                let role = parse_string(value).ok_or(AnnotationError::MalformedLine { line })?;
+                let parsed = HandleRole::from_keyword(&role);
+                routine.handle_role =
+                    Some(parsed.ok_or(AnnotationError::UnknownHandleRole { line, role })?);
+            }
             "fol_name" => {
                 routine.fol_name =
                     Some(parse_string(value).ok_or(AnnotationError::MalformedLine { line })?);
@@ -433,7 +624,56 @@ impl<'a> Parser<'a> {
         for (symbol, pending) in self.pending {
             routines.insert(symbol.clone(), pending.resolve(&symbol)?);
         }
-        Ok(AnnotationOverlay { routines })
+
+        let mut handles = BTreeMap::new();
+        for (name, destroy) in self.handles {
+            let destroy = destroy.ok_or(AnnotationError::MissingKey {
+                symbol: name.clone(),
+                key: "destroy",
+            })?;
+            handles.insert(name.clone(), HandleDomain { name, destroy });
+        }
+
+        // The three cross-checks that make a handle domain trustworthy. Each
+        // catches an overlay that would compile into a program owing a release
+        // it cannot perform.
+        for routine in routines.values() {
+            let Some(use_) = &routine.handle else {
+                continue;
+            };
+            let Some(domain) = handles.get(&use_.domain) else {
+                return Err(AnnotationError::UndeclaredHandle {
+                    symbol: routine.symbol.clone(),
+                    domain: use_.domain.clone(),
+                });
+            };
+            if use_.role == HandleRole::Consumes && domain.destroy != routine.symbol {
+                return Err(AnnotationError::ConsumerIsNotTheDestroy {
+                    symbol: routine.symbol.clone(),
+                    domain: domain.name.clone(),
+                    destroy: domain.destroy.clone(),
+                });
+            }
+        }
+        for domain in handles.values() {
+            let Some(destroy) = routines.get(&domain.destroy) else {
+                return Err(AnnotationError::UnboundDestroy {
+                    domain: domain.name.clone(),
+                    destroy: domain.destroy.clone(),
+                });
+            };
+            let consumes = destroy.handle.as_ref().is_some_and(|use_| {
+                use_.domain == domain.name && use_.role == HandleRole::Consumes
+            });
+            if !consumes {
+                return Err(AnnotationError::DestroyRoleMismatch {
+                    domain: domain.name.clone(),
+                    destroy: domain.destroy.clone(),
+                });
+            }
+        }
+
+        Ok(AnnotationOverlay { routines, handles })
     }
 }
 
@@ -497,11 +737,31 @@ impl PendingRoutine {
             }
         };
         let _ = self.line;
+        // The two handle keys are one fact spelled in two places, so neither
+        // half stands alone: a domain without a role says nothing about
+        // ownership, and a role without a domain names nothing to release.
+        let handle = match (self.handle, self.handle_role) {
+            (Some(domain), Some(role)) => Some(HandleUse { domain, role }),
+            (Some(_), None) => {
+                return Err(AnnotationError::MissingKey {
+                    symbol: symbol.to_string(),
+                    key: "handle_role",
+                })
+            }
+            (None, Some(_)) => {
+                return Err(AnnotationError::MissingKey {
+                    symbol: symbol.to_string(),
+                    key: "handle",
+                })
+            }
+            (None, None) => None,
+        };
         Ok(RoutineAnnotation {
             symbol: symbol.to_string(),
             fol_name: self.fol_name.unwrap_or_else(|| symbol.to_string()),
             error,
             effects: self.effects,
+            handle,
         })
     }
 }
@@ -805,5 +1065,164 @@ effects = ["allocates"]
             .map(|routine| routine.symbol.as_str())
             .collect();
         assert_eq!(symbols, vec!["alpha", "zeta"]);
+    }
+
+    /// A complete handle domain: one producer, one borrower, one destroy.
+    const HANDLE_OVERLAY: &str = "version = 1\n\
+         [handle.Widget]\n\
+         destroy = \"widget_free\"\n\
+         [routine.widget_new]\n\
+         error = \"infallible\"\n\
+         handle = \"Widget\"\n\
+         handle_role = \"produces\"\n\
+         effects = [\"allocates\"]\n\
+         [routine.widget_size]\n\
+         error = \"infallible\"\n\
+         handle = \"Widget\"\n\
+         handle_role = \"borrows\"\n\
+         [routine.widget_free]\n\
+         error = \"infallible\"\n\
+         handle = \"Widget\"\n\
+         handle_role = \"consumes\"\n";
+
+    #[test]
+    fn a_handle_domain_names_its_producer_borrower_and_destroy() {
+        let overlay = AnnotationOverlay::parse(HANDLE_OVERLAY).expect("overlay should parse");
+
+        let domain = overlay.handle("Widget").expect("the domain is declared");
+        assert_eq!(domain.destroy, "widget_free");
+
+        let roles: Vec<(&str, HandleRole)> = overlay
+            .routines()
+            .filter_map(|routine| {
+                routine
+                    .handle
+                    .as_ref()
+                    .map(|use_| (routine.symbol.as_str(), use_.role))
+            })
+            .collect();
+        assert_eq!(
+            roles,
+            vec![
+                ("widget_free", HandleRole::Consumes),
+                ("widget_new", HandleRole::Produces),
+                ("widget_size", HandleRole::Borrows),
+            ]
+        );
+    }
+
+    /// A domain whose destroy is not a selected routine is refused.
+    ///
+    /// Accepting it would produce a FOL program owing a release it has no call
+    /// to perform -- a leak the type system would insist on and the overlay
+    /// made impossible.
+    #[test]
+    fn a_destroy_that_is_not_a_selected_routine_is_refused() {
+        let error = AnnotationOverlay::parse(
+            "version = 1\n[handle.Widget]\ndestroy = \"widget_free\"\n\
+             [routine.widget_new]\nerror = \"infallible\"\n\
+             handle = \"Widget\"\nhandle_role = \"produces\"\n",
+        )
+        .expect_err("an unbound destroy must be refused");
+
+        assert_eq!(
+            error,
+            AnnotationError::UnboundDestroy {
+                domain: "Widget".to_string(),
+                destroy: "widget_free".to_string(),
+            }
+        );
+    }
+
+    /// A second consumer of one domain is refused: a domain has one release.
+    #[test]
+    fn only_the_declared_destroy_may_consume_a_domain() {
+        let error = AnnotationOverlay::parse(
+            "version = 1\n[handle.Widget]\ndestroy = \"widget_free\"\n\
+             [routine.widget_free]\nerror = \"infallible\"\n\
+             handle = \"Widget\"\nhandle_role = \"consumes\"\n\
+             [routine.widget_close]\nerror = \"infallible\"\n\
+             handle = \"Widget\"\nhandle_role = \"consumes\"\n",
+        )
+        .expect_err("a second consumer must be refused");
+
+        assert_eq!(
+            error,
+            AnnotationError::ConsumerIsNotTheDestroy {
+                symbol: "widget_close".to_string(),
+                domain: "Widget".to_string(),
+                destroy: "widget_free".to_string(),
+            }
+        );
+    }
+
+    /// Naming a domain no `[handle.<Name>]` table declares is refused.
+    #[test]
+    fn an_undeclared_handle_domain_is_refused() {
+        let error = AnnotationOverlay::parse(
+            "version = 1\n[routine.widget_new]\nerror = \"infallible\"\n\
+             handle = \"Widget\"\nhandle_role = \"produces\"\n",
+        )
+        .expect_err("an undeclared domain must be refused");
+
+        assert_eq!(
+            error,
+            AnnotationError::UndeclaredHandle {
+                symbol: "widget_new".to_string(),
+                domain: "Widget".to_string(),
+            }
+        );
+    }
+
+    /// Each half of the handle fact requires the other.
+    #[test]
+    fn a_handle_domain_and_its_role_are_one_fact() {
+        assert_eq!(
+            AnnotationOverlay::parse(
+                "version = 1\n[routine.f]\nerror = \"infallible\"\nhandle = \"Widget\"\n"
+            )
+            .expect_err("a domain without a role must be refused"),
+            AnnotationError::MissingKey {
+                symbol: "f".to_string(),
+                key: "handle_role",
+            }
+        );
+        assert_eq!(
+            AnnotationOverlay::parse(
+                "version = 1\n[routine.f]\nerror = \"infallible\"\nhandle_role = \"borrows\"\n"
+            )
+            .expect_err("a role without a domain must be refused"),
+            AnnotationError::MissingKey {
+                symbol: "f".to_string(),
+                key: "handle",
+            }
+        );
+    }
+
+    #[test]
+    fn an_unknown_handle_role_is_refused_by_name() {
+        assert_eq!(
+            AnnotationOverlay::parse(
+                "version = 1\n[routine.f]\nerror = \"infallible\"\n\
+                 handle = \"Widget\"\nhandle_role = \"steals\"\n"
+            )
+            .expect_err("an unknown role must be refused"),
+            AnnotationError::UnknownHandleRole {
+                line: 5,
+                role: "steals".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn a_handle_table_accepts_only_its_destroy_key() {
+        assert_eq!(
+            AnnotationOverlay::parse("version = 1\n[handle.Widget]\ndestroy = \"f\"\nsize = 8\n")
+                .expect_err("a stray key must be refused"),
+            AnnotationError::UnknownKey {
+                line: 4,
+                key: "size".to_string(),
+            }
+        );
     }
 }

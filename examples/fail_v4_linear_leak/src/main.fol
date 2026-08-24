@@ -1,0 +1,27 @@
+// A linear resource that reaches the end of its scope unreleased.
+//
+// This is the plain leak. Nothing in the routine names a release, so the C
+// resource behind the handle is never given back and no status is ever read.
+// FOL refuses it rather than inserting a silent scope-exit release, because
+// that release can fail and there would be no caller to tell.
+use std: pkg = {"std"};
+
+typ Handle()(lin, fin): rec = { descriptor: int };
+
+pro (Handle)finalize(): non = {
+    var discarded: int = std::io::echo_int(0);
+    return;
+};
+
+fun (Handle)close(): int / int = {
+    when(self.descriptor) {
+        is(0) { report 7; }
+        * { }
+    };
+    return self.descriptor;
+};
+
+fun[] main(): int = {
+    var handle: Handle = { descriptor = 3 };
+    return std::io::echo_int(handle.descriptor);
+};

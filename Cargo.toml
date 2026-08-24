@@ -92,6 +92,13 @@ path = "test/v4_c_import.rs"
 name = "v4_c_sanitize"
 path = "test/v4_c_sanitize.rs"
 
+# M7.4's linear resource discipline. Separate from `integration` because each
+# test runs the compiler over a checked-in example and reads its diagnostic,
+# which is the only place the rule can be shown to hold.
+[[test]]
+name = "v4_linear"
+path = "test/v4_linear.rs"
+
 [dev-dependencies]
 fol-types = { path = "lang/compiler/fol-types" }
 fol-stream = { path = "lang/compiler/fol-stream" }

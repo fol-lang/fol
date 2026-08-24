@@ -1095,6 +1095,18 @@ pub(crate) fn type_ownership_op(
     }
 
     if finalize {
+        // `[fin]` on a linear resource is the record's explicit
+        // discard-the-failure release, so it needs a finalizer to run. A `lin`
+        // type without `fin` has no such body, and lowering would otherwise
+        // fail with a message about IR rather than about the missing routine.
+        if typed.type_resolves_to_lin(operand_type) && !typed.type_resolves_to_fin(operand_type) {
+            return Err(with_node_origin(
+                resolved,
+                node,
+                TypecheckErrorKind::InvalidInput,
+                "'[fin]' releases a linear resource by running its finalizer, but this type claims 'lin' without 'fin'; add 'fin' and a 'pro (T)finalize(): non', or release it with a consuming call",
+            ));
+        }
         return Ok(TypedExpr::none());
     }
 

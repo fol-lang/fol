@@ -171,6 +171,12 @@ pub fn type_program(typed: &mut TypedProgram) -> TypecheckResult<()> {
     }
 
     if errors.is_empty() {
+        if let Err(error) = crate::linear_analysis::validate_linear_resources(typed) {
+            errors.push(error);
+        }
+    }
+
+    if errors.is_empty() {
         Ok(())
     } else {
         Err(errors)

@@ -242,6 +242,7 @@ mod tests {
                     result: i32_id,
                     error: ImportErrorConvention::Infallible,
                     effects: ImportEffects::default(),
+                    handle: None,
                     origin: AbiSourceOrigin::default(),
                 },
                 ImportedRoutine {
@@ -272,6 +273,7 @@ mod tests {
                         out_parameter: "result".to_string(),
                     },
                     effects: ImportEffects::default(),
+                    handle: None,
                     origin: AbiSourceOrigin::default(),
                 },
             ],

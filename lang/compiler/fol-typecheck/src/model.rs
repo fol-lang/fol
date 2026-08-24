@@ -327,6 +327,11 @@ pub struct TypedProgram {
     /// (`fin`). Kept keyed by CheckedTypeId so containment checks (e.g. rejecting
     /// a top-level `fin` value) do not need to reverse a type back to its symbol.
     fin_types: std::collections::BTreeSet<CheckedTypeId>,
+    /// Type ids whose declaration claims the linear capability (`lin`): a value
+    /// that must be consumed exactly once on every path. Kept separate from
+    /// `fin_types` because the two are opposites -- `fin` is consumed at most
+    /// once and implicitly, `lin` exactly once and explicitly.
+    lin_types: std::collections::BTreeSet<CheckedTypeId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -808,6 +813,44 @@ impl TypedProgram {
         resolve(self, type_id, 0)
     }
 
+    /// Record that a type claims the linear capability.
+    pub(crate) fn record_lin_type(&mut self, type_id: CheckedTypeId) {
+        self.lin_types.insert(type_id);
+    }
+
+    /// Whether the type's own declaration claims `lin` (non-transitive).
+    pub fn type_claims_lin(&self, type_id: CheckedTypeId) -> bool {
+        self.lin_types.contains(&type_id)
+    }
+
+    /// Whether `type_id` resolves to a `lin`-claiming type after peeling owned
+    /// shells and following `Declared` references, mirroring
+    /// `type_resolves_to_fin`.
+    ///
+    /// A borrow is deliberately **not** peeled: a loan of a linear resource
+    /// carries no obligation, because the obligation stayed with the owner.
+    pub fn type_resolves_to_lin(&self, type_id: CheckedTypeId) -> bool {
+        fn resolve(program: &TypedProgram, type_id: CheckedTypeId, depth: u8) -> bool {
+            if depth > 8 {
+                return false;
+            }
+            if program.type_claims_lin(type_id) {
+                return true;
+            }
+            match program.type_table().get(type_id) {
+                Some(crate::CheckedType::Owned { inner }) => resolve(program, *inner, depth + 1),
+                Some(crate::CheckedType::Declared { symbol, .. }) => program
+                    .typed_symbol(*symbol)
+                    .and_then(|declared| declared.declared_type)
+                    .is_some_and(|declared| {
+                        declared != type_id && resolve(program, declared, depth + 1)
+                    }),
+                _ => false,
+            }
+        }
+        resolve(self, type_id, 0)
+    }
+
     /// A deferred (`dfr`/`edf`) block that reads a binding pins that binding's
     /// lifetime to the scope exit where the block runs. Used to reject an early
     /// give-back of a borrow the deferred block still needs.
@@ -1154,6 +1197,7 @@ impl TypedProgram {
             capability_claims: BTreeMap::new(),
             generic_capability_constraints: BTreeMap::new(),
             fin_types: std::collections::BTreeSet::new(),
+            lin_types: std::collections::BTreeSet::new(),
         }
     }
 

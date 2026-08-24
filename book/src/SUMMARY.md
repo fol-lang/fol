@@ -96,6 +96,7 @@
   - [Ownership](./800_memory/100_ownership.md)
   - [Capabilities](./800_memory/150_capabilities.md)
   - [Finalization](./800_memory/160_finalization.md)
+  - [Linear resources](./800_memory/170_linear.md)
   - [Pointers](./800_memory/200_pointers.md)
 - [Concurrency And Processing](./900_processor/_index.md)
   - [Eventuals](./900_processor/100_eventuals.md)

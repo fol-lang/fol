@@ -120,6 +120,79 @@ are written. Target mismatch is rejected before compiler or output-directory
 I/O. A skipped system test is not success: the required Make target sets
 `FOL_H7_REQUIRED=1` and supplies an explicit canonical GCC path.
 
+## The annotation overlay
+
+C cannot say which of its declarations FOL may call, what a return code means,
+or who releases a pointer. The overlay is where a header author states those
+facts explicitly; the compiler never guesses them. It is a strict subset of
+TOML, and every key it does not recognize is refused rather than ignored.
+
+```toml
+version = 1
+
+[routine.c_math_add_one]
+error = "infallible"
+
+[routine.c_math_checked_div]
+error = "status"
+status_ok = [0]
+status_error = [1, 2]
+out = "result"
+effects = ["allocates"]
+```
+
+`error` admits exactly two conventions. `errno`, a last-error slot, an
+undocumented sentinel, `unwind`, and `longjmp` are each refused *by name*, with
+the reason, rather than falling through to "unknown value": a convention FOL
+cannot check is one FOL will get wrong.
+
+### Handle domains
+
+A pointer to an incomplete type is C's opaque handle, and the pointer itself
+carries no ownership information at all. A domain declares one:
+
+```toml
+[handle.Widget]
+destroy = "widget_free"
+
+[routine.widget_new]
+error = "infallible"
+handle = "Widget"
+handle_role = "produces"
+
+[routine.widget_size]
+error = "infallible"
+handle = "Widget"
+handle_role = "borrows"
+
+[routine.widget_free]
+error = "infallible"
+handle = "Widget"
+handle_role = "consumes"
+```
+
+The role is per routine, not per type, because the same `Widget *` is produced
+by one call, lent to many, and released by one. A producer's handle is its
+result; a borrower's or consumer's is its single pointer parameter, and a
+routine with more than one pointer parameter is refused rather than having its
+handle chosen by position.
+
+The **domain is the identity**. It becomes a distinct ABI type, so a handle
+from one provider can never reach another provider's destroy — that is a type
+error rather than a runtime hazard. Four ways of making the identity incoherent
+are refused: a domain whose destroy is not a selected routine, a destroy that
+does not declare itself the consumer, a second consumer of one domain, and a
+routine naming a domain no `[handle.<Name>]` table declares.
+
+Which routine owes the release is part of the **interface** fingerprint, so
+changing `borrows` to `consumes` invalidates every caller.
+
+On the FOL side a handle is a [linear resource](../800_memory/170_linear.md):
+consumed exactly once, explicitly, on every path. The runtime half of that
+binding — the generated destroy wrapper and the FOL-side handle value — is not
+built yet, and a handle-typed signature is refused by name rather than rendered
+as a guess.
+
 ## Verification commands
 
 Run these on GNU/Linux from the FOL root with `parc`, `linc`, and `gerc` as
