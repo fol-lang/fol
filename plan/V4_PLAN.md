@@ -3756,6 +3756,19 @@ tree aside, renames staging into place, and restores on failure.
 - [~] Validate every C-originating pointer, length, alignment, capacity, tag,
   bool, Unicode, UTF-8, output pointer, and ownership token before use.
 
+The **ownership token** is now validated: a routine declared to produce an
+opaque handle is checked for a null return before the handle is adopted.
+`FolHandle::is_null` existed and had no caller, so a producer that returned
+`NULL` -- C's only way to say "no handle" -- became a live FOL value owing a
+release on nothing, and that release was called on `NULL` later, which is safe
+for `free` and undefined for a provider's own destroy.
+
+The refusal names the producer and says what to do instead: if `NULL` is how
+the routine reports failure, declare a status convention and the failure
+travels on FOL's recoverable channel with the handle adopted only on success.
+`examples/fail_v4_c_handle_null` is the checked-in negative, and
+`a_producer_returning_null_is_refused` requires it to build and then abort.
+
 Covered and exercised: null output pointers, pointer/length pairing including
 the `len > isize::MAX` case, UTF-8, `bool` as strictly 0 or 1, Unicode scalar
 values via `char::from_u32`, entry tags matched before any union read, and
