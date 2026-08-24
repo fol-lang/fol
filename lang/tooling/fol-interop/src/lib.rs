@@ -6,6 +6,7 @@
 
 #![forbid(unsafe_code)]
 
+mod adapter;
 mod analysis;
 mod anchor;
 mod bind;
@@ -18,6 +19,7 @@ mod pipeline;
 mod source;
 mod toolchain;
 
+pub use adapter::{adapter_module_name, render_adapter_module, AdapterError};
 pub use analysis::InteropAnalysisPolicyError;
 pub use anchor::H7InteropAnchorError;
 pub use bind::{bind_c, BindCError, BindCRequest};

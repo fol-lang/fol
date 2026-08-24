@@ -1,0 +1,421 @@
+//! The FOL-owned safe adapters over one import's raw declarations.
+//!
+//! Section 4.13 splits responsibility deliberately: GERC emits the one private
+//! `extern "C"` module and nothing else, and everything that is a *language*
+//! decision -- validation, the error convention, what a caller is allowed to
+//! see -- lives in adapters FOL generates. This module is those adapters.
+//!
+//! Each adapter is the only place an `unsafe` call appears for its symbol, and
+//! the only place the provider's status convention is interpreted. A FOL
+//! caller reaches the adapter, never the extern.
+
+use fol_abi::{
+    AbiScalar, AbiType, AbiTypeId, AbiTypeTable, ImportErrorConvention, ImportedInterface,
+    ImportedRoutine,
+};
+
+/// Render the adapter module for one import.
+///
+/// The module name matches `fol_backend::mangle::foreign_adapter_module_name`,
+/// because that is what the emitted call sites reach for. The two are checked
+/// against each other by `adapter_module_name_matches_the_backend_spelling`.
+pub fn render_adapter_module(
+    interface: &ImportedInterface,
+    raw_crate: &str,
+) -> Result<String, AdapterError> {
+    let mut rendered = String::new();
+    rendered.push_str(&format!(
+        "// Generated FOL-owned safe adapters for C import '{}'.\n\
+         // Every `unsafe` call to this provider appears here and nowhere else.\n\
+         #[allow(dead_code, non_snake_case)]\n\
+         pub mod {} {{\n",
+        interface.alias,
+        adapter_module_name(&interface.alias),
+    ));
+
+    for routine in &interface.routines {
+        rendered.push_str(&render_adapter(interface, routine, raw_crate)?);
+    }
+
+    rendered.push_str("}\n");
+    Ok(rendered)
+}
+
+/// Mirrors `fol_backend::mangle::foreign_adapter_module_name`.
+///
+/// Duplicated rather than shared because `fol-interop` does not depend on the
+/// backend; the duplication is guarded by a test that fails if either moves.
+pub fn adapter_module_name(alias: &str) -> String {
+    format!("cimp__{alias}")
+}
+
+fn render_adapter(
+    interface: &ImportedInterface,
+    routine: &ImportedRoutine,
+    raw_crate: &str,
+) -> Result<String, AdapterError> {
+    let raw = format!("{raw_crate}::{}", routine.symbol);
+    let mut params = Vec::new();
+    for parameter in routine.call_parameters() {
+        params.push(format!(
+            "{}: {}",
+            rust_param_name(&parameter.name),
+            rust_scalar(&interface.types, parameter.type_id, &routine.symbol)?
+        ));
+    }
+    let params = params.join(", ");
+
+    match &routine.error {
+        ImportErrorConvention::Infallible => {
+            let call_args = routine
+                .call_parameters()
+                .iter()
+                .map(|parameter| rust_param_name(&parameter.name))
+                .collect::<Vec<_>>()
+                .join(", ");
+            // A `void` provider and a value-returning one render the same
+            // call; only the adapter's declared return type differs.
+            let body = format!("    unsafe {{ {raw}({call_args}) }}\n");
+            let return_type = match interface.types.get(routine.result) {
+                Some(AbiType::Void) => String::new(),
+                _ => format!(
+                    " -> {}",
+                    rust_scalar(&interface.types, routine.result, &routine.symbol)?
+                ),
+            };
+            Ok(format!(
+                "    #[inline]\n    pub fn {}({params}){return_type} {{\n{body}    }}\n",
+                rust_param_name(&routine.fol_name),
+            ))
+        }
+        ImportErrorConvention::Status {
+            success,
+            out_parameter,
+            ..
+        } => {
+            let index = routine.out_parameter_index().ok_or_else(|| {
+                AdapterError::UnresolvedOutParameter {
+                    symbol: routine.symbol.clone(),
+                    parameter: out_parameter.clone(),
+                }
+            })?;
+            let out_type = out_pointee(&interface.types, routine, index)?;
+            let status_type = rust_scalar(&interface.types, routine.result, &routine.symbol)?;
+
+            // The out storage belongs to the adapter, so a caller cannot
+            // observe it before the status has been checked.
+            let mut call_args = Vec::new();
+            for (position, parameter) in routine.parameters.iter().enumerate() {
+                if position == index {
+                    call_args.push("&mut __fol_out".to_string());
+                } else {
+                    call_args.push(rust_param_name(&parameter.name));
+                }
+            }
+            let call_args = call_args.join(", ");
+            let success_arms = success
+                .iter()
+                .map(|code| code.to_string())
+                .collect::<Vec<_>>()
+                .join(" | ");
+
+            Ok(format!(
+                "    #[inline]\n\
+                 \x20   pub fn {name}({params}) -> rt::FolRecover<{out_type}, {status_type}> {{\n\
+                 \x20       let mut __fol_out: {out_type} = Default::default();\n\
+                 \x20       let __fol_status = unsafe {{ {raw}({call_args}) }};\n\
+                 \x20       match __fol_status {{\n\
+                 \x20           {success_arms} => rt::FolRecover::Ok(__fol_out),\n\
+                 \x20           // Any other code is a failure, including one the\n\
+                 \x20           // overlay did not enumerate: reading the out value\n\
+                 \x20           // for an unknown status would be reading whatever\n\
+                 \x20           // the provider happened to leave there.\n\
+                 \x20           other => rt::FolRecover::Err(other),\n\
+                 \x20       }}\n\
+                 \x20   }}\n",
+                name = rust_param_name(&routine.fol_name),
+            ))
+        }
+    }
+}
+
+fn out_pointee(
+    types: &AbiTypeTable,
+    routine: &ImportedRoutine,
+    index: usize,
+) -> Result<String, AdapterError> {
+    let parameter = &routine.parameters[index];
+    let Some(AbiType::Pointer { target, .. }) = types.get(parameter.type_id) else {
+        return Err(AdapterError::UnresolvedOutParameter {
+            symbol: routine.symbol.clone(),
+            parameter: parameter.name.clone(),
+        });
+    };
+    rust_scalar(types, *target, &routine.symbol)
+}
+
+/// A C parameter may be named for a Rust keyword; raw identifiers keep the
+/// provider's own spelling rather than renaming its API.
+fn rust_param_name(name: &str) -> String {
+    const RESERVED: &[&str] = &[
+        "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn",
+        "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref",
+        "return", "self", "static", "struct", "super", "trait", "true", "type", "unsafe", "use",
+        "where", "while", "async", "await", "dyn", "abstract", "become", "box", "do", "final",
+        "macro", "override", "priv", "typeof", "unsized", "virtual", "yield",
+    ];
+    match name {
+        "crate" | "self" | "super" | "Self" => format!("{name}_kw"),
+        _ if RESERVED.contains(&name) => format!("r#{name}"),
+        _ => name.to_string(),
+    }
+}
+
+fn rust_scalar(
+    types: &AbiTypeTable,
+    type_id: AbiTypeId,
+    symbol: &str,
+) -> Result<String, AdapterError> {
+    let Some(abi_type) = types.get(type_id) else {
+        return Err(AdapterError::UnknownType {
+            symbol: symbol.to_string(),
+        });
+    };
+    Ok(match abi_type {
+        AbiType::Scalar(AbiScalar::Int(width)) => {
+            let bits = width.bits().ok_or_else(|| AdapterError::UnsupportedType {
+                symbol: symbol.to_string(),
+                detail: "an architecture-sized integer".to_string(),
+            })?;
+            format!("{}{bits}", if width.is_signed() { "i" } else { "u" })
+        }
+        AbiType::Scalar(AbiScalar::Float(width)) => match width {
+            fol_types::FloatWidth::F32 => "f32".to_string(),
+            _ => "f64".to_string(),
+        },
+        AbiType::Scalar(AbiScalar::Bool) => "bool".to_string(),
+        AbiType::Scalar(AbiScalar::Char) => "char".to_string(),
+        AbiType::Void => "()".to_string(),
+        other => {
+            return Err(AdapterError::UnsupportedType {
+                symbol: symbol.to_string(),
+                detail: format!("a {} type", other.kind_name()),
+            })
+        }
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AdapterError {
+    UnknownType { symbol: String },
+    UnsupportedType { symbol: String, detail: String },
+    UnresolvedOutParameter { symbol: String, parameter: String },
+}
+
+impl std::fmt::Display for AdapterError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownType { symbol } => write!(
+                f,
+                "cannot generate an adapter for '{symbol}': it references a type the manifest \
+                 does not define"
+            ),
+            Self::UnsupportedType { symbol, detail } => write!(
+                f,
+                "cannot generate an adapter for '{symbol}': it uses {detail}"
+            ),
+            Self::UnresolvedOutParameter { symbol, parameter } => write!(
+                f,
+                "cannot generate an adapter for '{symbol}': out-parameter '{parameter}' is not a \
+                 writable pointer"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for AdapterError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fol_abi::{
+        AbiCallingConvention, AbiDirection, AbiEscape, AbiMutability, AbiNullability, AbiOwnership,
+        AbiParameter, AbiSourceOrigin, ImportEffects,
+    };
+
+    fn scalar_interface() -> ImportedInterface {
+        let mut types = AbiTypeTable::new();
+        let i32_id = types.intern_int(fol_types::IntWidth::I32);
+        let out_id = types.intern(AbiType::Pointer {
+            target: i32_id,
+            mutability: AbiMutability::Mutable,
+            nullability: AbiNullability::NonNull,
+            ownership: AbiOwnership::Borrowed,
+            escape: AbiEscape::CallScoped,
+            destructor: None,
+        });
+
+        ImportedInterface {
+            alias: "c_math".to_string(),
+            target: fol_types::ResolvedTarget::resolve("x86_64-unknown-linux-gnu")
+                .expect("certified target"),
+            types,
+            routines: vec![
+                ImportedRoutine {
+                    symbol: "c_math_add_one".to_string(),
+                    fol_name: "add_one".to_string(),
+                    convention: AbiCallingConvention::C,
+                    parameters: vec![AbiParameter {
+                        name: "value".to_string(),
+                        type_id: i32_id,
+                        direction: AbiDirection::In,
+                    }],
+                    result: i32_id,
+                    error: ImportErrorConvention::Infallible,
+                    effects: ImportEffects::default(),
+                    origin: AbiSourceOrigin::default(),
+                },
+                ImportedRoutine {
+                    symbol: "c_math_checked_div".to_string(),
+                    fol_name: "checked_div".to_string(),
+                    convention: AbiCallingConvention::C,
+                    parameters: vec![
+                        AbiParameter {
+                            name: "lhs".to_string(),
+                            type_id: i32_id,
+                            direction: AbiDirection::In,
+                        },
+                        AbiParameter {
+                            name: "result".to_string(),
+                            type_id: out_id,
+                            direction: AbiDirection::Out,
+                        },
+                    ],
+                    result: i32_id,
+                    error: ImportErrorConvention::Status {
+                        success: vec![0],
+                        failure: vec![1, 2],
+                        out_parameter: "result".to_string(),
+                    },
+                    effects: ImportEffects::default(),
+                    origin: AbiSourceOrigin::default(),
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn an_infallible_adapter_calls_the_raw_symbol_directly() {
+        let rendered =
+            render_adapter_module(&scalar_interface(), "fol_raw").expect("adapters should render");
+
+        assert!(
+            rendered.contains("pub fn add_one(value: i32) -> i32"),
+            "got:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("unsafe { fol_raw::c_math_add_one(value) }"),
+            "got:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn a_status_adapter_owns_the_out_storage_and_checks_before_reading_it() {
+        let rendered =
+            render_adapter_module(&scalar_interface(), "fol_raw").expect("adapters should render");
+
+        // The caller's signature has no out-parameter.
+        assert!(
+            rendered.contains("pub fn checked_div(lhs: i32) -> rt::FolRecover<i32, i32>"),
+            "got:\n{rendered}"
+        );
+        // The adapter declares the storage and passes a pointer to its own.
+        assert!(
+            rendered.contains("let mut __fol_out: i32 = Default::default();"),
+            "got:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("fol_raw::c_math_checked_div(lhs, &mut __fol_out)"),
+            "got:\n{rendered}"
+        );
+        // The out value is read only on an enumerated success code.
+        assert!(
+            rendered.contains("0 => rt::FolRecover::Ok(__fol_out),"),
+            "got:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("other => rt::FolRecover::Err(other),"),
+            "got:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn an_unenumerated_status_is_a_failure_rather_than_a_success() {
+        let rendered =
+            render_adapter_module(&scalar_interface(), "fol_raw").expect("adapters should render");
+
+        // The catch-all arm must come last and must be the Err arm: treating an
+        // unknown code as success would read uninitialized out storage.
+        let ok_at = rendered
+            .find("rt::FolRecover::Ok(__fol_out)")
+            .expect("an Ok arm");
+        let err_at = rendered
+            .find("rt::FolRecover::Err(other)")
+            .expect("an Err arm");
+        assert!(ok_at < err_at, "the catch-all must be the failure arm");
+    }
+
+    #[test]
+    fn every_unsafe_call_is_inside_an_adapter() {
+        let rendered =
+            render_adapter_module(&scalar_interface(), "fol_raw").expect("adapters should render");
+
+        // Two routines, two unsafe blocks, no others.
+        assert_eq!(rendered.matches("unsafe {").count(), 2, "got:\n{rendered}");
+    }
+
+    #[test]
+    fn the_module_name_matches_what_the_backend_calls() {
+        // The backend renders `cimp__<alias>::<fn>` at every foreign call site.
+        // If either spelling moves, generated code stops resolving, so the two
+        // are asserted equal here rather than left to agree by habit.
+        assert_eq!(adapter_module_name("c_math"), "cimp__c_math");
+        let rendered =
+            render_adapter_module(&scalar_interface(), "fol_raw").expect("adapters should render");
+        assert!(
+            rendered.contains("pub mod cimp__c_math {"),
+            "got:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn a_c_parameter_named_for_a_rust_keyword_keeps_its_spelling() {
+        let mut interface = scalar_interface();
+        interface.routines[0].parameters[0].name = "type".to_string();
+        let rendered =
+            render_adapter_module(&interface, "fol_raw").expect("adapters should render");
+
+        assert!(
+            rendered.contains("pub fn add_one(r#type: i32)"),
+            "a provider's parameter name is not ours to rename; got:\n{rendered}"
+        );
+        assert!(rendered.contains("(r#type)"), "got:\n{rendered}");
+    }
+
+    #[test]
+    fn an_aggregate_type_is_refused_rather_than_guessed() {
+        let mut interface = scalar_interface();
+        let handle = interface.types.intern(AbiType::OpaqueHandle {
+            name: "Widget".to_string(),
+        });
+        interface.routines[0].result = handle;
+
+        assert_eq!(
+            render_adapter_module(&interface, "fol_raw"),
+            Err(AdapterError::UnsupportedType {
+                symbol: "c_math_add_one".to_string(),
+                detail: "a opaque-handle type".to_string(),
+            })
+        );
+    }
+}

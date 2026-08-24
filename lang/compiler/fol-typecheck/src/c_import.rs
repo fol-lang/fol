@@ -101,11 +101,13 @@ fn routine_type_for(
             (return_type, None)
         }
         ImportErrorConvention::Status { .. } => {
+            // FOL spells a fallible routine `(...): T / E`, keeping the two
+            // types apart rather than wrapping one in the other. The success
+            // type is the out-parameter's pointee; the failure carries the
+            // provider's own status code, which is the only thing it reported.
             let success = success_type_for(typed, types, routine)?;
-            let shell = typed.type_table_mut().intern(CheckedType::Error {
-                inner: Some(success),
-            });
-            (Some(shell), Some(success))
+            let status = checked_type_for(typed, types, routine.result, routine)?;
+            (Some(success), Some(status))
         }
     };
 
@@ -325,7 +327,7 @@ mod tests {
     }
 
     #[test]
-    fn a_status_import_hides_its_out_parameter_and_returns_a_shell() {
+    fn a_status_import_hides_its_out_parameter_and_is_fallible() {
         let mut typed = empty_program();
         hydrate_c_import_symbol_types(&mut typed, &[scalar_interface()]).expect("hydration");
 
@@ -334,18 +336,19 @@ mod tests {
         // caller must not pass it.
         assert_eq!(div.param_names, vec!["lhs", "rhs"]);
 
-        let inner = match div.return_type.and_then(|id| typed.type_table().get(id)) {
-            Some(CheckedType::Error { inner }) => inner.expect("err[T] carries its success type"),
-            other => panic!("a status import should return err[T], got {other:?}"),
-        };
+        // FOL's fallible shape is `(...): T / E`, two separate types -- not a
+        // success type wrapped in an error shell.
+        let int32 = CheckedType::Builtin(BuiltinType::Int(fol_types::IntWidth::I32));
         assert_eq!(
-            typed.type_table().get(inner),
-            Some(&CheckedType::Builtin(BuiltinType::Int(
-                fol_types::IntWidth::I32
-            ))),
+            div.return_type.and_then(|id| typed.type_table().get(id)),
+            Some(&int32),
             "the success type is the out-parameter's pointee"
         );
-        assert!(div.error_type.is_some());
+        assert_eq!(
+            div.error_type.and_then(|id| typed.type_table().get(id)),
+            Some(&int32),
+            "the failure carries the provider's own status code"
+        );
     }
 
     #[test]
