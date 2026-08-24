@@ -903,6 +903,30 @@ fn project_record_fields(
             shapes,
             &fol_abi::PointerContract::default(),
         )?;
+        // A record crosses as a parameter by being flattened into its fields,
+        // which the adapter rebuilds the provider's struct from. That
+        // flattening is one level deep: a field that is itself a record has no
+        // scalar to pass, and the adapter fails on it much later with a
+        // message that says only "a record type" -- which reads as though no
+        // record crossed at all.
+        //
+        // An anonymous member arrives here as exactly this shape, and worse:
+        // C makes its fields part of the outer struct, so `o.x` is valid
+        // there, while the projection puts them behind a GERC-generated field
+        // name that is a content hash. FOL's view of the struct would not be
+        // C's, and the name is not one a program could write.
+        if matches!(types.get(type_id), Some(AbiType::Record { .. })) {
+            let anonymous = field.source_name().is_none() || field_name.starts_with("__gerc_");
+            return Err(reject(if anonymous {
+                format!(
+                    "'{name}' has an anonymous struct member. In C its fields belong to '{name}' itself, and the projection cannot reproduce that: give the member a name, or lift it into a named struct"
+                )
+            } else {
+                format!(
+                    "'{name}' has field '{field_name}', which is itself a record. A record crosses as a parameter by being flattened into its fields, and that flattening does not nest"
+                )
+            }));
+        }
         fields.push(fol_abi::AbiField {
             name: field_name,
             type_id,

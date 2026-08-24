@@ -938,3 +938,179 @@ fn an_edited_include_is_reported_as_staleness() {
         "the changed include should be named:\n{output}"
     );
 }
+
+/// Generated headers across the refusal list: a named refusal, never a panic.
+///
+/// The corpus is deliberately hostile -- forty levels of typedef, qualifier
+/// stacks, unions, bitfields, packed and flexible-array members, variadics,
+/// function-pointer results, `long double`, `_Atomic`, and self-referential
+/// structs. What matters is not which way each goes but that every one of them
+/// goes *somewhere nameable*.
+///
+/// Two of these were accepted at bind and failed much later, with a message
+/// that said only "a record type" -- which reads as though no record crossed
+/// at all. Both are refused here now, where unions and incomplete types are.
+#[test]
+fn hostile_headers_are_refused_by_name_and_never_panic() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the import slice");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("fol_v4_import_fuzz");
+
+    // (name, header body, definition, expected verdict)
+    let cases: &[(&str, &str, &str, Option<&str>)] = &[
+        (
+            "anonymous_member",
+            "struct outer { struct { int x; int y; }; int z; };\nint probe(struct outer o);",
+            "int probe(struct outer o) { return o.x + o.z; }",
+            Some("anonymous struct member"),
+        ),
+        (
+            "nested_record",
+            "struct inner { int a; };\nstruct outer2 { struct inner i; };\nint probe(struct outer2 v);",
+            "int probe(struct outer2 v) { return v.i.a; }",
+            Some("which is itself a record"),
+        ),
+        (
+            "union_param",
+            "union u { int i; float f; };\nint probe(union u v);",
+            "int probe(union u v) { return v.i; }",
+            Some("is a union"),
+        ),
+        (
+            "function_pointer_result",
+            "typedef int (*fp)(int);\nfp probe(int v);",
+            "static int helper(int v) { return v; }\nfp probe(int v) { (void)v; return helper; }",
+            Some("function pointer"),
+        ),
+        (
+            "self_referential",
+            "struct node { struct node *next; int v; };\nint probe(struct node *n);",
+            "int probe(struct node *n) { return n->v; }",
+            Some("is incomplete"),
+        ),
+        (
+            "variadic",
+            "int probe(int count, ...);",
+            "int probe(int count, ...) { return count; }",
+            Some("variadic"),
+        ),
+        (
+            "long_double",
+            "long double probe(long double v);",
+            "long double probe(long double v) { return v; }",
+            Some("long double"),
+        ),
+        (
+            "bitfield",
+            "struct b { unsigned a : 3; unsigned c : 5; };\nint probe(struct b v);",
+            "int probe(struct b v) { return (int)v.a; }",
+            Some("bitfield"),
+        ),
+        // These cross, and saying so is half the value: a refusal list that
+        // also refused ordinary C would be useless.
+        (
+            "deep_typedef",
+            &{
+                let mut header = String::from("typedef int a1;\n");
+                for level in 1..40 {
+                    header.push_str(&format!("typedef a{level} a{};\n", level + 1));
+                }
+                header.push_str("a40 probe(a40 v);");
+                header
+            },
+            "a40 probe(a40 v) { return v; }",
+            None,
+        ),
+        (
+            "qualifier_stack",
+            "int probe(const int *const *p);",
+            "int probe(const int *const *p) { return **p; }",
+            None,
+        ),
+    ];
+
+    for (name, header, definition, expected) in cases {
+        let root = fixture.path().join(name);
+        let native = root.join("native");
+        std::fs::create_dir_all(&native).expect("native directory");
+        std::fs::create_dir_all(root.join("interop")).expect("interop directory");
+        std::fs::write(
+            native.join("probe.h"),
+            format!("#ifndef PROBE_H\n#define PROBE_H\n#include <stdint.h>\n{header}\n#endif\n"),
+        )
+        .expect("header writable");
+        std::fs::write(
+            native.join("probe.c"),
+            format!("#include \"probe.h\"\n{definition}\n"),
+        )
+        .expect("source writable");
+        std::fs::write(
+            root.join("interop/probe.toml"),
+            "version = 1\n\n[routine.probe]\nerror = \"infallible\"\n",
+        )
+        .expect("overlay writable");
+
+        let object = native.join("probe.o");
+        let compiled = Command::new(&compiler)
+            .arg("-c")
+            .arg("-o")
+            .arg(&object)
+            .arg(native.join("probe.c"))
+            .status();
+        if !compiled.is_ok_and(|status| status.success()) {
+            // C itself refused it; there is nothing for FOL to judge.
+            continue;
+        }
+        assert!(
+            Command::new("ar")
+                .arg("rcs")
+                .arg(native.join("libprobe.a"))
+                .arg(&object)
+                .status()
+                .expect("ar should run")
+                .success(),
+            "{name}: the provider should archive"
+        );
+
+        let (ok, output) = run_folc(
+            &root,
+            &compiler,
+            &temp,
+            &[
+                "tool",
+                "bind",
+                "c",
+                "--alias",
+                "probe",
+                "--target",
+                "x86_64-unknown-linux-gnu",
+                "--header",
+                "native/probe.h",
+                "--provider",
+                "native/libprobe.a",
+                "--provider-kind",
+                "static",
+                "--annotations",
+                "interop/probe.toml",
+                "--out",
+                "interop/probe.folabi.json",
+            ],
+        );
+        assert!(
+            !output.contains("panicked") && !output.contains("RUST_BACKTRACE"),
+            "{name} panicked instead of reporting:\n{output}"
+        );
+        match expected {
+            Some(reason) => {
+                assert!(!ok, "{name} should be refused:\n{output}");
+                assert!(
+                    output.contains(reason),
+                    "{name} should be refused for {reason:?}:\n{output}"
+                );
+            }
+            None => assert!(ok, "{name} is ordinary C and should bind:\n{output}"),
+        }
+    }
+}
