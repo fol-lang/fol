@@ -3309,8 +3309,32 @@ lanes honour it the way the older interop lanes already did, so a missing
 `readelf`, `nm`, or C compiler fails the build instead of quietly reducing what
 was checked. Verified locally by running all eight lanes with it set: zero
 skips, all green.
-- [ ] Update README, architecture, docs, book, examples, and ABI-versioning
+- [x] Update README, architecture, docs, book, examples, and ABI-versioning
   guidance to present exactly the shipped matrix and remaining exclusions.
+
+The book's interop chapter gained a **What crosses** section listing each shape
+in each direction, and -- as prominently -- what is refused: exporting handles
+or callbacks, importing named aggregates, variadics, bitfields, unions, packed
+and flexible-array members, C++ linkage, pointer/length pairing. Its opening
+and closing paragraphs both claimed the boundary "does not itself expose C
+export, bounded header-import tooling"; both shipped, and both paragraphs said
+otherwise.
+
+ABI versioning had no documentation anywhere despite being implemented: the
+chapter now covers `set_abi_version`, why there are two fingerprints (a new
+compiler moves the build one and leaves the interface one alone, so a toolchain
+upgrade is not an ABI event), the four `abi check` verdicts, why
+`--allow-breaking` accepts a break and never a target mismatch, and what
+`abi package` writes.
+
+README gained a C interoperability section; `ARCHITECTURE.md`'s V4 entry said
+"later interop/backend-boundary work" and now lists what landed and what did
+not.
+
+One thing checked rather than assumed: `x86_64-unknown-linux-musl` is listed as
+certified, and it is not an overclaim -- `interop_h7.rs` runs the locked typed
+pipeline on musl and on clang, `test-interop` hard-fails without
+`FOL_H7_MUSL_CC`, and the flake supplies it.
 
 Verification:
 
