@@ -63,6 +63,15 @@ pub fn bind_c_command(
         compiler,
         temporary_parent,
         model,
+        // The search inputs are explicit, in the order written. Section 4.13
+        // disables ambient `CPATH`/SDK/sysroot discovery in reproducible mode,
+        // and this command is reproducible mode.
+        search: fol_interop::HeaderSearch {
+            include_roots: command.include_roots.clone(),
+            system_include_roots: command.system_include_roots.clone(),
+            defines: command.defines.clone(),
+            sysroot: command.sysroot.clone(),
+        },
     })
     .map_err(|error| FrontendError::new(FrontendErrorKind::CommandFailed, format!("{error}")))?;
 

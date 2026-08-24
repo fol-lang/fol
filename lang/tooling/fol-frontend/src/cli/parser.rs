@@ -1345,7 +1345,7 @@ fn parse_tool_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
             ToolSubcommand::SemanticTokens(parse_editor_path_command(cursor, &sub)?)
         }
         "tree" => ToolSubcommand::Tree(parse_tree_command(cursor)?),
-        "bind" => ToolSubcommand::Bind(parse_bind_command(cursor, output.clone())?),
+        "bind" => ToolSubcommand::Bind(Box::new(parse_bind_command(cursor, output.clone())?)),
         "abi" => ToolSubcommand::Abi(parse_abi_command(cursor, output.clone())?),
         "clean" | "cl" | "purge" => ToolSubcommand::Clean(UnitCommand),
         "completion" | "completions" | "comp" => {
@@ -1402,6 +1402,10 @@ fn parse_bind_command(
             "--annotations" => command.annotations = Some(value),
             "--out" => command.out = value,
             "--fol-model" => command.fol_model = Some(value),
+            "--include-root" => command.include_roots.push(value),
+            "--system-include-root" => command.system_include_roots.push(value),
+            "--define" => command.defines.push(value),
+            "--sysroot" => command.sysroot = Some(value),
             _ => {
                 return Err(ParseError::invalid(format!(
                     "unknown flag for tool bind c: {key}"
@@ -1432,7 +1436,9 @@ fn parse_bind_command(
 fn bind_usage() -> String {
     "Usage: fol tool bind c --alias <NAME> --header <PATH> --provider <PATH> \
      --out <PATH> [--target <TRIPLE>] [--provider-kind object|static|shared] \
-     [--annotations <PATH>] [--fol-model core|memo|std]"
+     [--annotations <PATH>] [--fol-model core|memo|std] \
+     [--include-root <DIR>]... [--system-include-root <DIR>]... \
+     [--define <NAME[=VALUE]>]... [--sysroot <DIR>]"
         .to_string()
 }
 

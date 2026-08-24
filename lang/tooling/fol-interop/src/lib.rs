@@ -29,7 +29,7 @@ pub use materialization::InteropMaterializationPlanError;
 pub use pipeline::{
     prepare_h7_interop, H7InteropBuild, H7InteropError, H7InteropReport, H7InteropRequest,
 };
-pub use source::InteropSourceError;
+pub use source::{HeaderSearch, InteropSourceError};
 pub use toolchain::InteropToolchainError;
 
 /// The platforms promoted for the FOL interop handoff. glibc and musl are the

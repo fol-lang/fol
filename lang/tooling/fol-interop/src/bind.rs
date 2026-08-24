@@ -45,6 +45,9 @@ pub struct BindCRequest<'a> {
     pub compiler: &'a Path,
     pub temporary_parent: &'a Path,
     pub model: CapabilityModel,
+    /// Where the preprocessor may look, and what it starts with. Stated by the
+    /// build declaration; nothing here is discovered from the environment.
+    pub search: crate::source::HeaderSearch,
 }
 
 /// Run the pipeline and return the manifest it accepted.
@@ -91,8 +94,14 @@ pub fn bind_c(request: BindCRequest<'_>) -> Result<ImportManifest, BindCError> {
         .routines()
         .map(|routine| routine.symbol.clone())
         .collect();
-    let source = scan_complete_header(&package_root, &header, toolchain.target(), Some(&wanted))
-        .map_err(|error| BindCError::Source(error.to_string()))?;
+    let source = scan_complete_header(
+        &package_root,
+        &header,
+        toolchain.target(),
+        Some(&wanted),
+        &request.search,
+    )
+    .map_err(|error| BindCError::Source(error.to_string()))?;
 
     let native_inputs = [crate::pipeline::native_input_for(
         request.provider_kind,

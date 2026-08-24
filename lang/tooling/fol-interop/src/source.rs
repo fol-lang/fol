@@ -24,6 +24,7 @@ pub(crate) fn scan_complete_header(
     header: &Path,
     target: &TargetSpec,
     wanted: Option<&BTreeSet<String>>,
+    search: &HeaderSearch,
 ) -> Result<CompleteSourcePackage, InteropSourceError> {
     let root = canonical_directory(package_root)?;
     let header = canonical_file(header)?;
@@ -31,8 +32,35 @@ pub(crate) fn scan_complete_header(
         return Err(InteropSourceError::HeaderOutsidePackage { root, header });
     }
     let mapping = PathMapping::try_new([PathMappingRule::try_new(&root, "package")?])?;
-    let config =
+    let mut config =
         ScanConfig::new(target.clone(), mapping, PreprocessorMode::Builtin)?.entry_header(header);
+
+    // Include roots are canonicalized before they reach PARC, and a
+    // package-relative one must stay inside the package. A `../..` root or a
+    // symlink pointing out of the tree would make the accepted surface depend
+    // on files outside the package -- which the fingerprint does not cover, so
+    // two machines would silently bind different headers.
+    for include in &search.include_roots {
+        config = config.include_dir(canonical_include_root(&root, include)?);
+    }
+    // System roots are deliberately *not* required to be inside the package:
+    // an SDK lives elsewhere by definition. They are still canonicalized, so
+    // the recorded identity is a real path rather than whatever was typed.
+    for include in &search.system_include_roots {
+        config = config.system_include_dir(canonical_directory(Path::new(include))?);
+    }
+    for define in &search.defines {
+        // `NAME=VALUE` or a bare `NAME`. Splitting here rather than in the
+        // build surface keeps the C spelling the author already knows.
+        match define.split_once('=') {
+            Some((name, value)) => config = config.define(name, Some(value.to_string())),
+            None => config = config.define(define.as_str(), None),
+        }
+    }
+    if let Some(sysroot) = &search.sysroot {
+        config = config.with_external_sysroot(canonical_directory(Path::new(sysroot))?);
+    }
+
     let report = scan_headers(&config)?;
 
     let selection = match wanted {
@@ -93,6 +121,25 @@ pub(crate) fn scan_complete_header(
         .map_err(InteropSourceError::Incomplete)
 }
 
+/// Where the C preprocessor is allowed to look, and what it starts with.
+///
+/// Every field is stated by the build declaration; none is discovered from the
+/// environment. Section 4.13 disables ambient `CPATH`, SDK, and sysroot
+/// discovery in reproducible mode, so an include root that is not written down
+/// is one the scan does not have.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct HeaderSearch {
+    /// Quoted-include roots, package-relative or absolute. Must resolve inside
+    /// the package.
+    pub include_roots: Vec<String>,
+    /// Angled-include roots. May live outside the package: an SDK does.
+    pub system_include_roots: Vec<String>,
+    /// `NAME` or `NAME=VALUE`, in declaration order.
+    pub defines: Vec<String>,
+    /// An external sysroot, when the provider was built against one.
+    pub sysroot: Option<String>,
+}
+
 #[derive(Debug)]
 pub enum InteropSourceError {
     InvalidPackageRoot(PathBuf),
@@ -100,6 +147,15 @@ pub enum InteropSourceError {
     HeaderOutsidePackage {
         root: PathBuf,
         header: PathBuf,
+    },
+    /// An include root that resolves outside the package.
+    ///
+    /// Rejected rather than followed: the build fingerprint covers the package,
+    /// so a root reaching outside it would let the accepted surface change
+    /// without the fingerprint moving.
+    IncludeRootOutsidePackage {
+        root: PathBuf,
+        include: PathBuf,
     },
     UnsupportedSource {
         declarations: usize,
@@ -137,6 +193,14 @@ impl std::fmt::Display for InteropSourceError {
                 formatter,
                 "interop header {} escapes package root {}",
                 header.display(),
+                root.display()
+            ),
+            Self::IncludeRootOutsidePackage { root, include } => write!(
+                formatter,
+                "include root {} resolves outside package root {}; a root reaching outside the \
+                 package would let the accepted C surface change without the build fingerprint \
+                 moving, so it is refused rather than followed",
+                include.display(),
                 root.display()
             ),
             Self::UnsupportedSource {
@@ -180,6 +244,7 @@ impl std::error::Error for InteropSourceError {
             Self::InvalidPackageRoot(_)
             | Self::InvalidHeader(_)
             | Self::HeaderOutsidePackage { .. }
+            | Self::IncludeRootOutsidePackage { .. }
             | Self::UnsupportedSource { .. }
             | Self::UnsupportedSelection(_)
             | Self::NothingSelected => None,
@@ -203,6 +268,29 @@ impl From<ScanError> for InteropSourceError {
     fn from(error: ScanError) -> Self {
         Self::Scan(error)
     }
+}
+
+/// Canonicalize one quoted-include root and prove it stays in the package.
+///
+/// A relative root is resolved against the package, which is what an author
+/// writing `native/include` means. Canonicalization happens before the
+/// containment check on purpose: `native/../..` and a symlink out of the tree
+/// both look package-relative until they are resolved.
+fn canonical_include_root(root: &Path, include: &str) -> Result<PathBuf, InteropSourceError> {
+    let candidate = Path::new(include);
+    let absolute = if candidate.is_absolute() {
+        candidate.to_owned()
+    } else {
+        root.join(candidate)
+    };
+    let canonical = canonical_directory(&absolute)?;
+    if !canonical.starts_with(root) {
+        return Err(InteropSourceError::IncludeRootOutsidePackage {
+            root: root.to_owned(),
+            include: canonical,
+        });
+    }
+    Ok(canonical)
 }
 
 fn canonical_directory(path: &Path) -> Result<PathBuf, InteropSourceError> {
@@ -243,7 +331,7 @@ mod tests {
         sync::atomic::{AtomicU64, Ordering},
     };
 
-    use super::{scan_complete_header, InteropSourceError};
+    use super::{scan_complete_header, HeaderSearch, InteropSourceError};
 
     #[test]
     fn rejects_relative_paths_before_parc() {
@@ -252,6 +340,7 @@ mod tests {
             Path::new("package/header.h"),
             &crate::toolchain::tests::synthetic_target(),
             None,
+            &HeaderSearch::default(),
         )
         .unwrap_err();
         assert!(matches!(error, InteropSourceError::InvalidPackageRoot(_)));
@@ -275,6 +364,7 @@ mod tests {
             &outside,
             &crate::toolchain::tests::synthetic_target(),
             None,
+            &HeaderSearch::default(),
         )
         .unwrap_err();
         fs::remove_dir_all(&scratch).unwrap();
@@ -308,6 +398,7 @@ mod tests {
             &linked,
             &crate::toolchain::tests::synthetic_target(),
             None,
+            &HeaderSearch::default(),
         )
         .unwrap_err();
         fs::remove_dir_all(&scratch).unwrap();
@@ -315,6 +406,78 @@ mod tests {
         assert!(matches!(
             error,
             InteropSourceError::HeaderOutsidePackage { .. }
+        ));
+    }
+
+    /// A quoted-include root is canonicalized before the containment check, so
+    /// `..` and symlinks cannot walk out of the package.
+    #[test]
+    fn rejects_include_root_that_escapes_the_package() {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let scratch = std::env::temp_dir().join(format!(
+            "fol-interop-include-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let package = scratch.join("package");
+        let header = package.join("header.h");
+        fs::create_dir_all(package.join("include")).unwrap();
+        fs::create_dir_all(scratch.join("outside")).unwrap();
+        fs::write(&header, b"int inside(void);\n").unwrap();
+
+        let search = HeaderSearch {
+            include_roots: vec!["include/../../outside".to_string()],
+            ..HeaderSearch::default()
+        };
+        let error = scan_complete_header(
+            &package,
+            &header,
+            &crate::toolchain::tests::synthetic_target(),
+            None,
+            &search,
+        )
+        .unwrap_err();
+        fs::remove_dir_all(&scratch).unwrap();
+
+        assert!(matches!(
+            error,
+            InteropSourceError::IncludeRootOutsidePackage { .. }
+        ));
+    }
+
+    /// An angled-include root is exempt: an SDK legitimately lives outside the
+    /// package, so containment must not be applied to it.
+    #[test]
+    fn accepts_system_include_root_outside_the_package() {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let scratch = std::env::temp_dir().join(format!(
+            "fol-interop-system-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let package = scratch.join("package");
+        let sdk = scratch.join("sdk");
+        fs::create_dir_all(&package).unwrap();
+        fs::create_dir_all(&sdk).unwrap();
+        fs::write(package.join("header.h"), b"int inside(void);\n").unwrap();
+
+        let search = HeaderSearch {
+            system_include_roots: vec![sdk.display().to_string()],
+            ..HeaderSearch::default()
+        };
+        let error = scan_complete_header(
+            &package,
+            &package.join("header.h"),
+            &crate::toolchain::tests::synthetic_target(),
+            None,
+            &search,
+        )
+        .unwrap_err();
+        fs::remove_dir_all(&scratch).unwrap();
+
+        assert!(!matches!(
+            error,
+            InteropSourceError::IncludeRootOutsidePackage { .. }
         ));
     }
 }

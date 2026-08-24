@@ -350,7 +350,16 @@ pub fn prepare_h7_interop(request: H7InteropRequest<'_>) -> Result<H7InteropBuil
     let toolchain = CertifiedCToolchain::observe(&artifact.target, compiler)?;
     // The H7 smoke has no overlay: it takes the single-declaration header
     // whole, which is what makes its anchor check meaningful.
-    let source = scan_complete_header(&package_root, &header, toolchain.target(), None)?;
+    // Built from the declaration rather than passed in: the search paths are a
+    // property of the import, and reading them here keeps `H7InteropRequest`
+    // from carrying a copy that could disagree with the graph.
+    let search = crate::source::HeaderSearch {
+        include_roots: c_import.include_roots.clone(),
+        system_include_roots: c_import.system_include_roots.clone(),
+        defines: c_import.defines.clone(),
+        sysroot: c_import.sysroot.clone(),
+    };
+    let source = scan_complete_header(&package_root, &header, toolchain.target(), None, &search)?;
     let native_inputs = [native_input_for(provider_kind, provider.clone())];
     let analysis_request = AnalysisRequest::try_new(&source, &native_inputs, policy)?;
     let resolver = NativeResolver::new(

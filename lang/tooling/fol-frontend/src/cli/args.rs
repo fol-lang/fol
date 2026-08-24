@@ -269,7 +269,7 @@ pub enum ToolSubcommand {
     Tree(TreeCommand),
     Clean(UnitCommand),
     Completion(CompletionCommand),
-    Bind(BindCommand),
+    Bind(Box<BindCommand>),
     Abi(AbiCommand),
 }
 
@@ -305,6 +305,14 @@ pub struct BindCCommand {
     pub out: String,
     /// The capability model the import is checked against.
     pub fol_model: Option<String>,
+    /// Quoted-include roots, repeatable. Must resolve inside the package.
+    pub include_roots: Vec<String>,
+    /// Angled-include roots, repeatable. May live outside the package.
+    pub system_include_roots: Vec<String>,
+    /// `NAME` or `NAME=VALUE`, repeatable, in the order written.
+    pub defines: Vec<String>,
+    /// An external sysroot the provider was built against.
+    pub sysroot: Option<String>,
 }
 
 /// `fol tool abi inspect` and `fol tool abi check`.
