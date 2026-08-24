@@ -80,6 +80,25 @@ typ aUnion: ent = {
 }
 ```
 
+#### ABI discriminants
+
+A variant is numbered by its declaration position, which is fine inside FOL and
+cannot be promised to anyone outside it: inserting a variant renumbers every
+later one. An entry that crosses the C boundary states each tag instead.
+```
+typ[exp] Lookup: ent = {
+    con[tag = 4] MISSING;
+    con[tag = 1] FOUND;
+    con[tag = 9] DENIED;
+};
+```
+
+`[tag = N]` is not a default value. `con NAME: int = 7` gives the variant a
+default payload; the tag is a separate thing with a separate spelling. Either
+every variant states one or none does, tags cannot repeat, and a tag lives in
+the 32-bit range the discriminant carries. See
+[the interop chapter](../../950_interop/_index.md) for what crosses.
+
 ## Initializaion
 
 To use a record after we’ve defined it, we create an instance of that record by specifying concrete values for each of the fields. We create an instance by stating the name of the record and then add curly brackets containing key: value pairs, where the keys are the names of the fields and the values are the data we want to store in those fields. We don’t have to specify the fields in the same order in which we declared them in the record. In other words, the record definition is like a general template for the type, and instances fill in that template with particular data to create values of the type.

@@ -115,7 +115,9 @@ Exporting, FOL to C — a C program links a FOL library and calls it:
 | `bol` | `fol_bool_t` (`uint8_t`); only 0 and 1 are valid, and imports validate |
 | `chr` | `fol_char_t` (`uint32_t`); validated as a Unicode scalar value |
 | records | a C struct whose layout C agrees with, field order preserved |
-| entries | a C enum with explicit stable discriminants |
+| entries | a C enum with the discriminants the variants state |
+| resources | an opaque `fol_<domain>_t *`, released by a paired destroy |
+| a routine parameter | a C function pointer plus its own `void *` context |
 | recoverable errors | `fol_status_t` plus a typed error out-parameter |
 | a FOL panic | contained and reported as `FOL_STATUS_PANIC` |
 | borrowed text, inbound | `fol_str_view_t`, caller-owned and call-scoped |
@@ -125,19 +127,20 @@ Importing, C to FOL — FOL calls a C provider through a checked manifest:
 | Shape | Crosses as |
 |---|---|
 | scalars, including through `typedef` chains | the measured FOL scalar |
+| named structs and enums, as parameters | a FOL record and a FOL scalar |
 | pointers and out-parameters | a FOL value on the success channel |
 | status codes | FOL's ordinary or recoverable channel, per the overlay |
 | opaque handles | a `lin` linear resource with a paired destroy routine |
 | one synchronous callback shape | a FOL closure invoked by the provider |
 
-Not supported, in either direction, and refused rather than approximated:
+Both directions now carry named aggregates, opaque handles, and the one
+callback shape. What is still refused, rather than approximated:
 
-- **Exporting** an opaque handle, a destroy routine, or a callback. FOL can
-  receive all three from C; it cannot hand them out. A FOL routine value in an
-  exported signature is rejected by name.
-- **Importing** a named aggregate — a C struct or enum parameter. Scalars,
-  pointers, handles, and the one callback shape are what the import path
-  projects.
+- **Importing** a C struct as a *result*. A struct crosses as a parameter,
+  where the adapter rebuilds it from its fields; there is nowhere to put the
+  fields of one that comes back.
+- **Importing** a self-referential struct's pointed-to type. The pointer
+  crosses as an opaque handle; the shape behind it does not.
 - Variadics, bitfields, packed and flexible-array members, unions, C++
   linkage, and unknown calling conventions.
 - Pointer/length slice pairing, and declaring direction, nullability, or escape
@@ -240,6 +243,41 @@ consumed exactly once, explicitly, on every path. The domain becomes a FOL type
 in the import's namespace, so a program writes `wid::Widget` and the compiler
 proves the release. `examples/v4_c_opaque_handle` is the whole path, and the
 four `examples/fail_v4_c_handle_*` packages are the misuses C would compile.
+
+### Entry discriminants
+
+An entry crosses as a C enum, and a C enum's values are part of the ABI: they
+are written to files and sent over wires. So FOL will not pick them. Each
+variant states its own tag:
+
+```fol
+typ[exp] Lookup: ent = {
+    con[tag = 4] MISSING;
+    con[tag = 1] FOUND;
+    con[tag = 9] DENIED;
+};
+```
+
+`[tag = N]` is **not** a default value. `con NAME: int = 7` gives the variant a
+default payload of 7, and `var Ok: int = 1` beside `var Err: str = "broken"`
+shows why that cannot double as a tag — both variants would land on 1. The two
+are different things and are now spelled differently.
+
+An entry with no tags is refused outbound with `UnstableEntryTag`, naming the
+entry. Its variants are numbered by position, which is fine inside FOL and
+cannot be promised to anyone holding a stored value: inserting a variant would
+renumber every later one.
+
+Three ways of tagging incoherently are refused at parse time: a **duplicate**
+tag, a tag outside the **32-bit range** the discriminant carries, and a
+**partially tagged** entry, where the untagged variants would fall back to the
+position the tags exist to escape.
+
+Because a tag is stated rather than positional, **reordering the declaration is
+a no-op**: the manifest is byte-identical, and `fol tool abi check` reports the
+surface unchanged. Changing a tag is the opposite — a breaking change, refused
+without `--allow-breaking`. `examples/v4_c_export_entry` crosses both
+directions; `examples/fail_v4_c_entry_error` is the untagged refusal.
 
 ### Synchronous callbacks
 

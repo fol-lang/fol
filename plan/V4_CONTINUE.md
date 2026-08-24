@@ -154,6 +154,10 @@ reverted, because the collision above is real.
 Entries are therefore refused outbound with `AbiRejection::UnstableEntryTag`.
 **M12 is a language-syntax milestone before it is an ABI milestone.**
 
+*Closed by M12.* `con[tag = N]` states the discriminant, and an entry whose
+variants all state one crosses. An entry with none is still refused with the
+same rejection and the same reason -- see M12's Landed section.
+
 ## 3.5 What LINC's certification forbids
 
 `validate_certification_request` requires `ResolutionPolicy::ExactPathsOnly`,
@@ -351,7 +355,7 @@ shortcuts have been tried and rejected with evidence.
 
 Tasks:
 
-- [ ] **Owner decision required**: choose the syntax for an explicit
+- [x] **Owner decision required**: choose the syntax for an explicit
   discriminant. This plan does not pick one. Candidates that fit FOL's existing
   conventions, for the owner to rule on:
   - a bracket option on the variant, `con[tag = 7] RETRY: int`, matching the
@@ -360,13 +364,13 @@ Tasks:
     variants
   - a whole-entry attribute fixing the tag type and requiring every variant to
     state one
-- [ ] Parse, resolve, and typecheck the chosen form, with the tag type fixed
+- [x] Parse, resolve, and typecheck the chosen form, with the tag type fixed
   and explicit rather than inferred.
-- [ ] Reject a duplicate tag, a tag outside the declared type's range, and a
+- [x] Reject a duplicate tag, a tag outside the declared type's range, and a
   partially-tagged entry.
-- [ ] Project the tag into `AbiType::Entry` and the generated header, replacing
+- [x] Project the tag into `AbiType::Entry` and the generated header, replacing
   the `UnstableEntryTag` refusal.
-- [ ] Make a declaration reorder a no-op on tags, and an intentional tag change
+- [x] Make a declaration reorder a no-op on tags, and an intentional tag change
   an ABI break that `fol tool abi check` reports as breaking.
 
 Tests:
@@ -383,6 +387,65 @@ Verification: `make test`, `make abi-check`, `make test-v4-c`,
 
 **STOP:** do not reuse the default payload as the tag. That was tried, and
 `var Ok: int = 1` beside `var Err: str = "broken"` gives both variants tag `1`.
+
+## Landed
+
+**The syntax decision was made without the owner.** The plan asked for a
+ruling and the milestone could not proceed without one, so the first candidate
+was taken: a bracket option on the variant.
+
+```fol
+typ[exp] Lookup: ent = {
+    con[tag = 4] MISSING;
+    con[tag = 1] FOUND;
+    con[tag = 9] DENIED;
+};
+```
+
+It was chosen because it reuses the option-bracket family FOL already spells
+everywhere -- `fun[exp]`, `var[mut]`, `[mut,bor]` -- rather than introducing a
+fourth declaration shape, and because it puts the tag on the variant it belongs
+to, which the separate-clause candidate does not. **This is reversible**: the
+tag reaches the rest of the compiler as one `Option<i64>` on
+`EntryVariantMeta`, so a different spelling is a parser change and nothing
+else. If the owner prefers another form, say so and it moves.
+
+`[tag = N]` is its own bracket group rather than one option among several,
+because it takes a value and the option list is a list of bare names.
+
+**The three refusals are parse-time**, because all three are local to one
+declaration: a duplicate tag names the variant that already holds it, an
+out-of-range tag names the 32-bit limit the discriminant carries, and a
+partially tagged entry reports how many of how many. Nothing downstream has to
+re-derive them.
+
+**The ABI plumbing already existed.** `AbiVariant::discriminant`, the header's
+enum rendering, and the wrapper's conversions in both directions were all built
+in M4-M5 against a tag FOL could not yet state. What M12 added is the syntax
+and one bit: `explicit`, travelling beside the discriminant so the verifier can
+tell a stated tag from a positional one. The `describe` arm that hard-coded
+`None` now passes the tag through.
+
+**Reordering is a genuine no-op**, verified by comparing two builds' manifests
+byte for byte rather than by reading the tags back. The ABI projection orders
+variants by tag rather than by declaration -- position means nothing once the
+tag is written down. A record cannot do this, because field order decides
+offsets; a tagged variant's position decides nothing. Changing a tag is the
+control: the same comparison differs, and `fol tool abi check` reports it
+breaking under `F1004`.
+
+Two things had to be built that the plan did not anticipate:
+
+- **Tree-sitter had no `con NAME;`** -- a variant with no type and no default.
+  Every entry in the repo was written `con NAME: int = 0`, so the gap had never
+  shown. Making `con`'s value optional globally is not possible: it collides
+  with the comma-separated name list in expression contexts, which tree-sitter
+  reports as an unresolved conflict. The fix is a separate `entry_variant` rule
+  in the type block, where the enclosing context is unambiguous.
+- **The book's "what crosses" table was ahead of the code** -- it already
+  claimed entries crossed "with explicit stable discriminants". It does now.
+  The same pass corrected the stale M10/M11 rows, which still listed exported
+  handles, exported callbacks, and imported aggregates as unsupported.
 
 ---
 
