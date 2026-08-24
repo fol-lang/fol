@@ -334,3 +334,113 @@ fn concurrent_builds_do_not_share_cache_state() {
         "concurrent builds of the same source disagree on the ABI manifest"
     );
 }
+
+/// Build any checked-in export example as a *shared* library and return its
+/// prefix, without editing the checked-in `build.fol`.
+fn build_example_shared(fixture: &Path, example: &str) -> PathBuf {
+    let root = fixture.join(example);
+    copy_dir(&repo_root().join("examples").join(example), &root);
+
+    let build = root.join("build.fol");
+    let text = std::fs::read_to_string(&build).expect("build.fol should be readable");
+    std::fs::write(&build, text.replace("add_static_lib", "add_shared_lib"))
+        .expect("build.fol should be writable");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_folc"))
+        .args(["code", "build", "--package-store-root"])
+        .arg(store_root())
+        .current_dir(&root)
+        .output()
+        .expect("the build should run");
+    assert!(
+        output.status.success(),
+        "{example} failed to build as a shared library:\n{}",
+        strip_ansi(&format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    );
+    root.join(".fol/install")
+}
+
+/// Compile an example's own checked-in C consumer against a shared prefix and
+/// run it, resolving the library through `LD_LIBRARY_PATH` rather than an
+/// rpath.
+fn run_shared_consumer(cc: &str, prefix: &Path, example: &str, library_stem: &str) -> String {
+    let consumer = repo_root()
+        .join("examples")
+        .join(example)
+        .join("consumer.c");
+    let binary = prefix.join("consumer_binary");
+    let lib_dir = prefix.join("lib");
+
+    let link = Command::new(cc)
+        .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-I"])
+        .arg(prefix.join("include"))
+        .arg(&consumer)
+        .arg("-L")
+        .arg(&lib_dir)
+        .arg(format!("-l{library_stem}"))
+        .arg("-o")
+        .arg(&binary)
+        .output()
+        .expect("the C compiler should run");
+    assert!(
+        link.status.success(),
+        "{example}'s consumer failed to link against the shared form:\n{}",
+        String::from_utf8_lossy(&link.stderr)
+    );
+
+    let run = Command::new(&binary)
+        .env("LD_LIBRARY_PATH", &lib_dir)
+        .output()
+        .expect("the consumer should run");
+    let stdout = String::from_utf8_lossy(&run.stdout).to_string();
+    assert!(
+        run.status.success(),
+        "{example}'s consumer failed at runtime (exit {:?}):\n{stdout}",
+        run.status.code()
+    );
+    stdout
+}
+
+/// A record crosses the same way through a shared library as a static one.
+///
+/// The static form is covered by `v4_c_export`. Layout is decided by the same
+/// generated header either way, but the *link* is not: a shared build resolves
+/// through the dynamic symbol table, so a record export that is missing there
+/// would pass every static test and fail here.
+#[test]
+fn a_record_crosses_through_a_shared_library() {
+    let Some(cc) = c_compiler() else {
+        skip("no C compiler; cannot link a consumer");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("v4-platform-record");
+    let prefix = build_example_shared(fixture.path(), "v4_c_record");
+    let stdout = run_shared_consumer(&cc, &prefix, "v4_c_record", "v4_c_record");
+    assert!(
+        stdout.contains("all record checks passed"),
+        "the record consumer did not pass against the shared form:\n{stdout}"
+    );
+}
+
+/// Borrowed string views cross through a shared library too.
+///
+/// The consumer asserts the refusals as well as the accepted cases, so
+/// reaching its final line means the validation still runs on this path.
+#[test]
+fn borrowed_text_crosses_through_a_shared_library() {
+    let Some(cc) = c_compiler() else {
+        skip("no C compiler; cannot link a consumer");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("v4-platform-view");
+    let prefix = build_example_shared(fixture.path(), "v4_c_string_view");
+    let stdout = run_shared_consumer(&cc, &prefix, "v4_c_string_view", "v4_c_string_view");
+    assert!(
+        stdout.contains("all string view checks passed"),
+        "the string view consumer did not pass against the shared form:\n{stdout}"
+    );
+}

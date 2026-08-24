@@ -3124,9 +3124,26 @@ is `int32_t` is `int`) with an iteration bound so a malformed projection cannot
 spin. The manifest records the *measured* scalar, never the C spelling, which
 `a_typedef_resolves_to_the_type_it_names` asserts by requiring the spellings to
 be absent.
-- [ ] Compile, link, and run clean C11 consumers against the installed static
+- [~] Compile, link, and run clean C11 consumers against the installed static
   and shared forms, exercising scalars, records, recoverable errors, views,
   owned handles, destroy paths, and the supported callback contract.
+
+Every consumer is `-std=c11 -Wall -Wextra -Werror` against an installed prefix,
+never the build tree. Scalars, records, recoverable errors, and borrowed string
+views now run against **both** linkage forms: the static side in
+`test/v4_c_export.rs`, the shared side in `test/v4_c_platform.rs`. Both are
+needed because a static archive and a shared object publish their symbols by
+different mechanisms, so a record export missing from the dynamic table would
+pass every static test.
+
+The shared consumers resolve the library through `LD_LIBRARY_PATH` and `-l`,
+not an rpath, which is what the SONAME work above makes possible.
+
+Not done, and not a testing gap but a feature one: **owned handles, destroy
+paths, and callbacks exist only in the import direction.** FOL can receive an
+opaque C handle and call a C callback; it cannot yet *export* either to a C
+consumer, so there is nothing for a C11 consumer to exercise. This task cannot
+close until the export side grows them.
 - [ ] Package release archives with headers, libraries, any platform-required
   import libraries, manifests, link interface, licenses, checksums, provenance,
   and SBOM. Assert that no public Cargo manifest, Rust source facade, GERC raw
