@@ -79,18 +79,28 @@ pub(crate) fn scan_complete_header(
                 if declaration.support.is_supported() {
                     roots.push(declaration.id);
                 } else {
-                    unsupported.push(name.original.clone());
+                    unsupported.push(unsupported_declaration(
+                        &name.original,
+                        &declaration.support,
+                        declaration.occurrences.first().map(|entry| entry.range),
+                        report.package().files(),
+                    ));
                 }
             }
             if !unsupported.is_empty() {
-                unsupported.sort();
+                unsupported.sort_by(|left, right| left.name.cmp(&right.name));
                 return Err(InteropSourceError::UnsupportedSelection(unsupported));
             }
             if roots.is_empty() {
                 return Err(InteropSourceError::NothingSelected);
             }
             Selection::only(roots).map_err(|error| {
-                InteropSourceError::UnsupportedSelection(vec![error.to_string()])
+                InteropSourceError::UnsupportedSelection(vec![UnsupportedDeclaration {
+                    name: "<selection>".to_string(),
+                    code: None,
+                    reason: Some(error.to_string()),
+                    origin: None,
+                }])
             })?
         }
         None => {
@@ -140,6 +150,37 @@ pub struct HeaderSearch {
     pub sysroot: Option<String>,
 }
 
+/// One declaration the C front end could not model, with what it said about it.
+///
+/// PARC reports a stable code, a reason, and a source range per declaration.
+/// Reducing that to a name -- which is what this used to do -- makes the author
+/// go back to the header and guess which part of it was the problem.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnsupportedDeclaration {
+    pub name: String,
+    /// PARC's stable code, when it gave one.
+    pub code: Option<String>,
+    /// PARC's own words for why.
+    pub reason: Option<String>,
+    /// `header.h:12:5`, when the declaration has an occurrence.
+    pub origin: Option<String>,
+}
+
+impl std::fmt::Display for UnsupportedDeclaration {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "'{}'", self.name)?;
+        if let Some(origin) = &self.origin {
+            write!(formatter, " at {origin}")?;
+        }
+        match (&self.code, &self.reason) {
+            (Some(code), Some(reason)) => write!(formatter, ": [{code}] {reason}"),
+            (Some(code), None) => write!(formatter, ": [{code}]"),
+            (None, Some(reason)) => write!(formatter, ": {reason}"),
+            (None, None) => Ok(()),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum InteropSourceError {
     InvalidPackageRoot(PathBuf),
@@ -162,7 +203,7 @@ pub enum InteropSourceError {
         macros: usize,
     },
     /// A declaration the overlay *asked for* that PARC could not model.
-    UnsupportedSelection(Vec<String>),
+    UnsupportedSelection(Vec<UnsupportedDeclaration>),
     /// The overlay named symbols, but the header declares none of them.
     NothingSelected,
     Io {
@@ -210,12 +251,16 @@ impl std::fmt::Display for InteropSourceError {
                 formatter,
                 "PARC source contains {declarations} unsupported declaration(s) and {macros} unsupported macro(s)"
             ),
-            Self::UnsupportedSelection(names) => write!(
+            Self::UnsupportedSelection(rejected) => write!(
                 formatter,
                 "the annotation overlay selects {} declaration(s) the C front end could not \
                  model: {}",
-                names.len(),
-                names.join(", ")
+                rejected.len(),
+                rejected
+                    .iter()
+                    .map(|entry| entry.to_string())
+                    .collect::<Vec<_>>()
+                    .join("; ")
             ),
             Self::NothingSelected => formatter.write_str(
                 "the entry header declares none of the symbols the annotation overlay selects",
@@ -323,6 +368,53 @@ fn canonical_file(path: &Path) -> Result<PathBuf, InteropSourceError> {
     Ok(canonical)
 }
 
+/// Carry PARC's own account of why a declaration did not model.
+///
+/// PARC reports a stable code, a reason, and a range per declaration; keeping
+/// only the name is what made a rejection say "this header has 3 unsupported
+/// declarations" and leave the author to find them.
+fn unsupported_declaration(
+    name: &str,
+    support: &parc::contract::SupportStatus,
+    range: Option<parc::contract::SourceRange>,
+    files: &[parc::contract::SourceFile],
+) -> UnsupportedDeclaration {
+    let (code, reason) = match support {
+        parc::contract::SupportStatus::Supported => (None, None),
+        parc::contract::SupportStatus::Partial { code, reason }
+        | parc::contract::SupportStatus::Unsupported { code, reason } => {
+            (Some(format!("{code:?}")), Some(reason.clone()))
+        }
+    };
+    UnsupportedDeclaration {
+        name: name.to_string(),
+        code,
+        reason,
+        origin: range.and_then(|range| render_origin(range, files)),
+    }
+}
+
+/// `header.h:12:5` for one range, using the file's own line table.
+fn render_origin(
+    range: parc::contract::SourceRange,
+    files: &[parc::contract::SourceFile],
+) -> Option<String> {
+    let file = files.iter().find(|file| file.id == range.file)?;
+    // `line_starts` is sorted, so the last start at or before the offset is the
+    // line the offset falls on.
+    let index = file
+        .line_starts
+        .partition_point(|start| *start <= range.start)
+        .saturating_sub(1);
+    let line_start = file.line_starts.get(index).copied().unwrap_or(0);
+    Some(format!(
+        "{}:{}:{}",
+        file.logical_path,
+        index.saturating_add(1),
+        range.start.saturating_sub(line_start).saturating_add(1)
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -331,7 +423,76 @@ mod tests {
         sync::atomic::{AtomicU64, Ordering},
     };
 
+    use super::UnsupportedDeclaration;
     use super::{scan_complete_header, HeaderSearch, InteropSourceError};
+
+    /// A rejection says which declaration, where, and in PARC's own words.
+    ///
+    /// The previous shape was a bare name, which left the author to go back to
+    /// the header and guess which part of it the C front end objected to.
+    #[test]
+    fn an_unsupported_declaration_renders_code_reason_and_origin() {
+        let full = UnsupportedDeclaration {
+            name: "widget_apply".to_string(),
+            code: Some("P0412".to_string()),
+            reason: Some("a bitfield has no addressable storage".to_string()),
+            origin: Some("native/widget.h:14:5".to_string()),
+        };
+        assert_eq!(
+            full.to_string(),
+            "'widget_apply' at native/widget.h:14:5: [P0412] a bitfield has no addressable storage"
+        );
+
+        // Each part is optional, and the rendering must stay readable without
+        // any of them rather than printing empty brackets.
+        let bare = UnsupportedDeclaration {
+            name: "widget_apply".to_string(),
+            code: None,
+            reason: None,
+            origin: None,
+        };
+        assert_eq!(bare.to_string(), "'widget_apply'");
+
+        let located = UnsupportedDeclaration {
+            name: "widget_apply".to_string(),
+            code: None,
+            reason: Some("unmodelled".to_string()),
+            origin: Some("native/widget.h:14:5".to_string()),
+        };
+        assert_eq!(
+            located.to_string(),
+            "'widget_apply' at native/widget.h:14:5: unmodelled"
+        );
+    }
+
+    /// The whole rejection lists every offending declaration, not a count.
+    #[test]
+    fn the_selection_rejection_lists_each_declaration() {
+        let error = InteropSourceError::UnsupportedSelection(vec![
+            UnsupportedDeclaration {
+                name: "first".to_string(),
+                code: Some("P1".to_string()),
+                reason: Some("one".to_string()),
+                origin: Some("h.h:1:1".to_string()),
+            },
+            UnsupportedDeclaration {
+                name: "second".to_string(),
+                code: Some("P2".to_string()),
+                reason: Some("two".to_string()),
+                origin: Some("h.h:2:1".to_string()),
+            },
+        ]);
+        let rendered = error.to_string();
+        assert!(rendered.contains("selects 2 declaration(s)"), "{rendered}");
+        assert!(
+            rendered.contains("'first' at h.h:1:1: [P1] one"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("'second' at h.h:2:1: [P2] two"),
+            "{rendered}"
+        );
+    }
 
     #[test]
     fn rejects_relative_paths_before_parc() {
