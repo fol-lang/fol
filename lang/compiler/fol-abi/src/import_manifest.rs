@@ -9,9 +9,11 @@
 //! same reason the export manifest is: the document is fingerprinted, and two
 //! runs that accepted the same surface must produce the same bytes.
 //!
-//! The manifest is *checked*, never trusted: the build action re-runs the
-//! pipeline and compares fingerprints. Reading a stale file is what
-//! `verify_against` exists to catch.
+//! The manifest is *checked*, never trusted, at two costs. `stale_input`
+//! compares the recorded input digests against the files on disk, which is
+//! cheap enough for every compile and catches the case that happens: the
+//! header was edited and nobody re-bound. `verify_against` compares a whole
+//! freshly produced manifest, which needs the C pipeline.
 
 use crate::annotation::{ImportEffects, ImportErrorConvention};
 use crate::import::{ImportedInterface, ImportedRoutine};
@@ -38,16 +40,56 @@ pub const IMPORT_MANIFEST_SCHEMA_VERSION: u32 = 1;
 pub struct ImportProvenance {
     /// The entry header, package-relative.
     pub header: String,
+    /// Content digest of the entry header.
+    ///
+    /// A path alone cannot tell a reader whether the header still says what it
+    /// said when the manifest was written, so a changed header would go on
+    /// looking current.
+    pub header_digest: String,
     /// The provider artifact, package-relative.
     pub provider: String,
     /// `object`, `static`, or `shared`.
     pub provider_kind: String,
     /// The annotation overlay, package-relative, when there is one.
     pub annotations: Option<String>,
+    /// Content digest of the annotation overlay, when there is one.
+    pub annotations_digest: Option<String>,
     /// The C compiler that measured the layouts.
     pub compiler: String,
+    /// The target triple the layouts were measured for.
+    pub target: String,
+    /// The C standard the header was read as.
+    pub dialect: String,
+    /// Quoted-include roots, in declaration order.
+    pub include_roots: Vec<String>,
+    /// Angled-include roots, in declaration order.
+    pub system_include_roots: Vec<String>,
+    /// `NAME` or `NAME=VALUE`, in declaration order.
+    pub defines: Vec<String>,
+    /// The external sysroot the header was read against, when there is one.
+    pub sysroot: Option<String>,
     /// Pinned sibling revisions, as `parc=<rev>` style entries in order.
     pub components: Vec<String>,
+}
+
+/// A recorded input whose bytes no longer match the manifest.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StaleImportInput {
+    pub alias: String,
+    /// What changed, for the message: `header` or `annotation overlay`.
+    pub input: &'static str,
+    /// The package-relative path the manifest recorded.
+    pub path: String,
+}
+
+impl std::fmt::Display for StaleImportInput {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "the {} '{}' has changed since C import '{}' was bound",
+            self.input, self.path, self.alias
+        )
+    }
 }
 
 /// One accepted import, as written to `<alias>.folabi.json`.
@@ -70,20 +112,39 @@ impl ImportManifest {
             .join(",");
         // The interface object is embedded verbatim, so the bytes hashed by
         // `interface_fingerprint` appear unchanged inside the whole document.
+        let list = |values: &[String]| {
+            values
+                .iter()
+                .map(|value| quoted(value))
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+        let optional = |value: &Option<String>| match value {
+            Some(value) => quoted(value),
+            None => "null".to_string(),
+        };
         format!(
             "{{\"interface\":{interface},\"interface_fingerprint\":{},\
-             \"provenance\":{{\"annotations\":{},\"compiler\":{},\"components\":[{components}],\
-             \"header\":{},\"provider\":{},\"provider_kind\":{}}},\
+             \"provenance\":{{\"annotations\":{},\"annotations_digest\":{},\
+             \"compiler\":{},\"components\":[{components}],\"defines\":[{}],\
+             \"dialect\":{},\"header\":{},\"header_digest\":{},\
+             \"include_roots\":[{}],\"provider\":{},\"provider_kind\":{},\
+             \"system_include_roots\":[{}],\"sysroot\":{},\"target\":{}}},\
              \"provenance_fingerprint\":{}}}",
             quoted(&self.interface_fingerprint()),
-            match &self.provenance.annotations {
-                Some(path) => quoted(path),
-                None => "null".to_string(),
-            },
+            optional(&self.provenance.annotations),
+            optional(&self.provenance.annotations_digest),
             quoted(&self.provenance.compiler),
+            list(&self.provenance.defines),
+            quoted(&self.provenance.dialect),
             quoted(&self.provenance.header),
+            quoted(&self.provenance.header_digest),
+            list(&self.provenance.include_roots),
             quoted(&self.provenance.provider),
             quoted(&self.provenance.provider_kind),
+            list(&self.provenance.system_include_roots),
+            optional(&self.provenance.sysroot),
+            quoted(&self.provenance.target),
             quoted(&self.provenance_fingerprint()),
         )
     }
@@ -98,17 +159,32 @@ impl ImportManifest {
         let mut rendered = String::new();
         for part in [
             self.provenance.header.as_str(),
+            self.provenance.header_digest.as_str(),
             self.provenance.provider.as_str(),
             self.provenance.provider_kind.as_str(),
             self.provenance.annotations.as_deref().unwrap_or(""),
+            self.provenance.annotations_digest.as_deref().unwrap_or(""),
             self.provenance.compiler.as_str(),
+            self.provenance.target.as_str(),
+            self.provenance.dialect.as_str(),
+            self.provenance.sysroot.as_deref().unwrap_or(""),
         ] {
             rendered.push_str(part);
             rendered.push('\n');
         }
-        for component in &self.provenance.components {
-            rendered.push_str(component);
-            rendered.push('\n');
+        // Order is significant for all three: an include root that comes first
+        // shadows a later one, and a define can be redefined.
+        for group in [
+            &self.provenance.include_roots,
+            &self.provenance.system_include_roots,
+            &self.provenance.defines,
+            &self.provenance.components,
+        ] {
+            for entry in group {
+                rendered.push_str(entry);
+                rendered.push('\n');
+            }
+            rendered.push('\u{1e}');
         }
         digest(rendered.as_bytes())
     }
@@ -118,35 +194,49 @@ impl ImportManifest {
         let document = JsonValue::parse(text)?;
         let interface = read_interface(document.field("interface")?)?;
         let provenance_value = document.field("provenance")?;
-        let provenance = ImportProvenance {
-            header: provenance_value.string_field("header")?.to_string(),
-            provider: provenance_value.string_field("provider")?.to_string(),
-            provider_kind: provenance_value.string_field("provider_kind")?.to_string(),
-            annotations: match provenance_value.field("annotations")? {
-                JsonValue::Null => None,
-                other => Some(
+        let optional = |field: &'static str| -> Result<Option<String>, ImportManifestError> {
+            match provenance_value.field(field)? {
+                JsonValue::Null => Ok(None),
+                other => Ok(Some(
                     other
                         .as_str()
                         .ok_or(ImportManifestError::Json(JsonError::WrongType {
-                            field: "annotations".to_string(),
+                            field: field.to_string(),
                             expected: "string or null",
                         }))?
                         .to_string(),
-                ),
-            },
-            compiler: provenance_value.string_field("compiler")?.to_string(),
-            components: provenance_value
-                .array_field("components")?
+                )),
+            }
+        };
+        let list = |field: &'static str| -> Result<Vec<String>, ImportManifestError> {
+            provenance_value
+                .array_field(field)?
                 .iter()
                 .map(|item| {
                     item.as_str()
                         .map(str::to_string)
                         .ok_or(ImportManifestError::Json(JsonError::WrongType {
-                            field: "components".to_string(),
+                            field: field.to_string(),
                             expected: "string",
                         }))
                 })
-                .collect::<Result<Vec<_>, _>>()?,
+                .collect::<Result<Vec<_>, _>>()
+        };
+        let provenance = ImportProvenance {
+            header: provenance_value.string_field("header")?.to_string(),
+            header_digest: provenance_value.string_field("header_digest")?.to_string(),
+            provider: provenance_value.string_field("provider")?.to_string(),
+            provider_kind: provenance_value.string_field("provider_kind")?.to_string(),
+            annotations: optional("annotations")?,
+            annotations_digest: optional("annotations_digest")?,
+            compiler: provenance_value.string_field("compiler")?.to_string(),
+            target: provenance_value.string_field("target")?.to_string(),
+            dialect: provenance_value.string_field("dialect")?.to_string(),
+            include_roots: list("include_roots")?,
+            system_include_roots: list("system_include_roots")?,
+            defines: list("defines")?,
+            sysroot: optional("sysroot")?,
+            components: list("components")?,
         };
         let manifest = Self {
             interface,
@@ -174,6 +264,39 @@ impl ImportManifest {
             });
         }
         Ok(manifest)
+    }
+
+    /// Which recorded input no longer matches what is on disk.
+    ///
+    /// Comparing digests costs two file reads, so ordinary compilation can
+    /// afford it on every build; re-running the C pipeline to compare
+    /// interfaces cannot. This catches the case that actually happens -- the
+    /// header was edited and the manifest was not regenerated -- before the
+    /// stale interface is used to compile a caller.
+    pub fn stale_input(
+        &self,
+        header_digest: &str,
+        annotations_digest: Option<&str>,
+    ) -> Option<StaleImportInput> {
+        if self.provenance.header_digest != header_digest {
+            return Some(StaleImportInput {
+                alias: self.interface.alias.clone(),
+                input: "header",
+                path: self.provenance.header.clone(),
+            });
+        }
+        if self.provenance.annotations_digest.as_deref() != annotations_digest {
+            return Some(StaleImportInput {
+                alias: self.interface.alias.clone(),
+                input: "annotation overlay",
+                path: self
+                    .provenance
+                    .annotations
+                    .clone()
+                    .unwrap_or_else(|| "<none>".to_string()),
+            });
+        }
+        None
     }
 
     /// Check a checked-in manifest against a freshly produced one.
@@ -889,10 +1012,18 @@ mod tests {
             },
             provenance: ImportProvenance {
                 header: "native/c_math.h".to_string(),
+                header_digest: digest(b"int c_math_add_one(int);\n"),
                 provider: "native/libc_math.a".to_string(),
                 provider_kind: "static".to_string(),
                 annotations: Some("interop/c_math.toml".to_string()),
+                annotations_digest: Some(digest(b"[routine.c_math_add_one]\n")),
                 compiler: "/usr/bin/gcc".to_string(),
+                target: "x86_64-unknown-linux-gnu".to_string(),
+                dialect: "c17".to_string(),
+                include_roots: vec!["native".to_string()],
+                system_include_roots: Vec::new(),
+                defines: vec!["NDEBUG".to_string(), "WIDTH=64".to_string()],
+                sysroot: None,
                 components: vec!["parc=0f52aee".to_string(), "linc=38f73db".to_string()],
             },
         }

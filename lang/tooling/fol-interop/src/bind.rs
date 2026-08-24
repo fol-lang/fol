@@ -144,6 +144,7 @@ pub fn bind_c(request: BindCRequest<'_>) -> Result<ImportManifest, BindCError> {
         return Err(BindCError::FingerprintMismatch("target"));
     }
 
+    let target_triple = request.target.as_str().to_string();
     let interface = project_imported_interface(
         request.alias,
         request.target,
@@ -159,13 +160,24 @@ pub fn bind_c(request: BindCRequest<'_>) -> Result<ImportManifest, BindCError> {
         interface,
         provenance: ImportProvenance {
             header: relative_to(&package_root, &header),
+            header_digest: content_digest(&header)?,
             provider: relative_to(&package_root, &provider),
             provider_kind: request.provider_kind.as_str().to_string(),
             annotations: request
                 .annotations
                 .and_then(|path| path.canonicalize().ok())
                 .map(|path| relative_to(&package_root, &path)),
+            annotations_digest: match request.annotations {
+                Some(path) => Some(content_digest(path)?),
+                None => None,
+            },
             compiler: compiler.display().to_string(),
+            target: target_triple,
+            dialect: request.dialect.unwrap_or("c17").to_string(),
+            include_roots: request.search.include_roots.clone(),
+            system_include_roots: request.search.system_include_roots.clone(),
+            defines: request.search.defines.clone(),
+            sysroot: request.search.sysroot.clone(),
             components: vec![
                 format!("parc={}", revisions.parc),
                 format!("linc={}", revisions.linc),
@@ -173,6 +185,18 @@ pub fn bind_c(request: BindCRequest<'_>) -> Result<ImportManifest, BindCError> {
             ],
         },
     })
+}
+
+/// The digest of a file's exact bytes.
+///
+/// Recorded beside the path so a reader can tell whether the file still says
+/// what it said when the manifest was written.
+fn content_digest(path: &Path) -> Result<String, BindCError> {
+    let bytes = std::fs::read(path).map_err(|source| BindCError::Io {
+        path: path.to_owned(),
+        source,
+    })?;
+    Ok(fol_abi::digest(&bytes))
 }
 
 /// Paths in the manifest are package-relative, so the same package binds to the

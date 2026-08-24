@@ -149,6 +149,20 @@ pub fn default_manifest_path(package_root: &Path, alias: &str) -> PathBuf {
         .join(format!("{alias}.folabi.json"))
 }
 
+/// The current digest of an input the manifest recorded.
+///
+/// A missing file is reported as the staleness it is: the manifest names an
+/// input that is no longer there.
+fn recorded_input_digest(package_root: &Path, relative: &str) -> FrontendResult<String> {
+    let path = package_root.join(relative);
+    let bytes = std::fs::read(&path).map_err(|error| {
+        invalid(format!(
+            "the manifest records '{relative}', which could not be read: {error}"
+        ))
+    })?;
+    Ok(fol_abi::digest(&bytes))
+}
+
 /// Load the checked import manifests for one package's C imports.
 ///
 /// Compilation reads these rather than invoking a C preprocessor: section 4.13
@@ -192,6 +206,19 @@ pub fn load_c_import_interfaces(
                 "the manifest at '{}' declares alias '{}', but the build attaches it as '{alias}'",
                 path.display(),
                 manifest.interface.alias
+            )));
+        }
+        // The manifest's own fingerprints only prove it was not hand-edited.
+        // Whether it still describes the header is a separate question, and
+        // the answer is two file reads.
+        let header_digest = recorded_input_digest(package_root, &manifest.provenance.header)?;
+        let annotations_digest = match &manifest.provenance.annotations {
+            Some(relative) => Some(recorded_input_digest(package_root, relative)?),
+            None => None,
+        };
+        if let Some(stale) = manifest.stale_input(&header_digest, annotations_digest.as_deref()) {
+            return Err(invalid(format!("{stale}")).with_note(format!(
+                "run `fol tool bind c --alias {alias} ...` again and check the result in",
             )));
         }
         interfaces.push(manifest.interface);

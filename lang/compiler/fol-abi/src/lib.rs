@@ -31,7 +31,7 @@ pub use import::{
 };
 pub use import_manifest::{
     canonical_import_interface_json, ImportManifest, ImportManifestError, ImportProvenance,
-    IMPORT_MANIFEST_SCHEMA, IMPORT_MANIFEST_SCHEMA_VERSION,
+    StaleImportInput, IMPORT_MANIFEST_SCHEMA, IMPORT_MANIFEST_SCHEMA_VERSION,
 };
 pub use interface::{
     AbiCallingConvention, AbiDirection, AbiEffects, AbiErrorContract, AbiFacing, AbiParameter,

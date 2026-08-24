@@ -238,6 +238,109 @@ fn fol_calls_a_checked_c_scalar_library_and_observes_both_outcomes() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A manifest's own fingerprints prove only that nobody edited the manifest.
+/// Whether it still describes the header is a different question, and it used
+/// to go unasked: editing the header left the checked-in interface in force,
+/// so callers compiled against a surface the header no longer had.
+#[test]
+fn editing_the_header_after_binding_is_refused_at_compile_time() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the interop lane");
+        return;
+    };
+    let root = stage_example();
+    build_provider(&root, &compiler);
+
+    let (ok, text) = bind(
+        &root,
+        &compiler,
+        &temp,
+        "interop/c_math.toml",
+        "interop/c_math.folabi.json",
+    );
+    assert!(ok, "the initial bind should succeed:\n{text}");
+
+    let (ok, text) = run_folc(&root, &compiler, &temp, &["code", "build"]);
+    assert!(
+        ok,
+        "the package should build before the header changes:\n{text}"
+    );
+
+    // Any change at all: the check is on the bytes, not on whether the change
+    // happens to alter the projected interface.
+    let header = root.join("native/c_math.h");
+    let original = std::fs::read_to_string(&header).expect("readable header");
+    std::fs::write(&header, format!("{original}\n/* edited after binding */\n"))
+        .expect("writable header");
+
+    let (ok, text) = run_folc(&root, &compiler, &temp, &["code", "build"]);
+    assert!(
+        !ok,
+        "building against a header edited after the bind must be refused:\n{text}"
+    );
+    assert!(
+        text.contains("has changed since C import 'c_math' was bound"),
+        "the refusal should say what went stale; got:\n{text}"
+    );
+    assert!(
+        text.contains("bind c"),
+        "the refusal should name the command that fixes it; got:\n{text}"
+    );
+
+    // Re-binding makes it current again, so the refusal is a staleness check
+    // and not a permanent wedge.
+    let (ok, text) = bind(
+        &root,
+        &compiler,
+        &temp,
+        "interop/c_math.toml",
+        "interop/c_math.folabi.json",
+    );
+    assert!(ok, "re-binding should succeed:\n{text}");
+    let (ok, text) = run_folc(&root, &compiler, &temp, &["code", "build"]);
+    assert!(
+        ok,
+        "the package should build again after re-binding:\n{text}"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The annotation overlay is the other half of the contract, so a change to it
+/// goes stale the same way.
+#[test]
+fn editing_the_annotation_overlay_after_binding_is_refused() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the interop lane");
+        return;
+    };
+    let root = stage_example();
+    build_provider(&root, &compiler);
+
+    let (ok, text) = bind(
+        &root,
+        &compiler,
+        &temp,
+        "interop/c_math.toml",
+        "interop/c_math.folabi.json",
+    );
+    assert!(ok, "the initial bind should succeed:\n{text}");
+
+    let overlay = root.join("interop/c_math.toml");
+    let original = std::fs::read_to_string(&overlay).expect("readable overlay");
+    std::fs::write(&overlay, format!("{original}\n# edited after binding\n"))
+        .expect("writable overlay");
+
+    let (ok, text) = run_folc(&root, &compiler, &temp, &["code", "build"]);
+    assert!(!ok, "an edited overlay must be refused:\n{text}");
+    assert!(
+        text.contains("annotation overlay") && text.contains("was bound"),
+        "the refusal should name the overlay; got:\n{text}"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Section 4.13 lets unsupported declarations stay in an imported header: only
 /// the overlay's chosen symbols have to be translatable. That guarantee held
 /// for `tool bind c` and was lost on the compile path, which scanned the whole
