@@ -270,6 +270,7 @@ pub enum ToolSubcommand {
     Clean(UnitCommand),
     Completion(CompletionCommand),
     Bind(BindCommand),
+    Abi(AbiCommand),
 }
 
 /// `fol tool bind c` and any future language lane.
@@ -304,6 +305,42 @@ pub struct BindCCommand {
     pub out: String,
     /// The capability model the import is checked against.
     pub fol_model: Option<String>,
+}
+
+/// `fol tool abi inspect` and `fol tool abi check`.
+///
+/// Both read written manifests and nothing else. Neither compiles, so neither
+/// takes a package root: an installed prefix or a release archive is exactly
+/// where these are useful, and requiring a source tree would make them useless
+/// there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AbiSubcommand {
+    Inspect(AbiInspectCommand),
+    Check(AbiCheckCommand),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AbiCommand {
+    pub output: FrontendOutputArgs,
+    pub command: AbiSubcommand,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AbiInspectCommand {
+    /// The manifest to read.
+    pub manifest: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AbiCheckCommand {
+    /// The checked-in baseline.
+    pub baseline: String,
+    /// The manifest just produced.
+    pub candidate: String,
+    /// Accept a breaking change because the major version was incremented on
+    /// purpose. Spelled as a flag so the acceptance is in the command that ran,
+    /// not in a file someone edited.
+    pub allow_breaking: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

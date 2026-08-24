@@ -12,6 +12,7 @@
 //! `build_fingerprint` covers toolchain, profile, and native inputs.
 
 use crate::interface::{AbiErrorContract, AbiFacing, ForeignRoutine, ResolvedAbiSurface};
+use crate::json::{JsonError, JsonValue};
 use crate::types::{AbiScalar, AbiType, AbiTypeId, AbiTypeTable};
 
 /// The schema this manifest is written against.
@@ -302,6 +303,421 @@ pub fn canonical_type_table_json(table: &AbiTypeTable) -> String {
     format!("[{rendered}]")
 }
 
+/// Why a written manifest could not be read back.
+///
+/// Reading is a separate concern from writing, and the errors say so: every
+/// variant names the exact fact that did not survive, because a manifest is
+/// evidence and "malformed" tells a reader nothing about what to fix.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ManifestError {
+    Json(JsonError),
+    UnknownSchema {
+        found: String,
+    },
+    UnsupportedVersion {
+        found: i64,
+    },
+    UnknownTarget {
+        triple: String,
+    },
+    UnknownScalar {
+        name: String,
+    },
+    UnknownConvention {
+        convention: String,
+    },
+    UnknownFacing {
+        facing: String,
+    },
+    UnknownTagWidth {
+        width: String,
+    },
+    UnsupportedTypeKind {
+        kind: String,
+    },
+    TypeTableOutOfOrder {
+        expected: usize,
+        found: i64,
+    },
+    DanglingTypeId {
+        symbol: String,
+        id: i64,
+    },
+    /// The document's own recorded fingerprint disagrees with its body, which
+    /// means it was hand-edited or truncated. Either way it is not evidence.
+    FingerprintMismatch {
+        field: &'static str,
+        recorded: String,
+        actual: String,
+    },
+}
+
+impl From<JsonError> for ManifestError {
+    fn from(error: JsonError) -> Self {
+        Self::Json(error)
+    }
+}
+
+impl std::fmt::Display for ManifestError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Json(error) => write!(f, "the ABI manifest is not readable: {error}"),
+            Self::UnknownSchema { found } => write!(
+                f,
+                "the ABI manifest declares schema '{found}'; this compiler reads '{MANIFEST_SCHEMA}'"
+            ),
+            Self::UnsupportedVersion { found } => write!(
+                f,
+                "the ABI manifest declares schema version {found}; this compiler reads \
+                 {MANIFEST_SCHEMA_VERSION}"
+            ),
+            Self::UnknownTarget { triple } => {
+                write!(f, "the ABI manifest names unknown target '{triple}'")
+            }
+            Self::UnknownScalar { name } => {
+                write!(f, "the ABI manifest names unknown scalar '{name}'")
+            }
+            Self::UnknownConvention { convention } => write!(
+                f,
+                "the ABI manifest names calling convention '{convention}'"
+            ),
+            Self::UnknownFacing { facing } => {
+                write!(f, "the ABI manifest names direction '{facing}'")
+            }
+            Self::UnknownTagWidth { width } => {
+                write!(f, "the ABI manifest names entry tag width '{width}'")
+            }
+            Self::UnsupportedTypeKind { kind } => {
+                write!(f, "the ABI manifest names type kind '{kind}'")
+            }
+            Self::TypeTableOutOfOrder { expected, found } => write!(
+                f,
+                "the ABI manifest's type table is out of order: position {expected} carries id \
+                 {found}"
+            ),
+            Self::DanglingTypeId { symbol, id } => write!(
+                f,
+                "routine '{symbol}' references type id {id}, which the manifest's table does not \
+                 define"
+            ),
+            Self::FingerprintMismatch {
+                field,
+                recorded,
+                actual,
+            } => write!(
+                f,
+                "the ABI manifest records {field} fingerprint {recorded} but its contents hash to \
+                 {actual}; it was edited by hand or truncated"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ManifestError {}
+
+impl AbiManifest {
+    /// Read a written manifest back.
+    ///
+    /// The inverse of `canonical_json`, and checked against it: both recorded
+    /// fingerprints are recomputed from the reconstructed document and compared.
+    /// That is what makes a checked-in manifest evidence rather than a note --
+    /// `fol tool abi check` compares two of these, and comparing a hand-edited
+    /// file would prove nothing.
+    pub fn parse(text: &str) -> Result<Self, ManifestError> {
+        let document = JsonValue::parse(text)?;
+        let surface = read_surface(document.field("interface")?)?;
+        let provenance_value = document.field("provenance")?;
+        let provenance = BuildProvenance {
+            compiler: provenance_value.string_field("compiler")?.to_string(),
+            runtime: provenance_value.string_field("runtime")?.to_string(),
+            profile: provenance_value.string_field("profile")?.to_string(),
+            native_inputs: provenance_value
+                .array_field("native_inputs")?
+                .iter()
+                .map(|item| {
+                    item.as_str().map(str::to_string).ok_or(ManifestError::Json(
+                        JsonError::WrongType {
+                            field: "native_inputs".to_string(),
+                            expected: "string",
+                        },
+                    ))
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        };
+        let manifest = Self {
+            surface,
+            provenance,
+        };
+
+        for (field, recorded) in [
+            (
+                "interface",
+                document.string_field("interface_fingerprint")?.to_string(),
+            ),
+            (
+                "build",
+                document.string_field("build_fingerprint")?.to_string(),
+            ),
+        ] {
+            let actual = match field {
+                "interface" => manifest.interface_fingerprint(),
+                _ => manifest.build_fingerprint(),
+            };
+            if recorded != actual {
+                return Err(ManifestError::FingerprintMismatch {
+                    field: match field {
+                        "interface" => "interface",
+                        _ => "build",
+                    },
+                    recorded,
+                    actual,
+                });
+            }
+        }
+        Ok(manifest)
+    }
+}
+
+fn read_surface(value: &JsonValue) -> Result<ResolvedAbiSurface, ManifestError> {
+    let schema = value.string_field("schema")?;
+    if schema != MANIFEST_SCHEMA {
+        return Err(ManifestError::UnknownSchema {
+            found: schema.to_string(),
+        });
+    }
+    let version = value.integer_field("schema_version")?;
+    if version != i64::from(MANIFEST_SCHEMA_VERSION) {
+        return Err(ManifestError::UnsupportedVersion { found: version });
+    }
+    let triple = value.string_field("target")?;
+    let target =
+        fol_types::ResolvedTarget::resolve(triple).map_err(|_| ManifestError::UnknownTarget {
+            triple: triple.to_string(),
+        })?;
+
+    // Written in id order and read back positionally: an id that does not match
+    // its position means the document was reordered, which would silently
+    // repoint every routine at a different type.
+    let mut types = AbiTypeTable::new();
+    for (position, entry) in value.array_field("types")?.iter().enumerate() {
+        let id = entry.integer_field("id")?;
+        let ty = read_type(entry)?;
+        let interned = types.intern(ty);
+        if id != interned.0 as i64 || position != interned.0 {
+            return Err(ManifestError::TypeTableOutOfOrder {
+                expected: position,
+                found: id,
+            });
+        }
+    }
+
+    let mut routines = Vec::new();
+    for entry in value.array_field("routines")? {
+        routines.push(read_routine(entry, &types)?);
+    }
+
+    let abi = value.field("abi")?;
+    Ok(ResolvedAbiSurface {
+        artifact: value.string_field("artifact")?.to_string(),
+        major: u32::try_from(abi.integer_field("major")?).unwrap_or(0),
+        minor: u32::try_from(abi.integer_field("minor")?).unwrap_or(0),
+        interface: crate::interface::ForeignInterface {
+            target,
+            types,
+            routines,
+        },
+    })
+}
+
+fn read_type(entry: &JsonValue) -> Result<AbiType, ManifestError> {
+    let kind = entry.string_field("kind")?;
+    Ok(match kind {
+        "void" => AbiType::Void,
+        "scalar" => {
+            let name = entry.string_field("scalar")?;
+            AbiType::Scalar(export_scalar_for_name(name).ok_or_else(|| {
+                ManifestError::UnknownScalar {
+                    name: name.to_string(),
+                }
+            })?)
+        }
+        "borrowed-string" => AbiType::BorrowedString,
+        "opaque-handle" => AbiType::OpaqueHandle {
+            name: entry.string_field("name")?.to_string(),
+        },
+        "pointer" => AbiType::Pointer {
+            target: read_type_index(entry.integer_field("target")?)?,
+            mutability: match entry.string_field("mutability")? {
+                "Const" => crate::types::AbiMutability::Const,
+                _ => crate::types::AbiMutability::Mutable,
+            },
+            nullability: match entry.string_field("nullability")? {
+                "Nullable" => crate::types::AbiNullability::Nullable,
+                _ => crate::types::AbiNullability::NonNull,
+            },
+            ownership: match entry.string_field("ownership")? {
+                "Transferred" => crate::types::AbiOwnership::Transferred,
+                _ => crate::types::AbiOwnership::Borrowed,
+            },
+            escape: match entry.string_field("escape")? {
+                "Retained" => crate::types::AbiEscape::Retained,
+                _ => crate::types::AbiEscape::CallScoped,
+            },
+            destructor: match entry.field("destructor")? {
+                JsonValue::Null => None,
+                other => other.as_str().map(str::to_string),
+            },
+        },
+        "borrowed-slice" => AbiType::BorrowedSlice {
+            element: read_type_index(entry.integer_field("element")?)?,
+            mutability: match entry.string_field("mutability")? {
+                "Const" => crate::types::AbiMutability::Const,
+                _ => crate::types::AbiMutability::Mutable,
+            },
+        },
+        "record" => {
+            let mut fields = Vec::new();
+            for field in entry.array_field("fields")? {
+                fields.push(crate::types::AbiField {
+                    name: field.string_field("name")?.to_string(),
+                    type_id: read_type_index(field.integer_field("type")?)?,
+                });
+            }
+            AbiType::Record {
+                name: entry.string_field("name")?.to_string(),
+                fields,
+            }
+        }
+        "entry" => {
+            let mut variants = Vec::new();
+            for variant in entry.array_field("variants")? {
+                variants.push(crate::types::AbiVariant {
+                    name: variant.string_field("name")?.to_string(),
+                    discriminant: variant.integer_field("discriminant")?,
+                    payload: match variant.field("payload")? {
+                        JsonValue::Null => None,
+                        other => Some(read_type_index(other.as_i64().unwrap_or(-1))?),
+                    },
+                });
+            }
+            let width = entry.string_field("tag")?;
+            AbiType::Entry {
+                name: entry.string_field("name")?.to_string(),
+                tag: int_width_for_name(width).ok_or_else(|| ManifestError::UnknownTagWidth {
+                    width: width.to_string(),
+                })?,
+                variants,
+            }
+        }
+        other => {
+            return Err(ManifestError::UnsupportedTypeKind {
+                kind: other.to_string(),
+            })
+        }
+    })
+}
+
+fn read_routine(entry: &JsonValue, types: &AbiTypeTable) -> Result<ForeignRoutine, ManifestError> {
+    let symbol = entry.string_field("symbol")?.to_string();
+    let mut parameters = Vec::new();
+    for parameter in entry.array_field("parameters")? {
+        parameters.push(crate::interface::AbiParameter {
+            name: parameter.string_field("name")?.to_string(),
+            type_id: read_referenced_type(parameter.integer_field("type")?, types, &symbol)?,
+            direction: match parameter.string_field("direction")? {
+                "out" => crate::interface::AbiDirection::Out,
+                "inout" => crate::interface::AbiDirection::InOut,
+                _ => crate::interface::AbiDirection::In,
+            },
+        });
+    }
+    let facing = entry.string_field("facing")?;
+    Ok(ForeignRoutine {
+        fol_path: entry.string_field("fol_path")?.to_string(),
+        convention: match entry.string_field("convention")? {
+            "C" => crate::interface::AbiCallingConvention::C,
+            other => {
+                return Err(ManifestError::UnknownConvention {
+                    convention: other.to_string(),
+                })
+            }
+        },
+        facing: match facing {
+            "export" => AbiFacing::Export,
+            "import" => AbiFacing::Import,
+            other => {
+                return Err(ManifestError::UnknownFacing {
+                    facing: other.to_string(),
+                })
+            }
+        },
+        result: read_referenced_type(entry.integer_field("result")?, types, &symbol)?,
+        error: match entry.field("error")? {
+            JsonValue::Null => AbiErrorContract::Infallible,
+            other => AbiErrorContract::Recoverable {
+                error_type: read_referenced_type(other.as_i64().unwrap_or(-1), types, &symbol)?,
+            },
+        },
+        // Neither selection nor effects nor origin is an ABI fact, so the
+        // manifest does not carry them and a read-back surface uses the
+        // defaults. `compare_surfaces` reads none of the three.
+        selection: crate::interface::ExportSelection {
+            package_visible: true,
+            abi_selected: true,
+        },
+        effects: crate::interface::AbiEffects::default(),
+        origin: crate::interface::AbiSourceOrigin::default(),
+        parameters,
+        symbol,
+    })
+}
+
+fn read_type_index(raw: i64) -> Result<AbiTypeId, ManifestError> {
+    usize::try_from(raw).map(AbiTypeId).map_err(|_| {
+        ManifestError::Json(JsonError::WrongType {
+            field: "type".to_string(),
+            expected: "a type index",
+        })
+    })
+}
+
+fn read_referenced_type(
+    raw: i64,
+    types: &AbiTypeTable,
+    symbol: &str,
+) -> Result<AbiTypeId, ManifestError> {
+    usize::try_from(raw)
+        .ok()
+        .filter(|index| *index < types.len())
+        .map(AbiTypeId)
+        .ok_or(ManifestError::DanglingTypeId {
+            symbol: symbol.to_string(),
+            id: raw,
+        })
+}
+
+/// The export manifest's own scalar spellings.
+///
+/// Deliberately not shared with the import manifest's reader: that one writes
+/// `bool`/`char` and this one writes FOL's `bol`/`chr`, and a shared mapper
+/// accepting both would let a document mix the two.
+fn export_scalar_for_name(name: &str) -> Option<AbiScalar> {
+    Some(match name {
+        "bol" => AbiScalar::Bool,
+        "chr" => AbiScalar::Char,
+        "f32" => AbiScalar::Float(fol_types::FloatWidth::F32),
+        "f64" => AbiScalar::Float(fol_types::FloatWidth::F64),
+        other => AbiScalar::Int(int_width_for_name(other)?),
+    })
+}
+
+fn int_width_for_name(name: &str) -> Option<fol_types::IntWidth> {
+    fol_types::IntWidth::ALL
+        .iter()
+        .copied()
+        .find(|width| width.as_str() == name)
+}
+
 /// How two interfaces relate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AbiCompatibility {
@@ -311,6 +727,11 @@ pub enum AbiCompatibility {
     MinorCompatible,
     /// A public symbol, type, layout, ownership, or error rule changed.
     Breaking,
+    /// The two surfaces describe different targets, so no comparison of their
+    /// layouts means anything. Distinct from `Breaking` because nothing about
+    /// the source changed -- the baseline is simply not evidence for this
+    /// target.
+    TargetMismatch,
 }
 
 /// Compare a candidate surface against a baseline.
@@ -325,9 +746,12 @@ pub fn compare_surfaces(
     if canonical_interface_json(baseline) == canonical_interface_json(candidate) {
         return AbiCompatibility::Identical;
     }
-    // Cross-target manifests are never comparable as if layout-compatible.
+    // Cross-target manifests are never comparable as if layout-compatible, and
+    // this is not a break: nothing about the source changed, the baseline is
+    // simply not evidence for this target. Reporting it as breaking would send
+    // a reader looking for a change that is not there.
     if baseline.interface.target != candidate.interface.target {
-        return AbiCompatibility::Breaking;
+        return AbiCompatibility::TargetMismatch;
     }
     for existing in &baseline.interface.routines {
         let Some(updated) = candidate

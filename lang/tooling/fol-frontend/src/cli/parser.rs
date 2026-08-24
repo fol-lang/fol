@@ -1346,6 +1346,7 @@ fn parse_tool_command(cursor: &mut ArgCursor) -> Result<FrontendCommand, ParseEr
         }
         "tree" => ToolSubcommand::Tree(parse_tree_command(cursor)?),
         "bind" => ToolSubcommand::Bind(parse_bind_command(cursor, output.clone())?),
+        "abi" => ToolSubcommand::Abi(parse_abi_command(cursor, output.clone())?),
         "clean" | "cl" | "purge" => ToolSubcommand::Clean(UnitCommand),
         "completion" | "completions" | "comp" => {
             ToolSubcommand::Completion(parse_completion_command(cursor)?)
@@ -1432,6 +1433,89 @@ fn bind_usage() -> String {
     "Usage: fol tool bind c --alias <NAME> --header <PATH> --provider <PATH> \
      --out <PATH> [--target <TRIPLE>] [--provider-kind object|static|shared] \
      [--annotations <PATH>] [--fol-model core|memo|std]"
+        .to_string()
+}
+
+fn parse_abi_command(
+    cursor: &mut ArgCursor,
+    output: FrontendOutputArgs,
+) -> Result<AbiCommand, ParseError> {
+    let sub = cursor
+        .advance()
+        .ok_or_else(|| ParseError::help(abi_usage()))?
+        .to_string();
+
+    let mut positional = Vec::new();
+    let mut baseline = String::new();
+    let mut candidate = String::new();
+    let mut allow_breaking = false;
+    while let Some(token) = cursor.peek() {
+        if token == "--help" || token == "-h" {
+            return Err(ParseError::help(abi_usage()));
+        }
+        if !is_flag(token) {
+            positional.push(cursor.advance().unwrap().to_string());
+            continue;
+        }
+        let token = cursor.advance().unwrap().to_string();
+        let (key, _) = split_eq(&token);
+        if key == "--allow-breaking" {
+            allow_breaking = true;
+            continue;
+        }
+        let value = cursor.take_value(&token, key.trim_start_matches("--"))?;
+        match key {
+            "--baseline" => baseline = value,
+            "--candidate" => candidate = value,
+            _ => {
+                return Err(ParseError::invalid(format!(
+                    "unknown flag for tool abi {sub}: {key}"
+                )))
+            }
+        }
+    }
+
+    let command = match sub.as_str() {
+        "inspect" => {
+            // One positional path, because there is nothing else to name.
+            let manifest = positional.into_iter().next().unwrap_or_default();
+            if manifest.is_empty() {
+                return Err(ParseError::missing(
+                    "tool abi inspect requires the path to a manifest".to_string(),
+                ));
+            }
+            AbiSubcommand::Inspect(AbiInspectCommand { manifest })
+        }
+        "check" => {
+            // Named rather than positional: two paths in one order is exactly
+            // the shape a reader gets backwards, and getting it backwards
+            // reverses the verdict.
+            for (value, flag) in [(&baseline, "--baseline"), (&candidate, "--candidate")] {
+                if value.is_empty() {
+                    return Err(ParseError::missing(format!(
+                        "tool abi check requires {flag}"
+                    )));
+                }
+            }
+            AbiSubcommand::Check(AbiCheckCommand {
+                baseline,
+                candidate,
+                allow_breaking,
+            })
+        }
+        other => {
+            return Err(ParseError::invalid_subcommand(format!(
+                "unknown abi subcommand: {other}"
+            )))
+        }
+    };
+    Ok(AbiCommand { output, command })
+}
+
+fn abi_usage() -> String {
+    "Usage: fol tool abi inspect <MANIFEST>\n\
+     \x20      fol tool abi check --baseline <MANIFEST> --candidate <MANIFEST> \
+     [--allow-breaking]"
         .to_string()
 }
 

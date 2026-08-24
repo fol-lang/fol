@@ -44,7 +44,8 @@ pub use layout::{
 };
 pub use manifest::{
     canonical_interface_json, canonical_type_table_json, compare_surfaces, digest,
-    AbiCompatibility, AbiManifest, BuildProvenance, MANIFEST_SCHEMA, MANIFEST_SCHEMA_VERSION,
+    AbiCompatibility, AbiManifest, BuildProvenance, ManifestError, MANIFEST_SCHEMA,
+    MANIFEST_SCHEMA_VERSION,
 };
 pub use metadata::{
     aggregate_matrix, c_projection_for, full_matrix, scalar_matrix, AbiTypeMatrixRow, STATUS_VALUES,

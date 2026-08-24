@@ -165,6 +165,8 @@ Tooling commands:
 - `fol tool tree generate <PATH>`
 - `fol tool clean`
 - `fol tool completion <bash|zsh|fish>`
+- `fol tool abi inspect <MANIFEST>`
+- `fol tool abi check --baseline <MANIFEST> --candidate <MANIFEST> [--allow-breaking]`
 
 Examples:
 
@@ -179,7 +181,35 @@ fol tool semantic-tokens src/main.fol
 fol tool tree generate /tmp/fol
 fol tool lsp
 fol tool completion bash
+fol tool abi inspect prefix/share/fol/abi/libname.folabi.json
+fol tool abi check --baseline abi/baseline.folabi.json --candidate .fol/install/share/fol/abi/libname.folabi.json
 ```
+
+## Reading and comparing an ABI surface
+
+`fol tool abi inspect` prints what one installed manifest says a library's C
+surface is: every exported symbol with its C parameter and result types, its
+error contract, and both fingerprints.
+
+`fol tool abi check` compares a candidate manifest against a checked-in
+baseline and reports one of four outcomes:
+
+| Outcome | Exit | Meaning |
+| --- | --- | --- |
+| unchanged | 0 | the public surface is byte-identical |
+| unchanged, build fingerprint moved | 0 | a compiler or profile change, not an ABI event |
+| compatible | 0 | existing symbols unchanged; the candidate only adds |
+| breaking | 1 | a symbol, type, layout, or error rule changed |
+| target mismatch | 1 | the two describe different targets, so no comparison means anything |
+
+A break is accepted only with `--allow-breaking`, which says the ABI major is
+being incremented on purpose. A target mismatch is never accepted that way: the
+flag means "this break is intended", and a mismatch is not a break to intend.
+
+Neither command needs a package root or compiles anything — an installed prefix
+and an extracted release archive are where they are useful, and neither has a
+source tree. Both read through the manifest's own fingerprints, so a
+hand-edited file is refused rather than reported on.
 
 Use `tool` for:
 

@@ -3,6 +3,7 @@
 //! `fol-frontend` will become the canonical command-line/workspace entrypoint
 //! above `fol-package` and the compiler pipeline.
 
+mod abi_tool;
 pub(crate) mod ansi;
 mod bind;
 mod build_route;
@@ -31,6 +32,7 @@ mod ui;
 mod work;
 mod workspace;
 
+pub use abi_tool::{abi_check_command, abi_inspect_command};
 pub use bind::{bind_c_command, default_manifest_path, load_c_import_interfaces};
 pub use build_route::{
     execute_workspace_build_route, plan_workspace_build_route, requested_workspace_step,

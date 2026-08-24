@@ -108,6 +108,10 @@ pub fn dispatch_cli(
             ToolSubcommand::Bind(command) => match &command.command {
                 cli::BindSubcommand::C(command) => crate::bind_c_command(command, config),
             },
+            ToolSubcommand::Abi(command) => match &command.command {
+                cli::AbiSubcommand::Inspect(command) => crate::abi_inspect_command(command, config),
+                cli::AbiSubcommand::Check(command) => crate::abi_check_command(command, config),
+            },
             ToolSubcommand::Clean(_) => {
                 let discovered = discovered_root_for_command(cmd, &config.working_directory)?;
                 let workspace = crate::load_frontend_workspace(&discovered, config)?;
@@ -291,7 +295,8 @@ pub fn dispatch_workspace_command(
             | ToolSubcommand::Complete(_)
             | ToolSubcommand::SemanticTokens(_)
             | ToolSubcommand::Tree(_)
-            | ToolSubcommand::Bind(_) => Err(FrontendError::new(
+            | ToolSubcommand::Bind(_)
+            | ToolSubcommand::Abi(_) => Err(FrontendError::new(
                 FrontendErrorKind::Internal,
                 "unexpected editor command reached workspace dispatcher",
             )),

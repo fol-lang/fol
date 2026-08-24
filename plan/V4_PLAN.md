@@ -2854,10 +2854,42 @@ Primary proof fixtures:
 
 Tasks:
 
-- [ ] Add `fol tool abi inspect` and `fol tool abi check` (or the single exact
+- [x] Add `fol tool abi inspect` and `fol tool abi check` (or the single exact
   M0-frozen spelling) backed by the canonical manifest implementation.
-- [ ] Compare checked-in ABI baselines; distinguish compatible additions,
+- [x] Compare checked-in ABI baselines; distinguish compatible additions,
   breaking changes, target mismatch, and build-only fingerprint changes.
+
+Both commands read written manifests and nothing else — no package root, no
+compilation — because an installed prefix and an extracted release archive are
+exactly where a consumer needs to ask what a library's C surface is, and neither
+has a source tree.
+
+Reading required writing `AbiManifest::parse`, which did not exist: the export
+manifest had a canonical writer and no reader at all. It is a true inverse,
+proven by a round-trip test over every shape (scalars, a record with unsorted
+field names, an entry with explicit discriminants, a borrowed string, an opaque
+handle, and a pointer carrying all four contracts) that asserts both
+fingerprints and the canonical text survive. `parse` recomputes both recorded
+fingerprints and refuses a document whose body no longer hashes to what it
+records — which is what makes a checked-in baseline evidence rather than a note
+someone edited.
+
+`AbiCompatibility` gained `TargetMismatch`. It was previously folded into
+`Breaking`, which is misleading: nothing about the source changed, so a reader
+would go looking for a change that is not there. `--allow-breaking` accepts a
+break and never a mismatch, because that flag says "this break is intended" and
+a mismatch is not a break to intend. A build-only change reports as unchanged
+*and says the build fingerprint moved*, so a compiler upgrade does not read as
+an ABI event.
+
+The verdict leads the payload rather than living only in the summary: a payload
+replaces the status envelope in human and plain modes, so a summary-only verdict
+was visible in JSON and invisible in a terminal. All three modes now carry it.
+
+Verified by `abi_inspect_reads_an_installed_manifest`,
+`abi_check_distinguishes_every_outcome` (four verdicts, from manifests two real
+builds produced), and `abi_check_refuses_a_hand_edited_manifest`, all in
+`test/v4_c_export.rs`.
 - [ ] Inspect actual symbols with target-appropriate LLVM/platform tools and
   compare against the allowlist.
 - [ ] Verify SONAME/install-name/import-library/runtime lookup behavior without

@@ -612,3 +612,198 @@ fn an_entry_without_explicit_tags_is_refused_with_its_reason() {
         "the diagnostic should say what would break:\n{text}"
     );
 }
+
+/// `fol tool abi inspect` reads an installed manifest without a source tree.
+///
+/// An installed prefix and an extracted release archive are exactly where a
+/// consumer needs to ask what a library's C surface is, and neither has one --
+/// so the command is run against the installed file, from a directory that is
+/// not the package root.
+#[test]
+fn abi_inspect_reads_an_installed_manifest() {
+    let fixture = fol_testkit::TempFixture::new("fol_v4_abi_inspect");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root");
+    let prefix = build_slice(fixture.path(), "add_static_lib");
+    let manifest = prefix.join("share/fol/abi/v4_c_export_scalar.folabi.json");
+    assert!(manifest.is_file(), "the manifest should install");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_folc"))
+        .args(["tool", "abi", "inspect"])
+        .arg(&manifest)
+        // Deliberately not the package root: the command must not need one.
+        .current_dir(fixture.path())
+        .output()
+        .expect("abi inspect should run");
+    let text = strip_ansi(&String::from_utf8_lossy(&output.stdout));
+    assert!(output.status.success(), "abi inspect failed:\n{text}");
+
+    assert!(
+        text.contains("v4_c_export_scalar exposes 15 symbol(s) at ABI 1.0 for"),
+        "the summary should lead the report:\n{text}"
+    );
+    assert!(
+        text.contains("fol_slice_checked_div <- checked_div (int64_t arg0, int64_t arg1) -> int64_t [recoverable(int64_t)]"),
+        "a recoverable routine should report its error contract:\n{text}"
+    );
+    assert!(
+        text.contains("fol_slice_touch <- touch (int64_t arg0) -> void [infallible]"),
+        "a no-value routine should report void:\n{text}"
+    );
+    assert!(
+        text.contains("interface-fingerprint") && text.contains("build-fingerprint"),
+        "both fingerprints belong in the report:\n{text}"
+    );
+}
+
+/// `fol tool abi check` distinguishes every outcome, and fails on the bad ones.
+///
+/// The comparisons use manifests two real builds produced. A hand-written pair
+/// would prove the comparison logic and nothing about whether the compiler
+/// writes what the comparison reads.
+#[test]
+fn abi_check_distinguishes_every_outcome() {
+    let fixture = fol_testkit::TempFixture::new("fol_v4_abi_check");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root");
+
+    let full_prefix = build_slice(fixture.path(), "add_static_lib");
+    let baseline = fixture.path().join("baseline.folabi.json");
+    std::fs::copy(
+        full_prefix.join("share/fol/abi/v4_c_export_scalar.folabi.json"),
+        &baseline,
+    )
+    .expect("baseline should copy");
+
+    // A second build with one export removed. Removing is breaking; comparing
+    // the other way round is the compatible addition.
+    let narrowed_root = fixture.path().join("narrowed");
+    copy_dir(
+        &repo_root().join("examples/v4_c_export_scalar"),
+        &narrowed_root,
+    );
+    let build = narrowed_root.join("build.fol");
+    let text = std::fs::read_to_string(&build).expect("build.fol should read");
+    let narrowed_text: String = text
+        .lines()
+        .filter(|line| !line.contains("add_i8"))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    std::fs::write(&build, narrowed_text).expect("build.fol should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_folc"))
+        .args(["code", "build", "--package-store-root"])
+        .arg(store_root())
+        .current_dir(&narrowed_root)
+        .output()
+        .expect("the narrowed build should run");
+    assert!(
+        output.status.success(),
+        "the narrowed build failed:\n{}",
+        strip_ansi(&String::from_utf8_lossy(&output.stderr))
+    );
+    let narrowed = narrowed_root.join(".fol/install/share/fol/abi/v4_c_export_scalar.folabi.json");
+
+    let check = |args: Vec<&str>| -> (bool, String) {
+        let output = Command::new(env!("CARGO_BIN_EXE_folc"))
+            .args(["tool", "abi", "check"])
+            .args(args)
+            .current_dir(fixture.path())
+            .output()
+            .expect("abi check should run");
+        (
+            output.status.success(),
+            strip_ansi(&format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            )),
+        )
+    };
+
+    let baseline_arg = baseline.to_string_lossy().to_string();
+    let narrowed_arg = narrowed.to_string_lossy().to_string();
+
+    let (ok, text) = check(vec![
+        "--baseline",
+        &baseline_arg,
+        "--candidate",
+        &baseline_arg,
+    ]);
+    assert!(ok, "a manifest compared with itself is unchanged:\n{text}");
+    assert!(
+        text.contains("the public surface is unchanged"),
+        "got:\n{text}"
+    );
+
+    let (ok, text) = check(vec![
+        "--baseline",
+        &baseline_arg,
+        "--candidate",
+        &narrowed_arg,
+    ]);
+    assert!(!ok, "removing an export must fail the check:\n{text}");
+    assert!(
+        text.contains("breaks the checked-in ABI baseline"),
+        "got:\n{text}"
+    );
+
+    let (ok, text) = check(vec![
+        "--baseline",
+        &baseline_arg,
+        "--candidate",
+        &narrowed_arg,
+        "--allow-breaking",
+    ]);
+    assert!(ok, "a deliberate break should be acceptable:\n{text}");
+    assert!(text.contains("removed fol_slice_add_i8"), "got:\n{text}");
+
+    let (ok, text) = check(vec![
+        "--baseline",
+        &narrowed_arg,
+        "--candidate",
+        &baseline_arg,
+    ]);
+    assert!(ok, "adding an export is compatible:\n{text}");
+    assert!(text.contains("added fol_slice_add_i8"), "got:\n{text}");
+}
+
+/// A hand-edited manifest is refused rather than compared.
+///
+/// This is what makes a checked-in baseline evidence: the document records a
+/// fingerprint of its own contents, so editing it to say what someone wanted
+/// breaks the check by design.
+#[test]
+fn abi_check_refuses_a_hand_edited_manifest() {
+    let fixture = fol_testkit::TempFixture::new("fol_v4_abi_tamper");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root");
+    let prefix = build_slice(fixture.path(), "add_static_lib");
+    let manifest = prefix.join("share/fol/abi/v4_c_export_scalar.folabi.json");
+    let original = std::fs::read_to_string(&manifest).expect("manifest should read");
+
+    let tampered = fixture.path().join("tampered.folabi.json");
+    std::fs::write(
+        &tampered,
+        original.replace("fol_slice_negate", "fol_slice_negatX"),
+    )
+    .expect("tampered manifest should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_folc"))
+        .args(["tool", "abi", "check", "--baseline"])
+        .arg(&manifest)
+        .arg("--candidate")
+        .arg(&tampered)
+        .current_dir(fixture.path())
+        .output()
+        .expect("abi check should run");
+    let text = strip_ansi(&format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    ));
+    assert!(
+        !output.status.success(),
+        "a tampered manifest must be refused:\n{text}"
+    );
+    assert!(
+        text.contains("it was edited by hand or truncated"),
+        "the diagnostic should say why:\n{text}"
+    );
+}

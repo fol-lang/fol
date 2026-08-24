@@ -231,8 +231,12 @@ fn compatibility_distinguishes_addition_from_change() {
 }
 
 /// Two targets are never compared as if layout-compatible.
+///
+/// Reported as a target mismatch rather than a break: nothing about the source
+/// changed, so calling it breaking would send a reader looking for a change
+/// that is not there. Both outcomes still fail `fol tool abi check`.
 #[test]
-fn cross_target_surfaces_are_always_breaking() {
+fn cross_target_surfaces_are_never_compared_as_compatible() {
     let mut table = AbiTypeTable::new();
     let routine = add_routine(&mut table, "fol_demo_add");
     let baseline = surface_with(vec![routine.clone()], table.clone());
@@ -247,10 +251,14 @@ fn cross_target_surfaces_are_always_breaking() {
         }
         .resolve(fol_types::ResolvedTarget::resolve("x86_64-unknown-linux-musl").unwrap()),
     };
-    assert_eq!(
-        compare_surfaces(&baseline, &other),
-        AbiCompatibility::Breaking
+    let verdict = compare_surfaces(&baseline, &other);
+    assert_eq!(verdict, AbiCompatibility::TargetMismatch);
+    assert_ne!(
+        verdict,
+        AbiCompatibility::Identical,
+        "a cross-target comparison must never read as compatible"
     );
+    assert_ne!(verdict, AbiCompatibility::MinorCompatible);
 }
 
 /// Type ids are positions in a table, not ABI facts.
@@ -333,4 +341,147 @@ fn a_routine_carries_its_effects() {
     routine.effects.allocates = true;
     assert!(routine.effects.allocates);
     assert!(!routine.effects.may_panic);
+}
+
+/// A manifest carrying every shape reads back as the surface that wrote it.
+///
+/// Round-tripping through the canonical text is what makes `fol tool abi
+/// check` mean anything: it compares two *read* surfaces, so a reader that
+/// dropped or approximated a fact would compare things that were never
+/// written. The check is the fingerprint, not field-by-field equality --
+/// `parse` recomputes both and refuses a document whose body no longer hashes
+/// to what it records.
+#[test]
+fn a_manifest_round_trips_through_its_canonical_text() {
+    let mut types = AbiTypeTable::new();
+    let int = types.intern_int(fol_types::IntWidth::I32);
+    let boolean = types.intern(AbiType::Scalar(AbiScalar::Bool));
+    let character = types.intern(AbiType::Scalar(AbiScalar::Char));
+    let view = types.intern(AbiType::BorrowedString);
+    let handle = types.intern(AbiType::OpaqueHandle {
+        name: "Widget".to_string(),
+    });
+    let record = types.intern(AbiType::Record {
+        name: "Point".to_string(),
+        fields: vec![
+            AbiField {
+                name: "zulu".to_string(),
+                type_id: int,
+            },
+            AbiField {
+                name: "alpha".to_string(),
+                type_id: boolean,
+            },
+        ],
+    });
+    let entry = types.intern(AbiType::Entry {
+        name: "Shade".to_string(),
+        tag: fol_types::IntWidth::I32,
+        variants: vec![
+            AbiVariant {
+                name: "DARK".to_string(),
+                discriminant: 3,
+                payload: Some(int),
+            },
+            AbiVariant {
+                name: "LIGHT".to_string(),
+                discriminant: 9,
+                payload: None,
+            },
+        ],
+    });
+    let pointer = types.intern(AbiType::Pointer {
+        target: int,
+        mutability: AbiMutability::Const,
+        nullability: AbiNullability::Nullable,
+        ownership: AbiOwnership::Transferred,
+        escape: AbiEscape::Retained,
+        destructor: Some("widget_free".to_string()),
+    });
+
+    let mut routine = add_routine(&mut types, "fol_demo_everything");
+    routine.parameters = vec![
+        AbiParameter {
+            name: "text".to_string(),
+            type_id: view,
+            direction: AbiDirection::In,
+        },
+        AbiParameter {
+            name: "handle".to_string(),
+            type_id: handle,
+            direction: AbiDirection::In,
+        },
+        AbiParameter {
+            name: "point".to_string(),
+            type_id: record,
+            direction: AbiDirection::In,
+        },
+        AbiParameter {
+            name: "letter".to_string(),
+            type_id: character,
+            direction: AbiDirection::In,
+        },
+        AbiParameter {
+            name: "raw".to_string(),
+            type_id: pointer,
+            direction: AbiDirection::InOut,
+        },
+    ];
+    routine.result = record;
+    routine.error = AbiErrorContract::Recoverable { error_type: entry };
+
+    let manifest = AbiManifest {
+        surface: surface_with(vec![routine], types),
+        provenance: BuildProvenance {
+            compiler: "rustc 1.89.0".to_string(),
+            runtime: "memo".to_string(),
+            profile: "debug".to_string(),
+            native_inputs: vec!["native/libwidget.a".to_string()],
+        },
+    };
+
+    let text = manifest.canonical_json();
+    let parsed = AbiManifest::parse(&text).expect("a written manifest should read back");
+
+    assert_eq!(
+        parsed.interface_fingerprint(),
+        manifest.interface_fingerprint(),
+        "every public fact must survive the round trip"
+    );
+    assert_eq!(
+        parsed.build_fingerprint(),
+        manifest.build_fingerprint(),
+        "provenance must survive too, or cache identity moves on every read"
+    );
+    assert_eq!(parsed.canonical_json(), text, "the text is a fixed point");
+    assert_eq!(
+        compare_surfaces(&manifest.surface, &parsed.surface),
+        AbiCompatibility::Identical
+    );
+}
+
+/// A hand-edited manifest is refused rather than compared.
+#[test]
+fn a_hand_edited_manifest_is_not_evidence() {
+    let mut types = AbiTypeTable::new();
+    let routine = add_routine(&mut types, "fol_demo_add");
+    let manifest = AbiManifest {
+        surface: surface_with(vec![routine], types),
+        provenance: BuildProvenance::default(),
+    };
+
+    let tampered = manifest
+        .canonical_json()
+        .replace("fol_demo_add", "fol_demo_sub");
+    let error = AbiManifest::parse(&tampered).expect_err("a tampered manifest must be refused");
+    assert!(
+        matches!(
+            error,
+            ManifestError::FingerprintMismatch {
+                field: "interface",
+                ..
+            }
+        ),
+        "got {error:?}"
+    );
 }
