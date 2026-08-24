@@ -921,6 +921,34 @@ structs and enums" as outside V4. **This claim is not a one-time task** --
 every milestone that moves the boundary re-falsifies it, and nothing was
 checking.
 
+### The guard
+
+M9's claim is the one that will go stale again -- every milestone that moves
+the boundary re-falsifies it -- so it now has a test rather than a promise.
+`test/v4_doc_matrix.rs`, run by `make test-v4-doc-matrix` inside `make verify`.
+
+The tie is the **example**. A shape that crosses has a package proving it
+crosses, built and run by a lane, so the examples are the one description of
+the boundary that cannot drift from the code silently. Each `examples/v4_c_*`
+package has a row saying whether it is a crossing shape or a supporting
+fixture, which phrases the interop chapter must carry for it, and which
+sentences -- true before it crossed -- may no longer appear in **any** of
+`README.md`, `ARCHITECTURE.md`, or the chapter.
+
+Four assertions, failing in opposite directions: an example with no row fails,
+a row with no example fails, a chapter that stops describing a crossing shape
+fails, and a document still denying a shape that crosses fails. Retired
+sentences are matched with whitespace collapsed, so rewrapping a paragraph does
+not hide one.
+
+All four were controlled -- an unclassified example, a row pointing nowhere, a
+deleted chapter phrase, and the exact README sentence this audit found, put
+back with different line breaks. Each fails its guard and nothing else.
+
+What it cannot do is notice a shape that crosses with no example at all. That
+is the same boundary the rest of the suite has: a thing nothing runs is a thing
+nothing proves.
+
 One claim has **naming drift without substance drift**: M8's `may_retain_pointer`
 (`V4_PLAN.md:2544`) shipped as the overlay's `retained` key producing
 `AbiEscape::Retained`, and the rule it describes is enforced. The name never
