@@ -19,7 +19,7 @@ $(info Project: $(PROJECT_NAME))
 $(info Version: $(CURRENT_VERSION))
 $(info ------------------------------------------)
 
-.PHONY: build b compile c fmt f fmt-changed fmt-check lint run r test t test-network print-version tree tree-test interop-check interop-locked test-interop test-build-actions test-native abi-check test-v4-c verify verify-all help h clean docs release
+.PHONY: build b compile c fmt f fmt-changed fmt-check lint run r test t test-network print-version tree tree-test interop-check interop-locked test-interop test-build-actions test-native abi-check test-v4-c test-v4-c-import verify verify-all help h clean docs release
 
 SHELL := /bin/bash
 
@@ -141,6 +141,12 @@ test-native:
 test-v4-c:
 	@cargo test -p fol --test v4_c_export -- --nocapture
 
+# M6's C import slice: bind a real header against a real archive, build a FOL
+# program that calls it, and run it. Needs FOL_INTEROP_GCC/FOL_INTEROP_TEMP;
+# skips without them unless FOL_H7_REQUIRED is set.
+test-v4-c-import:
+	@cargo test -p fol --test v4_c_import -- --nocapture
+
 # The ABI model gate: the canonical type vocabulary, the classifier's required
 # negative cases, the verifier, the manifest encoding, and the two fingerprints.
 # Separate from `test` because a failure here means the compiler's idea of the C
@@ -160,7 +166,7 @@ print-version:
 
 t: test
 
-verify: fmt-check lint test test-build-actions test-native abi-check test-v4-c interop-check test-interop
+verify: fmt-check lint test test-build-actions test-native abi-check test-v4-c test-v4-c-import interop-check test-interop
 
 verify-all: verify test-network
 

@@ -78,6 +78,13 @@ path = "test/native_products.rs"
 name = "v4_c_export"
 path = "test/v4_c_export.rs"
 
+# M6's scalar C import slice. Runs the real PARC/LINC/GERC pipeline, builds a
+# FOL program that calls the result, and executes it. Separate from
+# `integration` because it needs a C toolchain and an explicit probe directory.
+[[test]]
+name = "v4_c_import"
+path = "test/v4_c_import.rs"
+
 [dev-dependencies]
 fol-types = { path = "lang/compiler/fol-types" }
 fol-stream = { path = "lang/compiler/fol-stream" }
