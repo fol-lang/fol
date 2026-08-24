@@ -265,11 +265,17 @@ fn two_clean_builds_agree_on_header_manifest_and_fingerprint() {
         let manifest =
             std::fs::read_to_string(prefix.join("share/fol/abi/v4_c_export_scalar.folabi.json"))
                 .expect("the manifest should install");
-        (header, manifest)
+        // The export list too: a header and a manifest that agree while the
+        // linker's allowlist drifts would ship a library exporting something
+        // the manifest never described.
+        let symbols =
+            std::fs::read_to_string(prefix.join("share/fol/abi/v4_c_export_scalar.symbols"))
+                .expect("the symbol allowlist should install");
+        (header, manifest, symbols)
     };
 
-    let (first_header, first_manifest) = read("fol_v4_c_repro_a");
-    let (second_header, second_manifest) = read("fol_v4_c_repro_b");
+    let (first_header, first_manifest, first_symbols) = read("fol_v4_c_repro_a");
+    let (second_header, second_manifest, second_symbols) = read("fol_v4_c_repro_b");
 
     assert_eq!(
         first_header, second_header,
@@ -279,9 +285,23 @@ fn two_clean_builds_agree_on_header_manifest_and_fingerprint() {
         first_manifest, second_manifest,
         "the manifest is not reproducible"
     );
+    assert_eq!(
+        first_symbols, second_symbols,
+        "the export list is not reproducible"
+    );
     assert!(
         first_manifest.contains("interface_fingerprint"),
         "the manifest carries no interface fingerprint"
+    );
+
+    // Sorted, so two builds cannot differ by declaration order alone -- which
+    // would make the equality above pass by luck on a single-threaded run.
+    let listed: Vec<&str> = first_symbols.lines().filter(|l| !l.is_empty()).collect();
+    let mut sorted = listed.clone();
+    sorted.sort_unstable();
+    assert_eq!(
+        listed, sorted,
+        "the export list must be sorted, or its reproducibility is incidental"
     );
 }
 

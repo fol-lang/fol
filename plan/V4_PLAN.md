@@ -2894,8 +2894,16 @@ builds produced), and `abi_check_refuses_a_hand_edited_manifest`, all in
   compare against the allowlist.
 - [ ] Verify SONAME/install-name/import-library/runtime lookup behavior without
   injecting a hidden default rpath.
-- [ ] Run two clean builds and compare manifest/header/export lists and all
+- [x] Run two clean builds and compare manifest/header/export lists and all
   declared reproducible outputs.
+
+`two_clean_builds_agree_on_header_manifest_and_fingerprint` in
+`test/v4_c_export.rs` builds the same example twice in separate scratch trees
+and compares the installed header, the manifest, and the `.symbols` export
+list. The export list was the gap: a header and a manifest that agree while the
+linker's allowlist drifts would ship a library exporting something the manifest
+never described. It also asserts the list is *sorted*, so two builds cannot
+match by luck of declaration order.
 - [ ] Test concurrent builds and cache isolation.
 - [ ] Install matching static and shared FOL libraries into clean prefixes with
   only their declared headers, manifests, link metadata, and runtime roles.
