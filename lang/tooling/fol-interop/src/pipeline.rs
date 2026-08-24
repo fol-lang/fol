@@ -359,7 +359,22 @@ pub fn prepare_h7_interop(request: H7InteropRequest<'_>) -> Result<H7InteropBuil
         defines: c_import.defines.clone(),
         sysroot: c_import.sysroot.clone(),
     };
-    let source = scan_complete_header(&package_root, &header, toolchain.target(), None, &search)?;
+    // The same closure `bind c` selects. Without this the build scans the whole
+    // header and rejects it outright for any unsupported declaration, so a
+    // header that bound cleanly would fail to compile -- and Section 4.13's
+    // rule that unsupported declarations may remain in the header would hold
+    // only for the bind command. The overlay-less H7 smoke keeps the whole-file
+    // scan, because there is no overlay to name a closure with.
+    let wanted: Option<std::collections::BTreeSet<String>> = overlay
+        .as_ref()
+        .map(|overlay| overlay.routines().map(|r| r.symbol.clone()).collect());
+    let source = scan_complete_header(
+        &package_root,
+        &header,
+        toolchain.target(),
+        wanted.as_ref(),
+        &search,
+    )?;
     let native_inputs = [native_input_for(provider_kind, provider.clone())];
     let analysis_request = AnalysisRequest::try_new(&source, &native_inputs, policy)?;
     let resolver = NativeResolver::new(

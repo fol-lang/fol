@@ -238,6 +238,64 @@ fn fol_calls_a_checked_c_scalar_library_and_observes_both_outcomes() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// Section 4.13 lets unsupported declarations stay in an imported header: only
+/// the overlay's chosen symbols have to be translatable. That guarantee held
+/// for `tool bind c` and was lost on the compile path, which scanned the whole
+/// header and rejected it outright -- so a header bound cleanly and then
+/// failed to build, which is the worst place to find out.
+///
+/// A variadic the overlay never names is the cheapest unsupported declaration
+/// to add, and it is added to the staged copy so the checked-in example keeps
+/// showing the ordinary case.
+#[test]
+fn an_unselected_unsupported_declaration_does_not_break_the_build() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the interop lane");
+        return;
+    };
+    let root = stage_example();
+    build_provider(&root, &compiler);
+
+    let header = root.join("native/c_math.h");
+    let text = std::fs::read_to_string(&header).expect("the header should be readable");
+    let guard = text
+        .rfind("#endif")
+        .expect("the header should have an include guard");
+    let mut widened = text.clone();
+    widened.insert_str(guard, "int c_math_log(const char *fmt, ...);\n");
+    std::fs::write(&header, &widened).expect("the header should be writable");
+
+    let (ok, text) = bind(
+        &root,
+        &compiler,
+        &temp,
+        "interop/c_math.toml",
+        "interop/c_math.folabi.json",
+    );
+    assert!(
+        ok,
+        "binding must ignore a declaration the overlay does not name:\n{text}"
+    );
+
+    let (ok, text) = run_folc(&root, &compiler, &temp, &["code", "build"]);
+    assert!(
+        ok,
+        "the build must select the same closure the bind did, not rescan the \
+         whole header:\n{text}"
+    );
+
+    let binary = root.join(".fol/install/bin/v4_c_import_scalar");
+    let output = Command::new(&binary).output().expect("run the program");
+    assert!(
+        output.status.success(),
+        "the program should still run:\n{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("add_one(41) = 42"));
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// The checked manifest is evidence, not decoration: without it the source
 /// does not compile, and the diagnostic says what to run.
 #[test]
