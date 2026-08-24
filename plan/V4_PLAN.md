@@ -3827,9 +3827,22 @@ blocks), every block carries a local justification naming the checks that make
 it sound, `ptr[raw]` is refused in ordinary source, and the raw extern module
 is a private crate reachable only through adapters.
 
-*Linted* does not hold. The generated adapter module emits
-`#[allow(dead_code, non_snake_case)]` -- a relaxation -- and there is no
-`deny`/`warn` attribute anywhere on the emitted surface.
+*Linted* now holds too. The generated adapter module carried only
+`#[allow(dead_code, non_snake_case)]` -- a relaxation, with no denial anywhere
+on the emitted surface. It now also denies `unsafe_op_in_unsafe_fn`,
+`clippy::undocumented_unsafe_blocks`, `clippy::not_unsafe_ptr_arg_deref`, and
+`clippy::cast_ptr_alignment`. The two allows stay, and the comment says why:
+the surface is generated from C, so not every imported routine is called and C
+names are kept verbatim to stay greppable back to the header.
+
+`undocumented_unsafe_blocks` would have been a landmine on its own -- the
+generated blocks had no `// SAFETY:` comment, so the denial would have fired
+the first time anyone linted generated output. Each block now carries one
+naming what makes it sound: the symbol is LINC-certified and defined by this
+provider, called with the arity and types the header states, and for a status
+call the out-parameter is a live local read only on a status the overlay
+enumerated as success. Verified by running `clippy-driver` over a generated
+adapter with the denials active: clean.
 - [x] Catch/translate panic; reject unwind-capable foreign declarations.
 
 Exports wrap the call in `catch_unwind` and map a panic to `FOL_STATUS_PANIC`;
