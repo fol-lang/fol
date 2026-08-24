@@ -85,6 +85,13 @@ path = "test/v4_c_export.rs"
 name = "v4_c_import"
 path = "test/v4_c_import.rs"
 
+# The ASan/UBSan boundary lane section 16 requires for the M7 pointer and
+# resource slices. Separate from `v4_c_export` because it needs a
+# sanitizer-capable C toolchain and runs each consumer instrumented.
+[[test]]
+name = "v4_c_sanitize"
+path = "test/v4_c_sanitize.rs"
+
 [dev-dependencies]
 fol-types = { path = "lang/compiler/fol-types" }
 fol-stream = { path = "lang/compiler/fol-stream" }

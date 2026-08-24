@@ -19,7 +19,7 @@ $(info Project: $(PROJECT_NAME))
 $(info Version: $(CURRENT_VERSION))
 $(info ------------------------------------------)
 
-.PHONY: build b compile c fmt f fmt-changed fmt-check lint run r test t test-network print-version tree tree-test interop-check interop-locked test-interop test-build-actions test-native abi-check test-v4-c test-v4-c-import verify verify-all help h clean docs release
+.PHONY: build b compile c fmt f fmt-changed fmt-check lint run r test t test-network print-version tree tree-test interop-check interop-locked test-interop test-build-actions test-native abi-check test-v4-c test-v4-c-import test-v4-sanitize verify verify-all help h clean docs release
 
 SHELL := /bin/bash
 
@@ -147,6 +147,13 @@ test-v4-c:
 test-v4-c-import:
 	@cargo test -p fol --test v4_c_import -- --nocapture
 
+# The ASan/UBSan boundary lane. Compiles each checked-in C consumer with
+# sanitizers on and runs it, plus a deliberate-overflow control so the lane
+# cannot pass by not running. Skips with a message when no sanitizer-capable
+# compiler is present.
+test-v4-sanitize:
+	@cargo test -p fol --test v4_c_sanitize -- --nocapture
+
 # The ABI model gate: the canonical type vocabulary, the classifier's required
 # negative cases, the verifier, the manifest encoding, and the two fingerprints.
 # Separate from `test` because a failure here means the compiler's idea of the C
@@ -166,7 +173,7 @@ print-version:
 
 t: test
 
-verify: fmt-check lint test test-build-actions test-native abi-check test-v4-c test-v4-c-import interop-check test-interop
+verify: fmt-check lint test test-build-actions test-native abi-check test-v4-c test-v4-c-import test-v4-sanitize interop-check test-interop
 
 verify-all: verify test-network
 

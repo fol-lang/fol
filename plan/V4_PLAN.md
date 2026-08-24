@@ -2894,7 +2894,15 @@ Planned V4 lanes to add:
 - `make test-v4-c` — C import/export consumer suite
 - `make test-v4-bind-c` — pinned PARC/LINC/GERC header-import suite
 - `make test-v4-release` — installed round-trip and clean archive consumers
-- `make test-v4-sanitize` — host ASan/UBSan boundary/lifecycle suite
+- `make test-v4-sanitize` — host ASan/UBSan boundary/lifecycle suite. **Built
+  early, before the M7 slices whose gates name it.** A sanitizer lane added
+  after the code it is meant to check can only confirm what was already
+  believed; added before, it can contradict it. It instruments the **C side** —
+  each checked-in consumer is compiled `-fsanitize=address,undefined` and run —
+  which needs no nightly Rust, unlike `-Zsanitizer`. It carries a
+  deliberate-heap-overflow control asserting the sanitizer still reports, so
+  the lane cannot pass by silently not running, and it skips with a message
+  rather than passing when no sanitizer-capable compiler is present.
 - `make test-v4-cross` — optional candidate-target promotion evidence; it does
   not certify or weaken the required native GNU/Linux lane
 - `make abi-check` — manifests, baselines, symbols, layouts, fingerprints
