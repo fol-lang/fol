@@ -297,6 +297,90 @@ fn status_values_agree_across_rust_c_and_metadata() {
     }
 }
 
+/// A borrowed `str` parameter renders a view struct and validates it.
+///
+/// The three checks are the whole safety argument for the inbound direction:
+/// a null pointer is only legal when the length is zero, a length no
+/// allocation could have is refused before it can become a slice, and the
+/// bytes are decoded rather than trusted. Each refusal is a status, not a
+/// panic, because a caller passing bad text is not a FOL fault.
+#[test]
+fn a_borrowed_string_parameter_is_validated_on_entry() {
+    let mut table = AbiTypeTable::new();
+    let view = table.intern(AbiType::BorrowedString);
+    let result = table.intern(AbiType::Scalar(AbiScalar::Int(fol_types::IntWidth::I64)));
+    let routine = ForeignRoutine {
+        fol_path: "api::text_length".to_string(),
+        symbol: "fol_demo_text_length".to_string(),
+        facing: AbiFacing::Export,
+        convention: AbiCallingConvention::C,
+        parameters: vec![AbiParameter {
+            name: "text".to_string(),
+            type_id: view,
+            direction: AbiDirection::In,
+        }],
+        result,
+        error: AbiErrorContract::Infallible,
+        selection: ExportSelection {
+            package_visible: true,
+            abi_selected: true,
+        },
+        effects: AbiEffects::default(),
+        origin: AbiSourceOrigin::default(),
+    };
+
+    let structs = wrapper::render_record_structs(&table);
+    assert!(structs.contains("pub struct FolAbiStrView"));
+    assert!(structs.contains("pub ptr: *const u8"));
+    assert!(structs.contains("pub len: usize"));
+
+    let rendered = wrapper::render_wrapper(&table, &routine, "internal", &no_records());
+    assert!(rendered.contains("text: FolAbiStrView"));
+    assert!(rendered.contains("text.ptr.is_null() && text.len != 0"));
+    assert!(rendered.contains("text.len > isize::MAX as usize"));
+    assert!(rendered.contains("core::str::from_utf8"));
+    assert!(
+        rendered.matches(status::INVALID_ARGUMENT).count() >= 3,
+        "each rejection must return a status rather than panic:\n{rendered}"
+    );
+
+    // The header side of the same contract.
+    let header = header::render_header(&surface(vec![routine], table));
+    assert!(header.contains("} fol_str_view_t;"));
+    assert!(header.contains("fol_str_view_t text"));
+    assert!(header.contains("never retains `ptr`"));
+}
+
+/// A `str` may be lent into a call but not handed back out of one.
+///
+/// Returning one would give C a pointer into FOL's own storage with no answer
+/// to who frees it, which is the owned-buffer contract of section 12.4 rather
+/// than a borrow. The rejection names the position so the message is about
+/// the return, not about `str` in general.
+#[test]
+fn a_borrowed_string_cannot_outlive_the_call() {
+    use fol_abi::{verify_type_at, AbiPosition, CandidateType};
+
+    let inbound = verify_type_at(
+        "text_length",
+        &CandidateType::BorrowedString,
+        AbiPosition::Parameter,
+    );
+    assert!(
+        inbound.is_empty(),
+        "lending text into a call is the supported direction: {inbound:?}"
+    );
+
+    for position in [AbiPosition::Result, AbiPosition::Error] {
+        let outbound = verify_type_at("text_length", &CandidateType::BorrowedString, position);
+        let rejection = outbound
+            .first()
+            .unwrap_or_else(|| panic!("a borrowed view in {position:?} position must be refused"));
+        assert_eq!(rejection.rejection.reason(), "borrowed-view-outlives-call");
+        assert!(rejection.to_string().contains(position.as_str()));
+    }
+}
+
 /// The generated header must compile as C11 and be includable from C++.
 ///
 /// Section 4.16 freezes the shape; this proves a compiler accepts it. The C++

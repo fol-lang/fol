@@ -254,6 +254,40 @@ fn the_record_surface_is_clean_under_sanitizers() {
     );
 }
 
+/// Borrowed text is clean under sanitizers, and the borrow really ends.
+///
+/// M7.3's gate names null, zero-length, misaligned, overflow, and invalid
+/// UTF-8; the consumer covers each, and the sanitizer is what makes them mean
+/// something rather than just returning the right status code. The retention
+/// question is the one only a sanitizer can settle: the consumer frees every
+/// lent buffer the moment its call returns, so if the boundary ever kept a
+/// pointer past the call, AddressSanitizer would report the use-after-free
+/// instead of the program quietly reading freed bytes.
+#[test]
+fn the_borrowed_string_surface_is_clean_under_sanitizers() {
+    let fixture = fol_testkit::TempFixture::new("fol_v4_san_string_view");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root");
+    let Some(cc) = sanitizing_compiler(fixture.path()) else {
+        eprintln!("skipping: no compiler on this host can build a sanitized binary");
+        return;
+    };
+
+    let prefix = build_example(fixture.path(), "v4_c_string_view");
+    let (ok, output) = run_sanitized(
+        &cc,
+        &prefix,
+        &repo_root().join("examples/v4_c_string_view/consumer.c"),
+        &prefix.join("lib/libv4_c_string_view.a"),
+        &fixture.path().join("string_view_sanitized"),
+    );
+
+    assert_clean("borrowed strings", ok, &output);
+    assert!(
+        output.contains("all string view checks passed"),
+        "the consumer should still reach its final line:\n{output}"
+    );
+}
+
 /// The lane can fail.
 ///
 /// A sanitizer suite that has never reported anything is indistinguishable

@@ -41,6 +41,8 @@ pub enum AbiRejection {
     InvalidExternalSymbol { symbol: String, reason: String },
     /// An effect or capability the artifact's model does not permit.
     CapabilityTooStrong { detail: String },
+    /// A borrowed view in a position that outlives the call.
+    BorrowedViewOutlivesCall { position: String },
 }
 
 impl AbiRejection {
@@ -78,6 +80,7 @@ impl AbiRejection {
             Self::UnsupportedLayout { .. } => "unsupported-layout",
             Self::InvalidExternalSymbol { .. } => "invalid-external-symbol",
             Self::CapabilityTooStrong { .. } => "capability-too-strong",
+            Self::BorrowedViewOutlivesCall { .. } => "borrowed-view-outlives-call",
         }
     }
 }
@@ -145,6 +148,12 @@ impl std::fmt::Display for AbiRejection {
             Self::CapabilityTooStrong { detail } => write!(
                 f,
                 "the declaration needs a capability the artifact's model does not allow: {detail}"
+            ),
+            Self::BorrowedViewOutlivesCall { position } => write!(
+                f,
+                "a borrowed view cannot be a {position}: the caller reads it after the call \
+                 returns, and nothing says who still owns the memory. Lending a buffer *into* a \
+                 call is fine, because the caller owns it throughout"
             ),
         }
     }

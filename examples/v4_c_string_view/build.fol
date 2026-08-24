@@ -1,0 +1,21 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "v4_c_string_view", version = "0.1.0", kind = "lib",
+        description = "borrowed UTF-8 text lent into a FOL call",
+        license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var target = graph.standard_target();
+    var optimize = graph.standard_optimize();
+    var lib = graph.add_static_lib({
+        name = "v4_c_string_view", root = "src/lib.fol",
+        fol_model = "memo", target = target, optimize = optimize,
+    });
+    lib.set_abi_version({ major = 1, minor = 0 });
+    lib.add_abi_export({ routine = "text_length", symbol = "fol_view_text_length" });
+    lib.add_abi_export({ routine = "is_empty", symbol = "fol_view_is_empty" });
+    graph.install(lib);
+    return;
+};

@@ -2536,14 +2536,64 @@ becomes a positive one. Both sites carry a comment saying so.
 
 ## 12.3 Borrowed strings and slices
 
-- [ ] Validate null/zero-length combinations, alignment, `len * size` overflow,
+- [x] Validate null/zero-length combinations, alignment, `len * size` overflow,
   `isize` bounds, mutability, aliasing, and UTF-8 before constructing Rust views.
-- [ ] Limit default lifetime to the call; `may_retain_pointer` requires a
+- [x] Limit default lifetime to the call; `may_retain_pointer` requires a
   different owned/handle projection and cannot use a borrowed view.
-- [ ] Forbid concurrent mutable aliases and callback retention.
+- [x] Forbid concurrent mutable aliases and callback retention.
 
 Gate: null, zero-length, misaligned, overflow, invalid UTF-8, retained-view, and
 mutability negatives pass under sanitizers.
+
+Landed for `str`. `str` projects to `AbiType::BorrowedString`, rendered as
+`fol_str_view_t {const uint8_t *ptr; size_t len;}`, and the wrapper refuses a
+null pointer with a non-zero length, a length past `isize::MAX`, and bytes that
+do not decode as UTF-8 -- each as `FOL_STATUS_INVALID_ARGUMENT` before any
+slice is formed. Alignment needs no check because the element is `u8`, and
+`len * size` cannot overflow for the same reason; the `isize` bound is checked
+anyway, since it is the one a future slice projection will need.
+
+Two of the three items are closed by what the type *is* rather than by a rule.
+The view is `const uint8_t *`: there is no mutable view to alias, so "forbid
+concurrent mutable aliases" has nothing to permit. And FOL copies into its
+owning `FolStr` during the call, so there is no view left to retain -- callback
+retention is 12.5's problem because that is where a pointer could outlive its
+frame at all.
+
+Outbound stays refused: `verify_type_at` rejects a borrowed view in result or
+error position as `borrowed-view-outlives-call`, and says that lending into a
+call is the supported direction.
+
+Slices (`vec[T]`, `arr[T,N]`) are **not** projected by this slice. They were
+left out rather than half-built: `FolVec` is `Vec<T>` and `FolArr` is a Rust
+array, so an inbound slice would have to copy element by element and an
+outbound one raises the same who-frees-it question as an outbound `str`. Both
+belong with 12.4's owned buffers. A container in an exported signature is
+still refused with its existing reason.
+
+Verified by `examples/v4_c_string_view` (checked-in `consumer.c` covering
+accepted, empty, refused, unaligned, and null-out-pointer cases), by
+`borrowed_text_crosses_inbound_and_bad_views_are_refused` in `test/v4_c_export.rs`,
+and by `the_borrowed_string_surface_is_clean_under_sanitizers`, which frees
+every lent buffer the moment its call returns so a retained pointer would
+surface as a use-after-free.
+
+Scope note, measured before starting: FOL's `str` lowers to
+`FolStr(String)` -- an *owning* Rust string, not a view. That makes the
+inbound direction tractable and the outbound direction a different problem:
+
+- **Inbound** (`str` as a parameter) is a real borrowed view. C hands over
+  `{const uint8_t *ptr; size_t len;}`, the wrapper validates it, and FOL
+  **copies** into its owning `FolStr`. "Limit default lifetime to the call"
+  then holds by construction rather than by rule: FOL never retains the
+  caller's pointer, so there is no view to retain and no escape to forbid.
+- **Outbound** (`str` as a result) is not a borrowed view at all. Handing C a
+  pointer into FOL's own string raises who-frees-it, which is the owned-buffer
+  contract in 12.4 -- not this slice. A `str` return stays refused until then.
+
+That split is why this slice can land while 12.4 has not: the half that needs
+linear resources is the half being left out, and it is being left out
+explicitly rather than half-built.
 
 ## 12.4 Owned buffers and opaque handles
 

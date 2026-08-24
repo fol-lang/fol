@@ -30,6 +30,7 @@ fn c_type(table: &AbiTypeTable, id: AbiTypeId) -> String {
         Some(AbiType::Record { name, .. }) | Some(AbiType::Entry { name, .. }) => {
             c_struct_name(name)
         }
+        Some(AbiType::BorrowedString) => "fol_str_view_t".to_string(),
         _ => "void".to_string(),
     }
 }
@@ -190,6 +191,17 @@ pub fn render_header(surface: &ResolvedAbiSurface) -> String {
     );
     out.push_str(
         "/* A Unicode scalar value. Imports validate. */\ntypedef uint32_t fol_char_t;\n\n",
+    );
+    out.push_str(
+        "/* UTF-8 text the caller owns and lends for the duration of one call.\n \
+         *\n \
+         * The callee copies what it needs before returning and never retains `ptr`,\n \
+         * so the caller may free or reuse the buffer as soon as the call returns.\n \
+         * `ptr` may be NULL only when `len` is 0. The bytes must be valid UTF-8;\n \
+         * they are validated on entry and the call is refused if they are not. */\n",
+    );
+    out.push_str(
+        "typedef struct {\n    const uint8_t *ptr;\n    size_t len;\n} fol_str_view_t;\n\n",
     );
 
     for (name, value, description) in fol_abi::STATUS_VALUES {

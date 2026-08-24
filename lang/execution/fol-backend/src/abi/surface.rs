@@ -230,7 +230,8 @@ pub fn emit_wrapper_module(
          // panic containment, and the out-parameter rules. The FOL routines they call\n\
          // stay private and ID-mangled: a public symbol carries no internal ID.\n\n",
     );
-    contents.push_str("use fol_runtime as rt;\n\n");
+    contents.push_str("use fol_runtime as rt;\n");
+    contents.push_str("use fol_runtime::memo as rt_model;\n\n");
     // The `repr(C)` twins come first: every wrapper below converts through
     // them, and a reader sees the whole struct surface in one place.
     contents.push_str(&super::wrapper::render_record_structs(

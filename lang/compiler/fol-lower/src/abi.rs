@@ -89,9 +89,10 @@ pub fn describe(
             LoweredBuiltinType::Char(encoding) => CandidateType::Char {
                 encoding: encoding.as_str().to_string(),
             },
-            LoweredBuiltinType::Str => CandidateType::Container {
-                spelling: "str".to_string(),
-            },
+            // A `str` crosses as a borrowed view: a pointer and a length the
+            // caller owns. Whether that is legal depends on the position, and
+            // the verifier decides -- inbound it is, outbound it is not.
+            LoweredBuiltinType::Str => CandidateType::BorrowedString,
             LoweredBuiltinType::Never => CandidateType::Void,
         },
         Some(LoweredType::Pointer {
@@ -235,6 +236,9 @@ fn intern(
         LoweredType::Builtin(LoweredBuiltinType::Bool) => AbiScalar::Bool,
         LoweredType::Builtin(LoweredBuiltinType::Char(_)) => AbiScalar::Char,
         LoweredType::Builtin(LoweredBuiltinType::Never) => return Some(abi.intern(AbiType::Void)),
+        LoweredType::Builtin(LoweredBuiltinType::Str) => {
+            return Some(abi.intern(AbiType::BorrowedString))
+        }
         _ => return None,
     };
     Some(abi.intern(AbiType::Scalar(scalar)))
@@ -294,25 +298,28 @@ pub fn project_exports(
         // leaves no partial entry in the table.
         let mut clean = true;
         for (name, type_id) in &params {
-            let found = fol_abi::verify_type(
+            let found = fol_abi::verify_type_at(
                 &format!("{}.{name}", request.routine),
                 &describe(table, records, *type_id),
+                fol_abi::AbiPosition::Parameter,
             );
             clean &= found.is_empty();
             rejections.extend(found);
         }
         if let Some(result) = result {
-            let found = fol_abi::verify_type(
+            let found = fol_abi::verify_type_at(
                 &format!("{}.<result>", request.routine),
                 &describe(table, records, result),
+                fol_abi::AbiPosition::Result,
             );
             clean &= found.is_empty();
             rejections.extend(found);
         }
         if let Some(error) = error {
-            let found = fol_abi::verify_type(
+            let found = fol_abi::verify_type_at(
                 &format!("{}.<error>", request.routine),
                 &describe(table, records, error),
+                fol_abi::AbiPosition::Error,
             );
             clean &= found.is_empty();
             rejections.extend(found);

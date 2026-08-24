@@ -1,0 +1,17 @@
+// Borrowed UTF-8 text, lent by a C caller for the duration of one call.
+//
+// FOL's `str` owns its bytes, so each routine below receives a copy made
+// during the call. The caller's buffer is never retained, which is what makes
+// the borrow safe without a lifetime appearing anywhere in the C header.
+//
+// Only the inbound direction is expressible: returning a `str` would hand C a
+// pointer into FOL's own storage and raise who-frees-it, which is the owned
+// buffer contract in section 12.4, not a borrowed view.
+fun[exp] text_length(text: str): int = {
+    return .len(text);
+};
+
+fun[exp] is_empty(text: str): bol = {
+    var length: int = .len(text);
+    return .eq(length, 0);
+};

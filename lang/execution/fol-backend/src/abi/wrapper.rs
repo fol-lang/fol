@@ -22,8 +22,25 @@ pub fn rust_repr(table: &AbiTypeTable, id: AbiTypeId) -> String {
         Some(AbiType::Record { name, .. }) | Some(AbiType::Entry { name, .. }) => {
             c_repr_struct_name(name)
         }
+        Some(AbiType::BorrowedString) => STR_VIEW_STRUCT.to_string(),
         _ => "()".to_string(),
     }
+}
+
+/// The `repr(C)` twin of `fol_str_view_t`.
+pub const STR_VIEW_STRUCT: &str = "FolAbiStrView";
+
+/// The definition of the borrowed-string view, emitted once per surface.
+fn render_str_view_struct() -> String {
+    format!(
+        "/// The C representation of borrowed UTF-8 text.\n\
+         ///\n\
+         /// The caller owns the bytes for the duration of the call. Nothing here\n\
+         /// keeps the pointer: each wrapper validates it and copies into FOL's own\n\
+         /// owning string before doing anything else.\n\
+         #[repr(C)]\n#[derive(Clone, Copy)]\npub struct {STR_VIEW_STRUCT} {{\n    \
+         pub ptr: *const u8,\n    pub len: usize,\n}}\n\n"
+    )
 }
 
 /// The generated `#[repr(C)]` struct standing for one exported record.
@@ -41,6 +58,12 @@ pub fn c_repr_struct_name(record: &str) -> String {
 /// order, because that is what decides every offset.
 pub fn render_record_structs(table: &AbiTypeTable) -> String {
     let mut out = String::new();
+    if table
+        .iter()
+        .any(|(_, ty)| matches!(ty, AbiType::BorrowedString))
+    {
+        out.push_str(&render_str_view_struct());
+    }
     for (_, ty) in table.iter() {
         if let AbiType::Entry { name, variants, .. } = ty {
             out.push_str(&render_entry_struct(table, name, variants));
@@ -133,6 +156,33 @@ fn inbound_conversion(
     name: &str,
     record_paths: &std::collections::BTreeMap<String, String>,
 ) -> String {
+    // Borrowed text is the most dangerous thing a C caller can hand over, so
+    // every way it can be wrong is checked before the bytes are touched:
+    //
+    //   - a null pointer with a non-zero length is a lie about the buffer
+    //   - a length past `isize::MAX` cannot be a valid slice, and constructing
+    //     one is undefined behaviour rather than a big slice
+    //   - bytes that are not UTF-8 are not a FOL `str`
+    //
+    // A null pointer with length zero is *accepted* as the empty string: C
+    // code routinely represents "no text" that way, and refusing it would make
+    // the empty string unspellable from C.
+    if matches!(table.get(id), Some(AbiType::BorrowedString)) {
+        return format!(
+            "    if {name}.ptr.is_null() && {name}.len != 0 {{\n        return {invalid};\n    }}\n\
+             \x20   if {name}.len > isize::MAX as usize {{\n        return {invalid};\n    }}\n\
+             \x20   let {name} = if {name}.len == 0 {{\n        \
+             rt_model::FolStr::new(\"\")\n    }} else {{\n        \
+             // Safe by the two checks above: non-null, and a length that fits\n        \
+             // an `isize`. The slice lives only until the copy below.\n        \
+             let __fol_bytes = unsafe {{ core::slice::from_raw_parts({name}.ptr, {name}.len) }};\n        \
+             match core::str::from_utf8(__fol_bytes) {{\n            \
+             Ok(__fol_text) => rt_model::FolStr::new(__fol_text),\n            \
+             Err(_) => return {invalid},\n        }}\n    }};\n",
+            invalid = super::status::INVALID_ARGUMENT
+        );
+    }
+
     // A record arrives as its `repr(C)` twin and is rebuilt field by field
     // into FOL's own type. Transmuting instead would assume the two layouts
     // match, which is exactly what `repr(Rust)` does not promise.

@@ -53,4 +53,4 @@ pub use types::{
     AbiEscape, AbiField, AbiMutability, AbiNullability, AbiOwnership, AbiScalar, AbiType,
     AbiTypeId, AbiTypeTable, AbiVariant,
 };
-pub use verify::{verify_export_set, verify_type, CandidateType};
+pub use verify::{verify_export_set, verify_type, verify_type_at, AbiPosition, CandidateType};

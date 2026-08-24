@@ -506,6 +506,69 @@ fn a_record_crosses_as_a_c_struct_whose_layout_c_agrees_with() {
     );
 }
 
+/// M7.3: text is lent into a call, and every bad view is refused.
+///
+/// The safety argument for the inbound direction is that FOL's `str` owns its
+/// bytes, so the callee copies during the call and never retains the caller's
+/// pointer. That makes the lifetime rule hold by construction rather than by
+/// documentation -- but only if the view itself is checked first, which is
+/// what the consumer's null, length, and UTF-8 cases exercise. The sanitized
+/// run in `v4_c_sanitize.rs` is the other half: it frees every lent buffer
+/// immediately, so a retained pointer would surface as a use-after-free.
+#[test]
+fn borrowed_text_crosses_inbound_and_bad_views_are_refused() {
+    let Some(compiler) = c_compiler() else {
+        eprintln!("skipping: no C compiler for the string view slice");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("fol_v4_c_string_view");
+    let prefix = build_named_slice(&fixture, "v4_c_string_view");
+
+    let header = std::fs::read_to_string(prefix.join("include/v4_c_string_view.h"))
+        .expect("the header should be installed");
+    assert!(
+        header.contains(
+            "typedef struct {\n    const uint8_t *ptr;\n    size_t len;\n} fol_str_view_t;"
+        ),
+        "the view is a pointer and a length, not a NUL-terminated string:\n{header}"
+    );
+    assert!(
+        header.contains("fol_str_view_t arg0"),
+        "a `str` parameter crosses as a view:\n{header}"
+    );
+
+    let consumer = repo_root().join("examples/v4_c_string_view/consumer.c");
+    let binary = fixture.path().join("string_view_consumer");
+    let library = prefix.join("lib/libv4_c_string_view.a");
+    let output = Command::new(&compiler)
+        .arg("-std=c11")
+        .arg("-I")
+        .arg(prefix.join("include"))
+        .arg("-o")
+        .arg(&binary)
+        .arg(&consumer)
+        .arg(&library)
+        .args(["-lm", "-lpthread", "-ldl"])
+        .output()
+        .expect("the C consumer should compile");
+    assert!(
+        output.status.success(),
+        "the string view consumer failed to build:\n{}",
+        strip_ansi(&String::from_utf8_lossy(&output.stderr))
+    );
+
+    let run = Command::new(&binary).output().expect("run the C consumer");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert!(
+        run.status.success(),
+        "every string view check should pass:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("all string view checks passed"),
+        "got:\n{stdout}"
+    );
+}
+
 /// M7.2: an entry is refused at the boundary, with the reason.
 ///
 /// FOL has no syntax for an explicit ABI discriminant, and the tag it uses
