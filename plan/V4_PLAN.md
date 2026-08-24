@@ -3837,9 +3837,14 @@ Pinning is done: every action is a full commit SHA, every runner is a pinned
 image, Rust and the tree-sitter CLI are pinned in the flake, nixpkgs is pinned,
 and the release build runs only inside `nix develop .#release --locked`.
 
-Publishing is split. An ABI release archive carries all three -- real SHA-256
-checksums, `PROVENANCE`, and `SBOM`. The **toolchain** release publishes
-checksums only: no provenance and no SBOM accompany those artifacts.
+Publishing now covers both. An ABI release archive carries real SHA-256
+checksums, `PROVENANCE`, and `SBOM`. The **toolchain** release published
+checksums alone -- which says the bytes are intact and nothing about what
+produced them or what is inside -- and now publishes `PROVENANCE-<target>`
+(repository, revision, ref, workflow run, runner, locked nixpkgs, rustc) and
+`SBOM-<target>` (what the archive contains, plus the three pinned interop
+components read from `Cargo.lock`, which is what cargo actually resolved rather
+than what a source file restates).
 
 
 # 19. Risk Register
