@@ -480,7 +480,13 @@ pub fn render_core_instruction_in_workspace(
                     // makes the FOL value the thing that owes the release.
                     let expression = match handle_passing(type_table, routine, result_id) {
                         Some(HandlePassing::Owned) => {
-                            format!("rt::FolHandle::from_raw({expression})")
+                            // Checked rather than adopted: a producer that
+                            // returns NULL owes no resource, and a handle that
+                            // owes a release on nothing would call destroy on
+                            // NULL later.
+                            format!(
+                                "{{ let __fol_handle = rt::FolHandle::from_raw({expression});                                  if __fol_handle.is_null() {{                                  rt::handle_produced_null(\"{symbol}\"); }} __fol_handle }}"
+                            )
                         }
                         _ => expression,
                     };

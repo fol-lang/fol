@@ -284,3 +284,80 @@ mod tests {
         ));
     }
 }
+
+#[cfg(test)]
+mod empty_line_comment_tests {
+    use fol_stream::{FileStream, Source};
+
+    /// Parse a snippet and count the `use` declarations that survived.
+    ///
+    /// Comments are themselves items, so a raw item count would move with the
+    /// comment under test rather than with what it damaged.
+    fn use_declarations(source: &str) -> usize {
+        let stream = FileStream::from_preloaded(vec![Source {
+            call: "<test>".to_string(),
+            path: "<test>".to_string(),
+            data: source.to_string(),
+            namespace: "test".to_string(),
+            package: "test".to_string(),
+        }])
+        .expect("the stream should build");
+        let mut stream = stream;
+        let mut lexer = fol_lexer::lexer::stage3::Elements::init(&mut stream);
+        let mut parser = crate::ast::AstParser::new();
+        let package = parser
+            .parse_package(&mut lexer)
+            .expect("the snippet should parse");
+        package
+            .source_units
+            .first()
+            .map(|unit| {
+                unit.items
+                    .iter()
+                    .filter(|item| matches!(item.node, crate::ast::AstNode::UseDecl { .. }))
+                    .count()
+            })
+            .unwrap_or_default()
+    }
+
+    /// An empty `//` used to swallow the line after it.
+    ///
+    /// The line-comment scanner bumped once past the second slash and then ran
+    /// a loop testing the character *after* the cursor. With any comment text
+    /// that bump consumed comment text, which is right; with an empty `//` it
+    /// consumed the newline, and the loop then ate the whole following line.
+    ///
+    /// The visible damage was a silently dropped declaration: a file whose
+    /// first `use` sat directly under a `//` line lost that import and failed
+    /// later with an unresolved-name error pointing at the use site, with
+    /// nothing wrong there.
+    #[test]
+    fn an_empty_line_comment_does_not_swallow_the_next_line() {
+        let expected = use_declarations("use std: pkg = {\"std\"};\n");
+        assert_eq!(expected, 1, "the baseline should have one use declaration");
+
+        for source in [
+            "//\nuse std: pkg = {\"std\"};\n",
+            "// note\n//\nuse std: pkg = {\"std\"};\n",
+            "//\n//\nuse std: pkg = {\"std\"};\n",
+        ] {
+            assert_eq!(
+                use_declarations(source),
+                1,
+                "an empty // swallowed the declaration in {source:?}"
+            );
+        }
+    }
+
+    /// A comment with text still ends at its own newline.
+    #[test]
+    fn a_line_comment_still_ends_at_its_newline() {
+        for source in [
+            "// note\nuse std: pkg = {\"std\"};\n",
+            "// \nuse std: pkg = {\"std\"};\n",
+            "//x\nuse std: pkg = {\"std\"};\n",
+        ] {
+            assert_eq!(use_declarations(source), 1, "for {source:?}");
+        }
+    }
+}

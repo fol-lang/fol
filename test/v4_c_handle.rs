@@ -282,3 +282,40 @@ fn every_handle_misuse_is_refused_with_its_reason() {
         );
     }
 }
+
+/// A producer that returns NULL is refused at the boundary, not adopted.
+///
+/// C's only way to say "no handle" is a null return. Adopting it would make a
+/// FOL value that owes a release on nothing, and the release would be called
+/// on NULL later -- safe for `free`, undefined for a provider's own destroy.
+/// `FolHandle::is_null` existed and had no caller; this is the caller.
+#[test]
+fn a_producer_returning_null_is_refused() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the opaque handle slice");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("fol_v4_handle_null");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root");
+    let root = stage(fixture.path(), "fail_v4_c_handle_null", &compiler);
+
+    let (ok, output) = bind(&root, &compiler, &temp);
+    assert!(ok, "binding should succeed:\n{output}");
+
+    // It builds: this is a runtime contract, not a compile-time one, because
+    // whether the provider allocates is not knowable until it runs.
+    let (ok, output) = run_folc(&root, &compiler, &temp, &["code", "run"]);
+    assert!(!ok, "a null handle must not be adopted:\n{output}");
+    assert!(
+        output.contains("'widget_new' is declared to produce an opaque handle but returned NULL"),
+        "the fault should name the producer:\n{output}"
+    );
+    assert!(
+        output.contains("declare a status convention"),
+        "the message should say what to do instead:\n{output}"
+    );
+    assert!(
+        output.contains("SIGABRT") || output.contains("signal: 6"),
+        "refusing means aborting, not returning:\n{output}"
+    );
+}

@@ -185,6 +185,26 @@ pub fn callback_panicked(symbol: &str) -> ! {
     std::process::abort()
 }
 
+/// Refuse a null handle from a routine declared to produce one.
+///
+/// A producer that returns `NULL` is reporting a failure through the one
+/// channel C has for it. Adopting it would make a FOL value that owes a release
+/// on nothing, and the release would be called on `NULL` later -- at which
+/// point the provider is entitled to do anything at all. There is no value to
+/// return that would be true, so this ends here with the symbol named.
+///
+/// A provider whose `NULL` is *meaningful* declares a status convention
+/// instead; then the failure travels on FOL's recoverable channel and the
+/// handle is only adopted on success.
+pub fn handle_produced_null(symbol: &str) -> ! {
+    eprintln!(
+        "fol runtime fault: '{symbol}' is declared to produce an opaque handle but returned \
+         NULL. Adopting it would owe a release on nothing. If NULL is how this routine reports \
+         failure, declare a status convention for it in the annotation overlay."
+    );
+    std::process::abort()
+}
+
 /// Refuse a callback invocation whose context pointer is not the one FOL gave.
 ///
 /// Same reasoning as the panic path: there is nothing to return that would be

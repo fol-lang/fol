@@ -98,7 +98,10 @@ impl Element {
         self.con.push(code.curr()?.0);
         self.bump(code)?;
         if code.curr()?.0 == '/' {
-            self.bump(code)?;
+            // No unconditional bump past the second slash. An empty `//` has
+            // nothing after it, so that bump would consume the newline and the
+            // loop below -- which tests the character *after* the cursor --
+            // would then run on and swallow the following line.
             while !is_eol(&code.peek(0)?.0) {
                 if is_eof(&code.peek(0)?.0) || code.peek(0)?.0 == stage0::SOURCE_BOUNDARY_CHAR {
                     break;

@@ -1,0 +1,39 @@
+// A producer that returns NULL is refused rather than adopted.
+//
+// `widget_new` is declared `handle_role = "produces"`, and this provider's
+// version always fails to allocate. C's only way to say "no handle" is a null
+// return, and adopting it would make a FOL value that owes a release on
+// nothing -- the release would then be called on NULL later, at which point
+// the provider is entitled to do anything at all.
+//
+// The runtime refuses at the boundary instead, naming the symbol and saying
+// what to do if NULL is meant to be a reportable failure: declare a status
+// convention, and the failure travels on FOL's recoverable channel with the
+// handle adopted only on success.
+//
+// This package builds. It aborts when run, which is the point.
+//
+use std: pkg = {"std"};
+use wid: pkg = {"widget"};
+
+fun[] main(): int = {
+    var w: wid::Widget = wid::widget_new(21);
+
+    // Borrowed for the duration of the call. The loan carries no obligation:
+    // `w` still owes the release afterwards.
+    var size: int[32] = wid::widget_size([bor]w);
+
+    // The release. `[mov]` is what transfers the handle out, and after it `w`
+    // cannot be borrowed, released again, or read.
+    wid::widget_free([mov]w);
+
+    var marker: int = 0;
+    when(size) {
+        // 21 doubled: the address really crossed to C, and C really read
+        // through it.
+        is(42) { marker = 7; }
+        * { marker = 1; }
+    };
+    var reported: int = std::io::echo_int(marker);
+    return 0;
+};
