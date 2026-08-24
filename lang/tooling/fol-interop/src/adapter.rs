@@ -27,7 +27,18 @@ pub fn render_adapter_module(
     rendered.push_str(&format!(
         "// Generated FOL-owned safe adapters for C import '{}'.\n\
          // Every `unsafe` call to this provider appears here and nowhere else.\n\
+         //\n\
+         // `dead_code` and `non_snake_case` are relaxed because the surface is\n\
+         // generated from C: not every imported routine is called, and C names\n\
+         // are kept verbatim so they stay greppable back to the header. The\n\
+         // denials below are the point -- this module is the only place\n\
+         // `unsafe` appears for this provider, so it is the one place worth\n\
+         // holding to a stricter standard than the rest of the tree.\n\
          #[allow(dead_code, non_snake_case)]\n\
+         #[deny(unsafe_op_in_unsafe_fn)]\n\
+         #[deny(clippy::undocumented_unsafe_blocks)]\n\
+         #[deny(clippy::not_unsafe_ptr_arg_deref)]\n\
+         #[deny(clippy::cast_ptr_alignment)]\n\
          pub mod {} {{\n",
         interface.alias,
         adapter_module_name(&interface.alias),
@@ -96,9 +107,20 @@ fn render_adapter(
                 // Back to `c_void` on the way out, for the same reason the
                 // arguments cast on the way in: this crate does not name the
                 // provider's projected opaque struct.
-                format!("    unsafe {{ {raw}({call_args}) as *mut core::ffi::c_void }}\n")
+                format!(
+                    "    // SAFETY: `{raw}` is the LINC-certified declaration of a symbol this\n\
+                     \x20   // provider defines, called with the arity and types the header\n\
+                     \x20   // states and the overlay accepted. The result is an address FOL\n\
+                     \x20   // does not read through here.\n\
+                     \x20   unsafe {{ {raw}({call_args}) as *mut core::ffi::c_void }}\n"
+                )
             } else {
-                format!("    unsafe {{ {raw}({call_args}) }}\n")
+                format!(
+                    "    // SAFETY: `{raw}` is the LINC-certified declaration of a symbol this\n\
+                     \x20   // provider defines, called with the arity and types the header\n\
+                     \x20   // states and the overlay accepted.\n\
+                     \x20   unsafe {{ {raw}({call_args}) }}\n"
+                )
             };
             let return_type = match interface.types.get(routine.result) {
                 Some(AbiType::Void) => String::new(),
@@ -150,6 +172,11 @@ fn render_adapter(
                 "    #[inline]\n\
                  \x20   pub fn {name}({params}) -> Result<{out_type}, {status_type}> {{\n\
                  \x20       let mut __fol_out: {out_type} = Default::default();\n\
+                 \x20       // SAFETY: `{raw}` is the LINC-certified declaration of a symbol\n\
+                 \x20       // this provider defines. `__fol_out` is a live local of the\n\
+                 \x20       // declared out type, so the pointer handed over is valid and\n\
+                 \x20       // aligned for the whole call, and it is read below only on a\n\
+                 \x20       // status the overlay enumerated as success.\n\
                  \x20       let __fol_status = unsafe {{ {raw}({call_args}) }};\n\
                  \x20       match __fol_status {{\n\
                  \x20           {success_arms} => Ok(__fol_out),\n\
