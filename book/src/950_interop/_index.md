@@ -129,6 +129,8 @@ Importing, C to FOL — FOL calls a C provider through a checked manifest:
 | scalars, including through `typedef` chains | the measured FOL scalar |
 | named structs and enums, as parameters | a FOL record and a FOL scalar |
 | pointers and out-parameters | a FOL value on the success channel |
+| a pointer/length pair | one borrowed FOL vector, its length derived |
+| a provider-allocated buffer | a FOL vector, copied and released in the call |
 | status codes | FOL's ordinary or recoverable channel, per the overlay |
 | opaque handles | a `lin` linear resource with a paired destroy routine |
 | one synchronous callback shape | a FOL closure invoked by the provider |
@@ -143,8 +145,8 @@ callback shape. What is still refused, rather than approximated:
   crosses as an opaque handle; the shape behind it does not.
 - Variadics, bitfields, packed and flexible-array members, unions, C++
   linkage, and unknown calling conventions.
-- Pointer/length slice pairing, and declaring direction, nullability, or escape
-  in the overlay.
+- Adopting a provider's allocation rather than copying it: FOL's allocator did
+  not make it and must not free it.
 - Raw pointers in an ordinary export: a raw pointer with no declared ownership
   and destroy pairing is refused, not defaulted.
 ## Evidence and failure policy
@@ -243,6 +245,78 @@ consumed exactly once, explicitly, on every path. The domain becomes a FOL type
 in the import's namespace, so a program writes `wid::Widget` and the compiler
 proves the release. `examples/v4_c_opaque_handle` is the whole path, and the
 four `examples/fail_v4_c_handle_*` packages are the misuses C would compile.
+
+### Buffers
+
+C carries a buffer as two parameters with nothing joining them:
+`checksum(const uint8_t *bytes, size_t count)` could as easily be a pointer and
+an unrelated tally. The overlay pairs them:
+
+```toml
+[routine.digest_sum]
+error = "infallible"
+buffer = "bytes"
+buffer_length = "count"
+reads = ["bytes"]
+```
+
+`count` then stops being a FOL parameter. The length is **derived** from the
+value FOL passes, so there is no second number a caller can get wrong and no
+way to describe a buffer longer than the one that exists. On FOL's side it is a
+borrowed vector -- `bor[vec[u8]]` when the provider only reads, a mutable loan
+when it writes.
+
+**Direction is declared, not read off constness.** `reads`, `writes`, and
+`reads_writes` name the parameters they apply to. Constness stays the default,
+but it is a poor witness: `void *base` in `qsort` is read and written, `char
+*dst` in `strcpy` is only written, and a mutable pointer a provider never
+writes looks like either. A declaration C contradicts -- `writes` on a const
+pointee, or any direction on a by-value parameter -- is refused.
+
+An **owned** buffer is memory the provider allocated, and it gets a domain and
+a release, exactly like a handle:
+
+```toml
+[buffer.Bytes]
+destroy = "digest_release"
+
+[routine.digest_take]
+error = "infallible"
+buffer_domain = "Bytes"
+buffer_role = "produces"
+buffer_length = "out_len"
+buffer_capacity = "out_capacity"
+
+[routine.digest_release]
+error = "infallible"
+buffer_domain = "Bytes"
+buffer_role = "consumes"
+buffer_length = "count"
+```
+
+FOL never adopts that memory. Its allocator did not make the allocation and
+must not free it, so the adapter **validates the report, copies out of it, and
+calls the release** before returning. What FOL holds afterwards is its own
+vector pointing nowhere near the provider's heap, and the destroy is not
+mountable: there is nothing left for a program to release, and no address to
+release it with.
+
+Two ways a provider can contradict itself are refused rather than read: a
+**null address with a nonzero length**, which describes memory that does not
+exist, and a **length past the capacity** it reported, which describes memory
+it did not allocate. Copying on either reads whatever happened to be there.
+The capacity is what makes the second checkable -- a length on its own is
+unfalsifiable.
+
+The domain gets the same four cross-checks a handle domain does: a destroy that
+is not a selected routine, a destroy that does not declare itself the consumer,
+a domain with no producer or more than one, and a routine naming a domain no
+`[buffer.<Name>]` table declares.
+
+`examples/v4_c_buffer` runs all three shapes and asks the provider how many
+allocations are outstanding afterwards -- the answer is 0, and FOL cannot see
+C's heap any other way. `examples/fail_v4_c_buffer_capacity` and
+`fail_v4_c_buffer_null` are the two contradictions.
 
 ### Entry discriminants
 

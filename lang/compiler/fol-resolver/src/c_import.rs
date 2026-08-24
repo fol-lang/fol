@@ -157,6 +157,11 @@ fn inject_one(program: &mut ResolvedProgram, interface: &ImportedInterface) {
     }
 
     for routine in &interface.routines {
+        // A buffer domain's release is not mounted: FOL never holds the
+        // provider's memory, so there is nothing for a program to release.
+        if !routine.is_mountable() {
+            continue;
+        }
         let canonical_name = fol_types::canonical_identifier_key(&routine.fol_name);
         let symbol_id = program.symbols.push(ResolvedSymbol {
             id: SymbolId(0),
@@ -226,6 +231,8 @@ mod tests {
                     handle: None,
                     callback: None,
                     buffer: None,
+                    owned_buffer: None,
+                    owned_destroy: None,
                     origin: AbiSourceOrigin::default(),
                 })
                 .collect(),

@@ -420,10 +420,26 @@ fn render_routine(routine: &ImportedRoutine) -> String {
         ),
         None => "null".to_string(),
     };
+    // The release pairing is interface, not provenance: unpairing it changes
+    // who frees the memory.
+    let owned = match (&routine.owned_buffer, &routine.owned_destroy) {
+        (Some(use_), Some(destroy)) => format!(
+            "{{\"capacity\":{},\"destroy\":{},\"domain\":{},\"length\":{},\"role\":{}}}",
+            match &use_.capacity {
+                Some(name) => quoted(name),
+                None => "null".to_string(),
+            },
+            quoted(destroy),
+            quoted(&use_.domain),
+            quoted(&use_.length),
+            quoted(use_.role.as_str())
+        ),
+        _ => "null".to_string(),
+    };
     format!(
         "{{\"buffer\":{buffer},\"callback\":{callback},\"convention\":{},\
          \"effects\":{{\"allocates\":{},\"hosted\":{}}},\
-         \"error\":{},\"fol_name\":{},\"handle\":{handle},\
+         \"error\":{},\"fol_name\":{},\"handle\":{handle},\"owned_buffer\":{owned},\
          \"origin\":{{\"column\":{},\"file\":{},\"line\":{}}},\
          \"parameters\":[{parameters}],\"result\":{},\"symbol\":{}}}",
         quoted(routine.convention.as_str()),
@@ -764,6 +780,7 @@ fn read_routine(
             },
         });
     }
+    let owned = read_owned_buffer(entry.field("owned_buffer")?)?;
     let effects_value = entry.field("effects")?;
     let origin_value = entry.field("origin")?;
 
@@ -786,6 +803,8 @@ fn read_routine(
         handle: read_handle(entry.field("handle")?)?,
         callback: read_callback(entry.field("callback")?)?,
         buffer: read_buffer(entry.field("buffer")?)?,
+        owned_buffer: owned.0,
+        owned_destroy: owned.1,
         origin: AbiSourceOrigin {
             file: origin_value.string_field("file")?.to_string(),
             line: u32::try_from(origin_value.integer_field("line")?).unwrap_or(0),
@@ -805,6 +824,40 @@ fn callback_type_index(raw: i64) -> Result<AbiTypeId, ImportManifestError> {
             expected: "a type index",
         })
     })
+}
+
+fn read_owned_buffer(
+    value: &JsonValue,
+) -> Result<(Option<crate::annotation::OwnedBufferUse>, Option<String>), ImportManifestError> {
+    if matches!(value, JsonValue::Null) {
+        return Ok((None, None));
+    }
+    let role = value.string_field("role")?;
+    let role = crate::annotation::BufferRole::from_keyword(role).ok_or_else(|| {
+        ImportManifestError::UnsupportedTypeKind {
+            kind: role.to_string(),
+        }
+    })?;
+    Ok((
+        Some(crate::annotation::OwnedBufferUse {
+            domain: value.string_field("domain")?.to_string(),
+            role,
+            length: value.string_field("length")?.to_string(),
+            capacity: match value.field("capacity")? {
+                JsonValue::Null => None,
+                other => Some(
+                    other
+                        .as_str()
+                        .ok_or(ImportManifestError::Json(JsonError::WrongType {
+                            field: "capacity".to_string(),
+                            expected: "a string",
+                        }))?
+                        .to_string(),
+                ),
+            },
+        }),
+        Some(value.string_field("destroy")?.to_string()),
+    ))
 }
 
 fn read_buffer(
@@ -1085,6 +1138,8 @@ mod tests {
                         handle: None,
                         callback: None,
                         buffer: None,
+                        owned_buffer: None,
+                        owned_destroy: None,
                         origin: AbiSourceOrigin {
                             file: "native/c_math.h".to_string(),
                             line: 7,
@@ -1120,6 +1175,8 @@ mod tests {
                         handle: None,
                         callback: None,
                         buffer: None,
+                        owned_buffer: None,
+                        owned_destroy: None,
                         origin: AbiSourceOrigin {
                             file: "native/c_math.h".to_string(),
                             line: 11,

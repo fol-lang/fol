@@ -1,0 +1,26 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "fail_v4_c_buffer_null", version = "0.1.0",
+        description = "a provider returning NULL while claiming a length",
+        license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "fail_v4_c_buffer_null", root = "src/main.fol", fol_model = "memo",
+    });
+    var header = graph.file_from_root("native/digest.h");
+    var provider = graph.file_from_root("native/libdigest.a");
+    var overlay = graph.file_from_root("interop/digest.toml");
+    app.add_c_import({
+        alias = "digest",
+        header = header,
+        provider = provider,
+        provider_kind = "static",
+        annotations = overlay,
+    });
+    graph.install(app);
+    graph.add_run(app);
+    return;
+};

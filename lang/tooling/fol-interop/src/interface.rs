@@ -56,7 +56,9 @@ pub fn project_imported_interface(
         let Some(annotation) = overlay.routine(symbol) else {
             continue;
         };
-        match project_routine(function, annotation, source, &mut types, model, &shapes) {
+        match project_routine(
+            function, annotation, overlay, source, &mut types, model, &shapes,
+        ) {
             Ok(routine) => routines.push(routine),
             Err(rejection) => rejections.push(rejection),
         }
@@ -89,6 +91,7 @@ pub fn project_imported_interface(
 fn project_routine(
     function: &RustFunction,
     annotation: &fol_abi::RoutineAnnotation,
+    overlay: &AnnotationOverlay,
     source: &CompleteSourcePackage,
     types: &mut AbiTypeTable,
     model: CapabilityModel,
@@ -133,8 +136,14 @@ fn project_routine(
     // pairing exists to replace.
     let buffer = buffer_positions(&symbol, function, annotation, types, shapes)?;
 
+    // An owned buffer's result is a transferred pointer carrying the symbol
+    // that frees it. Resolved before the ordinary projection because a bare
+    // pointer result has no ownership and would be refused.
+    let owned = owned_buffer_result(&symbol, function, annotation, overlay, types, shapes)?;
+
     let result = match handle_positions.result {
         Some(domain) => types.intern(AbiType::OpaqueHandle { name: domain }),
+        None if owned.is_some() => owned.as_ref().expect("checked").type_id,
         None => project_type(
             &symbol,
             function.return_type(),
@@ -213,6 +222,12 @@ fn project_routine(
         handle: annotation.handle.clone(),
         callback: annotation.callback.clone(),
         buffer: annotation.buffer.clone(),
+        owned_buffer: annotation.owned_buffer.clone(),
+        owned_destroy: annotation
+            .owned_buffer
+            .as_ref()
+            .and_then(|use_| overlay.buffer(&use_.domain))
+            .map(|domain| domain.destroy.clone()),
         origin: origin_for(function, source),
     })
 }
@@ -447,6 +462,122 @@ fn direction_for(
         });
     }
     Ok(declared)
+}
+
+/// The result type of a routine that produces an owned buffer.
+///
+/// Modelled as a transferred pointer carrying its destroy symbol, which is
+/// what `AbiType::Pointer` was built to say and what nothing had yet used: the
+/// address is memory FOL did not allocate and must not free itself.
+struct OwnedBufferResult {
+    type_id: fol_abi::AbiTypeId,
+}
+
+fn owned_buffer_result(
+    symbol: &str,
+    function: &RustFunction,
+    annotation: &fol_abi::RoutineAnnotation,
+    overlay: &AnnotationOverlay,
+    types: &mut AbiTypeTable,
+    shapes: &Shapes<'_>,
+) -> Result<Option<OwnedBufferResult>, ImportRejection> {
+    let Some(use_) = &annotation.owned_buffer else {
+        return Ok(None);
+    };
+    // Only a producer has a buffer-shaped result. The destroy takes one back,
+    // and FOL never calls it: the adapter does, before returning the copy.
+    if use_.role != fol_abi::BufferRole::Produces {
+        return Ok(None);
+    }
+    let Some(domain) = overlay.buffer(&use_.domain) else {
+        return Err(ImportRejection::UnknownBufferParameter {
+            symbol: symbol.to_string(),
+            parameter: use_.domain.clone(),
+            role: "domain",
+        });
+    };
+
+    let named = |wanted: &str| -> Option<usize> {
+        function.parameters().iter().position(|parameter| {
+            parameter
+                .source_name()
+                .is_some_and(|name| name.original == wanted)
+        })
+    };
+    // The length and the capacity come back through out-parameters, so each
+    // has to be a pointer to a count rather than a count.
+    for (name, role) in [
+        (Some(&use_.length), "length"),
+        (use_.capacity.as_ref(), "capacity"),
+    ] {
+        let Some(name) = name else { continue };
+        let Some(index) = named(name) else {
+            return Err(ImportRejection::UnknownBufferParameter {
+                symbol: symbol.to_string(),
+                parameter: name.clone(),
+                role,
+            });
+        };
+        let RustTypeKind::Pointer(target) = function.parameters()[index].ty().kind() else {
+            return Err(ImportRejection::BufferShapeMismatch {
+                symbol: symbol.to_string(),
+                parameter: name.clone(),
+                expected: "a pointer, so the provider can report through it",
+            });
+        };
+        let reported = project_type(
+            symbol,
+            target,
+            types,
+            shapes,
+            &fol_abi::PointerContract::default(),
+        )?;
+        if !matches!(
+            types.get(reported),
+            Some(AbiType::Scalar(fol_abi::AbiScalar::Int(width))) if !width.is_signed()
+        ) {
+            return Err(ImportRejection::BufferShapeMismatch {
+                symbol: symbol.to_string(),
+                parameter: name.clone(),
+                expected: "a pointer to an unsigned integer",
+            });
+        }
+    }
+
+    let RustTypeKind::Pointer(target) = function.return_type().kind() else {
+        return Err(ImportRejection::BufferShapeMismatch {
+            symbol: symbol.to_string(),
+            parameter: "<result>".to_string(),
+            expected: "a pointer",
+        });
+    };
+    let element = project_type(
+        symbol,
+        target,
+        types,
+        shapes,
+        &fol_abi::PointerContract::default(),
+    )?;
+    if !matches!(types.get(element), Some(AbiType::Scalar(_))) {
+        return Err(ImportRejection::BufferShapeMismatch {
+            symbol: symbol.to_string(),
+            parameter: "<result>".to_string(),
+            expected: "a pointer to a sized scalar",
+        });
+    }
+
+    Ok(Some(OwnedBufferResult {
+        type_id: types.intern(AbiType::Pointer {
+            target: element,
+            mutability: fol_abi::AbiMutability::Mutable,
+            // A provider is entitled to report failure by returning NULL, and
+            // the adapter checks rather than assuming.
+            nullability: fol_abi::AbiNullability::Nullable,
+            ownership: fol_abi::AbiOwnership::Transferred,
+            escape: fol_abi::AbiEscape::CallScoped,
+            destructor: Some(domain.destroy.clone()),
+        }),
+    }))
 }
 
 /// Where a paired buffer sits, and the slice type its address becomes.

@@ -40,6 +40,17 @@ pub struct ImportedRoutine {
     /// parameters say nothing about belonging together, and no measurement of
     /// the types can recover the pairing.
     pub buffer: Option<crate::annotation::BufferUse>,
+    /// The owned buffer domain this routine produces or consumes.
+    ///
+    /// A producer's result is memory FOL must not free itself, so the adapter
+    /// validates it, copies it, and calls the domain's release before
+    /// returning. A consumer exists only to be that release.
+    pub owned_buffer: Option<crate::annotation::OwnedBufferUse>,
+    /// The symbol that releases this routine's owned buffer.
+    ///
+    /// Resolved from the domain at bind time so the adapter never re-searches
+    /// an overlay it no longer has.
+    pub owned_destroy: Option<String>,
     /// The header location, for diagnostics and navigation.
     pub origin: AbiSourceOrigin,
 }
@@ -82,6 +93,35 @@ impl ImportedRoutine {
             .position(|parameter| parameter.name == use_.length)
     }
 
+    /// The out-parameter an owned buffer reports its length through.
+    pub fn owned_length_index(&self) -> Option<usize> {
+        let use_ = self.owned_buffer.as_ref()?;
+        self.parameters
+            .iter()
+            .position(|parameter| parameter.name == use_.length)
+    }
+
+    /// The out-parameter an owned buffer reports its capacity through.
+    pub fn owned_capacity_index(&self) -> Option<usize> {
+        let capacity = self.owned_buffer.as_ref()?.capacity.as_ref()?;
+        self.parameters
+            .iter()
+            .position(|parameter| &parameter.name == capacity)
+    }
+
+    /// Whether FOL mounts this routine under a name a program can call.
+    ///
+    /// A buffer domain's release is not one. FOL never owns the provider's
+    /// memory -- the adapter copies out of it and releases it before
+    /// returning -- so a FOL program has nothing to release and no address to
+    /// release it with.
+    pub fn is_mountable(&self) -> bool {
+        !self
+            .owned_buffer
+            .as_ref()
+            .is_some_and(|use_| use_.role == crate::annotation::BufferRole::Consumes)
+    }
+
     /// Parameters a FOL caller passes, in order.
     ///
     /// Two positions are hidden, for the same reason in both cases: FOL owns
@@ -95,11 +135,20 @@ impl ImportedRoutine {
         let out = self.out_parameter_index();
         let context = self.callback_context_index();
         let length = self.buffer_length_index();
+        // An owned buffer's length and capacity are reported *by* the
+        // provider, so a FOL caller has nothing to pass: the adapter supplies
+        // the storage and reads them back.
+        let reported = self.owned_length_index();
+        let capacity = self.owned_capacity_index();
         self.parameters
             .iter()
             .enumerate()
             .filter(|(index, _)| {
-                Some(*index) != out && Some(*index) != context && Some(*index) != length
+                Some(*index) != out
+                    && Some(*index) != context
+                    && Some(*index) != length
+                    && Some(*index) != reported
+                    && Some(*index) != capacity
             })
             .map(|(_, parameter)| parameter)
             .collect()
@@ -959,6 +1008,8 @@ mod tests {
             handle: None,
             callback: None,
             buffer: None,
+            owned_buffer: None,
+            owned_destroy: None,
             origin: AbiSourceOrigin::default(),
         };
 
@@ -986,6 +1037,8 @@ mod tests {
             handle: None,
             callback: None,
             buffer: None,
+            owned_buffer: None,
+            owned_destroy: None,
             origin: AbiSourceOrigin::default(),
         };
 
@@ -1013,6 +1066,8 @@ mod tests {
                     handle: None,
                     callback: None,
                     buffer: None,
+                    owned_buffer: None,
+                    owned_destroy: None,
                     origin: AbiSourceOrigin::default(),
                 })
                 .collect(),

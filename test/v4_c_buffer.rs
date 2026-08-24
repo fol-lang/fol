@@ -128,6 +128,27 @@ fn stage(fixture: &Path, example: &str, compiler: &str) -> PathBuf {
     root
 }
 
+/// Rebuild a staged provider after editing its C source.
+fn rebuild_provider(root: &Path, compiler: &str) {
+    let native = root.join("native");
+    let object = native.join("digest.o");
+    let status = Command::new(compiler)
+        .arg("-c")
+        .arg("-o")
+        .arg(&object)
+        .arg(native.join("digest.c"))
+        .status()
+        .expect("recompile the C provider");
+    assert!(status.success(), "the edited provider should compile");
+    let status = Command::new("ar")
+        .arg("rcs")
+        .arg(native.join("libdigest.a"))
+        .arg(&object)
+        .status()
+        .expect("rearchive the C provider");
+    assert!(status.success(), "the edited provider should archive");
+}
+
 fn run_folc(root: &Path, compiler: &str, temp: &Path, args: &[&str]) -> (bool, String) {
     let mut command = Command::new(folc());
     command
@@ -322,6 +343,162 @@ fn incoherent_buffer_pairings_are_refused() {
             format!("version = 1\n\n[routine.digest_sum]\nerror = \"infallible\"\n{overlay}\n"),
         )
         .expect("overlay writable");
+
+        let (ok, output) = bind(&root, &compiler, &temp);
+        assert!(!ok, "{name} should be refused:\n{output}");
+        assert!(
+            output.contains(expected),
+            "{name} should be refused by name:\n{output}"
+        );
+    }
+}
+
+/// A provider-allocated buffer is validated, copied, and released in one call.
+///
+/// The printed 7 now carries a fourth fact: `digest_live()` returned 0, so the
+/// domain's release ran. FOL cannot see C's heap, so the provider is asked --
+/// and the answer is the only way to tell a working program from a leaking
+/// one. Removing the release turns this into a 4.
+#[test]
+fn an_owned_buffer_is_copied_and_released_inside_the_call() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the buffer slice");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("fol_v4_buffer_owned");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root");
+    let root = stage(fixture.path(), "v4_c_buffer", &compiler);
+
+    let (ok, output) = bind(&root, &compiler, &temp);
+    assert!(ok, "binding should succeed:\n{output}");
+
+    let (_, output) = run_folc(&root, &compiler, &temp, &["code", "run"]);
+    assert!(
+        output.lines().any(|line| line.trim() == "7"),
+        "the owned buffer should copy and release cleanly:\n{output}"
+    );
+}
+
+/// The leak check can fail, so passing it means something.
+///
+/// Without this, a `digest_live()` that always returned 0 -- or a FOL side
+/// that never compared it -- would look identical to a release that ran.
+#[test]
+fn a_release_that_does_not_run_is_visible() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the buffer slice");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("fol_v4_buffer_leak");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root");
+    let root = stage(fixture.path(), "v4_c_buffer", &compiler);
+
+    // The provider stops reporting the free. Nothing on FOL's side changes.
+    let source = root.join("native/digest.c");
+    let text = std::fs::read_to_string(&source).expect("digest.c readable");
+    std::fs::write(&source, text.replace("    live -= 1;\n", "")).expect("digest.c writable");
+    rebuild_provider(&root, &compiler);
+
+    let (ok, output) = bind(&root, &compiler, &temp);
+    assert!(ok, "binding should succeed:\n{output}");
+
+    let (_, output) = run_folc(&root, &compiler, &temp, &["code", "run"]);
+    assert!(
+        output.lines().any(|line| line.trim() == "4"),
+        "an outstanding allocation should be reported as 4:\n{output}"
+    );
+}
+
+/// A provider that contradicts its own report is refused, not read.
+///
+/// Both fixtures describe memory that does not exist: one reports more
+/// elements than it allocated, the other reports a length for a buffer it did
+/// not return. Copying on either would read whatever happened to be there.
+#[test]
+fn a_provider_contradicting_its_own_report_is_refused() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the buffer slice");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("fol_v4_buffer_lies");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root");
+
+    for (example, expected) in [
+        (
+            "fail_v4_c_buffer_capacity",
+            "reported a longer buffer than the capacity it allocated",
+        ),
+        (
+            "fail_v4_c_buffer_null",
+            "returned NULL but reported a nonzero length",
+        ),
+    ] {
+        let root = stage(fixture.path(), example, &compiler);
+        let (ok, output) = bind(&root, &compiler, &temp);
+        assert!(ok, "{example} should bind:\n{output}");
+
+        let (ok, output) = run_folc(&root, &compiler, &temp, &["code", "run"]);
+        assert!(!ok, "{example} should not run to completion:\n{output}");
+        assert!(
+            output.contains(expected),
+            "{example} should name what the provider contradicted:\n{output}"
+        );
+    }
+}
+
+/// Every way of pairing an owned buffer domain incoherently, refused by name.
+///
+/// The same four an opaque handle domain gets, because the fact is the same:
+/// memory a provider allocated is memory only that provider can free, and an
+/// overlay that gets the pairing wrong compiles into a program that frees
+/// nothing or frees it twice.
+#[test]
+fn incoherent_buffer_domains_are_refused() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the buffer slice");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("fol_v4_buffer_domain");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root");
+
+    const DOMAIN: &str = "version = 1\n\n[buffer.Bytes]\ndestroy = \"digest_release\"\n\n";
+    const PRODUCER: &str = "[routine.digest_take]\nerror = \"infallible\"\n\
+        buffer_domain = \"Bytes\"\nbuffer_role = \"produces\"\nbuffer_length = \"out_len\"\n\n";
+    const CONSUMER: &str = "[routine.digest_release]\nerror = \"infallible\"\n\
+        buffer_domain = \"Bytes\"\nbuffer_role = \"consumes\"\nbuffer_length = \"count\"\n";
+
+    for (name, overlay, expected) in [
+        (
+            "destroy_unselected",
+            format!("{DOMAIN}{PRODUCER}"),
+            "names destroy 'digest_release', which the overlay does not select",
+        ),
+        (
+            "domain_undeclared",
+            format!("version = 1\n\n{PRODUCER}"),
+            "which no [buffer.Bytes] table declares",
+        ),
+        (
+            "no_producer",
+            format!("{DOMAIN}{CONSUMER}"),
+            "has 0 producers; exactly one is needed",
+        ),
+        (
+            "owned_and_borrowed",
+            format!(
+                "{DOMAIN}{CONSUMER}\n[routine.digest_take]\nerror = \"infallible\"\n\
+                 buffer_domain = \"Bytes\"\nbuffer_role = \"produces\"\n\
+                 buffer_length = \"out_len\"\nbuffer = \"start\"\n"
+            ),
+            "declares both a borrowed buffer and an owned one",
+        ),
+    ] {
+        let root = stage(
+            fixture.path().join(name).as_path(),
+            "v4_c_buffer",
+            &compiler,
+        );
+        std::fs::write(root.join("interop/digest.toml"), overlay).expect("overlay writable");
 
         let (ok, output) = bind(&root, &compiler, &temp);
         assert!(!ok, "{name} should be refused:\n{output}");

@@ -45,6 +45,12 @@ pub fn render_adapter_module(
     ));
 
     for routine in &interface.routines {
+        // A buffer domain's release gets no adapter. FOL cannot call it -- it
+        // takes a raw address FOL never holds -- and the producer that does
+        // call it reaches the certified symbol directly.
+        if !routine.is_mountable() {
+            continue;
+        }
         rendered.push_str(&render_adapter(interface, routine, raw_crate)?);
     }
 
@@ -119,6 +125,17 @@ fn render_adapter(
         ));
     }
     let params = params.join(", ");
+
+    // A produced buffer is its own shape: the provider's memory is validated,
+    // copied out of, and released before the call returns, so nothing FOL
+    // holds afterwards points into it.
+    if let Some(body) = owned_buffer_body(interface, routine, &raw)? {
+        return Ok(format!(
+            "    #[inline]\n    pub fn {}({params}) -> {} {{\n{body}    }}\n",
+            rust_param_name(&routine.fol_name),
+            owned_buffer_return(interface, routine)?,
+        ));
+    }
 
     match &routine.error {
         ImportErrorConvention::Infallible => {
@@ -225,6 +242,164 @@ fn render_adapter(
             ))
         }
     }
+}
+
+/// The Rust type a produced buffer hands back.
+///
+/// `std::vec::Vec`, not FOL's own vector: this crate is linked without the
+/// runtime, and the call site converts.
+fn owned_buffer_return(
+    interface: &ImportedInterface,
+    routine: &ImportedRoutine,
+) -> Result<String, AdapterError> {
+    let Some(AbiType::Pointer { target, .. }) = interface.types.get(routine.result) else {
+        return Err(AdapterError::UnsupportedType {
+            symbol: routine.symbol.clone(),
+            detail: "a produced buffer whose result is not a pointer".to_string(),
+        });
+    };
+    Ok(format!(
+        "std::vec::Vec<{}>",
+        rust_scalar(&interface.types, *target, &routine.symbol)?
+    ))
+}
+
+/// The body of a routine that produces an owned buffer.
+///
+/// Three things happen here that cannot happen anywhere else. The provider's
+/// report is *validated* -- a null address with a nonzero length, or a length
+/// past the capacity it reported, is a provider contradicting itself, and
+/// reading the buffer on either would read memory that was never described.
+/// The bytes are *copied*, because FOL's allocator did not make this
+/// allocation and must never free it. And the domain's release is *called*,
+/// exactly once, before the copy is handed back.
+fn owned_buffer_body(
+    interface: &ImportedInterface,
+    routine: &ImportedRoutine,
+    raw: &str,
+) -> Result<Option<String>, AdapterError> {
+    let Some(use_) = &routine.owned_buffer else {
+        return Ok(None);
+    };
+    if use_.role != fol_abi::BufferRole::Produces {
+        return Ok(None);
+    }
+    let (Some(destroy), Some(length_index)) =
+        (&routine.owned_destroy, routine.owned_length_index())
+    else {
+        return Err(AdapterError::UnsupportedType {
+            symbol: routine.symbol.clone(),
+            detail: "a produced buffer with no resolved release or length".to_string(),
+        });
+    };
+    let length_name = rust_param_name(&routine.parameters[length_index].name);
+    let length_type = out_pointee(&interface.types, routine, length_index)?;
+    let capacity_index = routine.owned_capacity_index();
+
+    let mut lines = vec![format!("        let mut {length_name}: {length_type} = 0;")];
+    let mut capacity_check = Vec::new();
+    if let Some(index) = capacity_index {
+        let name = rust_param_name(&routine.parameters[index].name);
+        let ty = out_pointee(&interface.types, routine, index)?;
+        lines.push(format!("        let mut {name}: {ty} = 0;"));
+        capacity_check = vec![
+            format!("        if {length_name} > {name} {{"),
+            format!(
+                "            panic!(\"fol interop fault: '{}' reported a longer buffer than \
+                 the capacity it allocated\");",
+                routine.symbol
+            ),
+            "        }".to_string(),
+        ];
+    }
+
+    let call_args = routine
+        .parameters
+        .iter()
+        .enumerate()
+        .map(|(position, parameter)| {
+            if position == length_index || Some(position) == capacity_index {
+                format!("&mut {}", rust_param_name(&parameter.name))
+            } else {
+                cast_argument(&interface.types, parameter)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let release_args = release_arguments(interface, routine, destroy, &length_name)?;
+    let symbol = &routine.symbol;
+    lines.extend([
+        format!("        // SAFETY: `{raw}` is the LINC-certified declaration of a symbol this"),
+        "        // provider defines. The out storage is live locals of the declared types,".to_string(),
+        "        // so the pointers handed over are valid for the whole call.".to_string(),
+        format!("        let __fol_address = unsafe {{ {raw}({call_args}) }};"),
+        "        if __fol_address.is_null() {".to_string(),
+        "            // A provider may report failure by returning NULL, and that is an".to_string(),
+        "            // empty buffer. Claiming a length for one is not: there is no memory".to_string(),
+        "            // the count could be describing.".to_string(),
+        format!("            if {length_name} != 0 {{"),
+        format!(
+            "                panic!(\"fol interop fault: '{symbol}' returned NULL but reported a nonzero length\");"
+        ),
+        "            }".to_string(),
+        "            return std::vec::Vec::new();".to_string(),
+        "        }".to_string(),
+    ]);
+    lines.extend(capacity_check);
+    lines.extend([
+        "        // Copied, never adopted: this allocation is the provider's, and freeing"
+            .to_string(),
+        "        // it with FOL's allocator would be freeing memory that allocator never"
+            .to_string(),
+        "        // made.".to_string(),
+        "        let __fol_copy = unsafe {".to_string(),
+        format!("            core::slice::from_raw_parts(__fol_address, {length_name} as usize)"),
+        "        }".to_string(),
+        "        .to_vec();".to_string(),
+        "        // SAFETY: the address came from this domain's one producer and has not"
+            .to_string(),
+        "        // been released; the copy above no longer points into it.".to_string(),
+        format!("        unsafe {{ fol_h7_raw::{destroy}({release_args}) }};"),
+        "        __fol_copy".to_string(),
+    ]);
+    Ok(Some(format!("{}\n", lines.join("\n"))))
+}
+
+/// The arguments the domain's release takes, in its own declared order.
+fn release_arguments(
+    interface: &ImportedInterface,
+    routine: &ImportedRoutine,
+    destroy: &str,
+    length_name: &str,
+) -> Result<String, AdapterError> {
+    let Some(release) = interface
+        .routines
+        .iter()
+        .find(|candidate| candidate.symbol == destroy)
+    else {
+        return Err(AdapterError::UnsupportedType {
+            symbol: routine.symbol.clone(),
+            detail: format!("release '{destroy}' is not part of this interface"),
+        });
+    };
+    let length = release
+        .owned_buffer
+        .as_ref()
+        .map(|use_| use_.length.clone())
+        .unwrap_or_default();
+    Ok(release
+        .parameters
+        .iter()
+        .map(|parameter| {
+            if parameter.name == length {
+                format!("{length_name} as _")
+            } else {
+                "__fol_address as *mut _".to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", "))
 }
 
 fn out_pointee(
@@ -453,6 +628,8 @@ mod tests {
                     handle: None,
                     callback: None,
                     buffer: None,
+                    owned_buffer: None,
+                    owned_destroy: None,
                     origin: AbiSourceOrigin::default(),
                 },
                 ImportedRoutine {
@@ -481,6 +658,8 @@ mod tests {
                     handle: None,
                     callback: None,
                     buffer: None,
+                    owned_buffer: None,
+                    owned_destroy: None,
                     origin: AbiSourceOrigin::default(),
                 },
             ],

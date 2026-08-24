@@ -137,6 +137,57 @@ pub struct CallbackUse {
     pub context: String,
 }
 
+/// A domain of owned buffers, paired with the routine that releases them.
+///
+/// The same shape as a handle domain and for the same reason: memory a
+/// provider allocated is memory only that provider can free, and which routine
+/// owes the release is not something C's types record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BufferDomain {
+    pub name: String,
+    /// The routine that releases a buffer of this domain.
+    pub destroy: String,
+}
+
+/// What a routine does with an owned buffer of some domain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BufferRole {
+    /// Returns one, which FOL then owes to the destroy.
+    Produces,
+    /// Takes one back and releases it.
+    Consumes,
+}
+
+impl BufferRole {
+    pub fn from_keyword(text: &str) -> Option<Self> {
+        match text {
+            "produces" => Some(Self::Produces),
+            "consumes" => Some(Self::Consumes),
+            _ => None,
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Produces => "produces",
+            Self::Consumes => "consumes",
+        }
+    }
+}
+
+/// A routine's use of an owned buffer domain.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnedBufferUse {
+    pub domain: String,
+    pub role: BufferRole,
+    /// The parameter carrying the element count: an out-parameter for a
+    /// producer, an ordinary one for the destroy.
+    pub length: String,
+    /// The parameter carrying the allocated capacity, when the provider
+    /// reports one. Optional because many providers do not.
+    pub capacity: Option<String>,
+}
+
 /// A routine's pointer/length pair, named by the overlay.
 ///
 /// C carries a buffer as two unrelated parameters, and nothing in the type
@@ -186,6 +237,8 @@ pub struct RoutineAnnotation {
     pub callback: Option<CallbackUse>,
     /// The pointer/length pair this routine takes as one buffer.
     pub buffer: Option<BufferUse>,
+    /// The owned buffer domain this routine produces or consumes.
+    pub owned_buffer: Option<OwnedBufferUse>,
     /// Declared pointer contracts, by parameter name.
     pub pointers: BTreeMap<String, PointerContract>,
 }
@@ -195,6 +248,7 @@ pub struct RoutineAnnotation {
 pub struct AnnotationOverlay {
     routines: BTreeMap<String, RoutineAnnotation>,
     handles: BTreeMap<String, HandleDomain>,
+    buffers: BTreeMap<String, BufferDomain>,
 }
 
 impl AnnotationOverlay {
@@ -206,6 +260,16 @@ impl AnnotationOverlay {
     /// One declared handle domain by name.
     pub fn handle(&self, name: &str) -> Option<&HandleDomain> {
         self.handles.get(name)
+    }
+
+    /// The declared owned-buffer domains, in name order.
+    pub fn buffers(&self) -> impl Iterator<Item = &BufferDomain> {
+        self.buffers.values()
+    }
+
+    /// One declared owned-buffer domain by name.
+    pub fn buffer(&self, name: &str) -> Option<&BufferDomain> {
+        self.buffers.get(name)
     }
 
     /// The annotation for one C symbol, or `None` when the overlay does not
@@ -276,6 +340,46 @@ pub enum AnnotationError {
     BufferIsItsOwnLength {
         symbol: String,
         parameter: String,
+    },
+    /// A routine declaring both a borrowed pairing and an owned domain.
+    BufferIsBothOwnedAndBorrowed {
+        symbol: String,
+    },
+    /// A second `[buffer.<Name>]` table for one domain.
+    DuplicateBufferDomain {
+        line: u32,
+        domain: String,
+    },
+    /// A `buffer_role` that names no role.
+    UnknownBufferRole {
+        line: u32,
+        role: String,
+    },
+    /// A routine naming an owned-buffer domain no table declares.
+    UndeclaredBufferDomain {
+        symbol: String,
+        domain: String,
+    },
+    /// A consumer of a domain that is not that domain's declared destroy.
+    BufferConsumerIsNotTheDestroy {
+        symbol: String,
+        domain: String,
+        destroy: String,
+    },
+    /// A domain whose destroy is not a selected routine.
+    UnboundBufferDestroy {
+        domain: String,
+        destroy: String,
+    },
+    /// A destroy that does not declare itself the domain's consumer.
+    BufferDestroyRoleMismatch {
+        domain: String,
+        destroy: String,
+    },
+    /// A domain with no producer, or with more than one.
+    BufferProducerCount {
+        domain: String,
+        found: usize,
     },
     /// A convention section 4.13 rejects outright rather than approximating.
     RejectedConvention {
@@ -385,6 +489,48 @@ impl std::fmt::Display for AnnotationError {
                 f,
                 "routine '{symbol}' names '{parameter}' as both its buffer and its length"
             ),
+            Self::BufferIsBothOwnedAndBorrowed { symbol } => write!(
+                f,
+                "routine '{symbol}' declares both a borrowed buffer and an owned one; a buffer \
+                 is lent for the call or handed over, not both"
+            ),
+            Self::DuplicateBufferDomain { line, domain } => write!(
+                f,
+                "line {line}: buffer domain '{domain}' is declared twice"
+            ),
+            Self::UnknownBufferRole { line, role } => write!(
+                f,
+                "line {line}: '{role}' is not a buffer role; use 'produces' or 'consumes'"
+            ),
+            Self::UndeclaredBufferDomain { symbol, domain } => write!(
+                f,
+                "routine '{symbol}' uses buffer domain '{domain}', which no \
+                 [buffer.{domain}] table declares"
+            ),
+            Self::BufferConsumerIsNotTheDestroy {
+                symbol,
+                domain,
+                destroy,
+            } => write!(
+                f,
+                "routine '{symbol}' consumes buffer domain '{domain}', whose destroy is \
+                 '{destroy}'; a domain has one release path"
+            ),
+            Self::UnboundBufferDestroy { domain, destroy } => write!(
+                f,
+                "buffer domain '{domain}' names destroy '{destroy}', which the overlay does \
+                 not select"
+            ),
+            Self::BufferDestroyRoleMismatch { domain, destroy } => write!(
+                f,
+                "buffer domain '{domain}' names destroy '{destroy}', which does not declare \
+                 itself the consumer of '{domain}'"
+            ),
+            Self::BufferProducerCount { domain, found } => write!(
+                f,
+                "buffer domain '{domain}' has {found} producers; exactly one is needed so the \
+                 domain has a single origin"
+            ),
             Self::RejectedConvention { line, convention } => write!(
                 f,
                 "line {line}: error convention '{convention}' is rejected; V4 supports \
@@ -470,6 +616,9 @@ struct PendingRoutine {
     callback_context: Option<String>,
     buffer: Option<String>,
     buffer_length: Option<String>,
+    buffer_domain: Option<String>,
+    buffer_role: Option<BufferRole>,
+    buffer_capacity: Option<String>,
     /// `nullable`, `transferred`, and `retained` sets, by parameter name.
     pointers: BTreeMap<String, PointerContract>,
 }
@@ -479,6 +628,7 @@ struct PendingRoutine {
 enum Table {
     Routine(String),
     Handle(String),
+    Buffer(String),
 }
 
 struct Parser<'a> {
@@ -487,6 +637,7 @@ struct Parser<'a> {
     order: Vec<String>,
     pending: BTreeMap<String, PendingRoutine>,
     handles: BTreeMap<String, Option<String>>,
+    buffers: BTreeMap<String, Option<String>>,
     current: Option<Table>,
 }
 
@@ -498,6 +649,7 @@ impl<'a> Parser<'a> {
             order: Vec::new(),
             pending: BTreeMap::new(),
             handles: BTreeMap::new(),
+            buffers: BTreeMap::new(),
             current: None,
         }
     }
@@ -538,6 +690,25 @@ impl<'a> Parser<'a> {
             }
             self.handles.insert(domain.to_string(), None);
             self.current = Some(Table::Handle(domain.to_string()));
+            return Ok(());
+        }
+
+        if let Some(domain) = name.strip_prefix("buffer.") {
+            let domain = domain.trim();
+            if !is_c_identifier(domain) {
+                return Err(AnnotationError::InvalidSymbol {
+                    line,
+                    symbol: domain.to_string(),
+                });
+            }
+            if self.buffers.contains_key(domain) {
+                return Err(AnnotationError::DuplicateBufferDomain {
+                    line,
+                    domain: domain.to_string(),
+                });
+            }
+            self.buffers.insert(domain.to_string(), None);
+            self.current = Some(Table::Buffer(domain.to_string()));
             return Ok(());
         }
 
@@ -617,6 +788,23 @@ impl<'a> Parser<'a> {
                 self.handles.insert(domain, Some(destroy));
                 return Ok(());
             }
+            Table::Buffer(domain) => {
+                if key != "destroy" {
+                    return Err(AnnotationError::UnknownKey {
+                        line,
+                        key: key.to_string(),
+                    });
+                }
+                let destroy = parse_string(value).ok_or(AnnotationError::MalformedLine { line })?;
+                if !is_c_identifier(&destroy) {
+                    return Err(AnnotationError::InvalidSymbol {
+                        line,
+                        symbol: destroy,
+                    });
+                }
+                self.buffers.insert(domain, Some(destroy));
+                return Ok(());
+            }
             Table::Routine(symbol) => symbol,
         };
 
@@ -649,6 +837,21 @@ impl<'a> Parser<'a> {
             }
             "buffer_length" => {
                 routine.buffer_length =
+                    Some(parse_string(value).ok_or(AnnotationError::MalformedLine { line })?);
+            }
+            "buffer_domain" => {
+                routine.buffer_domain =
+                    Some(parse_string(value).ok_or(AnnotationError::MalformedLine { line })?);
+            }
+            "buffer_role" => {
+                let role = parse_string(value).ok_or(AnnotationError::MalformedLine { line })?;
+                routine.buffer_role = Some(
+                    BufferRole::from_keyword(&role)
+                        .ok_or(AnnotationError::UnknownBufferRole { line, role })?,
+                );
+            }
+            "buffer_capacity" => {
+                routine.buffer_capacity =
                     Some(parse_string(value).ok_or(AnnotationError::MalformedLine { line })?);
             }
             // The pointer contracts C cannot state. Each names the parameters
@@ -776,7 +979,77 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Ok(AnnotationOverlay { routines, handles })
+        let mut buffers = BTreeMap::new();
+        for (name, destroy) in self.buffers {
+            let destroy = destroy.ok_or(AnnotationError::MissingKey {
+                symbol: name.clone(),
+                key: "destroy",
+            })?;
+            buffers.insert(name.clone(), BufferDomain { name, destroy });
+        }
+
+        // The same three cross-checks a handle domain gets, for the same
+        // reason: memory a provider allocated is memory only that provider can
+        // free, and an overlay that gets the pairing wrong compiles into a
+        // program owing a release it cannot perform.
+        for routine in routines.values() {
+            let Some(use_) = &routine.owned_buffer else {
+                continue;
+            };
+            let Some(domain) = buffers.get(&use_.domain) else {
+                return Err(AnnotationError::UndeclaredBufferDomain {
+                    symbol: routine.symbol.clone(),
+                    domain: use_.domain.clone(),
+                });
+            };
+            if use_.role == BufferRole::Consumes && domain.destroy != routine.symbol {
+                return Err(AnnotationError::BufferConsumerIsNotTheDestroy {
+                    symbol: routine.symbol.clone(),
+                    domain: domain.name.clone(),
+                    destroy: domain.destroy.clone(),
+                });
+            }
+        }
+        for domain in buffers.values() {
+            let Some(destroy) = routines.get(&domain.destroy) else {
+                return Err(AnnotationError::UnboundBufferDestroy {
+                    domain: domain.name.clone(),
+                    destroy: domain.destroy.clone(),
+                });
+            };
+            let consumes = destroy.owned_buffer.as_ref().is_some_and(|use_| {
+                use_.domain == domain.name && use_.role == BufferRole::Consumes
+            });
+            if !consumes {
+                return Err(AnnotationError::BufferDestroyRoleMismatch {
+                    domain: domain.name.clone(),
+                    destroy: domain.destroy.clone(),
+                });
+            }
+            // One producer, so the domain has exactly one origin. Two would
+            // mean two allocation paths sharing one release, which the
+            // provider may or may not support and the overlay cannot promise.
+            let producers = routines
+                .values()
+                .filter(|routine| {
+                    routine.owned_buffer.as_ref().is_some_and(|use_| {
+                        use_.domain == domain.name && use_.role == BufferRole::Produces
+                    })
+                })
+                .count();
+            if producers != 1 {
+                return Err(AnnotationError::BufferProducerCount {
+                    domain: domain.name.clone(),
+                    found: producers,
+                });
+            }
+        }
+
+        Ok(AnnotationOverlay {
+            routines,
+            handles,
+            buffers,
+        })
     }
 }
 
@@ -878,10 +1151,56 @@ impl PendingRoutine {
             }
             (None, None) => None,
         };
+        // An owned buffer names a domain and a role, like a handle, plus the
+        // parameter its length comes back through. `buffer_length` means the
+        // same thing in both spellings -- where this routine's buffer reports
+        // its extent -- so it is shared rather than duplicated.
+        let owned_buffer = match (self.buffer_domain, self.buffer_role) {
+            (Some(domain), Some(role)) => {
+                if self.buffer.is_some() {
+                    return Err(AnnotationError::BufferIsBothOwnedAndBorrowed {
+                        symbol: symbol.to_string(),
+                    });
+                }
+                let length = self
+                    .buffer_length
+                    .clone()
+                    .ok_or(AnnotationError::MissingKey {
+                        symbol: symbol.to_string(),
+                        key: "buffer_length",
+                    })?;
+                Some(OwnedBufferUse {
+                    domain,
+                    role,
+                    length,
+                    capacity: self.buffer_capacity,
+                })
+            }
+            (Some(_), None) => {
+                return Err(AnnotationError::MissingKey {
+                    symbol: symbol.to_string(),
+                    key: "buffer_role",
+                })
+            }
+            (None, Some(_)) => {
+                return Err(AnnotationError::MissingKey {
+                    symbol: symbol.to_string(),
+                    key: "buffer_domain",
+                })
+            }
+            (None, None) => None,
+        };
         // Same rule again: an address with no named length is a buffer whose
         // extent nobody knows, and a length with no named address counts
         // nothing.
-        let buffer = match (self.buffer, self.buffer_length) {
+        let buffer = match (
+            self.buffer,
+            if owned_buffer.is_some() {
+                None
+            } else {
+                self.buffer_length
+            },
+        ) {
             (Some(parameter), Some(length)) => {
                 // Pairing a parameter with itself would make the length its
                 // own extent, which is not a shape C can produce.
@@ -915,6 +1234,7 @@ impl PendingRoutine {
             handle,
             callback,
             buffer,
+            owned_buffer,
             pointers: self.pointers,
         })
     }

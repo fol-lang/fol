@@ -1,0 +1,17 @@
+// A provider that returns NULL while claiming a length.
+//
+// `digest_take` allocates nothing and reports three elements. A NULL result is
+// a legitimate way to report failure, and an empty buffer is the honest answer
+// to it -- but a nonzero length alongside it describes memory that does not
+// exist. The adapter refuses rather than reading from address zero.
+//
+// Returning an empty vector here would hide a provider that is malfunctioning.
+
+use std: pkg = {"std"};
+use dig: pkg = {"digest"};
+
+fun[] main(): int = {
+    var taken: vec[u8] = dig::digest_take(7);
+    var shown: int = std::io::echo_int(0);
+    return 0;
+};

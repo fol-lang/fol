@@ -1,0 +1,17 @@
+version = 1
+
+[buffer.Bytes]
+destroy = "digest_release"
+
+[routine.digest_take]
+error = "infallible"
+buffer_domain = "Bytes"
+buffer_role = "produces"
+buffer_length = "out_len"
+buffer_capacity = "out_capacity"
+
+[routine.digest_release]
+error = "infallible"
+buffer_domain = "Bytes"
+buffer_role = "consumes"
+buffer_length = "count"

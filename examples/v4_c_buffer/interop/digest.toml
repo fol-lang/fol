@@ -15,3 +15,25 @@ error = "infallible"
 buffer = "bytes"
 buffer_length = "count"
 writes = ["bytes"]
+
+# A domain of provider-allocated buffers, paired with the one routine that
+# frees them -- the same shape a handle domain has, for the same reason.
+[buffer.Bytes]
+destroy = "digest_release"
+
+[routine.digest_take]
+error = "infallible"
+buffer_domain = "Bytes"
+buffer_role = "produces"
+buffer_length = "out_len"
+buffer_capacity = "out_capacity"
+
+# Never callable from FOL: the adapter calls it, and FOL holds a copy.
+[routine.digest_release]
+error = "infallible"
+buffer_domain = "Bytes"
+buffer_role = "consumes"
+buffer_length = "count"
+
+[routine.digest_live]
+error = "infallible"

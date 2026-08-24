@@ -1,0 +1,17 @@
+// A provider that reports a longer buffer than it allocated.
+//
+// `digest_take` mallocs two bytes and reports four. Copying on that report
+// would read two bytes past the allocation -- silently, and with whatever
+// happened to be there. The adapter compares the two numbers the provider
+// itself reported and refuses, naming the routine.
+//
+// This is the check that needs the capacity: a length alone is unfalsifiable.
+
+use std: pkg = {"std"};
+use dig: pkg = {"digest"};
+
+fun[] main(): int = {
+    var taken: vec[u8] = dig::digest_take(7);
+    var shown: int = std::io::echo_int(0);
+    return 0;
+};

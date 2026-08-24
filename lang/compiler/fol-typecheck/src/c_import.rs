@@ -89,6 +89,11 @@ pub(crate) fn hydrate_c_import_symbol_types(
         }
 
         for routine in &interface.routines {
+            // A buffer domain's release is not mounted: FOL never holds the
+            // provider's memory, so there is nothing for a program to release.
+            if !routine.is_mountable() {
+                continue;
+            }
             let Some(symbol_id) = symbols.get(&routine.fol_name).copied() else {
                 continue;
             };
@@ -323,6 +328,23 @@ fn checked_type_for(
             .type_table_mut()
             .intern(CheckedType::Routine(signature)));
     }
+    // An owned buffer reaches FOL as an ordinary vector it owns outright. The
+    // provider's memory is never adopted: the adapter validates it, copies out
+    // of it, and calls the destroy before returning, so FOL's allocator only
+    // ever frees FOL's own allocation.
+    if let AbiType::Pointer {
+        target,
+        ownership: fol_abi::AbiOwnership::Transferred,
+        destructor: Some(_),
+        ..
+    } = abi_type
+    {
+        let element = *target;
+        let element_type = checked_type_for(typed, alias, types, element, context)?;
+        return Ok(typed
+            .type_table_mut()
+            .intern(CheckedType::Vector { element_type }));
+    }
     // A paired buffer reaches FOL as one borrowed vector. Borrowed rather than
     // owned because the provider is lent the storage for the call and FOL keeps
     // it: an owned `vec` would mean handing over memory the caller still holds.
@@ -437,6 +459,8 @@ mod tests {
                     handle: None,
                     callback: None,
                     buffer: None,
+                    owned_buffer: None,
+                    owned_destroy: None,
                     origin: AbiSourceOrigin::default(),
                 },
                 ImportedRoutine {
@@ -470,6 +494,8 @@ mod tests {
                     handle: None,
                     callback: None,
                     buffer: None,
+                    owned_buffer: None,
+                    owned_destroy: None,
                     origin: AbiSourceOrigin::default(),
                 },
             ],

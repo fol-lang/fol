@@ -537,6 +537,21 @@ pub fn render_core_instruction_in_workspace(
                                 "{{ let __fol_handle = rt::FolHandle::from_raw({expression});                                  if __fol_handle.is_null() {{                                  rt::handle_produced_null(\"{symbol}\"); }} __fol_handle }}"
                             )
                         }
+                        // The adapter hands back a plain `Vec`, because it
+                        // is linked without the runtime. A produced buffer is
+                        // the only way a foreign call yields a FOL vector, so
+                        // the conversion is unambiguous here.
+                        _ if matches!(
+                            routine
+                                .locals
+                                .get(result_id)
+                                .and_then(|local| local.type_id)
+                                .and_then(|type_id| type_table.get(type_id)),
+                            Some(fol_lower::LoweredType::Vector { .. })
+                        ) =>
+                        {
+                            format!("({expression}).into()")
+                        }
                         _ => expression,
                     };
                     format!("{result} = {expression};")

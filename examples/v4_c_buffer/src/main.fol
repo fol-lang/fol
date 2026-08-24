@@ -38,12 +38,37 @@ fun[] main(): int = {
     dig::digest_fill([mut, bor]filled, 5);
     var after: u32 = dig::digest_sum([bor]filled);
 
+    // The third shape: the provider allocates, FOL takes a copy, and the
+    // provider's own release runs before the call returns. Nothing FOL holds
+    // afterwards points into C's allocation, so FOL's allocator only ever
+    // frees FOL's own -- which is why `digest_release` is not callable here
+    // and there is nothing for a program to forget.
+    var taken: vec[u8] = dig::digest_take(10);
+    var taken_sum: u32 = dig::digest_sum([bor]taken);
+
+    // The release already ran, inside the call that produced the buffer. FOL
+    // cannot see C's heap, so the provider is asked: a nonzero count here is a
+    // leak, and it is the only way to tell one from a program that works.
+    var outstanding: u32 = dig::digest_live();
+
     // 10 from four elements read, then 15 from three written and summed back.
     var marker: int = 0;
     when(total) {
         is(10) {
             when(after) {
-                is(15) { marker = 7; }
+                is(15) {
+                    // 10+11+12: three elements the provider allocated, and a
+                    // capacity of eight it reported but did not fill.
+                    when(taken_sum) {
+                        is(33) {
+                            when(outstanding) {
+                                is(0) { marker = 7; }
+                                * { marker = 4; }
+                            };
+                        }
+                        * { marker = 3; }
+                    };
+                }
                 * { marker = 2; }
             };
         }
