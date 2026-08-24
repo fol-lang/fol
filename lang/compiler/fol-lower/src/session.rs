@@ -239,6 +239,38 @@ fn translate_checked_type(
         CheckedType::Declared {
             symbol, name, kind, ..
         } => {
+            // A mounted C record: FOL emits its own struct for it, and the
+            // provider's own struct is built inside the adapter. The distinct
+            // lowered type is what lets the call boundary tell the two apart.
+            if let Some(binding) = program.resolved().foreign_record(symbol) {
+                let alias = binding.alias.clone();
+                let record_name = binding.name.clone();
+                let mut fields = Vec::new();
+                if let Some(CheckedType::Record { fields: declared }) = program
+                    .typed_symbol(symbol)
+                    .and_then(|typed_symbol| typed_symbol.declared_type)
+                    .and_then(|id| program.type_table().get(id))
+                    .cloned()
+                {
+                    for (field_name, field_type) in declared {
+                        let lowered = translate_checked_type(
+                            lowered_types,
+                            cache,
+                            package_identity,
+                            program,
+                            field_type,
+                        )?;
+                        fields.push((field_name, lowered));
+                    }
+                }
+                let lowered = lowered_types.intern(LoweredType::ForeignRecord {
+                    alias,
+                    name: record_name,
+                    fields,
+                });
+                cache.insert(cache_key.clone(), Some(lowered));
+                return Ok(lowered);
+            }
             if kind == DeclaredTypeKind::GenericParameter {
                 let lowered = lowered_types.intern(LoweredType::GenericParameter { name });
                 cache.insert(cache_key.clone(), Some(lowered));

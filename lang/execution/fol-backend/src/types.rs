@@ -36,6 +36,38 @@ pub fn render_rust_type_in_workspace(
         // each one a distinct Rust newtype would add generated code that proves
         // nothing the frontend has not already proved.
         LoweredType::ForeignHandle { .. } => Ok("rt::FolHandle".to_string()),
+        // FOL's own struct for an imported record, emitted from the
+        // declaration lowering synthesized for it. Found by runtime type
+        // rather than by symbol, because the mounted symbol belongs to the
+        // synthetic import namespace rather than to any package here.
+        LoweredType::ForeignRecord { name, .. } => {
+            let workspace = workspace.ok_or_else(|| {
+                BackendError::new(
+                    BackendErrorKind::InvalidInput,
+                    "imported records require workspace context",
+                )
+            })?;
+            let (package, declaration) = workspace
+                .packages()
+                .find_map(|package| {
+                    package
+                        .type_decls
+                        .values()
+                        .find(|decl| decl.runtime_type == type_id)
+                        .map(|decl| (&package.identity, decl))
+                })
+                .ok_or_else(|| {
+                    BackendError::new(
+                        BackendErrorKind::InvalidInput,
+                        format!("imported record '{name}' has no emitted declaration"),
+                    )
+                })?;
+            Ok(format!(
+                "{}::{}",
+                render_namespace_module_path(workspace, package, declaration.source_unit_id)?,
+                mangle_type_name(package, declaration.runtime_type, &declaration.name)
+            ))
+        }
         LoweredType::GenericParameter { name } => Ok(sanitize_backend_ident(name)),
         LoweredType::Named {
             package, symbol, ..
@@ -228,6 +260,8 @@ fn type_transitively_contains(
         return true;
     }
     match ty {
+        // A C record's fields are C types, so no FOL shape is reachable inside.
+        LoweredType::ForeignRecord { .. } => false,
         LoweredType::Pointer { target: inner, .. }
         | LoweredType::Owned { inner }
         | LoweredType::Borrowed { inner, .. }

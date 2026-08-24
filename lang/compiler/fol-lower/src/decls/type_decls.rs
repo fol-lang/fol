@@ -73,11 +73,83 @@ pub fn lower_alias_declarations(
     }
 }
 
+/// Give every mounted C record a FOL declaration to be emitted from.
+///
+/// An imported record has no AST to walk, so the loop below never sees it, and
+/// without a declaration the backend has no struct to render for a type it is
+/// asked to name. The struct it emits is FOL's own -- FOL layout, FOL derives
+/// -- because the value never crosses in that form: the adapter builds the
+/// provider's struct from the fields at the call, so field order here does not
+/// decide any C offset.
+fn lower_foreign_record_declarations(
+    typed_package: &fol_typecheck::TypedPackage,
+    lowered_package: &mut LoweredPackage,
+) {
+    let bindings: Vec<(SymbolId, String)> = typed_package
+        .program
+        .resolved()
+        .foreign_records()
+        .map(|(symbol_id, binding)| (symbol_id, binding.name.clone()))
+        .collect();
+    for (symbol_id, name) in bindings {
+        let Some(runtime_type) =
+            declared_node_runtime_type(typed_package, lowered_package, symbol_id)
+        else {
+            continue;
+        };
+        let Some(CheckedType::Record { fields }) = typed_package
+            .program
+            .typed_symbol(symbol_id)
+            .and_then(|typed_symbol| typed_symbol.declared_type)
+            .and_then(|checked| typed_package.program.type_table().get(checked))
+            .cloned()
+        else {
+            continue;
+        };
+        let mut lowered_fields = Vec::new();
+        let mut complete = true;
+        for (field_name, field_type) in fields {
+            match lowered_package.checked_type_map.get(&field_type).copied() {
+                Some(type_id) => lowered_fields.push(LoweredFieldLayout {
+                    name: field_name,
+                    type_id,
+                }),
+                None => {
+                    complete = false;
+                    break;
+                }
+            }
+        }
+        if !complete {
+            continue;
+        }
+        let source_unit_id = typed_package
+            .program
+            .resolved()
+            .symbol(symbol_id)
+            .map(|symbol| SourceUnitId(symbol.source_unit.0))
+            .unwrap_or(SourceUnitId(0));
+        lowered_package.type_decls.insert(
+            symbol_id,
+            LoweredTypeDecl {
+                symbol_id,
+                source_unit_id,
+                name,
+                runtime_type,
+                kind: LoweredTypeDeclKind::Record {
+                    fields: lowered_fields,
+                },
+            },
+        );
+    }
+}
+
 pub fn lower_record_declarations(
     typed_package: &fol_typecheck::TypedPackage,
     lowered_package: &mut LoweredPackage,
 ) -> LoweringResult<()> {
     let mut errors = Vec::new();
+    lower_foreign_record_declarations(typed_package, lowered_package);
 
     for (source_unit_index, source_unit) in typed_package
         .program

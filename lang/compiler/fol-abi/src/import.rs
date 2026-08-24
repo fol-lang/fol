@@ -124,6 +124,27 @@ impl ImportedInterface {
         domains
     }
 
+    /// Every C record this interface mounts as a FOL type, in name order.
+    ///
+    /// A record reaches FOL as a nominal type, so the name has to become a
+    /// symbol before any signature refers to it -- the ordering handle domains
+    /// need, for the same reason.
+    pub fn record_shapes(&self) -> Vec<(&str, &[crate::types::AbiField])> {
+        let mut shapes: Vec<(&str, &[crate::types::AbiField])> = self
+            .types
+            .iter()
+            .filter_map(|(_, ty)| match ty {
+                crate::types::AbiType::Record { name, fields } => {
+                    Some((name.as_str(), fields.as_slice()))
+                }
+                _ => None,
+            })
+            .collect();
+        shapes.sort_by_key(|(name, _)| *name);
+        shapes.dedup_by_key(|(name, _)| *name);
+        shapes
+    }
+
     /// Every symbol this interface requires the provider to define.
     ///
     /// Sorted, because it is compared against the provider's symbol table and

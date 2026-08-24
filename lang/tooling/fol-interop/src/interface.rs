@@ -171,6 +171,20 @@ fn project_routine(
         });
     }
 
+    // A record *parameter* is flattened into its fields at the call and rebuilt
+    // inside the adapter. A record *result* would need the reverse conversion,
+    // which is not built: the adapter would have to return the provider's own
+    // struct, and nothing on FOL's side can name that type.
+    if let Some(AbiType::Record { name, .. }) = types.get(result) {
+        return Err(ImportRejection::UnsupportedDeclaration {
+            symbol: symbol.clone(),
+            detail: format!(
+                "returns record '{name}', which does not cross yet; a record crosses as a \
+                 parameter, where it is rebuilt from its fields inside the adapter"
+            ),
+        });
+    }
+
     verify_status_mapping(annotation, &parameters, result, types)?;
     verify_effects(annotation, model)?;
 
@@ -494,19 +508,7 @@ fn project_named(
     shapes: &Shapes<'_>,
 ) -> Result<AbiTypeId, ImportRejection> {
     if let Some(record) = shapes.records.get(&declaration) {
-        // The shape checks run first, so a union or a bitfield is refused for
-        // what it actually is rather than for the reason below.
-        project_record(symbol, record, types, shapes)?;
-        return Err(ImportRejection::UnsupportedDeclaration {
-            symbol: symbol.to_string(),
-            detail: format!(
-                "'{}' is a record, which projects but cannot yet be used from FOL: the raw \
-                 binding crate emits it without `Clone` or `Default`, so it cannot serve as a \
-                 FOL value. Importing it needs FOL to emit its own `repr(C)` struct and convert \
-                 field by field at the boundary, the way exported records already do",
-                record.rust_name().as_str()
-            ),
-        });
+        return project_record(symbol, record, types, shapes);
     }
     if let Some(entry) = shapes.enums.get(&declaration) {
         // A C enum is an integer with named constants, not a tagged union. It

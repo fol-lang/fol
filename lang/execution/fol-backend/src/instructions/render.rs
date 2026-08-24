@@ -430,6 +430,25 @@ pub fn render_core_instruction_in_workspace(
                     if *callback_arg == Some(position) {
                         return Ok("Some(__fol_trampoline)".to_string());
                     }
+                    // A record is passed as its fields, matching the adapter,
+                    // which rebuilds the provider's struct from them. FOL's
+                    // struct has FOL's layout, so handing it over directly
+                    // would be handing C a value it cannot read.
+                    if let Some(fol_lower::LoweredType::ForeignRecord { fields, .. }) = routine
+                        .locals
+                        .get(*arg)
+                        .and_then(|local| local.type_id)
+                        .and_then(|type_id| type_table.get(type_id))
+                    {
+                        let base = rendered.trim_end_matches(".clone()").to_string();
+                        return Ok(fields
+                            .iter()
+                            .map(|(field, _)| {
+                                format!("{base}.{}", crate::escape_rust_field_ident(field))
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", "));
+                    }
                     Ok(match handle_passing(type_table, routine, *arg) {
                         Some(HandlePassing::Owned) => format!("{rendered}.into_raw()"),
                         Some(HandlePassing::Borrowed) => format!("{rendered}.as_raw()"),

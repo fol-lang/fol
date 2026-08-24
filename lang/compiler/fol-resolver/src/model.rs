@@ -124,6 +124,17 @@ pub struct ForeignHandleBinding {
     pub domain: String,
 }
 
+/// A C record mounted as a FOL type.
+///
+/// Unlike a handle domain this one has a definition to describe -- its fields
+/// -- but those live in the import manifest, so this carries only the identity
+/// needed to find them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForeignRecordBinding {
+    pub alias: String,
+    pub name: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MountedSymbolProvenance {
     pub package_identity: PackageIdentity,
@@ -284,6 +295,7 @@ pub struct ResolvedProgram {
     /// declaration to read the answer off, and lowering a type reference must
     /// not have to recognize it by the shape of its source-unit path.
     foreign_handles: BTreeMap<SymbolId, ForeignHandleBinding>,
+    foreign_records: BTreeMap<SymbolId, ForeignRecordBinding>,
     pub source_units: IdTable<SourceUnitId, ResolvedSourceUnit>,
     pub scopes: IdTable<ScopeId, ResolvedScope>,
     pub symbols: IdTable<SymbolId, ResolvedSymbol>,
@@ -376,6 +388,7 @@ impl ResolvedProgram {
             mounted_package_roots: BTreeMap::new(),
             foreign_routines: BTreeMap::new(),
             foreign_handles: BTreeMap::new(),
+            foreign_records: BTreeMap::new(),
             source_units,
             scopes,
             symbols: IdTable::new(),
@@ -494,6 +507,26 @@ impl ResolvedProgram {
     /// The handle domain this type symbol names, if it names one.
     pub fn foreign_handle(&self, symbol_id: SymbolId) -> Option<&ForeignHandleBinding> {
         self.foreign_handles.get(&symbol_id)
+    }
+
+    pub(crate) fn register_foreign_record(
+        &mut self,
+        symbol_id: SymbolId,
+        binding: ForeignRecordBinding,
+    ) {
+        self.foreign_records.insert(symbol_id, binding);
+    }
+
+    /// The C record this type symbol names, if it names one.
+    pub fn foreign_record(&self, symbol_id: SymbolId) -> Option<&ForeignRecordBinding> {
+        self.foreign_records.get(&symbol_id)
+    }
+
+    /// Every mounted C record, as (symbol, binding).
+    pub fn foreign_records(&self) -> impl Iterator<Item = (SymbolId, &ForeignRecordBinding)> {
+        self.foreign_records
+            .iter()
+            .map(|(id, binding)| (*id, binding))
     }
 
     pub fn scope_for_syntax(&self, syntax_id: SyntaxNodeId) -> Option<ScopeId> {

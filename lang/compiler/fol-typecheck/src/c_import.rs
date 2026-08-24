@@ -21,11 +21,11 @@ use fol_abi::{
     AbiScalar, AbiType, AbiTypeId, AbiTypeTable, ImportErrorConvention, ImportedInterface,
     ImportedRoutine,
 };
-use fol_resolver::SymbolId;
+use fol_resolver::{SymbolId, SymbolKind};
 
 use crate::{
     model::TypedProgram,
-    types::{BuiltinType, CheckedType, CheckedTypeId, RoutineType},
+    types::{BuiltinType, CheckedType, CheckedTypeId, DeclaredTypeKind, RoutineType},
     TypecheckError, TypecheckErrorKind, TypecheckResult,
 };
 
@@ -50,6 +50,43 @@ pub(crate) fn hydrate_c_import_symbol_types(
             .iter()
             .map(|symbol| (symbol.name.clone(), symbol.id))
             .collect();
+
+        // Records before routines: a signature naming one resolves through the
+        // symbol's declared type, so the structure must be attached first.
+        for (name, fields) in interface.record_shapes() {
+            let Some(symbol_id) = symbols.get(name).copied() else {
+                continue;
+            };
+            let mut checked_fields = BTreeMap::new();
+            let mut failed = false;
+            for field in fields {
+                match checked_type_for(
+                    typed,
+                    &interface.alias,
+                    &interface.types,
+                    field.type_id,
+                    &format!("imported record field {:?}", field.name),
+                ) {
+                    Ok(type_id) => {
+                        checked_fields.insert(field.name.clone(), type_id);
+                    }
+                    Err(error) => {
+                        errors.push(error);
+                        failed = true;
+                        break;
+                    }
+                }
+            }
+            if failed {
+                continue;
+            }
+            let type_id = typed.type_table_mut().intern(CheckedType::Record {
+                fields: checked_fields,
+            });
+            if let Some(symbol) = typed.typed_symbol_mut(symbol_id) {
+                symbol.declared_type = Some(type_id);
+            }
+        }
 
         for routine in &interface.routines {
             let Some(symbol_id) = symbols.get(&routine.fol_name).copied() else {
@@ -119,7 +156,13 @@ fn routine_type_for(
     let mut params = Vec::new();
     for parameter in routine.call_parameters() {
         param_names.push(parameter.name.clone());
-        let mut checked = checked_type_for(typed, alias, types, parameter.type_id, routine)?;
+        let mut checked = checked_type_for(
+            typed,
+            alias,
+            types,
+            parameter.type_id,
+            &format!("imported routine {:?}", routine.symbol),
+        )?;
         if borrows
             && matches!(
                 types.get(parameter.type_id),
@@ -136,7 +179,13 @@ fn routine_type_for(
 
     let (return_type, error_type) = match &routine.error {
         ImportErrorConvention::Infallible => {
-            let result = checked_type_for(typed, alias, types, routine.result, routine)?;
+            let result = checked_type_for(
+                typed,
+                alias,
+                types,
+                routine.result,
+                &format!("imported routine {:?}", routine.symbol),
+            )?;
             // A `void` C result is no FOL value at all, not a unit value.
             // Everything else is: a producer returning a handle has to hand it
             // back, or the resource would be created with nobody owing it.
@@ -150,7 +199,13 @@ fn routine_type_for(
             // type is the out-parameter's pointee; the failure carries the
             // provider's own status code, which is the only thing it reported.
             let success = success_type_for(typed, alias, types, routine)?;
-            let status = checked_type_for(typed, alias, types, routine.result, routine)?;
+            let status = checked_type_for(
+                typed,
+                alias,
+                types,
+                routine.result,
+                &format!("imported routine {:?}", routine.symbol),
+            )?;
             (Some(success), Some(status))
         }
     };
@@ -189,7 +244,30 @@ fn success_type_for(
             routine.symbol
         )));
     };
-    checked_type_for(typed, alias, types, *target, routine)
+    checked_type_for(
+        typed,
+        alias,
+        types,
+        *target,
+        &format!("imported routine {:?}", routine.symbol),
+    )
+}
+
+/// The nominal FOL type for a mounted C record, if the resolver mounted it.
+fn foreign_record_type(typed: &mut TypedProgram, alias: &str, name: &str) -> Option<CheckedTypeId> {
+    let scope_id = typed.resolved().namespace_scope(alias)?;
+    let symbol = typed
+        .resolved()
+        .symbols_in_scope(scope_id)
+        .iter()
+        .find(|symbol| symbol.name == name && symbol.kind == SymbolKind::Type)
+        .map(|symbol| symbol.id)?;
+    Some(typed.type_table_mut().intern(CheckedType::Declared {
+        symbol,
+        name: name.to_string(),
+        kind: DeclaredTypeKind::Type,
+        args: Vec::new(),
+    }))
 }
 
 fn checked_type_for(
@@ -197,12 +275,11 @@ fn checked_type_for(
     alias: &str,
     types: &AbiTypeTable,
     type_id: AbiTypeId,
-    routine: &ImportedRoutine,
+    context: &str,
 ) -> Result<CheckedTypeId, TypecheckError> {
     let abi_type = types.get(type_id).ok_or_else(|| {
         internal(format!(
-            "imported routine '{}' references a type the manifest does not define",
-            routine.symbol
+            "{context} references a type the manifest does not define"
         ))
     })?;
     // Handled before the match because it needs the import's alias, which is
@@ -219,11 +296,11 @@ fn checked_type_for(
         let (parameters, result) = (parameters.clone(), *result);
         let mut params = Vec::new();
         for parameter in &parameters {
-            params.push(checked_type_for(typed, alias, types, *parameter, routine)?);
+            params.push(checked_type_for(typed, alias, types, *parameter, context)?);
         }
         let return_type = match types.get(result) {
             Some(AbiType::Void) => None,
-            _ => Some(checked_type_for(typed, alias, types, result, routine)?),
+            _ => Some(checked_type_for(typed, alias, types, result, context)?),
         };
         let signature = RoutineType {
             generic_params: Vec::new(),
@@ -246,6 +323,16 @@ fn checked_type_for(
             .type_table_mut()
             .intern(CheckedType::Routine(signature)));
     }
+    // A record is nominal: it reaches FOL as a reference to the type symbol the
+    // resolver mounted, not as a fresh structural shape.
+    if let AbiType::Record { name, .. } = abi_type {
+        let name = name.clone();
+        return foreign_record_type(typed, alias, &name).ok_or_else(|| {
+            internal(format!(
+                "{context} uses record '{name}', which the resolver did not mount"
+            ))
+        });
+    }
     let checked = match abi_type {
         AbiType::Scalar(AbiScalar::Int(width)) => CheckedType::Builtin(BuiltinType::Int(*width)),
         AbiType::Scalar(AbiScalar::Float(width)) => {
@@ -260,8 +347,7 @@ fn checked_type_for(
         AbiType::Void => CheckedType::Builtin(BuiltinType::Never),
         other => {
             return Err(internal(format!(
-                "imported routine '{}' uses a {} type, which M6 does not surface to FOL",
-                routine.symbol,
+                "{context} uses a {} type, which the C import path does not surface to FOL",
                 other.kind_name()
             )))
         }

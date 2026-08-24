@@ -68,6 +68,19 @@ fn render_adapter(
     let raw = format!("{raw_crate}::{}", routine.symbol);
     let mut params = Vec::new();
     for parameter in routine.call_parameters() {
+        // A record arrives as its fields rather than as a struct. FOL's struct
+        // has FOL's layout, so it cannot be handed to C; the provider's struct
+        // is built here instead, from values whose types C itself measured.
+        if let Some(AbiType::Record { fields, .. }) = interface.types.get(parameter.type_id) {
+            for field in fields {
+                params.push(format!(
+                    "{}: {}",
+                    record_field_param(&parameter.name, &field.name),
+                    rust_scalar(&interface.types, field.type_id, &routine.symbol)?
+                ));
+            }
+            continue;
+        }
         params.push(format!(
             "{}: {}",
             rust_param_name(&parameter.name),
@@ -214,10 +227,37 @@ fn out_pointee(
 /// provider as its own opaque pointee. `as *mut _` bridges the two without
 /// this crate ever naming GERC's projected struct: the target type is inferred
 /// from the callee's declared parameter.
+/// The adapter parameter carrying one field of a flattened record.
+fn record_field_param(parameter: &str, field: &str) -> String {
+    rust_param_name(&format!("{parameter}__{field}"))
+}
+
 fn cast_argument(types: &AbiTypeTable, parameter: &fol_abi::AbiParameter) -> String {
     let name = rust_param_name(&parameter.name);
     match types.get(parameter.type_id) {
         Some(AbiType::OpaqueHandle { .. }) => format!("{name} as *mut _"),
+        // Rebuilt field by field, never transmuted -- the same rule the export
+        // wrapper follows in the other direction.
+        Some(AbiType::Record {
+            name: record,
+            fields,
+        }) => {
+            let assigned = fields
+                .iter()
+                .map(|field| {
+                    format!(
+                        "{}: {}",
+                        rust_param_name(&field.name),
+                        record_field_param(&parameter.name, &field.name)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "{}::{record} {{ {assigned} }}",
+                crate::anchor::H7_RAW_CRATE_NAME
+            )
+        }
         // A callback and its context both already have the provider's own
         // spelling: the adapter declares the function pointer exactly as GERC
         // projected it, and `void *` projects to `*mut c_void` on both sides.
@@ -272,6 +312,16 @@ fn rust_scalar(
         // crate never names GERC's projected types: the raw call site casts
         // with `as *mut _`, which infers the pointee from the callee.
         AbiType::OpaqueHandle { .. } => "*mut core::ffi::c_void".to_string(),
+        // A record parameter never reaches here -- it is flattened into its
+        // fields before this is called -- so a record in this position is a
+        // result, and returning one would mean handing back the provider's own
+        // struct, which nothing on FOL's side can name.
+        AbiType::Record { .. } => {
+            return Err(AdapterError::UnsupportedType {
+                symbol: symbol.to_string(),
+                detail: "a record type".to_string(),
+            })
+        }
         // Rendered as GERC projects a C function pointer, with the context
         // restored at the front: the canonical shape puts it first, and the
         // stored `parameters` are what FOL sees, which is everything after it.

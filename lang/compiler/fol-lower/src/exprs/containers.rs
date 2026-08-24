@@ -30,6 +30,15 @@ pub(crate) fn lower_record_initializer(
     };
     let (construction_type, expected_fields) = match type_table.get(type_id) {
         Some(crate::LoweredType::Record { fields, .. }) => (type_id, fields.clone()),
+        // An imported record is constructed the same way, by field name. The
+        // struct FOL emits for it carries exactly these names.
+        Some(crate::LoweredType::ForeignRecord { fields, .. }) => (
+            type_id,
+            fields
+                .iter()
+                .cloned()
+                .collect::<std::collections::BTreeMap<_, _>>(),
+        ),
         Some(crate::LoweredType::Named {
             package, symbol, ..
         }) => {
@@ -759,6 +768,12 @@ pub(crate) fn field_access_type(
 ) -> Option<LoweredTypeId> {
     match type_table.get(object_type) {
         Some(crate::LoweredType::Record { fields, .. }) => fields.get(field).copied(),
+        // An imported record's fields are read the same way: the struct FOL
+        // emits for it carries exactly these names.
+        Some(crate::LoweredType::ForeignRecord { fields, .. }) => fields
+            .iter()
+            .find(|(name, _)| name == field)
+            .map(|(_, type_id)| *type_id),
         Some(crate::LoweredType::Entry { variants }) => variants.get(field).copied().flatten(),
         Some(crate::LoweredType::Owned { inner })
         | Some(crate::LoweredType::Borrowed { inner, .. }) => {

@@ -685,15 +685,18 @@ fn a_c_enum_crosses_at_its_measured_width() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// A C record projects and is then refused, with the reason it is refused for.
+/// A C struct crosses inbound as an ordinary FOL value.
 ///
-/// The projection is real -- the shape checks below run first, so a union or a
-/// bitfield is refused for what it is. What is missing is downstream: the raw
-/// binding crate emits the struct without `Clone` or `Default`, so it cannot
-/// serve as a FOL value. Refusing here rather than accepting it into a manifest
-/// that fails during code generation is the rule this plan set for itself.
+/// The struct FOL emits for it is FOL's own -- FOL layout, FOL derives -- and
+/// the provider's struct is rebuilt from the fields inside the adapter, which
+/// is the same discipline the export wrapper follows in the other direction:
+/// field by field, never transmuted.
+///
+/// 6 * 7 can only be 42 if the struct FOL built reached C intact, and reading
+/// `p.x` afterwards can only give 6 if a C struct passes by value the way C
+/// says it does.
 #[test]
-fn a_c_record_is_refused_with_the_reason_it_cannot_cross() {
+fn a_c_record_crosses_inbound_and_survives_the_call() {
     let Some((compiler, temp)) = require_or_skip() else {
         eprintln!("skipping: no C toolchain for the interop lane");
         return;
@@ -716,6 +719,29 @@ fn a_c_record_is_refused_with_the_reason_it_cannot_cross() {
         b"version = 1\n[routine.c_math_area]\nfol_name = \"area\"\nerror = \"infallible\"\n",
     )
     .expect("overlay writable");
+    std::fs::write(
+        root.join("src/main.fol"),
+        b"use std: pkg = {\"std\"};\nuse cm: pkg = {\"c_math\"};\n\n\
+          fun[] main(): int = {\n\
+          \x20   var p: cm::point = { x = 6, y = 7 };\n\
+          \x20   var area: int[32] = cm::area(p);\n\
+          \x20   var back: int[32] = p.x;\n\
+          \x20   var expected: int[32] = 42;\n\
+          \x20   var six: int[32] = 6;\n\
+          \x20   var marker: int = 0;\n\
+          \x20   when(.eq(area, expected)) {\n\
+          \x20       case(true) {\n\
+          \x20           when(.eq(back, six)) {\n\
+          \x20               case(true) { marker = 7; }\n\
+          \x20               * { marker = 2; }\n\
+          \x20           };\n\
+          \x20       }\n\
+          \x20       * { marker = 1; }\n\
+          \x20   };\n\
+          \x20   var shown: int = std::io::echo_int(marker);\n\
+          \x20   return 0;\n};\n",
+    )
+    .expect("source writable");
     build_provider(&root, &compiler);
 
     let (ok, text) = bind(
@@ -725,14 +751,27 @@ fn a_c_record_is_refused_with_the_reason_it_cannot_cross() {
         "interop/c_math.toml",
         "interop/c_math.folabi.json",
     );
-    assert!(!ok, "a record parameter must be refused for now:\n{text}");
+    assert!(ok, "a record parameter should bind:\n{text}");
+
+    let manifest = std::fs::read_to_string(root.join("interop/c_math.folabi.json"))
+        .expect("manifest readable");
     assert!(
-        text.contains("is a record, which projects but cannot yet be used"),
-        "the refusal should say what is missing:\n{text}"
+        manifest.contains("\"kind\":\"record\"") && manifest.contains("\"name\":\"point\""),
+        "the manifest should record the struct and its fields:\n{manifest}"
     );
+
+    let (ok, text) = run_folc(&root, &compiler, &temp, &["code", "build"]);
+    assert!(ok, "the importing package should build:\n{text}");
+
+    let binary = root.join(".fol/install/bin/v4_c_import_scalar");
+    let output = Command::new(&binary).output().expect("run the program");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "the program should run:\n{stdout}");
+    // 2 would mean the struct crossed but did not survive the call; 1 would
+    // mean it never crossed correctly at all.
     assert!(
-        text.contains("point"),
-        "the refusal should name the record:\n{text}"
+        stdout.contains('7'),
+        "the record did not cross intact:\n{stdout}"
     );
 
     let _ = std::fs::remove_dir_all(&root);

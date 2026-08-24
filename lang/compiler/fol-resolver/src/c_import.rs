@@ -17,8 +17,8 @@ use fol_parser::ast::ParsedSourceUnitKind;
 
 use crate::{
     model::{
-        ForeignHandleBinding, ForeignRoutineBinding, ResolvedProgram, ResolvedScope,
-        ResolvedSourceUnit, ResolvedSymbol, ScopeKind, SymbolKind,
+        ForeignHandleBinding, ForeignRecordBinding, ForeignRoutineBinding, ResolvedProgram,
+        ResolvedScope, ResolvedSourceUnit, ResolvedSymbol, ScopeKind, SymbolKind,
     },
     ScopeId, SourceUnitId, SymbolId,
 };
@@ -113,6 +113,45 @@ fn inject_one(program: &mut ResolvedProgram, interface: &ImportedInterface) {
             ForeignHandleBinding {
                 alias: interface.alias.clone(),
                 domain: domain.to_string(),
+            },
+        );
+    }
+
+    // Records next, for the same reason handle domains come first: a routine's
+    // signature names one, and a FOL author writes `alias::point` in type
+    // position, so the symbol has to exist before anything refers to it.
+    for (name, _) in interface.record_shapes() {
+        let canonical_name = fol_types::canonical_identifier_key(name);
+        let symbol_id = program.symbols.push(ResolvedSymbol {
+            id: SymbolId(0),
+            name: name.to_string(),
+            canonical_name: canonical_name.clone(),
+            duplicate_key: format!("type#{canonical_name}"),
+            kind: SymbolKind::Type,
+            scope: root_scope,
+            source_unit: source_unit_id,
+            origin: None,
+            visibility: Some(fol_parser::ast::ParsedDeclVisibility::Exported),
+            declaration_scope: None,
+            mounted_from: None,
+            is_mutable: false,
+        });
+        if let Some(symbol) = program.symbols.get_mut(symbol_id) {
+            symbol.id = symbol_id;
+        }
+        if let Some(scope) = program.scopes.get_mut(root_scope) {
+            scope.symbols.push(symbol_id);
+            scope
+                .symbol_keys
+                .entry(canonical_name)
+                .or_default()
+                .push(symbol_id);
+        }
+        program.register_foreign_record(
+            symbol_id,
+            ForeignRecordBinding {
+                alias: interface.alias.clone(),
+                name: name.to_string(),
             },
         );
     }

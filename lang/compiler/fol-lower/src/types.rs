@@ -59,6 +59,18 @@ pub enum LoweredType {
         alias: String,
         domain: String,
     },
+    /// A C record mounted as a FOL type.
+    ///
+    /// Distinct from an ordinary record because the *call boundary* needs to
+    /// know: FOL emits its own struct for this, with FOL's layout, and the
+    /// provider's struct is built inside the adapter. Passing FOL's struct
+    /// across would be passing a Rust-layout value to C.
+    ForeignRecord {
+        alias: String,
+        name: String,
+        /// Declaration order, which is what decides the C offsets.
+        fields: Vec<(String, LoweredTypeId)>,
+    },
     Array {
         element_type: LoweredTypeId,
         size: Option<usize>,
@@ -204,6 +216,7 @@ impl LoweredTypeTable {
             // Qualified: the alias is half the identity, so `Widget` alone
             // would name two different types in a program with two providers.
             Some(LoweredType::ForeignHandle { alias, domain }) => format!("{alias}::{domain}"),
+            Some(LoweredType::ForeignRecord { alias, name, .. }) => format!("{alias}::{name}"),
             Some(LoweredType::Owned { inner }) => format!("@{}", nested(*inner)),
             Some(LoweredType::Borrowed { inner, mutable }) => {
                 if *mutable {
@@ -369,6 +382,11 @@ impl LoweredTypeTable {
                 // A foreign handle owns a resource whose release must happen
                 // exactly once, so it can never be duplicated.
                 | Some(LoweredType::ForeignHandle { .. }) => true,
+                // An imported C record is plain data: C itself passes a struct
+                // by value, so copying one is what the provider's own calling
+                // convention already does. Treating it as move-only made a use
+                // after the call read a defaulted value instead of erroring.
+                Some(LoweredType::ForeignRecord { .. }) => false,
                 Some(LoweredType::Array { element_type, .. })
                 | Some(LoweredType::Vector { element_type })
                 | Some(LoweredType::Sequence { element_type })
@@ -445,6 +463,8 @@ impl LoweredTypeTable {
             }
             let result = match table.get(id) {
                 Some(ty) if predicate(ty) => true,
+                // A C record's fields are C types all the way down.
+                Some(LoweredType::ForeignRecord { .. }) => false,
                 Some(LoweredType::Array { element_type, .. })
                 | Some(LoweredType::Vector { element_type })
                 | Some(LoweredType::Sequence { element_type })
@@ -517,7 +537,8 @@ impl LoweredTypeTable {
         match lowered_type {
             LoweredType::GenericParameter { .. } => true,
             // An opaque handle carries no type parameter.
-            LoweredType::ForeignHandle { .. }
+            LoweredType::ForeignRecord { .. }
+            | LoweredType::ForeignHandle { .. }
             | LoweredType::Builtin(_)
             | LoweredType::Named { .. } => false,
             LoweredType::Array { element_type, .. }
@@ -597,6 +618,7 @@ impl LoweredTypeTable {
             return false;
         };
         match lowered_type {
+            LoweredType::ForeignRecord { .. } => false,
             LoweredType::Record { .. } | LoweredType::Entry { .. } => {
                 self.contains_generic_parameter(id)
             }
@@ -673,7 +695,8 @@ impl LoweredTypeTable {
             LoweredType::GenericParameter { name } => {
                 out.insert(name.clone());
             }
-            LoweredType::ForeignHandle { .. }
+            LoweredType::ForeignRecord { .. }
+            | LoweredType::ForeignHandle { .. }
             | LoweredType::Builtin(_)
             | LoweredType::Named { .. } => {}
             LoweredType::Array { element_type, .. }

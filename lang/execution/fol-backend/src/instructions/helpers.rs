@@ -320,6 +320,9 @@ pub fn render_type_default_expr_in_workspace(
     };
 
     match ty {
+        // An imported record derives `Default` like any FOL record, because the
+        // struct emitted for it is FOL's own.
+        LoweredType::ForeignRecord { .. } => Ok("Default::default()".to_string()),
         // A null placeholder for a slot FOL has already proven is written
         // before it is read. It is spelled null rather than left uninitialized
         // so that if the proof were ever wrong, the result is a handle that

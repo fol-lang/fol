@@ -19,6 +19,7 @@ fn collect_generic_params_from_type(
         return;
     };
     match ty {
+        LoweredType::ForeignRecord { .. } => {}
         LoweredType::GenericParameter { name } => {
             if !params.iter().any(|existing| existing == name) {
                 params.push(name.clone());
