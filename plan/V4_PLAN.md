@@ -3081,13 +3081,18 @@ Existing lanes to retain:
 - `make test-interop` — keep the H7 link-and-run gate, which depends on
   `interop-locked`
 
-Planned V4 lanes to add:
+V4 lanes, with what each one is:
+
+Landed and in `make verify`:
 
 - `make test-build-actions` — operational action/materializer integration suite
 - `make test-native` — required host native artifact/link materialization
-- `make test-v4-c` — C import/export consumer suite
-- `make test-v4-bind-c` — pinned PARC/LINC/GERC header-import suite
-- `make test-v4-release` — installed round-trip and clean archive consumers
+- `make test-v4-c` — C export consumer suite, plus the ABI tooling commands
+- `make test-v4-c-import` — the checked C import slice, built and run
+- `make test-v4-c-handle` — opaque C handles, and the four misuses C would
+  compile
+- `make test-v4-linear` — the `lin` capability's flow rules
+- `make abi-check` — manifests, baselines, symbols, layouts, fingerprints
 - `make test-v4-sanitize` — host ASan/UBSan boundary/lifecycle suite. **Built
   early, before the M7 slices whose gates name it.** A sanitizer lane added
   after the code it is meant to check can only confirm what was already
@@ -3097,9 +3102,17 @@ Planned V4 lanes to add:
   deliberate-heap-overflow control asserting the sanitizer still reports, so
   the lane cannot pass by silently not running, and it skips with a message
   rather than passing when no sanitizer-capable compiler is present.
+
+The header-import suite was planned as `make test-v4-bind-c`; what exists is
+`make test-v4-c-import`, which runs the same pinned PARC/LINC/GERC pipeline
+through `fol tool bind c`. There is one lane, not two, because M6 and M8 bind
+through the same command and splitting the target would suggest otherwise.
+
+Still to add:
+
+- `make test-v4-release` — installed round-trip and clean archive consumers
 - `make test-v4-cross` — optional candidate-target promotion evidence; it does
   not certify or weaken the required native GNU/Linux lane
-- `make abi-check` — manifests, baselines, symbols, layouts, fingerprints
 - `make tree-check` — generate tree-sitter assets in a temporary location,
   compare them with the checked-in bundle, and run the non-empty corpus without
   repairing drift
@@ -3111,6 +3124,13 @@ build, all required tests including ignored tests, the current
 build-action/native/C/ABI/sanitizer/release lanes, `tree-check`, generated
 cleanliness, and `make docs TYPE=mdbook`. Keep the optional cross lane separate
 from the release-blocking aggregate.
+
+As of 2026-08-24 `verify` is `fmt-check lint test test-build-actions
+test-native abi-check test-v4-c test-v4-c-import test-v4-c-handle
+test-v4-linear test-v4-sanitize interop-check test-interop`. What is still
+missing from the list above is the release lane, `tree-check`, the
+generated-cleanliness check, `make docs TYPE=mdbook`, and running the ignored
+network tests.
 
 `make test` must continue to run the full Rust workspace plus ignored tests and
 must include non-optional host V4 integration tests. The certified CI image
