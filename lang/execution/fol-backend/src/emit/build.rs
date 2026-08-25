@@ -685,14 +685,32 @@ fn referencing_inputs(stderr: &str) -> Vec<String> {
     found
 }
 
-fn wait_for_emitted_path(path: &Path) -> bool {
-    for _ in 0..20 {
+/// Wait for rustc's output to become visible, and say how long we waited.
+///
+/// rustc has already reported success by the time this runs, so the file is
+/// coming; the only question is whether this process can see it yet. On a
+/// developer machine that is immediate. On a shared CI runner -- overlay and
+/// network filesystems, a loaded IO queue, a freshly linked release binary --
+/// it is not, and the old budget of twenty polls at ten milliseconds gave the
+/// filesystem **two tenths of a second** before declaring the build broken.
+/// That failed a run whose only change was in an unrelated test file.
+///
+/// The budget is now ten seconds, backing off so the common case still returns
+/// on the first poll and only a genuinely missing file pays the full wait.
+fn wait_for_emitted_path(path: &Path) -> Option<Duration> {
+    let started = std::time::Instant::now();
+    let mut interval = Duration::from_millis(2);
+    let budget = Duration::from_secs(10);
+    loop {
         if path.exists() {
-            return true;
+            return Some(started.elapsed());
         }
-        thread::sleep(Duration::from_millis(10));
+        if started.elapsed() >= budget {
+            return None;
+        }
+        thread::sleep(interval);
+        interval = (interval * 2).min(Duration::from_millis(250));
     }
-    false
 }
 
 pub fn build_runtime_rlib_with_rustc(
@@ -942,11 +960,13 @@ fn build_generated_crate_with_rustc_impl(
             summarize_rustc_failure(&main_rs, &stdout, &stderr),
         ));
     }
-    if !wait_for_emitted_path(&binary_path) {
+    if wait_for_emitted_path(&binary_path).is_none() {
         return Err(BackendError::new(
             BackendErrorKind::BuildFailure,
             format!(
-                "rustc succeeded but generated binary '{}' is missing",
+                "rustc reported success but '{}' did not appear within 10s. \
+                 The compile itself succeeded, so this is the filesystem or the \
+                 output path, not the generated code",
                 binary_path.display()
             ),
         ));
@@ -1152,5 +1172,66 @@ mod link_failure_tests {
         let log = std::fs::read_to_string(fixture.path().join("link-error.log"))
             .expect("the log should be written");
         assert!(log.contains("expected `u8`"), "{log}");
+    }
+}
+
+#[cfg(test)]
+mod emitted_path_tests {
+    use super::*;
+
+    /// A file already there costs one poll.
+    ///
+    /// The budget exists for a loaded runner, and it must not be paid by the
+    /// common case: every successful compile goes through here.
+    #[test]
+    fn an_existing_path_returns_immediately() {
+        let fixture = fol_testkit::TempFixture::new("fol-emitted-path");
+        std::fs::create_dir_all(fixture.path()).expect("fixture root");
+        let path = fixture.path().join("binary");
+        std::fs::write(&path, b"x").expect("the file should be writable");
+
+        let waited = wait_for_emitted_path(&path).expect("an existing path is found");
+        assert!(
+            waited < Duration::from_millis(50),
+            "an existing path should not wait: {waited:?}"
+        );
+    }
+
+    /// A file that appears late is still found.
+    ///
+    /// This is the CI case: rustc has reported success and the file is coming.
+    /// The old budget was 200ms in total, which a shared runner overran.
+    #[test]
+    fn a_late_path_is_waited_for() {
+        let fixture = fol_testkit::TempFixture::new("fol-emitted-late");
+        std::fs::create_dir_all(fixture.path()).expect("fixture root");
+        let path = fixture.path().join("binary");
+
+        let writer = path.clone();
+        let handle = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(400));
+            std::fs::write(&writer, b"x").expect("the file should be writable");
+        });
+
+        let waited = wait_for_emitted_path(&path);
+        handle.join().expect("the writer should finish");
+        assert!(
+            waited.is_some(),
+            "a path that appears after 400ms must still be found; the old \
+             budget of 200ms would have missed it"
+        );
+    }
+
+    /// A file that never appears gives up rather than hanging.
+    #[test]
+    fn a_missing_path_gives_up() {
+        let fixture = fol_testkit::TempFixture::new("fol-emitted-missing");
+        std::fs::create_dir_all(fixture.path()).expect("fixture root");
+        let started = std::time::Instant::now();
+        assert!(wait_for_emitted_path(&fixture.path().join("never")).is_none());
+        assert!(
+            started.elapsed() < Duration::from_secs(20),
+            "giving up should be bounded"
+        );
     }
 }

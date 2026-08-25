@@ -947,6 +947,28 @@ every other early return is behind `require_or_skip`, `c_compiler()`,
 `sanitizing_compiler`, or `skip()`, and all four turn into failures under
 `FOL_H7_REQUIRED=1`.
 
+### A 200-millisecond filesystem budget
+
+The first CI run on this branch was green; the second failed in
+`fol-backend` with *"rustc succeeded but generated binary is missing"* -- and
+the only delta between them was a test file in an unrelated crate.
+
+`wait_for_emitted_path` polled twenty times at ten milliseconds. **Two tenths
+of a second** for a freshly linked release binary to become visible to this
+process, after rustc had already reported success. That is enough on a
+developer machine and not enough on a shared runner with an overlay filesystem
+and a loaded IO queue. Dated `b20c3786`, five months old, and green until a
+runner was slow enough.
+
+The budget is now ten seconds with backoff, so the common case still returns on
+the first poll and only a genuinely missing file pays the wait. The message
+also says what it means: the compile succeeded, so this is the filesystem or
+the output path, not the generated code.
+
+Three tests: an existing path returns in under 50ms, a path that appears after
+**400ms** is still found -- the old budget could not have survived that -- and
+a path that never appears gives up bounded rather than hanging.
+
 ### The guard
 
 M9's claim is the one that will go stale again -- every milestone that moves
