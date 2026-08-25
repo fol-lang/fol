@@ -893,14 +893,16 @@ fn an_edited_include_is_reported_as_staleness() {
     // Move one declaration into a second header the entry includes.
     let header = root.join("native/c_math.h");
     let text = std::fs::read_to_string(&header).expect("c_math.h readable");
-    let Some(moved) = text
+    // Asserted, not skipped. The first version of this test looked for a line
+    // starting with `int32_t`; the fixture declares `int c_math_add_one(int)`,
+    // so it found nothing, returned early, and printed `ok` in every run --
+    // local and CI alike -- while testing nothing at all. A fixture that
+    // cannot carry the test is a broken test, not an absent toolchain.
+    let moved = text
         .lines()
-        .find(|line| line.trim_start().starts_with("int32_t") && line.contains('('))
-    else {
-        eprintln!("skipping: the fixture header has no declaration to move");
-        return;
-    };
-    let moved = moved.to_string();
+        .find(|line| line.trim_end().ends_with(");") && line.contains('('))
+        .unwrap_or_else(|| panic!("the fixture header declares no routine to move:\n{text}"))
+        .to_string();
     std::fs::write(
         root.join("native/shapes.h"),
         format!(

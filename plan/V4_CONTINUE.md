@@ -921,6 +921,32 @@ structs and enums" as outside V4. **This claim is not a one-time task** --
 every milestone that moves the boundary re-falsifies it, and nothing was
 checking.
 
+### One of my own tests was the thing M16 hunts
+
+`an_edited_include_is_reported_as_staleness` looked for a declaration line
+starting with `int32_t`. The fixture it runs against declares
+`int c_math_add_one(int value)`. It found nothing, returned early, and printed
+`ok` -- **in every run, local and CI alike, since the day it was written.** It
+never tested anything.
+
+Two things made it invisible. A skip reads exactly like a pass in cargo's
+output, which is the failure this milestone exists to find and which I had
+already written up twice. And I verified the *behaviour* by hand on a fixture I
+built myself, then wrote the test against a different fixture, and read the
+`ok` as confirmation of the earlier manual check.
+
+It was CI that surfaced it: the dispatched run printed the skip line, and the
+skip only became visible because someone read the log rather than the verdict.
+
+Now it asserts. A fixture that cannot carry the test is a broken test, not an
+absent toolchain, so it panics with the header contents. Controlled by
+disabling include recording in `bind.rs` and confirming the test fails.
+
+The rest of the suite's skips were audited at the same time and are honest:
+every other early return is behind `require_or_skip`, `c_compiler()`,
+`sanitizing_compiler`, or `skip()`, and all four turn into failures under
+`FOL_H7_REQUIRED=1`.
+
 ### The guard
 
 M9's claim is the one that will go stale again -- every milestone that moves
