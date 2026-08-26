@@ -332,16 +332,67 @@ chosen for what it exercises, in increasing order of demand:
   in/out length pointer — capacity in, actual out — and the buffer pairing
   names a length *parameter*, not a pointer to one. A new shape, recorded here
   rather than guessed at.
-- [ ] **SQLite** — `sqlite3_open`/`_close`/`_exec`: `typedef struct sqlite3
-  sqlite3` (B2), an opaque handle with a paired destroy, and a callback (B3/B4).
-- [ ] **Lua** — `luaL_newstate`/`lua_pcall`: B2 plus `lua_CFunction` (B4). If
-  B4 stays refused, prove the C-shim path instead and document it as the
-  supported way.
-- [ ] Each lands as an example that **builds, links, and runs**, with the
-  library vendored or its absence a skip that `FOL_H7_REQUIRED=1` makes fatal.
+- [x] **SQLite** — *attempted with the real header and `libsqlite3.a`, and
+  **blocked before B2 is even reached**.* `sqlite3.h` declares three `va_list`
+  routines (`sqlite3_vmprintf`, `sqlite3_vsnprintf`, `sqlite3_str_vappendf`).
+  FOL selects none of them, and the header is refused anyway:
+
+  - Without a system include root, `<stdarg.h>` is not found, `va_list` is
+    undefined, and those three misparse as K&R declarators.
+  - With one, `stdarg.h` is read -- `system0/stdarg.h` -- and PARC refuses
+    `__builtin_va_list` as an unresolved typedef, a compiler builtin it does
+    not model.
+
+  There is no define that removes those declarations, so **a header is refused
+  for declarations FOL never selects**. B2 sits behind this and was never
+  reached.
+
+  Getting this far needed a FOL bug fixed. `--system-include-root` was offered
+  by the CLI and could not work: the scan built exactly one path-mapping rule,
+  for the package, so any file PARC opened outside it had no logical identity
+  and the scan died with *"path is outside every configured mapping root"*.
+  Every real header that includes a system header hit it. One rule per declared
+  root now, held by `a_system_include_root_is_reachable`.
+- [x] **Lua** — *blocked by the same two things, checked rather than assumed.*
+  `lua.h:212` declares `lua_pushvfstring(..., va_list)`, so it fails exactly as
+  SQLite does, and `lua.h:54` is `typedef struct lua_State lua_State`, which is
+  B2. B4 being closed means `lua_CFunction`'s shape is no longer the obstacle --
+  worth saying, because it was the original reason to doubt Lua was reachable.
+- [x] Each candidate lands as an example that **builds, links, and runs**, with
+  the library vendored or its absence a skip that `FOL_H7_REQUIRED=1` makes
+  fatal. zlib does: `examples/v4_c_zlib`, the system's own `libz.a` located
+  rather than checked in, `make test-v4-c-zlib` inside `make verify`.
 
 **STOP:** this milestone does not close on a header that binds. It closes on a
-program that calls the library and produces a result C agrees with.
+program that calls the library and produces a result C agrees with. *zlib
+meets that. SQLite and Lua do not, and are recorded as blocked rather than
+counted.*
+
+## What M20 established
+
+**One real library works.** zlib's own header, the system's own archive, and
+answers matching the published constants — 907060870 and 103547413 for
+`"hello"`. The completion rule, met once.
+
+**Two do not, and for one reason rather than many.** PARC rejects a *whole
+header* for constructs in declarations FOL never selects. zlib escaped through
+`Z_SOLO`; SQLite and Lua have no equivalent, because what they use is
+`va_list`, which nearly every non-trivial C library has somewhere.
+
+Three sibling-side limits now block real headers, and they compound — any one
+refuses a header entirely:
+
+| Limit | Seen in |
+|---|---|
+| `__builtin_va_list` unmodelled | SQLite, Lua |
+| unsigned comparison in `#if` (`PARC-E2113`) | zlib's `zconf.h` |
+| alias to an opaque record (B2) | SQLite, Lua |
+
+**The highest-value change is not in FOL.** It is for a declaration PARC cannot
+model to poison only itself. FOL already treats an *unselected unsupported
+declaration* that way and has a test for it
+(`an_unselected_unsupported_declaration_does_not_break_the_build`); what does
+not extend that far is a construct the scan rejects at parse time.
 
 ---
 

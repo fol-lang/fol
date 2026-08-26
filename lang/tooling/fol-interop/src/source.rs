@@ -34,7 +34,26 @@ pub(crate) fn scan_complete_header(
     if !header.starts_with(&root) {
         return Err(InteropSourceError::HeaderOutsidePackage { root, header });
     }
-    let mapping = PathMapping::try_new([PathMappingRule::try_new(&root, "package")?])?;
+    // One rule per root PARC may read from, or a file it opens has no logical
+    // identity and the scan fails with "outside every configured mapping
+    // root". The package always has one; a system include root needs its own,
+    // and did not have it -- so `--system-include-root` was a flag that could
+    // not do the one thing it exists for. `sqlite3.h` includes `<stdarg.h>`,
+    // which is how this surfaced.
+    let mut rules = vec![PathMappingRule::try_new(&root, "package")?];
+    let mut system_roots = Vec::new();
+    for (index, include) in search.system_include_roots.iter().enumerate() {
+        let directory = canonical_directory(Path::new(include))?;
+        // Numbered rather than named after the directory: a logical path is
+        // recorded in the manifest, and a store path would make the identity
+        // machine-specific.
+        rules.push(PathMappingRule::try_new(
+            &directory,
+            format!("system{index}"),
+        )?);
+        system_roots.push(directory);
+    }
+    let mapping = PathMapping::try_new(rules)?;
     let mut config =
         ScanConfig::new(target.clone(), mapping, PreprocessorMode::Builtin)?.entry_header(header);
 
@@ -49,8 +68,8 @@ pub(crate) fn scan_complete_header(
     // System roots are deliberately *not* required to be inside the package:
     // an SDK lives elsewhere by definition. They are still canonicalized, so
     // the recorded identity is a real path rather than whatever was typed.
-    for include in &search.system_include_roots {
-        config = config.system_include_dir(canonical_directory(Path::new(include))?);
+    for directory in system_roots {
+        config = config.system_include_dir(directory);
     }
     for define in &search.defines {
         // `NAME=VALUE` or a bare `NAME`. Splitting here rather than in the

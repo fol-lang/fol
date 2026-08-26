@@ -233,3 +233,104 @@ fn a_blocked_header_names_the_lines_that_blocked_it() {
         "the refusal should say what PARC would not evaluate:\n{output}"
     );
 }
+
+/// A system include root is readable, which it was not.
+///
+/// `--system-include-root` was offered by the CLI and could not work: the scan
+/// built exactly one path-mapping rule, for the package, so any file PARC
+/// opened outside it had no logical identity and the scan failed with *"path
+/// is outside every configured mapping root"*. Every real header that includes
+/// a system header hit it.
+///
+/// The proof that the root is now readable is the logical path in the
+/// diagnostic: `system0/stdarg.h`. What follows -- PARC refusing
+/// `__builtin_va_list` -- is a separate limit, recorded in `plan/V4_GAPS.md`.
+#[test]
+fn a_system_include_root_is_reachable() {
+    let Some((compiler, temp, _)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain");
+        return;
+    };
+    let gcc_include = Command::new(&compiler)
+        .arg("-print-file-name=include")
+        .output()
+        .expect("the compiler should answer");
+    let gcc_include = PathBuf::from(String::from_utf8_lossy(&gcc_include.stdout).trim());
+    if !gcc_include.join("stdarg.h").is_file() {
+        eprintln!("skipping: this toolchain keeps no stdarg.h of its own");
+        return;
+    }
+
+    let fixture = fol_testkit::TempFixture::new("fol_v4_system_include");
+    let root = fixture.path().join("case");
+    let native = root.join("native");
+    std::fs::create_dir_all(&native).expect("native directory");
+    std::fs::create_dir_all(root.join("interop")).expect("interop directory");
+    std::fs::write(
+        native.join("p.h"),
+        "#ifndef P_H\n#define P_H\n#include <stdarg.h>\nint probe(int v);\n\
+         int probe_v(const char *f, va_list a);\n#endif\n",
+    )
+    .expect("header writable");
+    std::fs::write(
+        native.join("p.c"),
+        "#include \"p.h\"\nint probe(int v){ return v; }\n\
+         int probe_v(const char *f, va_list a){ (void)f;(void)a; return 0; }\n",
+    )
+    .expect("source writable");
+    std::fs::write(
+        root.join("interop/p.toml"),
+        "version = 1\n\n[routine.probe]\nerror = \"infallible\"\n",
+    )
+    .expect("overlay writable");
+    assert!(Command::new(&compiler)
+        .arg("-c")
+        .arg("-o")
+        .arg(native.join("p.o"))
+        .arg(native.join("p.c"))
+        .status()
+        .expect("cc should run")
+        .success());
+    assert!(Command::new("ar")
+        .arg("rcs")
+        .arg(native.join("libp.a"))
+        .arg(native.join("p.o"))
+        .status()
+        .expect("ar should run")
+        .success());
+
+    let (_, output) = run_folc(
+        &root,
+        &compiler,
+        &temp,
+        &[
+            "tool",
+            "bind",
+            "c",
+            "--alias",
+            "p",
+            "--target",
+            "x86_64-unknown-linux-gnu",
+            "--header",
+            "native/p.h",
+            "--provider",
+            "native/libp.a",
+            "--provider-kind",
+            "static",
+            "--annotations",
+            "interop/p.toml",
+            "--system-include-root",
+            &gcc_include.to_string_lossy(),
+            "--out",
+            "interop/p.folabi.json",
+        ],
+    );
+    assert!(
+        !output.contains("outside every configured mapping root"),
+        "a declared system include root must have a mapping rule:\n{output}"
+    );
+    assert!(
+        output.contains("system0/"),
+        "the diagnostic should show the root was read under its logical name:\n{output}"
+    );
+}
