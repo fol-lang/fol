@@ -376,6 +376,29 @@ fn checked_type_for(
             mutable: false,
         }));
     }
+    // A `const` pointer to a record is that record. C uses a pointer here to
+    // avoid copying, not to say anything about ownership, and FOL's own record
+    // has FOL's layout -- so the address cannot be FOL's. The adapter builds
+    // the provider's struct from the fields and lends *that* for the call,
+    // which is the same rebuild a by-value record already does.
+    //
+    // Only `const`. A mutable pointer is an out-parameter whose writes have to
+    // come back, and nothing copies them back yet.
+    if let AbiType::Pointer {
+        target,
+        mutability: fol_abi::AbiMutability::Const,
+        ..
+    } = abi_type
+    {
+        if let Some(AbiType::Record { name, .. }) = types.get(*target) {
+            let name = name.clone();
+            return foreign_record_type(typed, alias, &name).ok_or_else(|| {
+                internal(format!(
+                    "{context} points at record '{name}', which the resolver did not mount"
+                ))
+            });
+        }
+    }
     // A record is nominal: it reaches FOL as a reference to the type symbol the
     // resolver mounted, not as a fresh structural shape.
     if let AbiType::Record { name, .. } = abi_type {

@@ -2,7 +2,10 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use parc::{
-    contract::{CompleteSourcePackage, IncompleteSource, Selection, TargetSpec},
+    contract::{
+        CompleteSourcePackage, IncompleteSource, RecordCompleteness, Selection,
+        SourceDeclarationKind, TargetSpec,
+    },
     scan::{
         scan_headers, PathMapping, PathMappingError, PathMappingRule, PreprocessorMode, ScanConfig,
         ScanConfigError, ScanError,
@@ -93,6 +96,32 @@ pub(crate) fn scan_complete_header(
             }
             if roots.is_empty() {
                 return Err(InteropSourceError::NothingSelected);
+            }
+            // Every complete record in the package joins the selection.
+            //
+            // PARC minimises its closure: a record reached through a pointer
+            // needs only its opaque form, because holding an address does not
+            // need a layout. That is right for PARC and wrong for FOL, which
+            // has to project the fields -- so `const struct S *s` arrived
+            // classified opaque and was refused as "incomplete" with the
+            // definition sitting in the same header.
+            //
+            // `Selection::Only` grants a definition to whatever it names, so
+            // naming the records asks for what FOL actually needs. Only
+            // *complete* and *supported* ones are added: an incomplete record
+            // has no definition to ask for, and an unsupported one would turn
+            // a header FOL could otherwise use into a hard rejection.
+            for declaration in report.package().declarations() {
+                let SourceDeclarationKind::Record(record) = &declaration.kind else {
+                    continue;
+                };
+                if record.completeness != RecordCompleteness::Complete
+                    || !declaration.support.is_supported()
+                    || roots.contains(&declaration.id)
+                {
+                    continue;
+                }
+                roots.push(declaration.id);
             }
             Selection::only(roots).map_err(|error| {
                 InteropSourceError::UnsupportedSelection(vec![UnsupportedDeclaration {

@@ -199,23 +199,25 @@ const SHAPES: &[Shape] = &[
     Shape { name: "struct_by_value", verdict: Verdict::Binds, overlay: INFALLIBLE,
         header: "struct S { int32_t a; int32_t b; }; int32_t probe(struct S s);",
         defs: "int32_t probe(struct S s){ return s.a; }" },
-    Shape { name: "struct_by_const_pointer",
-        verdict: Verdict::Blocker("how most C libraries pass a struct at all"),
+    // Closed by naming complete records in the selection PARC is given, so it
+    // stops minimising them to an opaque view, plus a FOL mapping that lends a
+    // rebuilt struct for the call.
+    Shape { name: "struct_by_const_pointer", verdict: Verdict::Binds,
         overlay: INFALLIBLE,
         header: "struct S { int32_t a; int32_t b; }; int32_t probe(const struct S *s);",
         defs: "int32_t probe(const struct S *s){ return s->a; }" },
+    // Binds now that the definition reaches FOL, and still cannot be mounted:
+    // a mutable pointer is an out-parameter whose writes have to come back,
+    // and nothing copies them back yet. Only `const` is mapped.
     Shape { name: "struct_by_mut_pointer",
-        verdict: Verdict::Blocker("the standard out-parameter convention"),
+        verdict: Verdict::BindsButUnusable("an out-parameter struct, whose writes nothing returns"),
         overlay: INFALLIBLE,
         header: "struct S { int32_t a; int32_t b; }; void probe(struct S *s);",
         defs: "void probe(struct S *s){ s->a = 1; }" },
     // The same parameter as `struct_by_const_pointer`, accepted -- because an
     // unrelated by-value use elsewhere makes GERC materialise the definition.
     // Neither the declaration nor the overlay differs.
-    Shape { name: "struct_by_pointer_beside_by_value",
-        verdict: Verdict::BindsButUnusable(
-            "the by-value neighbour only gets it past bind; mounting still refuses it",
-        ),
+    Shape { name: "struct_by_pointer_beside_by_value", verdict: Verdict::Binds,
         overlay: "[routine.probe]\nerror = \"infallible\"\n\n[routine.probe_byval]\nerror = \"infallible\"\n",
         header: "struct S { int32_t a; }; int32_t probe(const struct S *s); int32_t probe_byval(struct S s);",
         defs: "int32_t probe(const struct S *s){ return s->a; } int32_t probe_byval(struct S s){ return s.a; }" },
@@ -243,7 +245,7 @@ const SHAPES: &[Shape] = &[
         header: "struct V { int32_t (*f)(void *); }; int32_t probe(struct V v);",
         defs: "int32_t probe(struct V v){ (void)v; return 0; }" },
     Shape { name: "struct_self_referential",
-        verdict: Verdict::Refused("is incomplete"), overlay: INFALLIBLE,
+        verdict: Verdict::Refused("refers to itself"), overlay: INFALLIBLE,
         header: "struct N { struct N *next; int32_t v; }; int32_t probe(struct N *n);",
         defs: "int32_t probe(struct N *n){ return n->v; }" },
     Shape { name: "union_parameter",
@@ -262,8 +264,10 @@ const SHAPES: &[Shape] = &[
         verdict: Verdict::Refused(""), overlay: INFALLIBLE,
         header: "struct __attribute__((packed)) P { char a; int32_t b; }; int32_t probe(struct P v);",
         defs: "int32_t probe(struct P v){ return v.b; }" },
+    // Refused earlier now, by the probe profile rather than by FOL: naming the
+    // record in the selection asks PARC for a definition it will not give.
     Shape { name: "flexible_array_member",
-        verdict: Verdict::Refused("is incomplete"), overlay: INFALLIBLE,
+        verdict: Verdict::Refused("only nonzero fixed-size arra"), overlay: INFALLIBLE,
         header: "struct F { int32_t n; int32_t rest[]; }; int32_t probe(struct F *v);",
         defs: "int32_t probe(struct F *v){ return v->n; }" },
 
@@ -544,8 +548,6 @@ fn the_blocker_count_is_what_the_gap_plan_records() {
         vec![
             "handle_typedef_same_name",
             "handle_typedef_other_name",
-            "struct_by_const_pointer",
-            "struct_by_mut_pointer",
             "callback_no_context",
         ],
         "plan/V4_GAPS.md names these blockers; this list and that one move together"

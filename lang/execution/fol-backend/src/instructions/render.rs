@@ -464,7 +464,8 @@ pub fn render_core_instruction_in_workspace(
                         return Ok(format!("{address}, {slice}.len() as _"));
                     }
                     // A record is passed as its fields, matching the adapter,
-                    // which rebuilds the provider's struct from them. FOL's
+                    // which rebuilds the provider's struct from them -- and
+                    // lends it, when C asked for a `const` pointer. FOL's
                     // struct has FOL's layout, so handing it over directly
                     // would be handing C a value it cannot read.
                     if let Some(fol_lower::LoweredType::ForeignRecord { fields, .. }) = routine

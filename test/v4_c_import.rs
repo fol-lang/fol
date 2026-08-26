@@ -694,7 +694,15 @@ fn a_c_enum_crosses_at_its_measured_width() {
 ///
 /// 6 * 7 can only be 42 if the struct FOL built reached C intact, and reading
 /// `p.x` afterwards can only give 6 if a C struct passes by value the way C
-/// says it does.
+/// A C struct crosses inbound with its fields where the header put them.
+///
+/// The field names are deliberately **not** alphabetical, and the C side
+/// computes `zulu * 100 + alpha` rather than a product. Both are load-bearing:
+/// the original fixture used `x, y` with a multiplication, so it could not see
+/// a transposition -- and there was one. The adapter took the provider's
+/// declaration order while the call site emitted FOL's own sorted order, so
+/// any struct whose fields were not already alphabetical arrived swapped,
+/// silently, for a whole milestone.
 #[test]
 fn a_c_record_crosses_inbound_and_survives_the_call() {
     let Some((compiler, temp)) = require_or_skip() else {
@@ -705,13 +713,13 @@ fn a_c_record_crosses_inbound_and_survives_the_call() {
     std::fs::write(
         root.join("native/c_math.h"),
         b"#ifndef C_MATH_H\n#define C_MATH_H\n\
-          struct point { int x; int y; };\n\
+          struct point { int zulu; int alpha; };\n\
           int c_math_area(struct point p);\n#endif\n",
     )
     .expect("header writable");
     std::fs::write(
         root.join("native/c_math.c"),
-        b"#include \"c_math.h\"\nint c_math_area(struct point p) { return p.x * p.y; }\n",
+        b"#include \"c_math.h\"\nint c_math_area(struct point p) { return p.zulu * 100 + p.alpha; }\n",
     )
     .expect("provider writable");
     std::fs::write(
@@ -723,10 +731,10 @@ fn a_c_record_crosses_inbound_and_survives_the_call() {
         root.join("src/main.fol"),
         b"use std: pkg = {\"std\"};\nuse cm: pkg = {\"c_math\"};\n\n\
           fun[] main(): int = {\n\
-          \x20   var p: cm::point = { x = 6, y = 7 };\n\
+          \x20   var p: cm::point = { zulu = 6, alpha = 7 };\n\
           \x20   var area: int[32] = cm::area(p);\n\
-          \x20   var back: int[32] = p.x;\n\
-          \x20   var expected: int[32] = 42;\n\
+          \x20   var back: int[32] = p.zulu;\n\
+          \x20   var expected: int[32] = 607;\n\
           \x20   var six: int[32] = 6;\n\
           \x20   var marker: int = 0;\n\
           \x20   when(.eq(area, expected)) {\n\
@@ -990,7 +998,10 @@ fn hostile_headers_are_refused_by_name_and_never_panic() {
             "self_referential",
             "struct node { struct node *next; int v; };\nint probe(struct node *n);",
             "int probe(struct node *n) { return n->v; }",
-            Some("is incomplete"),
+            // Was "is incomplete", which was never true of a struct the header
+            // defines. FOL now receives the definition and its own cycle guard
+            // gives the real reason.
+            Some("refers to itself"),
         ),
         (
             "variadic",

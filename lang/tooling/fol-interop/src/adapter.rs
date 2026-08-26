@@ -77,8 +77,22 @@ fn render_adapter(
         // A record arrives as its fields rather than as a struct. FOL's struct
         // has FOL's layout, so it cannot be handed to C; the provider's struct
         // is built here instead, from values whose types C itself measured.
-        if let Some(AbiType::Record { fields, .. }) = interface.types.get(parameter.type_id) {
-            for field in fields {
+        if let Some((_, fields, _)) = record_behind(&interface.types, parameter.type_id) {
+            // By field name, not by declaration order.
+            //
+            // This list and the call site have to agree, and they disagreed:
+            // the adapter took declaration order while the backend emits from
+            // FOL's own lowered record, whose fields are sorted. A struct
+            // whose declaration order was not already alphabetical therefore
+            // arrived with its fields **transposed** -- silently, with no
+            // diagnostic and a wrong answer. `struct point { int x; int y; }`
+            // hid it for a whole milestone by being alphabetical already.
+            //
+            // Sorting here is what makes them agree. The provider's own field
+            // order is untouched: `cast_argument` rebuilds the struct by name.
+            let mut ordered: Vec<&fol_abi::AbiField> = fields.iter().collect();
+            ordered.sort_by(|left, right| left.name.cmp(&right.name));
+            for field in ordered {
                 params.push(format!(
                     "{}: {}",
                     record_field_param(&parameter.name, &field.name),
@@ -241,6 +255,30 @@ fn render_adapter(
                 name = rust_param_name(&routine.fol_name),
             ))
         }
+    }
+}
+
+/// The record a parameter carries: by value, or behind a `const` pointer.
+///
+/// Both arrive as fields and are rebuilt here, for the same reason -- FOL's
+/// struct has FOL's layout, so the address C receives has to be one this
+/// adapter made. The only difference is whether the rebuilt struct is passed
+/// or lent.
+fn record_behind(
+    types: &AbiTypeTable,
+    type_id: AbiTypeId,
+) -> Option<(&str, &[fol_abi::AbiField], bool)> {
+    match types.get(type_id) {
+        Some(AbiType::Record { name, fields }) => Some((name, fields, false)),
+        Some(AbiType::Pointer {
+            target,
+            mutability: fol_abi::AbiMutability::Const,
+            ..
+        }) => match types.get(*target) {
+            Some(AbiType::Record { name, fields }) => Some((name, fields, true)),
+            _ => None,
+        },
+        _ => None,
     }
 }
 
@@ -433,11 +471,11 @@ fn cast_argument(types: &AbiTypeTable, parameter: &fol_abi::AbiParameter) -> Str
     match types.get(parameter.type_id) {
         Some(AbiType::OpaqueHandle { .. }) => format!("{name} as *mut _"),
         // Rebuilt field by field, never transmuted -- the same rule the export
-        // wrapper follows in the other direction.
-        Some(AbiType::Record {
-            name: record,
-            fields,
-        }) => {
+        // wrapper follows in the other direction. A `const` pointer to a
+        // record is the same rebuild, lent rather than passed.
+        _ if record_behind(types, parameter.type_id).is_some() => {
+            let (record, fields, behind_pointer) =
+                record_behind(types, parameter.type_id).expect("checked");
             let assigned = fields
                 .iter()
                 .map(|field| {
@@ -449,10 +487,18 @@ fn cast_argument(types: &AbiTypeTable, parameter: &fol_abi::AbiParameter) -> Str
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
-            format!(
+            let built = format!(
                 "{}::{record} {{ {assigned} }}",
                 crate::anchor::H7_RAW_CRATE_NAME
-            )
+            );
+            // A temporary lives to the end of the enclosing statement, which
+            // is the raw call itself -- so the provider reads it for exactly
+            // as long as it is entitled to.
+            if behind_pointer {
+                format!("&{built}")
+            } else {
+                built
+            }
         }
         // A callback and its context both already have the provider's own
         // spelling: the adapter declares the function pointer exactly as GERC

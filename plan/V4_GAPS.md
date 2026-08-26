@@ -37,7 +37,7 @@ Three verdicts matter and are not the same:
 
 | # | Construct | Verdict | Layer |
 |---|---|---|---|
-| B1 | `const struct S *s` with `S` defined | REFUSED, *"S is incomplete"* | GERC classification |
+| B1 | `const struct S *s` with `S` defined | ~~REFUSED~~ **closed (const)** | FOL selection |
 | B2 | `typedef struct T T;` (opaque handle idiom) | REFUSED | GERC |
 | B3 | `typedef int32_t (*F)(void*, int32_t);` as a callback | ~~REFUSED~~ **closed** | FOL |
 | B4 | callback with no context (`int (*)(lua_State*)`) | REFUSED | FOL |
@@ -58,6 +58,27 @@ past `bind` and it is *still* refused when a package mounts it, with `T1099`.
 Struct-by-pointer does not work by any route.
 
 Passing a struct by pointer is how most C libraries pass structs at all.
+
+*Closed, for `const`.* The cause was **FOL's**, not a sibling's. PARC minimises
+its closure deliberately: `visit_type` demotes a `RecordRef` reached through a
+pointer to `Need::OpaqueSufficient`, because holding an address does not need a
+layout. `Selection::Only` grants `Need::Definition` to whatever it names, and
+FOL named only the routines. Naming every complete supported record too asks
+for what FOL actually needs, and the opaque view stops arriving.
+
+The FOL side then maps a `const` pointer-to-record to that record: C uses a
+pointer to avoid a copy, not to say anything about ownership, and FOL's struct
+has FOL's layout — so the adapter rebuilds the provider's struct from the
+fields and lends *that*, the same rebuild a by-value record already does.
+
+A **mutable** pointer still does not mount. It is an out-parameter whose writes
+have to come back, and nothing copies them back; its corpus row says so.
+
+Two things fell out of the fix. `struct N { struct N *next; }` is now refused
+as *"refers to itself, so it has no finite FOL shape"* rather than the false
+*"is incomplete"* — FOL receives the definition and its own cycle guard gives
+the real reason. And a flexible-array member is refused earlier, by the probe
+profile, because naming the record asks PARC for a definition it will not give.
 
 **B2** is the dominant spelling of an opaque handle: `typedef struct lua_State
 lua_State`, `typedef struct sqlite3 sqlite3`. The bare `struct T;` form works,
@@ -191,21 +212,50 @@ same check is the first task here.
 - [ ] Re-measure the pin. `V4_CONTINUE.md` §M15 found all three siblings at
   upstream HEAD on 2026-08-25; confirm that is still true before assuming a fix
   must be written.
-- [ ] Establish, in GERC's own source, **why** a pointee arrives `Opaque`.
+- [x] Establish, in GERC's own source, **why** a pointee arrives `Opaque`.
+  It is PARC, not GERC, and it is deliberate: `complete.rs:412` demotes a
+  `RecordRef` behind a pointer to `OpaqueSufficient`. It is a closure-scope
+  decision, so FOL can widen what it asks for -- which closed B1.
   Whether it is a projection-scope decision (only by-value uses materialise a
   definition) or a contract limit decides everything downstream.
-- [ ] If it is scope: find whether FOL can widen what it asks GERC to project.
+- [x] If it is scope: find whether FOL can widen what it asks GERC to project.
+  It can, and does: every complete supported record joins the selection.
   FOL controls the selection it hands the pipeline, and B1's own workaround —
   an unrelated by-value use — suggests the definition is reachable and simply
   not requested.
 - [ ] If it is a contract limit: write the sibling-side issue with the
   reproduction, and record B1/B2 as blocked in this plan the way §3.5 is.
-- [ ] Fix FOL's message either way. *"'S' is incomplete"* is false when the
-  header defines `S`. It should say FOL received an opaque view and name the
+- [x] Fix FOL's message either way. *"'S' is incomplete"* is false when the
+  header defines `S`. It no longer arises for a defined struct; the one case
+  that still reports it is a genuinely incomplete one. It should say FOL received an opaque view and name the
   by-value workaround, so a reader is not hunting a definition that exists.
 
 **STOP:** do not add a by-value decoy declaration to make B1 pass. It works,
 and shipping a workaround as a fix would put a lie in the examples.
+
+---
+
+# 5b. Found while proving B1: inbound records were transposed
+
+Proving B1 meant *calling* the routine, not mounting it — and the call returned
+the wrong answer. `struct Point { int32_t zulu; int32_t alpha; }` passed from
+FOL to C arrived with its fields **swapped**. Silently: no diagnostic, a wrong
+number, and a program that runs.
+
+The adapter's parameter list was built in the provider's declaration order
+while the call site emitted from FOL's own lowered record, whose fields are
+sorted by name. The two disagreed for every struct whose declaration order was
+not already alphabetical.
+
+**This was not new.** It shipped with M10's inbound records and had been live
+ever since. The test that covers that feature used `struct point { int x; int
+y; }` and multiplied the fields — alphabetical already, and a product that
+cannot see a swap. It could not have caught this.
+
+Fixed by sorting the adapter's parameter list by field name, so both sides
+agree; the provider's own field order is untouched, because the struct is
+rebuilt by name. The fixture is now `zulu, alpha` computing `zulu * 100 +
+alpha`, which fails if either the order or the arithmetic is wrong.
 
 ---
 
