@@ -111,6 +111,12 @@ pub struct ForeignRoutineBinding {
     pub symbol: String,
     /// The name FOL calls it, which is also the adapter function's name.
     pub fol_name: String,
+    /// Whether the provider's callback, if it has one, takes a context.
+    ///
+    /// Carried from the manifest because nothing in the checked signature
+    /// shows it: a context is never a FOL parameter, so a callback with one
+    /// and a callback without one look identical from FOL's side.
+    pub callback_has_context: bool,
 }
 
 /// What a foreign type symbol names on the C side.

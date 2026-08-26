@@ -494,7 +494,10 @@ fn render_routine(routine: &ImportedRoutine) -> String {
     let callback = match &routine.callback {
         Some(use_) => format!(
             "{{\"context\":{},\"parameter\":{}}}",
-            quoted(&use_.context),
+            match &use_.context {
+                Some(context) => quoted(context),
+                None => "null".to_string(),
+            },
             quoted(&use_.parameter)
         ),
         None => "null".to_string(),
@@ -618,14 +621,18 @@ fn render_type(id: AbiTypeId, ty: &AbiType) -> String {
         AbiType::OpaqueHandle { name } => {
             format!("\"kind\":\"opaque-handle\",\"name\":{}", quoted(name))
         }
-        AbiType::Callback { parameters, result } => {
+        AbiType::Callback {
+            parameters,
+            result,
+            context,
+        } => {
             let rendered = parameters
                 .iter()
                 .map(|id| id.0.to_string())
                 .collect::<Vec<_>>()
                 .join(",");
             format!(
-                "\"kind\":\"callback\",\"parameters\":[{rendered}],\"result\":{}",
+                "\"context\":{context},\"kind\":\"callback\",\"parameters\":[{rendered}],\"result\":{}",
                 result.0
             )
         }
@@ -861,6 +868,7 @@ fn read_type(entry: &JsonValue) -> Result<AbiType, ImportManifestError> {
             AbiType::Callback {
                 parameters,
                 result: callback_type_index(entry.integer_field("result")?)?,
+                context: matches!(entry.field("context")?, JsonValue::Bool(true)),
             }
         }
         other => {
@@ -1003,7 +1011,18 @@ fn read_callback(
     }
     Ok(Some(crate::annotation::CallbackUse {
         parameter: value.string_field("parameter")?.to_string(),
-        context: value.string_field("context")?.to_string(),
+        context: match value.field("context")? {
+            JsonValue::Null => None,
+            other => Some(
+                other
+                    .as_str()
+                    .ok_or(ImportManifestError::Json(JsonError::WrongType {
+                        field: "context".to_string(),
+                        expected: "a string or null",
+                    }))?
+                    .to_string(),
+            ),
+        },
     }))
 }
 

@@ -132,6 +132,8 @@ fn render_adapter(
     // trampoline and the closure address as two ordinary arguments here, and
     // the adapter forwards both. The trampoline itself is emitted by the
     // backend, which is the only layer that knows the closure's Rust type.
+    // Only when the provider has one: a context-free callback -- `qsort`'s
+    // comparator, `lua_CFunction` -- has no slot to fill.
     if let Some(index) = routine.callback_context_index() {
         params.push(format!(
             "{}: *mut core::ffi::c_void",
@@ -590,10 +592,26 @@ fn rust_scalar(
         // Rendered as GERC projects a C function pointer, with the context
         // restored at the front: the canonical shape puts it first, and the
         // stored `parameters` are what FOL sees, which is everything after it.
-        AbiType::Callback { parameters, result } => {
-            let mut rendered = String::from("Option<unsafe extern \"C\" fn(*mut core::ffi::c_void");
+        AbiType::Callback {
+            parameters,
+            result,
+            context,
+        } => {
+            // The context is restored at the front when the provider has one,
+            // because the canonical shape puts it first and `parameters` is
+            // what FOL sees, which is everything after it. A context-free
+            // provider takes exactly what FOL sees.
+            let mut rendered = String::from("Option<unsafe extern \"C\" fn(");
+            if *context {
+                rendered.push_str("*mut core::ffi::c_void");
+            }
+            let mut first = !*context;
             for parameter in parameters {
-                rendered.push_str(", ");
+                if first {
+                    first = false;
+                } else {
+                    rendered.push_str(", ");
+                }
                 rendered.push_str(&rust_scalar(types, *parameter, symbol)?);
             }
             rendered.push(')');

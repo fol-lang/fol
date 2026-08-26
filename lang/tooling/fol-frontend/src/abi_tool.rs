@@ -260,7 +260,9 @@ fn c_type(types: &fol_abi::AbiTypeTable, id: fol_abi::AbiTypeId) -> String {
         .to_string(),
         // Shown as C declares it -- a function pointer whose first parameter is
         // the context -- because that is what a consumer reading a header sees.
-        Some(fol_abi::AbiType::Callback { parameters, result }) => {
+        Some(fol_abi::AbiType::Callback {
+            parameters, result, ..
+        }) => {
             let rendered = std::iter::once("void *".to_string())
                 .chain(parameters.iter().map(|id| c_type(types, *id)))
                 .collect::<Vec<_>>()

@@ -137,6 +137,7 @@ pub(super) fn verify_instruction(
             args,
             error_type,
             callback_arg: _,
+            callback_context: _,
             buffer_arg: _,
             string_args: _,
         } => {

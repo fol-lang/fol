@@ -170,6 +170,13 @@ pub enum AbiType {
     Callback {
         parameters: Vec<AbiTypeId>,
         result: AbiTypeId,
+        /// Whether the provider hands the context back as the pointer's own
+        /// first argument.
+        ///
+        /// `false` is `qsort`'s comparator and `lua_CFunction`: no context at
+        /// all. The closure is still recovered from a thread-local slot, so
+        /// what is lost is one liveness signal, not the mechanism.
+        context: bool,
     },
 }
 

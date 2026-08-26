@@ -142,7 +142,9 @@ fn render_type(id: AbiTypeId, ty: &AbiType) -> String {
         AbiType::OpaqueHandle { name } => {
             fields.push(("name".to_string(), quoted(name)));
         }
-        AbiType::Callback { parameters, result } => {
+        AbiType::Callback {
+            parameters, result, ..
+        } => {
             // Positional, because a callback's parameter order is part of the
             // contract exactly as a routine's is.
             let rendered = parameters
@@ -900,7 +902,9 @@ fn expand_type(id: AbiTypeId, table: &AbiTypeTable) -> String {
         }
         AbiType::CString { mutability } => format!("cstring({mutability:?})"),
         AbiType::OpaqueHandle { name } => format!("handle {name}"),
-        AbiType::Callback { parameters, result } => format!(
+        AbiType::Callback {
+            parameters, result, ..
+        } => format!(
             "callback({}) -> {}",
             parameters
                 .iter()

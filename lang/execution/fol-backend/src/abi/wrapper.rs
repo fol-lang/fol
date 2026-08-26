@@ -446,7 +446,9 @@ pub fn render_wrapper(
             // context it is handed back. `Option<fn>` rather than a bare `fn`
             // so a null pointer is a value the wrapper can test rather than
             // undefined behaviour on the first call.
-            Some(AbiType::Callback { parameters, result }) => {
+            Some(AbiType::Callback {
+                parameters, result, ..
+            }) => {
                 let arguments = std::iter::once("*mut core::ffi::c_void".to_string())
                     .chain(parameters.iter().map(|id| rust_repr(table, *id)))
                     .collect::<Vec<_>>()
@@ -507,7 +509,10 @@ pub fn render_wrapper(
     }
 
     for parameter in &routine.parameters {
-        if let Some(AbiType::Callback { parameters, result }) = table.get(parameter.type_id) {
+        if let Some(AbiType::Callback {
+            parameters, result, ..
+        }) = table.get(parameter.type_id)
+        {
             out.push_str(&callback_inbound_conversion(
                 table,
                 &parameter.name,

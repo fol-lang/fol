@@ -408,6 +408,7 @@ pub fn render_core_instruction_in_workspace(
             args,
             error_type,
             callback_arg,
+            callback_context,
             buffer_arg,
             string_args,
         } => {
@@ -499,15 +500,23 @@ pub fn render_core_instruction_in_workspace(
                 let closure =
                     render_local_list(type_table, package_identity, routine, &[args[position]])?;
                 let closure_local = closure.trim_end_matches(".clone()").to_string();
-                trampoline =
-                    render_callback_trampoline(type_table, routine, args[position], symbol)?;
+                let has_context = *callback_context;
+                trampoline = render_callback_trampoline(
+                    type_table,
+                    routine,
+                    args[position],
+                    symbol,
+                    has_context,
+                )?;
                 installed_closure = Some(closure_local.clone());
-                // Still the closure's address, so a provider that logs or
-                // compares its context sees something meaningful. It is never
-                // dereferenced: the trampoline reads the thread-local slot.
-                rendered_args.push(format!(
-                    "(&{closure_local}) as *const _ as *mut core::ffi::c_void"
-                ));
+                if *callback_context {
+                    // Still the closure's address, so a provider that logs or
+                    // compares its context sees something meaningful. It is
+                    // never dereferenced: the trampoline reads the slot.
+                    rendered_args.push(format!(
+                        "(&{closure_local}) as *const _ as *mut core::ffi::c_void"
+                    ));
+                }
             }
             // Built before the call and dropped after it. A `CString`
             // allocates, so this is the one place FOL's text is copied to
@@ -2011,6 +2020,7 @@ fn render_callback_trampoline(
     routine: &fol_lower::LoweredRoutine,
     local_id: fol_lower::LoweredLocalId,
     symbol: &str,
+    has_context: bool,
 ) -> BackendResult<String> {
     let type_id = routine
         .locals
@@ -2051,6 +2061,20 @@ fn render_callback_trampoline(
     // provider routine that called back.
     let named = format!("{symbol:?}");
     let separator = if params.is_empty() { "" } else { ", " };
+    // A provider with no context -- `qsort`'s comparator, `lua_CFunction` --
+    // still recovers its closure from the slot below. The context was never
+    // how the closure was found; it was a signal that the call was live, and
+    // the slot carries that on its own.
+    let (context_param, context_check) = if has_context {
+        (
+            format!("__fol_context: *mut core::ffi::c_void{separator}"),
+            format!(
+                "\x20       if __fol_context.is_null() {{ rt::callback_context_invalid({named}); }}\n"
+            ),
+        )
+    } else {
+        (String::new(), String::new())
+    };
     // The closure reaches the trampoline through a thread-local slot rather
     // than through the context pointer, and that is the whole safety property
     // here. The context is a pointer to a stack local: dereferencing it works
@@ -2073,8 +2097,8 @@ fn render_callback_trampoline(
          \x20           const {{ std::cell::RefCell::new(None) }};\n\
          \x20   }}\n\
          \x20   unsafe extern \"C\" fn __fol_trampoline(\
-         __fol_context: *mut core::ffi::c_void{separator}{params}){result} {{\n\
-         \x20       if __fol_context.is_null() {{ rt::callback_context_invalid({named}); }}\n\
+         {context_param}{params}){result} {{\n\
+         {context_check}\
          \x20       // Cloned out rather than borrowed across the call: the\n\
          \x20       // closure may re-enter, and a live borrow would panic.\n\
          \x20       let __fol_closure = __FOL_CALLBACK.with(|__fol_slot| {{\n\

@@ -297,7 +297,10 @@ fn checked_type_for(
     // closure and nothing about the C function-pointer shape is visible. The
     // context is already absent: it never reaches this function, because
     // `call_parameters` hides it.
-    if let AbiType::Callback { parameters, result } = abi_type {
+    if let AbiType::Callback {
+        parameters, result, ..
+    } = abi_type
+    {
         let (parameters, result) = (parameters.clone(), *result);
         let mut params = Vec::new();
         for parameter in &parameters {

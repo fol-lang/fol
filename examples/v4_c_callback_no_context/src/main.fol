@@ -1,0 +1,41 @@
+// A provider that calls back with no context at all.
+//
+// `qsort`'s comparator and `lua_CFunction` are both this shape:
+//
+//     int32_t fold_range(int32_t upto, int32_t (*step)(int32_t value));
+//
+// There is no `void *` anywhere, so the pairing the ordinary callback import
+// requires has nothing to pair. The overlay says so:
+//
+//     [routine.fold_range]
+//     callback = "step"
+//     callback_context = "none"
+//
+// It costs one check and no mechanism. The trampoline never found the closure
+// through the context -- it reads a thread-local slot filled for the duration
+// of the call -- so the context was only ever a signal that the call was
+// still live. Without one, the empty-slot check carries that alone, and it
+// still refuses an invocation after the call returns or from another thread.
+//
+// `none` is spelled rather than omitted on purpose: a missing key is how a
+// typo in `callback_context` would read, and that would silently import a
+// different shape than the provider has.
+
+use std: pkg = {"std"};
+use fld: pkg = {"fold"};
+
+fun[] main(): int = {
+    // C loops 1..4 and calls back with each value. Doubling gives
+    // 2+4+6+8 = 20, which no arrangement of a *missing* callback produces.
+    var total: int[32] = fld::fold_range(4, fun(v: int[32]): int[32] = {
+        return v + v;
+    });
+
+    var marker: int = 0;
+    when(total) {
+        is(20) { marker = 7; }
+        * { marker = 1; }
+    };
+    var shown: int = std::io::echo_int(marker);
+    return 0;
+};

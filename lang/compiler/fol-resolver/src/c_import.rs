@@ -197,6 +197,10 @@ fn inject_one(program: &mut ResolvedProgram, interface: &ImportedInterface) {
                 alias: interface.alias.clone(),
                 symbol: routine.symbol.clone(),
                 fol_name: routine.fol_name.clone(),
+                callback_has_context: routine
+                    .callback
+                    .as_ref()
+                    .is_some_and(|use_| use_.context.is_some()),
             },
         );
     }

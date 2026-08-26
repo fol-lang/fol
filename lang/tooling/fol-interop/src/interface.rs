@@ -278,28 +278,36 @@ fn callback_positions(
             parameter: use_.parameter.clone(),
             role: "function pointer",
         })?;
-    let context =
-        named(&use_.context).ok_or_else(|| ImportRejection::UnknownCallbackParameter {
-            symbol: symbol.to_string(),
-            parameter: use_.context.clone(),
-            role: "context",
-        })?;
+    let context = match &use_.context {
+        Some(name) => {
+            Some(
+                named(name).ok_or_else(|| ImportRejection::UnknownCallbackParameter {
+                    symbol: symbol.to_string(),
+                    parameter: name.clone(),
+                    role: "context",
+                })?,
+            )
+        }
+        None => None,
+    };
 
     // Both halves are read through their aliases first. A real header almost
     // always names its callback type -- `typedef int (*F)(void *, int)` -- and
     // asking whether a `Named` type is a function pointer answers no for every
     // one of them. The scalar path already resolves; this one did not, so the
     // shape a provider actually ships was refused as "not a function pointer".
-    let context_type = resolve_alias(function.parameters()[context].ty(), &shapes.aliases);
     let callback_type = resolve_alias(function.parameters()[parameter].ty(), &shapes.aliases);
 
     // The context must be a pointer FOL can hand an arbitrary address through.
-    if !matches!(context_type.kind(), RustTypeKind::Pointer(_)) {
-        return Err(ImportRejection::CallbackShapeMismatch {
-            symbol: symbol.to_string(),
-            parameter: use_.context.clone(),
-            expected: "a pointer",
-        });
+    if let Some(context) = context {
+        let context_type = resolve_alias(function.parameters()[context].ty(), &shapes.aliases);
+        if !matches!(context_type.kind(), RustTypeKind::Pointer(_)) {
+            return Err(ImportRejection::CallbackShapeMismatch {
+                symbol: symbol.to_string(),
+                parameter: use_.context.clone().unwrap_or_default(),
+                expected: "a pointer",
+            });
+        }
     }
 
     let RustTypeKind::FunctionPointer {
@@ -331,25 +339,28 @@ fn callback_positions(
             detail: format!("its calling convention is {abi:?}, and only C is imported"),
         });
     }
-    // The first parameter is the context handed back. Without it the provider
-    // has nowhere to return the pointer FOL gave it, so a FOL closure could
-    // never be recovered.
-    let Some(first) = signature.first() else {
-        return Err(ImportRejection::CallbackContextNotFirst {
-            symbol: symbol.to_string(),
-            parameter: use_.parameter.clone(),
-        });
-    };
-    if !matches!(first.kind(), RustTypeKind::Pointer(_)) {
-        return Err(ImportRejection::CallbackContextNotFirst {
-            symbol: symbol.to_string(),
-            parameter: use_.parameter.clone(),
-        });
+    // With a context, the function pointer's first parameter is that context
+    // handed back, and the shape is refused if it is anywhere else -- guessing
+    // a provider's context position is how a closure gets handed the wrong
+    // address. Without one, every parameter belongs to the FOL closure.
+    if context.is_some() {
+        let Some(first) = signature.first() else {
+            return Err(ImportRejection::CallbackContextNotFirst {
+                symbol: symbol.to_string(),
+                parameter: use_.parameter.clone(),
+            });
+        };
+        if !matches!(first.kind(), RustTypeKind::Pointer(_)) {
+            return Err(ImportRejection::CallbackContextNotFirst {
+                symbol: symbol.to_string(),
+                parameter: use_.parameter.clone(),
+            });
+        }
     }
 
     // Everything after the context is what a FOL routine value receives.
     let mut projected = Vec::new();
-    for argument in signature.iter().skip(1) {
+    for argument in signature.iter().skip(usize::from(context.is_some())) {
         projected.push(project_type(
             symbol,
             argument,
@@ -365,9 +376,11 @@ fn callback_positions(
         shapes,
         &fol_abi::PointerContract::default(),
     )?;
+    let has_context = context.is_some();
     let type_id = types.intern(AbiType::Callback {
         parameters: projected,
         result,
+        context: has_context,
     });
     Ok(Some(CallbackPositions { parameter, type_id }))
 }

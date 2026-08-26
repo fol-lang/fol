@@ -38,9 +38,9 @@ Three verdicts matter and are not the same:
 | # | Construct | Verdict | Layer |
 |---|---|---|---|
 | B1 | `const struct S *s` with `S` defined | ~~REFUSED~~ **closed (const)** | FOL selection |
-| B2 | `typedef struct T T;` (opaque handle idiom) | REFUSED | GERC |
+| B2 | `typedef struct T T;` (opaque handle idiom) | REFUSED — **sibling-side, blocked** | GERC |
 | B3 | `typedef int32_t (*F)(void*, int32_t);` as a callback | ~~REFUSED~~ **closed** | FOL |
-| B4 | callback with no context (`int (*)(lua_State*)`) | REFUSED | FOL |
+| B4 | callback with no context (`int (*)(lua_State*)`) | ~~REFUSED~~ **closed** | FOL |
 | B5 | `const char *s` as a parameter | ~~unmountable~~ **closed** | FOL |
 
 **B1 is the worst.** `const struct S *s` is refused with *"S is incomplete"*
@@ -84,6 +84,37 @@ profile, because naming the record asks PARC for a definition it will not give.
 lua_State`, `typedef struct sqlite3 sqlite3`. The bare `struct T;` form works,
 which is why `v4_c_opaque_handle` passes and nothing noticed.
 
+**Diagnosed, and FOL cannot fix it.** GERC's `verify.rs:497` walks a *type
+alias declaration's* target with a position that is not `BehindPointer`, so a
+`RecordRef` there demands `ClosureRequirement::Definition`. An opaque handle
+has no definition — that is the point of it — so the alias is refused as
+*"opaque record is used by value"*. The alias is a name, not a use; where
+by-value-ness is decided is at the alias's *uses*, and every use here is a
+pointer.
+
+FOL's own lever does not reach it. The selection widening that closed B1 adds
+*complete* records; an opaque handle's record has no definition to ask for.
+Verified: the pins are still at upstream HEAD (parc `0f52aee`, gerc `df0479a`,
+checked 2026-08-27), so there is no newer revision to move to.
+
+**Reproduction**, minimal and self-contained:
+
+```c
+typedef struct T T;
+T *probe(int32_t s);
+void probe_free(T *t);
+```
+
+with a `[handle.T]` domain. `fol tool bind c` fails in raw binding generation.
+Replacing the typedef with a bare `struct T;` and using `struct T *` binds,
+mounts, and runs — the corpus holds both rows.
+
+**What GERC would need to change**: verify an alias's target at the position
+the alias is *used* at, or treat an alias declaration's target as
+`BehindPointer` when every use of the alias is. This is the sibling-side issue
+to file; it is the same shape as §3.5 in `V4_CONTINUE.md`, where the certified
+resolution policy blocked a provider form FOL could not reach either.
+
 **B3** means a callback only binds when its type is written inline in the
 parameter list. Real headers typedef callback types. FOL is not resolving the
 alias before asking "is this a function pointer" — the same `resolve_alias` the
@@ -115,9 +146,23 @@ provider would read something shorter than FOL holds.
 An *undeclared* `char *` still binds and still cannot be mounted, and a test
 holds that: the declaration is the mechanism, not a formality.
 
-**B4** is a shape decision, not a bug: V4 requires a `void *` context as the
-callback's own first parameter. `lua_CFunction` and `qsort`'s comparator have
-no context at all. §4 argues this one is worth revisiting rather than fixing.
+**B4** was a shape decision, not a bug: V4 required a `void *` context as the
+callback's own first parameter, and `lua_CFunction` and `qsort`'s comparator
+have none.
+
+*Closed.* The evidence settled it: the trampoline never found the closure
+through the context. It reads a thread-local slot filled for the duration of
+the call, so the context was only ever a signal that the call was live. Without
+one, the empty-slot check carries that alone -- and still refuses an invocation
+after the call returns *or* from another thread, because the slot is
+thread-local.
+
+The spelling is `callback_context = "none"`, a word rather than an omission: a
+missing key is exactly how a typo in `callback_context` would read, and that
+would import a different shape than the provider has. An undeclared function
+pointer is still refused; the corpus holds both rows.
+`examples/v4_c_callback_no_context` has C loop 1..4 and call back with no
+context, returning 20.
 
 ## 2.2 Refusals that are correct and documented
 
@@ -179,8 +224,8 @@ Goal: B3 and B4 close without touching a sibling.
   `resolve_alias` already exists and the scalar path already uses it;
   `callback_positions` did not. Both halves are resolved now -- a typedef'd
   function pointer *and* a typedef'd context -- and both have corpus rows.
-- [ ] **B4**: decide, with the owner, whether a **context-free callback** is
-  supportable. It is not a small question: FOL's trampoline recovers the
+- [x] **B4**: decide whether a **context-free callback** is supportable. It is,
+  and the mechanism already supported it. It is not a small question: FOL's trampoline recovers the
   closure from a thread-local slot keyed by the call, and the context pointer
   is currently how a provider identifies the closure. A context-free callback
   can still use the thread-local slot — the context was never load-bearing for
@@ -209,7 +254,8 @@ B1 and B2 fail before FOL's projection runs. §3.5 of `V4_CONTINUE.md` records
 the last time a sibling limit blocked V4 and the pin was already at HEAD — the
 same check is the first task here.
 
-- [ ] Re-measure the pin. `V4_CONTINUE.md` §M15 found all three siblings at
+- [x] Re-measure the pin. Still at upstream HEAD on 2026-08-27; nothing to
+  raise to. `V4_CONTINUE.md` §M15 found all three siblings at
   upstream HEAD on 2026-08-25; confirm that is still true before assuming a fix
   must be written.
 - [x] Establish, in GERC's own source, **why** a pointee arrives `Opaque`.
@@ -223,8 +269,10 @@ same check is the first task here.
   FOL controls the selection it hands the pipeline, and B1's own workaround —
   an unrelated by-value use — suggests the definition is reachable and simply
   not requested.
-- [ ] If it is a contract limit: write the sibling-side issue with the
+- [x] If it is a contract limit: write the sibling-side issue with the
   reproduction, and record B1/B2 as blocked in this plan the way §3.5 is.
+  B1 was FOL's and is closed. **B2 is GERC's and is blocked**, with the
+  reproduction and the required change recorded in §2.1.
 - [x] Fix FOL's message either way. *"'S' is incomplete"* is false when the
   header defines `S`. It no longer arises for a defined struct; the one case
   that still reports it is a genuinely incomplete one. It should say FOL received an opaque view and name the

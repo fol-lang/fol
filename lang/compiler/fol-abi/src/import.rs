@@ -73,10 +73,10 @@ impl ImportedRoutine {
 
     /// The parameter carrying a callback's opaque context, by index.
     pub fn callback_context_index(&self) -> Option<usize> {
-        let use_ = self.callback.as_ref()?;
+        let context = self.callback.as_ref()?.context.as_ref()?;
         self.parameters
             .iter()
-            .position(|parameter| parameter.name == use_.context)
+            .position(|parameter| &parameter.name == context)
     }
 
     /// The parameter carrying a paired buffer's length, by index.

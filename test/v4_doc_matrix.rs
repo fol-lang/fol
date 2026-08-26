@@ -154,6 +154,12 @@ const SHAPES: &[Shape] = &[
         retired: &[],
     },
     Shape {
+        example: "v4_c_callback_no_context",
+        kind: Kind::Crossing,
+        documented_as: &["a FOL closure invoked by the provider"],
+        retired: &[],
+    },
+    Shape {
         example: "v4_c_differential",
         kind: Kind::Supporting,
         documented_as: &[],

@@ -267,6 +267,12 @@ pub enum LoweredInstrKind {
         /// `Rc<dyn Fn>`. Only the import manifest knows, and this is where that
         /// knowledge reaches codegen.
         callback_arg: Option<usize>,
+        /// Whether the provider's callback takes an opaque context.
+        ///
+        /// A context-free provider still gets a trampoline and still recovers
+        /// its closure from the thread-local slot; it simply has no pointer to
+        /// be handed and no null check to make.
+        callback_context: bool,
         /// The position in `args` holding a buffer whose length the provider
         /// takes as a separate parameter.
         ///

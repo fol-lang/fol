@@ -1,0 +1,8 @@
+version = 1
+
+# `callback_context = "none"` is a word rather than an omission: leaving the
+# key out is exactly how a typo in it would read.
+[routine.fold_range]
+error = "infallible"
+callback = "step"
+callback_context = "none"

@@ -133,8 +133,17 @@ pub struct HandleDomain {
 pub struct CallbackUse {
     /// The parameter holding the function pointer.
     pub parameter: String,
-    /// The parameter carrying the opaque context.
-    pub context: String,
+    /// The parameter carrying the opaque context, or `None` when the provider
+    /// has none.
+    ///
+    /// A context-free callback -- `qsort`'s comparator, `lua_CFunction` -- is
+    /// spelled `callback_context = "none"`. It costs one check and no
+    /// mechanism: the trampoline recovers the closure from a thread-local slot
+    /// filled for the duration of the call, so the context was never how the
+    /// closure was found, only a signal that the call was still live. Without
+    /// one, the empty-slot check alone carries both the out-of-scope and the
+    /// cross-thread refusals.
+    pub context: Option<String>,
 }
 
 /// A domain of owned buffers, paired with the routine that releases them.
@@ -1148,7 +1157,17 @@ impl PendingRoutine {
         // with no named context has nothing to pass, and a context with no
         // named function pointer names nothing to pass it to.
         let callback = match (self.callback, self.callback_context) {
-            (Some(parameter), Some(context)) => Some(CallbackUse { parameter, context }),
+            // `none` is the declaration that the provider has no context, and
+            // is deliberately a word rather than an omission: leaving the key
+            // out is how a typo in `callback_context` would read.
+            (Some(parameter), Some(context)) if context == "none" => Some(CallbackUse {
+                parameter,
+                context: None,
+            }),
+            (Some(parameter), Some(context)) => Some(CallbackUse {
+                parameter,
+                context: Some(context),
+            }),
             (Some(_), None) => {
                 return Err(AnnotationError::MissingKey {
                     symbol: symbol.to_string(),

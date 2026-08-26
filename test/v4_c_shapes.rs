@@ -288,9 +288,18 @@ const SHAPES: &[Shape] = &[
         verdict: Verdict::Refused("first parameter is not the context"), overlay: CALLBACK,
         header: "int32_t probe(int32_t (*f)(int32_t, void *), void *c);",
         defs: "int32_t probe(int32_t (*f)(int32_t,void*), void *c){ return f(1,c); }" },
-    Shape { name: "callback_no_context",
-        verdict: Verdict::Blocker("lua_CFunction and qsort's comparator have no context"),
-        overlay: INFALLIBLE,
+    // Closed: `callback_context = "none"`. The trampoline never found the
+    // closure through the context, so there was no mechanism to add.
+    Shape { name: "callback_no_context", verdict: Verdict::Binds,
+        overlay: "[routine.probe]\nerror = \"infallible\"\ncallback = \"f\"\n\
+                  callback_context = \"none\"\n",
+        header: "int32_t probe(int32_t (*f)(int32_t));",
+        defs: "int32_t probe(int32_t (*f)(int32_t)){ return f(1); }" },
+    // Undeclared, it is still a bare function pointer and still refused: the
+    // declaration is what says the provider has no context, rather than the
+    // overlay having forgotten to name one.
+    Shape { name: "callback_no_context_undeclared",
+        verdict: Verdict::Refused("function pointer"), overlay: INFALLIBLE,
         header: "int32_t probe(int32_t (*f)(int32_t));",
         defs: "int32_t probe(int32_t (*f)(int32_t)){ return f(1); }" },
 
@@ -545,11 +554,7 @@ fn the_blocker_count_is_what_the_gap_plan_records() {
         .collect();
     assert_eq!(
         blockers,
-        vec![
-            "handle_typedef_same_name",
-            "handle_typedef_other_name",
-            "callback_no_context",
-        ],
+        vec!["handle_typedef_same_name", "handle_typedef_other_name",],
         "plan/V4_GAPS.md names these blockers; this list and that one move together"
     );
 }

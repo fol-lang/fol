@@ -287,7 +287,9 @@ pub fn render_header(surface: &ResolvedAbiSurface) -> String {
                 // whose own first argument is the context, and the context
                 // itself. The context travels beside it because C has nowhere
                 // else to put the state a callback needs.
-                Some(AbiType::Callback { parameters, result }) => {
+                Some(AbiType::Callback {
+                    parameters, result, ..
+                }) => {
                     let arguments = std::iter::once("void *".to_string())
                         .chain(parameters.iter().map(|id| c_type(table, *id)))
                         .collect::<Vec<_>>()

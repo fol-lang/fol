@@ -478,7 +478,13 @@ fn intern(
                 Some(return_type) => intern(abi, table, records, return_type)?,
                 None => abi.intern(AbiType::Void),
             };
-            return Some(abi.intern(AbiType::Callback { parameters, result }));
+            // An exported callback always carries a context: FOL supplies it
+            // itself, with the address of the closure it is lending.
+            return Some(abi.intern(AbiType::Callback {
+                parameters,
+                result,
+                context: true,
+            }));
         }
         LoweredType::Builtin(LoweredBuiltinType::Str) => {
             return Some(abi.intern(AbiType::BorrowedString))
