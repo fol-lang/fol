@@ -159,6 +159,13 @@ const SHAPES: &[Shape] = &[
         documented_as: &["a FOL closure invoked by the provider"],
         retired: &[],
     },
+    // Not a shape: a whole third-party library, which is the completion rule.
+    Shape {
+        example: "v4_c_zlib",
+        kind: Kind::Supporting,
+        documented_as: &[],
+        retired: &[],
+    },
     Shape {
         example: "v4_c_differential",
         kind: Kind::Supporting,

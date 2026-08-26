@@ -1,0 +1,48 @@
+// FOL calling zlib. Not a fixture written to be easy -- zlib's own header,
+// unmodified, and the system's own `libz.a`.
+//
+// Two things this proves that a hand-written fixture cannot. The header is
+// 96,000 lines FOL did not choose, so every construct in it had to be
+// survivable; and the answers are published constants, so agreeing with them
+// is agreeing with the rest of the world rather than with FOL's own idea of
+// itself.
+//
+// It also needs a define, which is how real C headers are configured:
+//
+//     defines = {"Z_SOLO"}
+//
+// Without it PARC refuses `#if (UINT_MAX == 0xffffffffUL)` in `zconf.h` --
+// unsigned semantics in a preprocessor conditional are outside its certified
+// subset -- and the failure cascades: `Z_U4` never gets defined, later
+// declarations lose a typedef, and three of them misparse as K&R declarators
+// hundreds of lines away. `Z_SOLO` skips that block. It also drops the
+// `compress`/`uncompress` helpers, whose in/out length pointer is a shape the
+// buffer pairing does not have yet.
+
+use std: pkg = {"std"};
+use zz: pkg = {"z"};
+
+fun[] main(): int = {
+    // "hello".
+    var data: vec[u8] = {104, 101, 108, 108, 111};
+
+    // 0x3610a686. The pointer/length pairing carries the slice; `len` is not
+    // a FOL parameter, so the count cannot disagree with the bytes.
+    var sum: u64 = zz::crc32(0, [bor]data);
+    // 0x062c0215, from the same bytes through a different algorithm -- so a
+    // buffer that arrived wrong would have to be wrong twice, consistently.
+    var adler: u64 = zz::adler32(1, [bor]data);
+
+    var marker: int = 0;
+    when(sum) {
+        is(907060870) {
+            when(adler) {
+                is(103547413) { marker = 7; }
+                * { marker = 2; }
+            };
+        }
+        * { marker = 1; }
+    };
+    var shown: int = std::io::echo_int(marker);
+    return 0;
+};

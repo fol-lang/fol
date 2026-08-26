@@ -314,8 +314,24 @@ Goal: the boundary is proven by a header FOL did not write.
 Nothing above is evidence until a third-party header binds. Each candidate is
 chosen for what it exercises, in increasing order of demand:
 
-- [ ] **zlib** — `compress2`/`uncompress`: pointer/length buffers, status
-  codes, `z_stream` by pointer (B1).
+- [x] **zlib** — *done, with its own header and the system's `libz.a`.*
+  `crc32` and `adler32` of `"hello"` come back 907060870 and 103547413, the
+  published constants, through the pointer/length pairing. Two findings:
+
+  **A real header needs a define, and the failure was a count.** PARC refuses
+  `#if (UINT_MAX == 0xffffffffUL)` in `zconf.h` — unsigned semantics in a
+  preprocessor conditional are outside its certified subset — and it cascades:
+  `Z_U4` never gets defined, later declarations lose a typedef, and three
+  misparse as K&R declarators *hundreds of lines away*. All of that arrived as
+  **"selected source closure has 1 blocker(s)"**, against 96,000 lines. FOL had
+  `blockers()` and discarded it. Each diagnostic is now printed with the header
+  line it came from, which is the only reason this milestone made progress.
+  `defines = {"Z_SOLO"}` skips the block.
+
+  **`compress`/`uncompress` still cannot cross.** Their `uLongf *destLen` is an
+  in/out length pointer — capacity in, actual out — and the buffer pairing
+  names a length *parameter*, not a pointer to one. A new shape, recorded here
+  rather than guessed at.
 - [ ] **SQLite** — `sqlite3_open`/`_close`/`_exec`: `typedef struct sqlite3
   sqlite3` (B2), an opaque handle with a paired destroy, and a callback (B3/B4).
 - [ ] **Lua** — `luaL_newstate`/`lua_pcall`: B2 plus `lua_CFunction` (B4). If

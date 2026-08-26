@@ -155,9 +155,26 @@ pub(crate) fn scan_complete_header(
         }
     };
 
-    report
-        .into_complete(&selection)
-        .map_err(InteropSourceError::Incomplete)
+    let files = report.package().files().to_vec();
+    report.into_complete(&selection).map_err(|error| {
+        // Resolved here, because `Display` has no file table and a range
+        // without one is a byte offset into a header nobody can find.
+        let mut located = Vec::new();
+        for blocker in error.blockers() {
+            if let parc::contract::CompletionBlocker::PackageIncomplete { reasons } = blocker {
+                for reason in reasons {
+                    let origin = reason
+                        .range
+                        .and_then(|range| render_origin(range, &files))
+                        .unwrap_or_else(|| "<no location>".to_string());
+                    located.push(format!("[{}] {} at {origin}", reason.code, reason.message));
+                }
+            }
+        }
+        located.sort();
+        located.dedup();
+        InteropSourceError::Incomplete { error, located }
+    })
 }
 
 /// Where the C preprocessor is allowed to look, and what it starts with.
@@ -243,7 +260,11 @@ pub enum InteropSourceError {
     PathMapping(PathMappingError),
     Configuration(ScanConfigError),
     Scan(ScanError),
-    Incomplete(IncompleteSource),
+    Incomplete {
+        error: IncompleteSource,
+        /// Each blocking diagnostic with the header line it came from.
+        located: Vec<String>,
+    },
 }
 
 impl std::fmt::Display for InteropSourceError {
@@ -302,7 +323,19 @@ impl std::fmt::Display for InteropSourceError {
             Self::PathMapping(error) => write!(formatter, "invalid PARC path mapping: {error}"),
             Self::Configuration(error) => write!(formatter, "invalid PARC scan config: {error}"),
             Self::Scan(error) => write!(formatter, "PARC source scan failed: {error}"),
-            Self::Incomplete(error) => write!(formatter, "PARC source is incomplete: {error}"),
+            // The blockers, not just how many. PARC's own message is a count,
+            // and a count sends a reader to search a 96,000-line header by
+            // hand. Each blocker names the declaration and the reason.
+            // The blocking diagnostics, each at the line it came from. PARC's
+            // own message is a count, and a count sends a reader to search a
+            // 96,000-line header by hand.
+            Self::Incomplete { error, located } => {
+                write!(formatter, "PARC source is incomplete: {error}")?;
+                for line in located {
+                    write!(formatter, "\n  - {line}")?;
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -314,7 +347,7 @@ impl std::error::Error for InteropSourceError {
             Self::PathMapping(error) => Some(error),
             Self::Configuration(error) => Some(error),
             Self::Scan(error) => Some(error),
-            Self::Incomplete(error) => Some(error),
+            Self::Incomplete { error, .. } => Some(error),
             Self::InvalidPackageRoot(_)
             | Self::InvalidHeader(_)
             | Self::HeaderOutsidePackage { .. }

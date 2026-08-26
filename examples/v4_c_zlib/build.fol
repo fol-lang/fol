@@ -1,0 +1,26 @@
+pro[] build(): non = {
+    var build = .build();
+    build.meta({
+        name = "v4_c_zlib", version = "0.1.0",
+        description = "FOL calling the real zlib through its own header",
+        license = "MIT",
+    });
+    build.add_dep({ alias = "std", source = "internal", target = "standard" });
+    var graph = build.graph();
+    var app = graph.add_exe({
+        name = "v4_c_zlib", root = "src/main.fol", fol_model = "memo",
+    });
+    var header = graph.file_from_root("native/zlib.h");
+    var provider = graph.file_from_root("native/libz.a");
+    var overlay = graph.file_from_root("interop/z.toml");
+    app.add_c_import({
+        alias = "z",
+        header = header,
+        provider = provider,
+        provider_kind = "static",
+        annotations = overlay,
+        defines = {"Z_SOLO"},
+    });
+    graph.install(app);
+    return;
+};

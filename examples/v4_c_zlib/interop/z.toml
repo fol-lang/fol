@@ -1,0 +1,11 @@
+version = 1
+
+[routine.crc32]
+error = "infallible"
+buffer = "buf"
+buffer_length = "len"
+
+[routine.adler32]
+error = "infallible"
+buffer = "buf"
+buffer_length = "len"
