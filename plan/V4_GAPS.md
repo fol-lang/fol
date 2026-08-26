@@ -1,0 +1,201 @@
+# V4 C Boundary — Gap Scan and Closure Plan
+
+The C boundary passes every lane in `make verify` and cannot bind Lua, SQLite,
+or zlib. This plan is about that distance.
+
+`V4_CONTINUE.md` closed 35 of 35 tasks and every claim in it is true. What it
+never asked was whether the shapes it supports are the shapes real headers
+contain. They are not. A scan of 40 constructs drawn from ordinary C found
+**four blockers that stop most real libraries at the door**, one of which
+accepts or refuses the same declaration depending on what its neighbours are.
+
+**Nothing here merges to `develop` until a real third-party header binds.**
+
+---
+
+# 1. How this was measured
+
+Each construct is a minimal header, a definition that compiles, and an overlay;
+each is run through `fol tool bind c` and the verdict recorded. The harness is
+`/home/bresilla/foltmp/abiscan/run.sh` during the scan and becomes a test in
+M17. A construct is only listed below if it was **run**, never if it was read.
+
+Three verdicts matter and are not the same:
+
+- **ok** — binds. Not the same as usable: M16 found a raw pointer that binds
+  and is then refused at mount, so a shape is only proven when a FOL program
+  calls it.
+- **REFUSED (FOL)** — FOL's own projection declined it. FOL can change this.
+- **REFUSED (GERC)** — failed in `raw binding generation`, before FOL's
+  projection ran. FOL cannot fix these alone, and §5 is about that.
+
+---
+
+# 2. What the scan found
+
+## 2.1 Blockers — these stop real libraries
+
+| # | Construct | Verdict | Layer |
+|---|---|---|---|
+| B1 | `const struct S *s` with `S` defined | REFUSED, *"S is incomplete"* | GERC classification |
+| B2 | `typedef struct T T;` (opaque handle idiom) | REFUSED | GERC |
+| B3 | `typedef int32_t (*F)(void*, int32_t);` as a callback | REFUSED, *"not a function pointer"* | FOL |
+| B4 | callback with no context (`int (*)(lua_State*)`) | REFUSED | FOL |
+
+**B1 is the worst, and it is incoherent.** `const struct S *s` is refused in
+isolation and **accepted** when the same header uses `S` by value in an
+unrelated declaration. The declaration did not change; its neighbours did.
+GERC only materialises a complete record when something takes it by value, so
+the pointee arrives classified `Opaque` and FOL reports "incomplete" — accurate
+about what FOL received, false about the header, and it sends a reader looking
+for a definition that is right there.
+
+Passing a struct by pointer is how most C libraries pass structs at all.
+
+**B2** is the dominant spelling of an opaque handle: `typedef struct lua_State
+lua_State`, `typedef struct sqlite3 sqlite3`. The bare `struct T;` form works,
+which is why `v4_c_opaque_handle` passes and nothing noticed.
+
+**B3** means a callback only binds when its type is written inline in the
+parameter list. Real headers typedef callback types. FOL is not resolving the
+alias before asking "is this a function pointer" — the same `resolve_alias` the
+scalar path already uses.
+
+**B4** is a shape decision, not a bug: V4 requires a `void *` context as the
+callback's own first parameter. `lua_CFunction` and `qsort`'s comparator have
+no context at all. §4 argues this one is worth revisiting rather than fixing.
+
+## 2.2 Refusals that are correct and documented
+
+Unions anywhere, bitfields, packed layouts, flexible-array members, variadics,
+`long double`, self-referential structs by value, a struct returned by value,
+nested and anonymous struct members, arrays as parameters or fields, a function
+pointer inside a struct, and a callback whose context is last. Each is refused
+by name with a reason. These are the boundary V4 chose, and this plan does not
+reopen them.
+
+## 2.3 What already works
+
+Every integer and float width both directions and at both range edges,
+`size_t`, `bool`, `char`, enums including explicit values, pointer-to-pointer,
+`const char *`, a returned C string, pointer/length pairs, provider-allocated
+buffers, structs **by value**, typedefs of complete structs and of scalars,
+opaque handles through the bare-struct spelling, inline context-first
+callbacks, status/out-parameter error mapping, and contained panics.
+
+That is a real boundary. It is not the boundary a real header needs.
+
+## 2.4 One more, found by the scan
+
+`volatile int32_t` as a parameter fails in raw binding generation. FOL already
+refuses volatile in its own projection with a clear reason; the GERC failure
+arrives first and says less.
+
+---
+
+# 3. M17 — Lock the scan
+
+Goal: the corpus becomes a test, so the boundary's shape is measured on every
+run rather than assumed.
+
+- [ ] Move the 40-construct corpus into `test/v4_c_shapes.rs`, each with its
+  verdict and, for a refusal, the phrase that must appear.
+- [ ] Assert **no panics** across the corpus.
+- [ ] Mark each blocker's row `EXPECTED_BLOCKER`, so closing one fails the test
+  until its row is updated. A gap that quietly starts working is a gap nobody
+  documented.
+- [ ] For every `ok` row, prove it **mounts and is callable**, not just binds.
+  M16 found a shape that binds and is then refused at mount.
+
+**STOP:** an `ok` row that no FOL program calls is not evidence.
+
+---
+
+# 4. M18 — The two FOL-side blockers
+
+Goal: B3 and B4 close without touching a sibling.
+
+- [ ] **B3**: resolve type aliases before classifying a callback parameter.
+  `resolve_alias` already exists and the scalar path already uses it;
+  `callback_positions` does not. Add the corpus rows for a typedef'd callback
+  in both the parameter and the context position.
+- [ ] **B4**: decide, with the owner, whether a **context-free callback** is
+  supportable. It is not a small question: FOL's trampoline recovers the
+  closure from a thread-local slot keyed by the call, and the context pointer
+  is currently how a provider identifies the closure. A context-free callback
+  can still use the thread-local slot — the context was never load-bearing for
+  recovery, only for identity — so the mechanism may already support it.
+  - If yes: a `callback_context = "none"` spelling, and the null-context check
+    becomes a slot check alone.
+  - If no: record why, and that `lua_CFunction`-shaped APIs need a C shim.
+- [ ] Refuse a typedef'd function pointer used as an **ordinary parameter**
+  with the same message the inline form gets, so B3's fix does not turn one
+  confusing refusal into two.
+
+**STOP:** do not widen the callback contract to context-last. That was
+measured, refused deliberately, and guessing a provider's context position is
+the mistake the pairing exists to prevent.
+
+---
+
+# 5. M19 — The GERC-side blockers
+
+Goal: B1 and B2 close, or FOL states exactly what it needs and from whom.
+
+B1 and B2 fail before FOL's projection runs. §3.5 of `V4_CONTINUE.md` records
+the last time a sibling limit blocked V4 and the pin was already at HEAD — the
+same check is the first task here.
+
+- [ ] Re-measure the pin. `V4_CONTINUE.md` §M15 found all three siblings at
+  upstream HEAD on 2026-08-25; confirm that is still true before assuming a fix
+  must be written.
+- [ ] Establish, in GERC's own source, **why** a pointee arrives `Opaque`.
+  Whether it is a projection-scope decision (only by-value uses materialise a
+  definition) or a contract limit decides everything downstream.
+- [ ] If it is scope: find whether FOL can widen what it asks GERC to project.
+  FOL controls the selection it hands the pipeline, and B1's own workaround —
+  an unrelated by-value use — suggests the definition is reachable and simply
+  not requested.
+- [ ] If it is a contract limit: write the sibling-side issue with the
+  reproduction, and record B1/B2 as blocked in this plan the way §3.5 is.
+- [ ] Fix FOL's message either way. *"'S' is incomplete"* is false when the
+  header defines `S`. It should say FOL received an opaque view and name the
+  by-value workaround, so a reader is not hunting a definition that exists.
+
+**STOP:** do not add a by-value decoy declaration to make B1 pass. It works,
+and shipping a workaround as a fix would put a lie in the examples.
+
+---
+
+# 6. M20 — Bind something real
+
+Goal: the boundary is proven by a header FOL did not write.
+
+Nothing above is evidence until a third-party header binds. Each candidate is
+chosen for what it exercises, in increasing order of demand:
+
+- [ ] **zlib** — `compress2`/`uncompress`: pointer/length buffers, status
+  codes, `z_stream` by pointer (B1).
+- [ ] **SQLite** — `sqlite3_open`/`_close`/`_exec`: `typedef struct sqlite3
+  sqlite3` (B2), an opaque handle with a paired destroy, and a callback (B3/B4).
+- [ ] **Lua** — `luaL_newstate`/`lua_pcall`: B2 plus `lua_CFunction` (B4). If
+  B4 stays refused, prove the C-shim path instead and document it as the
+  supported way.
+- [ ] Each lands as an example that **builds, links, and runs**, with the
+  library vendored or its absence a skip that `FOL_H7_REQUIRED=1` makes fatal.
+
+**STOP:** this milestone does not close on a header that binds. It closes on a
+program that calls the library and produces a result C agrees with.
+
+---
+
+# 7. Order, and what "done" means
+
+M17 first — it costs little and every later claim leans on it. Then M18, which
+needs no one else. M19 in parallel, because its first task is a question to
+another repository and the answer sets the schedule. M20 last, and it is the
+only milestone whose completion means anything to a user.
+
+**The C ABI is done when a program written against a real C library's real
+header compiles, runs, and agrees with a C program doing the same thing.** Not
+when the lanes are green — they already are.

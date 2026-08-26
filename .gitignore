@@ -18,6 +18,7 @@ AGENTS.md
 /plan/*
 !/plan/V4_PLAN.md
 !/plan/V4_CONTINUE.md
+!/plan/V4_GAPS.md
 !/plan/TOOLCHAIN.md
 !/plan/V3_MEM.md
 !/plan/V3_PROC.md
