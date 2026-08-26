@@ -353,6 +353,12 @@ chosen for what it exercises, in increasing order of demand:
   and the scan died with *"path is outside every configured mapping root"*.
   Every real header that includes a system header hit it. One rule per declared
   root now, held by `a_system_include_root_is_reachable`.
+
+  The unit test that should have caught this was green *because of* the bug.
+  `accepts_system_include_root_outside_the_package` asserted the scan
+  **failed** -- with any error other than `IncludeRootOutsidePackage` -- and the
+  failure it was observing was the missing mapping rule. Its own name said
+  "accepts". It now asserts the scan succeeds.
 - [x] **Lua** — *blocked by the same two things, checked rather than assumed.*
   `lua.h:212` declares `lua_pushvfstring(..., va_list)`, so it fails exactly as
   SQLite does, and `lua.h:54` is `typedef struct lua_State lua_State`, which is

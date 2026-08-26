@@ -699,6 +699,12 @@ mod tests {
 
     /// An angled-include root is exempt: an SDK legitimately lives outside the
     /// package, so containment must not be applied to it.
+    ///
+    /// This asserted a *failure* until the mapping bug was fixed -- any
+    /// failure other than `IncludeRootOutsidePackage`. The failure it was
+    /// actually observing was the bug: a system root had no path-mapping rule,
+    /// so the scan died with "outside every configured mapping root". The test
+    /// was green for the wrong reason, and its own name said so.
     #[test]
     fn accepts_system_include_root_outside_the_package() {
         static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -717,19 +723,28 @@ mod tests {
             system_include_roots: vec![sdk.display().to_string()],
             ..HeaderSearch::default()
         };
-        let error = scan_complete_header(
+        let scanned = scan_complete_header(
             &package,
             &package.join("header.h"),
             &crate::toolchain::tests::synthetic_target(),
             None,
             &search,
-        )
-        .unwrap_err();
+        );
         fs::remove_dir_all(&scratch).unwrap();
 
-        assert!(!matches!(
-            error,
-            InteropSourceError::IncludeRootOutsidePackage { .. }
-        ));
+        let scanned = scanned.unwrap_or_else(|error| {
+            panic!("a system include root outside the package must be accepted: {error}")
+        });
+        // The package's own file still has its identity, which is what a
+        // mapping rule buys: without one for every readable root, the scan
+        // cannot name a file it opens and refuses the whole header.
+        assert!(
+            scanned
+                .source()
+                .files()
+                .iter()
+                .any(|file| file.logical_path == "package/header.h"),
+            "the entry header should keep its logical identity"
+        );
     }
 }
