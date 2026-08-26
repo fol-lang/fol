@@ -19,7 +19,7 @@ $(info Project: $(PROJECT_NAME))
 $(info Version: $(CURRENT_VERSION))
 $(info ------------------------------------------)
 
-.PHONY: build b compile c fmt f fmt-changed fmt-check lint run r test t test-network print-version tree tree-test interop-check interop-locked test-interop test-build-actions test-native abi-check test-v4-c test-v4-c-import test-v4-c-handle test-v4-c-callback test-v4-c-buffer test-v4-doc-matrix test-v4-linear test-v4-sanitize verify verify-all help h clean docs release
+.PHONY: build b compile c fmt f fmt-changed fmt-check lint run r test t test-network print-version tree tree-test interop-check interop-locked test-interop test-build-actions test-native abi-check test-v4-c test-v4-c-import test-v4-c-handle test-v4-c-callback test-v4-c-buffer test-v4-doc-matrix test-v4-c-shapes test-v4-linear test-v4-sanitize verify verify-all help h clean docs release
 
 SHELL := /bin/bash
 
@@ -181,6 +181,12 @@ test-v4-c-buffer:
 test-v4-doc-matrix:
 	@cargo test -p fol --test v4_doc_matrix -- --nocapture
 
+# The C boundary's shape: every construct a real header contains, and what the
+# boundary does with each. Binding is not the gate a caller meets, so each
+# accepted row is also mounted. Tracked in plan/V4_GAPS.md.
+test-v4-c-shapes:
+	@cargo test -p fol --test v4_c_shapes -- --nocapture
+
 # M9's platform lane: SONAME/runtime-lookup behaviour of an installed shared
 # library, its dynamic export set, and cache isolation between concurrent
 # builds. Skips the inspection tests when readelf/nm are absent.
@@ -216,7 +222,7 @@ print-version:
 
 t: test
 
-verify: fmt-check lint test test-build-actions test-native abi-check test-v4-c test-v4-c-import test-v4-c-handle test-v4-c-callback test-v4-c-buffer test-v4-doc-matrix test-v4-linear test-v4-sanitize test-v4-c-platform test-v4-c-roundtrip test-v4-c-release interop-check test-interop
+verify: fmt-check lint test test-build-actions test-native abi-check test-v4-c test-v4-c-import test-v4-c-handle test-v4-c-callback test-v4-c-buffer test-v4-doc-matrix test-v4-c-shapes test-v4-linear test-v4-sanitize test-v4-c-platform test-v4-c-roundtrip test-v4-c-release interop-check test-interop
 
 verify-all: verify test-network
 

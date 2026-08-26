@@ -119,6 +119,10 @@ path = "test/v4_c_buffer.rs"
 name = "v4_doc_matrix"
 path = "test/v4_doc_matrix.rs"
 
+[[test]]
+name = "v4_c_shapes"
+path = "test/v4_c_shapes.rs"
+
 # M9's platform lane: what a shared library says about itself (SONAME), how a
 # consumer resolves it without a hidden rpath, and cache isolation between
 # concurrent builds.

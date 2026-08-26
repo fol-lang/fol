@@ -41,14 +41,21 @@ Three verdicts matter and are not the same:
 | B2 | `typedef struct T T;` (opaque handle idiom) | REFUSED | GERC |
 | B3 | `typedef int32_t (*F)(void*, int32_t);` as a callback | REFUSED, *"not a function pointer"* | FOL |
 | B4 | callback with no context (`int (*)(lua_State*)`) | REFUSED | FOL |
+| B5 | `const char *s` as a parameter | binds, then **unmountable** | FOL |
 
-**B1 is the worst, and it is incoherent.** `const struct S *s` is refused in
-isolation and **accepted** when the same header uses `S` by value in an
-unrelated declaration. The declaration did not change; its neighbours did.
-GERC only materialises a complete record when something takes it by value, so
-the pointee arrives classified `Opaque` and FOL reports "incomplete" — accurate
-about what FOL received, false about the header, and it sends a reader looking
-for a definition that is right there.
+**B1 is the worst.** `const struct S *s` is refused with *"S is incomplete"*
+when `S` is defined in the same header. GERC only materialises a complete
+record when something takes it by value, so the pointee arrives classified
+`Opaque` and FOL reports "incomplete" — accurate about what FOL received, false
+about the header, and it sends a reader looking for a definition that is right
+there.
+
+It is also **incoherent at the bind stage**: add an unrelated by-value use of
+`S` elsewhere in the header and the same declaration binds. That is not a
+workaround, and an earlier draft of this plan wrongly implied it was — the
+corpus's mount check corrected it. The by-value neighbour gets the declaration
+past `bind` and it is *still* refused when a package mounts it, with `T1099`.
+Struct-by-pointer does not work by any route.
 
 Passing a struct by pointer is how most C libraries pass structs at all.
 
@@ -60,6 +67,19 @@ which is why `v4_c_opaque_handle` passes and nothing noticed.
 parameter list. Real headers typedef callback types. FOL is not resolving the
 alias before asking "is this a function pointer" — the same `resolve_alias` the
 scalar path already uses.
+
+**B5 was invisible until M17 checked mounting.** `const char *s` binds, writes
+a manifest, and is then refused when a package mounts it: *"imported routine
+uses a pointer type, which the C import path does not surface to FOL"*. So does
+a returned `const char *`, `char **argv`, and the pointer+out-length result
+convention. **There is no way to pass a string to an imported C routine** —
+`fol_str_view_t` is the export direction, and the `buffer`/`buffer_length`
+pairing needs a length parameter a `const char *` does not have.
+`sqlite3_open(const char *filename, ...)` cannot cross.
+
+This is the shape of defect this plan exists for: four green lanes, a written
+manifest, and nothing a program can call. Every `ok` in a bind-only scan is
+suspect until a package mounts it.
 
 **B4** is a shape decision, not a bug: V4 requires a `void *` context as the
 callback's own first parameter. `lua_CFunction` and `qsort`'s comparator have
@@ -98,14 +118,20 @@ arrives first and says less.
 Goal: the corpus becomes a test, so the boundary's shape is measured on every
 run rather than assumed.
 
-- [ ] Move the 40-construct corpus into `test/v4_c_shapes.rs`, each with its
+- [x] Move the 40-construct corpus into `test/v4_c_shapes.rs`, each with its
   verdict and, for a refusal, the phrase that must appear.
-- [ ] Assert **no panics** across the corpus.
-- [ ] Mark each blocker's row `EXPECTED_BLOCKER`, so closing one fails the test
+- [x] Assert **no panics** across the corpus.
+- [x] Mark each blocker's row `Blocker`, so closing one fails the test
   until its row is updated. A gap that quietly starts working is a gap nobody
-  documented.
-- [ ] For every `ok` row, prove it **mounts and is callable**, not just binds.
-  M16 found a shape that binds and is then refused at mount.
+  documented. `the_blocker_count_is_what_the_gap_plan_records` pins the list.
+- [x] For every `ok` row, prove it **mounts**, not just binds. This is what
+  found B5, and it corrected B1: the by-value neighbour that made
+  struct-by-pointer bind does *not* make it mount.
+- [ ] Prove the mounting rows are **callable**, not only mountable. Mounting is
+  checked by building a package that imports the alias; calling each shape
+  needs a bespoke program per row, and the shapes with examples
+  (`v4_c_import_scalar`, `v4_c_record`, `v4_c_buffer`, `v4_c_callback`,
+  `v4_c_opaque_handle`) are the only ones proven that far today.
 
 **STOP:** an `ok` row that no FOL program calls is not evidence.
 
