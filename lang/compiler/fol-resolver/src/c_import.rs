@@ -231,6 +231,7 @@ mod tests {
                     handle: None,
                     callback: None,
                     buffer: None,
+                    strings: Default::default(),
                     owned_buffer: None,
                     owned_destroy: None,
                     origin: AbiSourceOrigin::default(),

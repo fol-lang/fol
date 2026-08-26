@@ -733,3 +733,149 @@ fn each_provider_failure_says_which_one_it_is() {
     let (ok, output) = bind_with("native/libdigest.a", "static");
     assert!(ok, "the real provider should still bind:\n{output}");
 }
+
+/// FOL text reaches a C routine as a NUL-terminated string.
+///
+/// This was the largest gap the shape corpus found: `const char *` bound,
+/// wrote a manifest, and could not be mounted, so no imported routine could
+/// take a string. `sqlite3_open(const char *filename, ...)` could not cross.
+///
+/// The printed 7 carries two facts. C walks to the NUL to count the bytes, so
+/// 5 requires the terminator the adapter added; and 104 is `h`, which pins the
+/// start. Together they say the whole string arrived.
+#[test]
+fn fol_text_crosses_as_a_nul_terminated_string() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the string slice");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("fol_v4_string_arg");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root");
+    let root = fixture.path().join("v4_c_string_arg");
+    copy_tree(&repo_root().join("examples/v4_c_string_arg"), &root);
+
+    let native = root.join("native");
+    assert!(
+        Command::new(&compiler)
+            .arg("-c")
+            .arg("-o")
+            .arg(native.join("text.o"))
+            .arg(native.join("text.c"))
+            .status()
+            .expect("the C provider should compile")
+            .success(),
+        "the provider should compile"
+    );
+    assert!(
+        Command::new("ar")
+            .arg("rcs")
+            .arg(native.join("libtext.a"))
+            .arg(native.join("text.o"))
+            .status()
+            .expect("ar should run")
+            .success(),
+        "the provider should archive"
+    );
+
+    let (ok, output) = run_folc(
+        &root,
+        &compiler,
+        &temp,
+        &[
+            "tool",
+            "bind",
+            "c",
+            "--alias",
+            "text",
+            "--target",
+            "x86_64-unknown-linux-gnu",
+            "--header",
+            "native/text.h",
+            "--provider",
+            "native/libtext.a",
+            "--provider-kind",
+            "static",
+            "--annotations",
+            "interop/text.toml",
+            "--out",
+            "interop/text.folabi.json",
+        ],
+    );
+    assert!(ok, "binding a declared string should succeed:\n{output}");
+
+    let (_, output) = run_folc(&root, &compiler, &temp, &["code", "run"]);
+    assert!(
+        output.lines().any(|line| line.trim() == "7"),
+        "the string should arrive intact and terminated:\n{output}"
+    );
+}
+
+/// An undeclared `char *` stays a pointer, and a pointer stays unusable.
+///
+/// The declaration is the whole mechanism: nothing measured says a `char *` is
+/// text, so inferring it would be the guess every other pairing in the overlay
+/// exists to avoid. Removing `string = [...]` must break the program.
+#[test]
+fn an_undeclared_char_pointer_is_not_text() {
+    let Some((compiler, temp)) = require_or_skip() else {
+        eprintln!("skipping: no C toolchain for the string slice");
+        return;
+    };
+    let fixture = fol_testkit::TempFixture::new("fol_v4_string_undeclared");
+    std::fs::create_dir_all(fixture.path()).expect("fixture root");
+    let root = fixture.path().join("v4_c_string_arg");
+    copy_tree(&repo_root().join("examples/v4_c_string_arg"), &root);
+
+    let native = root.join("native");
+    let _ = Command::new(&compiler)
+        .arg("-c")
+        .arg("-o")
+        .arg(native.join("text.o"))
+        .arg(native.join("text.c"))
+        .status();
+    let _ = Command::new("ar")
+        .arg("rcs")
+        .arg(native.join("libtext.a"))
+        .arg(native.join("text.o"))
+        .status();
+
+    let overlay = root.join("interop/text.toml");
+    let text = std::fs::read_to_string(&overlay).expect("overlay readable");
+    std::fs::write(&overlay, text.replace("string = [\"s\"]\n", "")).expect("overlay writable");
+
+    let (ok, output) = run_folc(
+        &root,
+        &compiler,
+        &temp,
+        &[
+            "tool",
+            "bind",
+            "c",
+            "--alias",
+            "text",
+            "--target",
+            "x86_64-unknown-linux-gnu",
+            "--header",
+            "native/text.h",
+            "--provider",
+            "native/libtext.a",
+            "--provider-kind",
+            "static",
+            "--annotations",
+            "interop/text.toml",
+            "--out",
+            "interop/text.folabi.json",
+        ],
+    );
+    assert!(ok, "an undeclared pointer still binds:\n{output}");
+
+    let (ok, output) = run_folc(&root, &compiler, &temp, &["code", "build"]);
+    assert!(
+        !ok,
+        "an undeclared char pointer should not mount:\n{output}"
+    );
+    assert!(
+        output.contains("uses a pointer type"),
+        "the refusal should name the pointer:\n{output}"
+    );
+}

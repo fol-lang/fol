@@ -364,6 +364,18 @@ fn checked_type_for(
             mutable: matches!(mutability, fol_abi::AbiMutability::Mutable),
         }));
     }
+    // A declared C string reaches FOL as ordinary borrowed text. The NUL the
+    // provider needs is not FOL's business: the adapter adds one for the
+    // duration of the call, because FOL's own strings do not carry it.
+    if let AbiType::CString { .. } = abi_type {
+        let inner = typed
+            .type_table_mut()
+            .intern(CheckedType::Builtin(BuiltinType::Str));
+        return Ok(typed.type_table_mut().intern(CheckedType::Borrowed {
+            inner,
+            mutable: false,
+        }));
+    }
     // A record is nominal: it reaches FOL as a reference to the type symbol the
     // resolver mounted, not as a fresh structural shape.
     if let AbiType::Record { name, .. } = abi_type {
@@ -459,6 +471,7 @@ mod tests {
                     handle: None,
                     callback: None,
                     buffer: None,
+                    strings: Default::default(),
                     owned_buffer: None,
                     owned_destroy: None,
                     origin: AbiSourceOrigin::default(),
@@ -494,6 +507,7 @@ mod tests {
                     handle: None,
                     callback: None,
                     buffer: None,
+                    strings: Default::default(),
                     owned_buffer: None,
                     owned_destroy: None,
                     origin: AbiSourceOrigin::default(),

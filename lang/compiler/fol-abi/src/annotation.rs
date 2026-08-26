@@ -11,7 +11,7 @@
 //! `fol-types` and nothing else, and because a strict reader that rejects
 //! everything it does not recognize is exactly what an overlay needs.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// The only schema version this compiler accepts.
 ///
@@ -237,6 +237,12 @@ pub struct RoutineAnnotation {
     pub callback: Option<CallbackUse>,
     /// The pointer/length pair this routine takes as one buffer.
     pub buffer: Option<BufferUse>,
+    /// Parameters that are NUL-terminated C strings.
+    ///
+    /// Declared rather than inferred: `const char *` is how C spells text and
+    /// also how it spells a pointer to one byte, and guessing which is the
+    /// mistake every other pairing in this overlay exists to avoid.
+    pub strings: BTreeSet<String>,
     /// The owned buffer domain this routine produces or consumes.
     pub owned_buffer: Option<OwnedBufferUse>,
     /// Declared pointer contracts, by parameter name.
@@ -616,6 +622,7 @@ struct PendingRoutine {
     callback_context: Option<String>,
     buffer: Option<String>,
     buffer_length: Option<String>,
+    strings: std::collections::BTreeSet<String>,
     buffer_domain: Option<String>,
     buffer_role: Option<BufferRole>,
     buffer_capacity: Option<String>,
@@ -857,6 +864,11 @@ impl<'a> Parser<'a> {
             // The pointer contracts C cannot state. Each names the parameters
             // it applies to, so one routine declares all of its pointers
             // without a table per parameter.
+            "string" => {
+                let names =
+                    parse_string_array(value).ok_or(AnnotationError::MalformedLine { line })?;
+                routine.strings.extend(names);
+            }
             "nullable" | "transferred" | "retained" | "reads" | "writes" | "reads_writes" => {
                 let names =
                     parse_string_array(value).ok_or(AnnotationError::MalformedLine { line })?;
@@ -1235,6 +1247,7 @@ impl PendingRoutine {
             callback,
             buffer,
             owned_buffer,
+            strings: self.strings,
             pointers: self.pointers,
         })
     }

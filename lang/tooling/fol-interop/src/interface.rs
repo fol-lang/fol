@@ -173,6 +173,12 @@ fn project_routine(
             _ if buffer.as_ref().is_some_and(|b| b.parameter == index) => {
                 buffer.as_ref().expect("checked").type_id
             }
+            // A declared C string. Checked here rather than projected as an
+            // ordinary pointer, because a pointer is what the projection would
+            // produce and a pointer is what FOL cannot surface.
+            _ if annotation.strings.contains(&name) => {
+                string_parameter(&symbol, &name, parameter.ty(), shapes, types)?
+            }
             _ => project_type(
                 &symbol,
                 parameter.ty(),
@@ -222,6 +228,7 @@ fn project_routine(
         handle: annotation.handle.clone(),
         callback: annotation.callback.clone(),
         buffer: annotation.buffer.clone(),
+        strings: annotation.strings.clone(),
         owned_buffer: annotation.owned_buffer.clone(),
         owned_destroy: annotation
             .owned_buffer
@@ -278,11 +285,16 @@ fn callback_positions(
             role: "context",
         })?;
 
+    // Both halves are read through their aliases first. A real header almost
+    // always names its callback type -- `typedef int (*F)(void *, int)` -- and
+    // asking whether a `Named` type is a function pointer answers no for every
+    // one of them. The scalar path already resolves; this one did not, so the
+    // shape a provider actually ships was refused as "not a function pointer".
+    let context_type = resolve_alias(function.parameters()[context].ty(), &shapes.aliases);
+    let callback_type = resolve_alias(function.parameters()[parameter].ty(), &shapes.aliases);
+
     // The context must be a pointer FOL can hand an arbitrary address through.
-    if !matches!(
-        function.parameters()[context].ty().kind(),
-        RustTypeKind::Pointer(_)
-    ) {
+    if !matches!(context_type.kind(), RustTypeKind::Pointer(_)) {
         return Err(ImportRejection::CallbackShapeMismatch {
             symbol: symbol.to_string(),
             parameter: use_.context.clone(),
@@ -295,7 +307,7 @@ fn callback_positions(
         parameters: signature,
         return_type,
         variadic,
-    } = function.parameters()[parameter].ty().kind()
+    } = callback_type.kind()
     else {
         return Err(ImportRejection::CallbackShapeMismatch {
             symbol: symbol.to_string(),
@@ -462,6 +474,55 @@ fn direction_for(
         });
     }
     Ok(declared)
+}
+
+/// A parameter the overlay declared a NUL-terminated C string.
+///
+/// The declaration is the whole of it: `const char *` is how C spells text and
+/// equally how it spells a pointer to one byte, so nothing measured can tell
+/// them apart. What is checked here is that the declaration is not absurd --
+/// the parameter has to be a pointer to a character-sized scalar.
+fn string_parameter(
+    symbol: &str,
+    name: &str,
+    ty: &RustType,
+    shapes: &Shapes<'_>,
+    types: &mut AbiTypeTable,
+) -> Result<fol_abi::AbiTypeId, ImportRejection> {
+    let ty = resolve_alias(ty, &shapes.aliases);
+    let RustTypeKind::Pointer(target) = ty.kind() else {
+        return Err(ImportRejection::BufferShapeMismatch {
+            symbol: symbol.to_string(),
+            parameter: name.to_string(),
+            expected: "a pointer, so it can carry a string",
+        });
+    };
+    let element = project_type(
+        symbol,
+        target,
+        types,
+        shapes,
+        &fol_abi::PointerContract::default(),
+    )?;
+    let byte_sized = matches!(
+        types.get(element),
+        Some(AbiType::Scalar(fol_abi::AbiScalar::Int(width)))
+            if width.bits() == Some(8)
+    );
+    if !byte_sized {
+        return Err(ImportRejection::BufferShapeMismatch {
+            symbol: symbol.to_string(),
+            parameter: name.to_string(),
+            expected: "a pointer to a character-sized scalar",
+        });
+    }
+    Ok(types.intern(AbiType::CString {
+        mutability: if target.qualifiers().is_const {
+            fol_abi::AbiMutability::Const
+        } else {
+            fol_abi::AbiMutability::Mutable
+        },
+    }))
 }
 
 /// The result type of a routine that produces an owned buffer.

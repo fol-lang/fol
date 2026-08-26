@@ -10,7 +10,8 @@ use std::thread::JoinHandle;
 
 pub use crate::abi::{
     callback_context_invalid, callback_invoked_out_of_scope, callback_panicked, check_recoverable,
-    handle_produced_null, recoverable_succeeded, FolHandle, FolRecover,
+    foreign_string_has_interior_nul, handle_produced_null, recoverable_succeeded, FolHandle,
+    FolRecover,
 };
 pub use crate::aggregate::{
     render_echo, render_entry, render_entry_debug, render_record, render_record_debug,

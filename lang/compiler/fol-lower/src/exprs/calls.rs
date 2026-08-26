@@ -2078,6 +2078,29 @@ fn lower_foreign_call(
         )
     });
 
+    // Which arguments are borrowed text. Read off the checked signature, like
+    // the callback and buffer positions, so the three cannot disagree about
+    // which parameter is which.
+    let string_args: Vec<usize> = signature
+        .params
+        .iter()
+        .enumerate()
+        .filter(|(_, param)| {
+            let Some(fol_typecheck::CheckedType::Borrowed { inner, .. }) =
+                typed_package.program.type_table().get(**param)
+            else {
+                return false;
+            };
+            matches!(
+                typed_package.program.type_table().get(*inner),
+                Some(fol_typecheck::CheckedType::Builtin(
+                    fol_typecheck::BuiltinType::Str
+                ))
+            )
+        })
+        .map(|(index, _)| index)
+        .collect();
+
     let error_type = signature
         .error_type
         .and_then(|error_type| checked_type_map.get(&error_type).copied());
@@ -2094,6 +2117,7 @@ fn lower_foreign_call(
                 error_type,
                 callback_arg,
                 buffer_arg,
+                string_args: string_args.clone(),
             },
         )?;
         return Ok(None);
@@ -2118,6 +2142,7 @@ fn lower_foreign_call(
             error_type,
             callback_arg,
             buffer_arg,
+            string_args,
         },
     )?;
     Ok(Some(LoweredValue {

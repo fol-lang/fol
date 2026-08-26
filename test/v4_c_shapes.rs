@@ -271,11 +271,15 @@ const SHAPES: &[Shape] = &[
     Shape { name: "callback_inline_context_first", verdict: Verdict::Binds, overlay: CALLBACK,
         header: "int32_t probe(int32_t (*f)(void *, int32_t), void *c);",
         defs: "int32_t probe(int32_t (*f)(void*,int32_t), void *c){ return f(c,1); }" },
-    Shape { name: "callback_typedef",
-        verdict: Verdict::Blocker("real headers typedef their callback types"),
+    // Closed by resolving the alias before asking whether the parameter is a
+    // function pointer -- which is what a real header always needs.
+    Shape { name: "callback_typedef", verdict: Verdict::Binds,
         overlay: CALLBACK,
         header: "typedef int32_t (*F)(void *, int32_t); int32_t probe(F f, void *c);",
         defs: "int32_t probe(F f, void *c){ return f(c,1); }" },
+    Shape { name: "callback_typedef_context", verdict: Verdict::Binds, overlay: CALLBACK,
+        header: "typedef void *Ctx; int32_t probe(int32_t (*f)(void *, int32_t), Ctx c);",
+        defs: "int32_t probe(int32_t (*f)(void*,int32_t), void *c){ return f(c,1); }" },
     Shape { name: "callback_context_last",
         verdict: Verdict::Refused("first parameter is not the context"), overlay: CALLBACK,
         header: "int32_t probe(int32_t (*f)(int32_t, void *), void *c);",
@@ -542,7 +546,6 @@ fn the_blocker_count_is_what_the_gap_plan_records() {
             "handle_typedef_other_name",
             "struct_by_const_pointer",
             "struct_by_mut_pointer",
-            "callback_typedef",
             "callback_no_context",
         ],
         "plan/V4_GAPS.md names these blockers; this list and that one move together"

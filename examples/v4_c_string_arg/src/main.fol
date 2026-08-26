@@ -1,0 +1,43 @@
+// FOL text reaching a C routine that expects a NUL-terminated string.
+//
+// C spells text `const char *`, and spells a pointer to a single byte exactly
+// the same way. Nothing measured can tell them apart, so the overlay declares
+// which parameters are text:
+//
+//     [routine.text_len]
+//     string = ["s"]
+//
+// Without that the parameter projects as a bare pointer -- which binds, writes
+// a manifest, and is then refused when a package mounts it. That gap is why
+// `sqlite3_open(const char *filename, ...)` could not cross.
+//
+// FOL's own strings carry no NUL, so the call site builds one that lives for
+// exactly the duration of the call. Text containing a NUL byte is a fault
+// rather than a truncation: a C string ends at its first NUL, so the provider
+// would silently read something shorter than FOL holds.
+
+use std: pkg = {"std"};
+use txt: pkg = {"text"};
+
+fun[] main(): int = {
+    var text: str = "hello";
+
+    // 5 requires the bytes to arrive intact *and* terminated: C walks to the
+    // NUL to count them, so a missing terminator would not stop at five.
+    var n: u32 = txt::text_len([bor]text);
+    // 104 is 'h'. Together they pin the start of the string and its end.
+    var first: u32 = txt::text_first([bor]text);
+
+    var marker: int = 0;
+    when(n) {
+        is(5) {
+            when(first) {
+                is(104) { marker = 7; }
+                * { marker = 2; }
+            };
+        }
+        * { marker = 1; }
+    };
+    var shown: int = std::io::echo_int(marker);
+    return 0;
+};

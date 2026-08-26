@@ -1,0 +1,12 @@
+version = 1
+
+# C cannot say whether a `char *` is text or a pointer to one byte, so the
+# overlay says it. Without this the parameter projects as a bare pointer, which
+# binds and then cannot be mounted.
+[routine.text_len]
+error = "infallible"
+string = ["s"]
+
+[routine.text_first]
+error = "infallible"
+string = ["s"]

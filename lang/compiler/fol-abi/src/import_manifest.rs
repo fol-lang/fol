@@ -525,12 +525,18 @@ fn render_routine(routine: &ImportedRoutine) -> String {
         ),
         _ => "null".to_string(),
     };
+    let strings = routine
+        .strings
+        .iter()
+        .map(|name| quoted(name))
+        .collect::<Vec<_>>()
+        .join(",");
     format!(
         "{{\"buffer\":{buffer},\"callback\":{callback},\"convention\":{},\
          \"effects\":{{\"allocates\":{},\"hosted\":{}}},\
          \"error\":{},\"fol_name\":{},\"handle\":{handle},\"owned_buffer\":{owned},\
          \"origin\":{{\"column\":{},\"file\":{},\"line\":{}}},\
-         \"parameters\":[{parameters}],\"result\":{},\"symbol\":{}}}",
+         \"parameters\":[{parameters}],\"result\":{},\"strings\":[{strings}],\"symbol\":{}}}",
         quoted(routine.convention.as_str()),
         routine.effects.allocates,
         routine.effects.hosted,
@@ -646,6 +652,13 @@ fn render_type(id: AbiTypeId, ty: &AbiType) -> String {
         // A slice's element and mutability are the whole type: an address
         // with no element size counts nothing, and whether the provider may
         // write through it decides which loan FOL has to hold.
+        AbiType::CString { mutability } => format!(
+            "\"kind\":\"c-string\",\"mutability\":{}",
+            quoted(match mutability {
+                AbiMutability::Const => "const",
+                AbiMutability::Mutable => "mutable",
+            })
+        ),
         AbiType::BorrowedSlice {
             element,
             mutability,
@@ -810,6 +823,12 @@ fn read_type(entry: &JsonValue) -> Result<AbiType, ImportManifestError> {
                 other => other.as_str().map(str::to_string),
             },
         },
+        "c-string" => AbiType::CString {
+            mutability: match entry.string_field("mutability")? {
+                "mutable" => AbiMutability::Mutable,
+                _ => AbiMutability::Const,
+            },
+        },
         "borrowed-slice" => AbiType::BorrowedSlice {
             element: AbiTypeId(
                 usize::try_from(entry.integer_field("element")?).map_err(|_| {
@@ -892,6 +911,21 @@ fn read_routine(
         handle: read_handle(entry.field("handle")?)?,
         callback: read_callback(entry.field("callback")?)?,
         buffer: read_buffer(entry.field("buffer")?)?,
+        strings: {
+            let mut names = std::collections::BTreeSet::new();
+            for value in entry.array_field("strings")? {
+                names.insert(
+                    value
+                        .as_str()
+                        .ok_or(ImportManifestError::Json(JsonError::WrongType {
+                            field: "strings".to_string(),
+                            expected: "a string",
+                        }))?
+                        .to_string(),
+                );
+            }
+            names
+        },
         owned_buffer: owned.0,
         owned_destroy: owned.1,
         origin: AbiSourceOrigin {
@@ -1227,6 +1261,7 @@ mod tests {
                         handle: None,
                         callback: None,
                         buffer: None,
+                        strings: Default::default(),
                         owned_buffer: None,
                         owned_destroy: None,
                         origin: AbiSourceOrigin {
@@ -1264,6 +1299,7 @@ mod tests {
                         handle: None,
                         callback: None,
                         buffer: None,
+                        strings: Default::default(),
                         owned_buffer: None,
                         owned_destroy: None,
                         origin: AbiSourceOrigin {

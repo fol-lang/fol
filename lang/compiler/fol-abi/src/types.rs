@@ -142,6 +142,16 @@ pub enum AbiType {
     },
     /// A borrowed UTF-8 string: `{const uint8_t *ptr; size_t len;}`.
     BorrowedString,
+    /// A NUL-terminated C string: `const char *`.
+    ///
+    /// Distinct from `BorrowedString`, which is a pointer *and* a length. This
+    /// one carries its extent in its own bytes, which is what a C API taking a
+    /// filename or a format expects, and what nothing in the type says: C has
+    /// no way to distinguish text from any other `char *`, so the overlay
+    /// declares it.
+    CString {
+        mutability: AbiMutability,
+    },
     /// A borrowed slice of `element`.
     BorrowedSlice {
         element: AbiTypeId,
@@ -172,6 +182,7 @@ impl AbiType {
             Self::Record { .. } => "record",
             Self::Entry { .. } => "entry",
             Self::BorrowedString => "borrowed-string",
+            Self::CString { .. } => "c-string",
             Self::BorrowedSlice { .. } => "borrowed-slice",
             Self::OpaqueHandle { .. } => "opaque-handle",
             Self::Callback { .. } => "callback",

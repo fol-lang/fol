@@ -40,6 +40,8 @@ pub struct ImportedRoutine {
     /// parameters say nothing about belonging together, and no measurement of
     /// the types can recover the pairing.
     pub buffer: Option<crate::annotation::BufferUse>,
+    /// Parameters the overlay declared NUL-terminated C strings.
+    pub strings: std::collections::BTreeSet<String>,
     /// The owned buffer domain this routine produces or consumes.
     ///
     /// A producer's result is memory FOL must not free itself, so the adapter
@@ -987,6 +989,7 @@ mod tests {
             handle: None,
             callback: None,
             buffer: None,
+            strings: Default::default(),
             owned_buffer: None,
             owned_destroy: None,
             origin: AbiSourceOrigin::default(),
@@ -1016,6 +1019,7 @@ mod tests {
             handle: None,
             callback: None,
             buffer: None,
+            strings: Default::default(),
             owned_buffer: None,
             owned_destroy: None,
             origin: AbiSourceOrigin::default(),
@@ -1045,6 +1049,7 @@ mod tests {
                     handle: None,
                     callback: None,
                     buffer: None,
+                    strings: Default::default(),
                     owned_buffer: None,
                     owned_destroy: None,
                     origin: AbiSourceOrigin::default(),

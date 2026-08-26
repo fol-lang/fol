@@ -239,6 +239,19 @@ pub fn callback_context_invalid(symbol: &str) -> ! {
     std::process::abort()
 }
 
+/// Text that cannot become a C string.
+///
+/// A C string ends at its first NUL, so text containing one would reach the
+/// provider truncated -- a shorter string than FOL holds, silently. There is
+/// no correct value to pass, so the call does not happen.
+pub fn foreign_string_has_interior_nul(symbol: &str) -> ! {
+    eprintln!(
+        "fol runtime fault: text passed to '{symbol}' contains a NUL byte, and a C string ends \
+         at its first NUL. The provider would read a shorter string than FOL holds."
+    );
+    std::process::abort()
+}
+
 pub fn module_name() -> &'static str {
     "abi"
 }

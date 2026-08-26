@@ -274,6 +274,12 @@ pub enum LoweredInstrKind {
         /// exists only in the import manifest. The backend expands this one
         /// argument into the provider's two.
         buffer_arg: Option<usize>,
+        /// Positions in `args` holding text a C routine reads as a
+        /// NUL-terminated string.
+        ///
+        /// FOL's strings do not carry a NUL, so the call site builds one and
+        /// keeps it alive for exactly the duration of the call.
+        string_args: Vec<usize>,
     },
     SpawnCall {
         callee: LoweredRoutineId,

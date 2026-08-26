@@ -136,6 +136,9 @@ fn render_type(id: AbiTypeId, ty: &AbiType) -> String {
             fields.push(("element".to_string(), element.0.to_string()));
             fields.push(("mutability".to_string(), quoted(&format!("{mutability:?}"))));
         }
+        AbiType::CString { mutability } => {
+            fields.push(("mutability".to_string(), quoted(&format!("{mutability:?}"))));
+        }
         AbiType::OpaqueHandle { name } => {
             fields.push(("name".to_string(), quoted(name)));
         }
@@ -589,6 +592,12 @@ fn read_type(entry: &JsonValue) -> Result<AbiType, ManifestError> {
                 other => other.as_str().map(str::to_string),
             },
         },
+        "c-string" => AbiType::CString {
+            mutability: match entry.string_field("mutability")? {
+                "Const" => crate::types::AbiMutability::Const,
+                _ => crate::types::AbiMutability::Mutable,
+            },
+        },
         "borrowed-slice" => AbiType::BorrowedSlice {
             element: read_type_index(entry.integer_field("element")?)?,
             mutability: match entry.string_field("mutability")? {
@@ -889,6 +898,7 @@ fn expand_type(id: AbiTypeId, table: &AbiTypeTable) -> String {
         } => {
             format!("slice({},{mutability:?})", expand_type(*element, table))
         }
+        AbiType::CString { mutability } => format!("cstring({mutability:?})"),
         AbiType::OpaqueHandle { name } => format!("handle {name}"),
         AbiType::Callback { parameters, result } => format!(
             "callback({}) -> {}",

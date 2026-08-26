@@ -39,9 +39,9 @@ Three verdicts matter and are not the same:
 |---|---|---|---|
 | B1 | `const struct S *s` with `S` defined | REFUSED, *"S is incomplete"* | GERC classification |
 | B2 | `typedef struct T T;` (opaque handle idiom) | REFUSED | GERC |
-| B3 | `typedef int32_t (*F)(void*, int32_t);` as a callback | REFUSED, *"not a function pointer"* | FOL |
+| B3 | `typedef int32_t (*F)(void*, int32_t);` as a callback | ~~REFUSED~~ **closed** | FOL |
 | B4 | callback with no context (`int (*)(lua_State*)`) | REFUSED | FOL |
-| B5 | `const char *s` as a parameter | binds, then **unmountable** | FOL |
+| B5 | `const char *s` as a parameter | ~~unmountable~~ **closed** | FOL |
 
 **B1 is the worst.** `const struct S *s` is refused with *"S is incomplete"*
 when `S` is defined in the same header. GERC only materialises a complete
@@ -80,6 +80,19 @@ pairing needs a length parameter a `const char *` does not have.
 This is the shape of defect this plan exists for: four green lanes, a written
 manifest, and nothing a program can call. Every `ok` in a bind-only scan is
 suspect until a package mounts it.
+
+*Closed.* The overlay declares which parameters are text --
+`string = ["filename"]` -- because `const char *` is equally how C spells a
+pointer to one byte, and inferring it would be the guess the buffer pairing
+already exists to avoid. A declared parameter projects as `AbiType::CString`
+and reaches FOL as borrowed `str`. FOL's strings carry no NUL, so the call site
+builds one that lives exactly as long as the call. Text containing a NUL is a
+fault rather than a truncation: a C string ends at its first NUL, so the
+provider would read something shorter than FOL holds.
+`examples/v4_c_string_arg` passes `"hello"` and C returns 5 and `h`.
+
+An *undeclared* `char *` still binds and still cannot be mounted, and a test
+holds that: the declaration is the mechanism, not a formality.
 
 **B4** is a shape decision, not a bug: V4 requires a `void *` context as the
 callback's own first parameter. `lua_CFunction` and `qsort`'s comparator have
@@ -141,10 +154,10 @@ run rather than assumed.
 
 Goal: B3 and B4 close without touching a sibling.
 
-- [ ] **B3**: resolve type aliases before classifying a callback parameter.
+- [x] **B3**: resolve type aliases before classifying a callback parameter.
   `resolve_alias` already exists and the scalar path already uses it;
-  `callback_positions` does not. Add the corpus rows for a typedef'd callback
-  in both the parameter and the context position.
+  `callback_positions` did not. Both halves are resolved now -- a typedef'd
+  function pointer *and* a typedef'd context -- and both have corpus rows.
 - [ ] **B4**: decide, with the owner, whether a **context-free callback** is
   supportable. It is not a small question: FOL's trampoline recovers the
   closure from a thread-local slot keyed by the call, and the context pointer
@@ -154,9 +167,12 @@ Goal: B3 and B4 close without touching a sibling.
   - If yes: a `callback_context = "none"` spelling, and the null-context check
     becomes a slot check alone.
   - If no: record why, and that `lua_CFunction`-shaped APIs need a C shim.
-- [ ] Refuse a typedef'd function pointer used as an **ordinary parameter**
+- [x] Refuse a typedef'd function pointer used as an **ordinary parameter**
   with the same message the inline form gets, so B3's fix does not turn one
-  confusing refusal into two.
+  confusing refusal into two. Held by the corpus's `function_pointer_result`
+  row, which is a typedef and still refused by name.
+- [x] **B5**: declare text in the overlay and carry it as `AbiType::CString`.
+  Found by M17's mount check, not by the gap scan, which only bound.
 
 **STOP:** do not widen the callback contract to context-last. That was
 measured, refused deliberately, and guessing a provider's context position is

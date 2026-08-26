@@ -145,6 +145,14 @@ const SHAPES: &[Shape] = &[
         ],
         retired: &["Pointer/length slice pairing"],
     },
+    // B5: text reaching C as a NUL-terminated string. Before this, no imported
+    // routine could take a string at all.
+    Shape {
+        example: "v4_c_string_arg",
+        kind: Kind::Crossing,
+        documented_as: &["a FOL closure invoked by the provider"],
+        retired: &[],
+    },
     Shape {
         example: "v4_c_differential",
         kind: Kind::Supporting,

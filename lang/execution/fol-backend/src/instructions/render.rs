@@ -409,6 +409,7 @@ pub fn render_core_instruction_in_workspace(
             error_type,
             callback_arg,
             buffer_arg,
+            string_args,
         } => {
             // The callee is a FOL-generated safe adapter, not the raw provider
             // symbol. Section 4.13 keeps validation, the error convention, and
@@ -430,6 +431,13 @@ pub fn render_core_instruction_in_workspace(
                     // the closure's address.
                     if *callback_arg == Some(position) {
                         return Ok("Some(__fol_trampoline)".to_string());
+                    }
+                    // Text a C routine reads as a NUL-terminated string.
+                    // FOL's strings do not carry a NUL, so one is built here
+                    // and named; the binding below keeps it alive for the
+                    // whole call, and the provider gets an address into it.
+                    if string_args.contains(&position) {
+                        return Ok(format!("__fol_cstr_{position}.as_ptr()"));
                     }
                     // A paired buffer is one FOL value and two C arguments.
                     // The length is derived from the value rather than passed
@@ -500,6 +508,23 @@ pub fn render_core_instruction_in_workspace(
                     "(&{closure_local}) as *const _ as *mut core::ffi::c_void"
                 ));
             }
+            // Built before the call and dropped after it. A `CString`
+            // allocates, so this is the one place FOL's text is copied to
+            // cross -- interior NUL bytes are a value C has no way to receive,
+            // and the fault says so rather than truncating silently.
+            let mut cstrings = String::new();
+            for position in string_args {
+                let value =
+                    render_local_list(type_table, package_identity, routine, &[args[*position]])?;
+                let base = value
+                    .trim_end_matches(".clone()")
+                    .trim_start_matches("&mut *")
+                    .trim_start_matches("&*")
+                    .to_string();
+                cstrings.push_str(&format!(
+                    "    let __fol_cstr_{position} = match std::ffi::CString::new({base}.as_str()) {{\n                     \x20       Ok(__fol_text) => __fol_text,\n                     \x20       Err(_) => rt::foreign_string_has_interior_nul({symbol:?}),\n                     \x20   }};\n"
+                ));
+            }
             let rendered_args = rendered_args.join(", ");
             let module = crate::mangle::foreign_adapter_module_name(alias);
             let callee_name = format!(
@@ -562,7 +587,11 @@ pub fn render_core_instruction_in_workspace(
             // call: two call sites passing different closures cannot collide,
             // and the provider cannot reach one from anywhere else.
             if trampoline.is_empty() {
-                Ok(format!("{call} // c: {symbol}"))
+                if cstrings.is_empty() {
+                    Ok(format!("{call} // c: {symbol}"))
+                } else {
+                    Ok(format!("{{\n{cstrings}    {call}\n    }} // c: {symbol}"))
+                }
             } else {
                 let closure =
                     installed_closure.expect("a rendered trampoline always installs its closure");

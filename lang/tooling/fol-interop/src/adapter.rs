@@ -508,6 +508,16 @@ fn rust_scalar(
         // crate never names GERC's projected types: the raw call site casts
         // with `as *mut _`, which infers the pointee from the callee.
         AbiType::OpaqueHandle { .. } => "*mut core::ffi::c_void".to_string(),
+        // A NUL-terminated string is an address and nothing else. The bytes it
+        // points at are built by the call site, which owns them for exactly
+        // the length of the call.
+        AbiType::CString { mutability } => format!(
+            "*{} core::ffi::c_char",
+            match mutability {
+                fol_abi::AbiMutability::Const => "const",
+                fol_abi::AbiMutability::Mutable => "mut",
+            }
+        ),
         // Only the address: the length travels as its own parameter, which is
         // the shape C has and the reason the pairing had to be declared.
         AbiType::BorrowedSlice {
@@ -628,6 +638,7 @@ mod tests {
                     handle: None,
                     callback: None,
                     buffer: None,
+                    strings: Default::default(),
                     owned_buffer: None,
                     owned_destroy: None,
                     origin: AbiSourceOrigin::default(),
@@ -658,6 +669,7 @@ mod tests {
                     handle: None,
                     callback: None,
                     buffer: None,
+                    strings: Default::default(),
                     owned_buffer: None,
                     owned_destroy: None,
                     origin: AbiSourceOrigin::default(),
