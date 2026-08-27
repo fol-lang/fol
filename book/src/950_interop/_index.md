@@ -47,9 +47,9 @@ from those pins. H7 is certified against this exact snapshot:
 
 | Stage | Package | Contract | Pinned revision |
 |---|---|---|---|
-| PARC | `follang-parc 0.16.0` | source package schema 2 | `0f52aeeeeec47a082c0d8a515130ee853aa1101d` |
-| LINC | `follang-linc 0.1.0` with `native-inspection` | link-analysis schema 2 | `38f73db2d14e3b877e430d59220c8ea0d6c92e85` |
-| GERC | `follang-gerc 0.1.0` with `pipeline-native` | generation domain 1 | `df0479a1074a1a3d50022ca6a28cdec4221987dd` |
+| PARC | `follang-parc 0.16.0` | source package schema 2 | `fffe6a2f7191b3618231a7603664fe18eceba4c1` |
+| LINC | `follang-linc 0.1.0` with `native-inspection` | link-analysis schema 2 | `891269daafcbb2c81182309e1be3ecd49a773543` |
+| GERC | `follang-gerc 0.1.0` with `pipeline-native` | generation domain 1 | `6ece4d3a0a3312c5056e8434a18279c561c7e83a` |
 
 The three components are **git dependencies pinned by revision**, not sibling
 path dependencies, so a fresh clone of this repository builds and tests without
@@ -149,6 +149,11 @@ callback shape. What is still refused, rather than approximated:
   not make it and must not free it.
 - Raw pointers in an ordinary export: a raw pointer with no declared ownership
   and destroy pairing is refused, not defaulted.
+- An opaque handle **inside a callback's signature**. A declared domain is read
+  for a routine's own parameters and result, but not for the parameters and
+  result of a callback it takes, so a callback returning `Widget *` is refused
+  as incomplete while the same `Widget *` binds as the routine's own result.
+  A callback returning a scalar beside it binds.
 ## Evidence and failure policy
 
 The required smoke test starts from the real `build.fol` graph route. It

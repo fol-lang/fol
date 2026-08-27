@@ -17,9 +17,9 @@ fol-types = { path = "../../compiler/fol-types" }
 # build and test without four repositories checked out side by side. The parc
 # revision must match the one linc and gerc pin, or cargo resolves two distinct
 # `follang-parc` crates and every shared type stops matching.
-gerc = { package = "follang-gerc", version = "=0.1.0", git = "https://github.com/fol-lang/gerc", rev = "df0479a1074a1a3d50022ca6a28cdec4221987dd", default-features = false, features = ["pipeline-native"] }
-linc = { package = "follang-linc", version = "=0.1.0", git = "https://github.com/fol-lang/linc", rev = "38f73db2d14e3b877e430d59220c8ea0d6c92e85", default-features = false, features = ["native-inspection"] }
-parc = { package = "follang-parc", version = "=0.16.0", git = "https://github.com/fol-lang/parc", rev = "0f52aeeeeec47a082c0d8a515130ee853aa1101d" }
+gerc = { package = "follang-gerc", version = "=0.1.0", git = "https://github.com/fol-lang/gerc", rev = "6ece4d3a0a3312c5056e8434a18279c561c7e83a", default-features = false, features = ["pipeline-native"] }
+linc = { package = "follang-linc", version = "=0.1.0", git = "https://github.com/fol-lang/linc", rev = "891269daafcbb2c81182309e1be3ecd49a773543", default-features = false, features = ["native-inspection"] }
+parc = { package = "follang-parc", version = "=0.16.0", git = "https://github.com/fol-lang/parc", rev = "fffe6a2f7191b3618231a7603664fe18eceba4c1" }
 
 [dev-dependencies]
 fol-testkit = { path = "../fol-testkit" }
