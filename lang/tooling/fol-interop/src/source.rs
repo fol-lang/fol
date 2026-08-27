@@ -1,9 +1,9 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use parc::{
     contract::{
-        CompleteSourcePackage, IncompleteSource, RecordCompleteness, Selection,
+        CompleteSourcePackage, CompletionBlocker, IncompleteSource, RecordCompleteness, Selection,
         SourceDeclarationKind, TargetSpec,
     },
     scan::{
@@ -114,9 +114,16 @@ pub(crate) fn scan_complete_header(
                 return Err(InteropSourceError::UnsupportedSelection(unsupported));
             }
             if roots.is_empty() {
-                return Err(InteropSourceError::NothingSelected);
+                // With the reasons the scan already has. A header whose
+                // declarations were destroyed reads exactly like a header that
+                // never declared them, and saying only the latter left the
+                // author with nothing to act on.
+                return Err(InteropSourceError::NothingSelected {
+                    reasons: scan_reasons(report.package()),
+                });
             }
-            // Every complete record in the package joins the selection.
+            // Every complete record the selected routines reach joins the
+            // selection.
             //
             // PARC minimises its closure: a record reached through a pointer
             // needs only its opaque form, because holding an address does not
@@ -126,11 +133,20 @@ pub(crate) fn scan_complete_header(
             // definition sitting in the same header.
             //
             // `Selection::Only` grants a definition to whatever it names, so
-            // naming the records asks for what FOL actually needs. Only
-            // *complete* and *supported* ones are added: an incomplete record
-            // has no definition to ask for, and an unsupported one would turn
-            // a header FOL could otherwise use into a hard rejection.
-            for declaration in report.package().declarations() {
+            // naming the records asks for what FOL actually needs. `retain`
+            // answers which ones that is: naming every record in the package
+            // instead made a header's hardest record everyone's problem --
+            // `sqlite3.h` was refused over a `volatile void **` inside
+            // `sqlite3_vfs` for a caller who asked only for a version number.
+            //
+            // Only *complete* and *supported* ones are added: an incomplete
+            // record has no definition to ask for, and an unsupported one
+            // would turn a header FOL could otherwise use into a rejection.
+            let reachable = report
+                .package()
+                .retain(&selection_of(&roots)?)
+                .map_err(|error| selection_problem(error.to_string()))?;
+            for declaration in reachable.declarations() {
                 let SourceDeclarationKind::Record(record) = &declaration.kind else {
                     continue;
                 };
@@ -142,14 +158,7 @@ pub(crate) fn scan_complete_header(
                 }
                 roots.push(declaration.id);
             }
-            Selection::only(roots).map_err(|error| {
-                InteropSourceError::UnsupportedSelection(vec![UnsupportedDeclaration {
-                    name: "<selection>".to_string(),
-                    code: None,
-                    reason: Some(error.to_string()),
-                    origin: None,
-                }])
-            })?
+            selection_of(&roots)?
         }
         None => {
             let unsupported_declarations = report
@@ -175,20 +184,63 @@ pub(crate) fn scan_complete_header(
     };
 
     let files = report.package().files().to_vec();
+    // A blocker names a declaration by id, which no author can read. Captured
+    // before the package is consumed so the report can say which one.
+    let named: BTreeMap<_, _> = report
+        .package()
+        .declarations()
+        .iter()
+        .map(|declaration| {
+            let name = declaration
+                .name
+                .as_ref()
+                .map(|name| name.original.clone())
+                .unwrap_or_else(|| "<anonymous>".to_string());
+            let origin = declaration
+                .occurrences
+                .first()
+                .and_then(|entry| render_origin(entry.range, &files));
+            (declaration.id, (name, origin))
+        })
+        .collect();
+
     report.into_complete(&selection).map_err(|error| {
         // Resolved here, because `Display` has no file table and a range
         // without one is a byte offset into a header nobody can find.
         let mut located = Vec::new();
         for blocker in error.blockers() {
-            if let parc::contract::CompletionBlocker::PackageIncomplete { reasons } = blocker {
-                for reason in reasons {
-                    let origin = reason
-                        .range
-                        .and_then(|range| render_origin(range, &files))
-                        .unwrap_or_else(|| "<no location>".to_string());
-                    located.push(format!("[{}] {} at {origin}", reason.code, reason.message));
+            let (text, id) = match blocker {
+                CompletionBlocker::PackageIncomplete { reasons } => {
+                    for reason in reasons {
+                        let origin = reason
+                            .range
+                            .and_then(|range| render_origin(range, &files))
+                            .unwrap_or_else(|| "<no location>".to_string());
+                        located.push(format!("[{}] {} at {origin}", reason.code, reason.message));
+                    }
+                    continue;
                 }
-            }
+                CompletionBlocker::MissingDeclaration { id } => (
+                    "a needed declaration did not survive the scan".to_string(),
+                    id,
+                ),
+                CompletionBlocker::Unsupported { id, path, reason } => {
+                    (format!("{reason} (at {path})"), id)
+                }
+                CompletionBlocker::IncompleteRecord { id } => (
+                    "a complete definition is required, and this record has none".to_string(),
+                    id,
+                ),
+                CompletionBlocker::OpaqueRootIsNotRecord { id } => {
+                    ("an opaque selection root must be a record".to_string(), id)
+                }
+            };
+            let (name, origin) = named
+                .get(id)
+                .cloned()
+                .unwrap_or_else(|| (id.to_string(), None));
+            let origin = origin.unwrap_or_else(|| "<no location>".to_string());
+            located.push(format!("`{name}`: {text} at {origin}"));
         }
         located.sort();
         located.dedup();
@@ -270,7 +322,10 @@ pub enum InteropSourceError {
     /// A declaration the overlay *asked for* that PARC could not model.
     UnsupportedSelection(Vec<UnsupportedDeclaration>),
     /// The overlay named symbols, but the header declares none of them.
-    NothingSelected,
+    NothingSelected {
+        /// Why the scan could not model what it read, if it said.
+        reasons: Vec<String>,
+    },
     Io {
         operation: &'static str,
         path: PathBuf,
@@ -331,9 +386,15 @@ impl std::fmt::Display for InteropSourceError {
                     .collect::<Vec<_>>()
                     .join("; ")
             ),
-            Self::NothingSelected => formatter.write_str(
-                "the entry header declares none of the symbols the annotation overlay selects",
-            ),
+            Self::NothingSelected { reasons } => {
+                formatter.write_str(
+                    "the entry header declares none of the symbols the annotation overlay selects",
+                )?;
+                for reason in reasons {
+                    write!(formatter, "\n  - {reason}")?;
+                }
+                Ok(())
+            }
             Self::Io {
                 operation,
                 path,
@@ -373,7 +434,7 @@ impl std::error::Error for InteropSourceError {
             | Self::IncludeRootOutsidePackage { .. }
             | Self::UnsupportedSource { .. }
             | Self::UnsupportedSelection(_)
-            | Self::NothingSelected => None,
+            | Self::NothingSelected { .. } => None,
         }
     }
 }
@@ -457,6 +518,43 @@ fn canonical_file(path: &Path) -> Result<PathBuf, InteropSourceError> {
         return Err(InteropSourceError::InvalidHeader(canonical));
     }
     Ok(canonical)
+}
+
+/// Everything the scan recorded that kept the package from being complete,
+/// each with the header line it came from.
+fn scan_reasons(package: &parc::contract::SourcePackage) -> Vec<String> {
+    let mut reasons: Vec<_> = package
+        .diagnostics()
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic.completeness_impact
+                != parc::contract::DiagnosticCompletenessImpact::Informational
+        })
+        .map(|diagnostic| {
+            let origin = diagnostic
+                .range
+                .and_then(|range| render_origin(range, package.files()))
+                .unwrap_or_else(|| "<no location>".to_string());
+            format!("[{}] {} at {origin}", diagnostic.code, diagnostic.message)
+        })
+        .collect();
+    reasons.sort();
+    reasons.dedup();
+    reasons
+}
+
+/// A problem with the selection itself rather than with one declaration.
+fn selection_problem(reason: String) -> InteropSourceError {
+    InteropSourceError::UnsupportedSelection(vec![UnsupportedDeclaration {
+        name: "<selection>".to_string(),
+        code: None,
+        reason: Some(reason),
+        origin: None,
+    }])
+}
+
+fn selection_of(roots: &[parc::contract::DeclarationId]) -> Result<Selection, InteropSourceError> {
+    Selection::only(roots.to_vec()).map_err(|error| selection_problem(error.to_string()))
 }
 
 /// Carry PARC's own account of why a declaration did not model.
