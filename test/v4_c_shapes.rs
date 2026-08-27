@@ -132,6 +132,12 @@ const HANDLE: &str = "[handle.T]\ndestroy = \"probe_free\"\n\n\
 const CALLBACK: &str = "[routine.probe]\nerror = \"infallible\"\n\
      callback = \"f\"\ncallback_context = \"c\"\n";
 
+const HANDLE_MAKER: &str = "[handle.T]\ndestroy = \"probe_free\"\n\n\
+     [routine.probe]\nerror = \"infallible\"\nhandle = \"T\"\n\
+     handle_role = \"produces\"\ncallback = \"m\"\ncallback_context = \"none\"\n\n\
+     [routine.probe_free]\nerror = \"infallible\"\n\
+     handle = \"T\"\nhandle_role = \"consumes\"\n";
+
 const BUFFER: &str = "[routine.probe]\nerror = \"infallible\"\n\
      buffer = \"b\"\nbuffer_length = \"n\"\n";
 
@@ -184,16 +190,24 @@ const SHAPES: &[Shape] = &[
     Shape { name: "handle_bare_struct", verdict: Verdict::Binds, overlay: HANDLE,
         header: "struct T; struct T *probe(int32_t s); void probe_free(struct T *t);",
         defs: "struct T { int32_t v; }; struct T *probe(int32_t s){ (void)s; return 0; } void probe_free(struct T *t){ (void)t; }" },
-    Shape { name: "handle_typedef_same_name",
-        verdict: Verdict::Blocker("the opaque-handle idiom every real C library uses"),
-        overlay: HANDLE,
+    // Closed in GERC: the target of a typedef is a name for the record, not a
+    // use of one, so an opaque record may stand there.
+    Shape { name: "handle_typedef_same_name", verdict: Verdict::Binds, overlay: HANDLE,
         header: "typedef struct T T; T *probe(int32_t s); void probe_free(T *t);",
         defs: "struct T { int32_t v; }; T *probe(int32_t s){ (void)s; return 0; } void probe_free(T *t){ (void)t; }" },
-    Shape { name: "handle_typedef_other_name",
-        verdict: Verdict::Blocker("the same idiom with a distinct tag"),
-        overlay: HANDLE,
+    Shape { name: "handle_typedef_other_name", verdict: Verdict::Binds, overlay: HANDLE,
         header: "typedef struct T_s T; T *probe(int32_t s); void probe_free(T *t);",
         defs: "struct T_s { int32_t v; }; T *probe(int32_t s){ (void)s; return 0; } void probe_free(T *t){ (void)t; }" },
+    // A callback that hands the handle back. The declared handle domain is not
+    // consulted inside a callback signature, so `[A1006]` refuses `T` there
+    // while the same `T *` binds fine as the routine's own return. A callback
+    // returning `int32_t` beside it binds, which is how this was isolated.
+    Shape { name: "handle_callback_returns_handle",
+        verdict: Verdict::Blocker("an opaque handle inside a callback signature"),
+        overlay: HANDLE_MAKER,
+        header: "typedef struct T T; typedef T *(*maker)(int32_t); \
+                 T *probe(maker m); void probe_free(T *t);",
+        defs: "struct T { int32_t v; }; T *probe(maker m){ (void)m; return 0; } void probe_free(T *t){ (void)t; }" },
 
     // ---- structs ---------------------------------------------------------
     Shape { name: "struct_by_value", verdict: Verdict::Binds, overlay: INFALLIBLE,
@@ -554,7 +568,7 @@ fn the_blocker_count_is_what_the_gap_plan_records() {
         .collect();
     assert_eq!(
         blockers,
-        vec!["handle_typedef_same_name", "handle_typedef_other_name",],
+        vec!["handle_callback_returns_handle"],
         "plan/V4_GAPS.md names these blockers; this list and that one move together"
     );
 }

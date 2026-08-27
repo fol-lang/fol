@@ -9,6 +9,11 @@ contain. They are not. A scan of 40 constructs drawn from ordinary C found
 **four blockers that stop most real libraries at the door**, one of which
 accepts or refuses the same declaration depending on what its neighbours are.
 
+All four are now closed, and a fifth (B6) was found while closing them.
+`sqlite3.h` binds — 4 routines including the `sqlite3` handle — which is what
+this plan set as the bar. Closing B2 took four defects in the sibling crates,
+not one; §5 records them.
+
 **Nothing here merges to `develop` until a real third-party header binds.**
 
 ---
@@ -38,10 +43,24 @@ Three verdicts matter and are not the same:
 | # | Construct | Verdict | Layer |
 |---|---|---|---|
 | B1 | `const struct S *s` with `S` defined | ~~REFUSED~~ **closed (const)** | FOL selection |
-| B2 | `typedef struct T T;` (opaque handle idiom) | REFUSED — **sibling-side, blocked** | GERC |
+| B2 | `typedef struct T T;` (opaque handle idiom) | ~~REFUSED~~ **closed (GERC)** | GERC |
 | B3 | `typedef int32_t (*F)(void*, int32_t);` as a callback | ~~REFUSED~~ **closed** | FOL |
 | B4 | callback with no context (`int (*)(lua_State*)`) | ~~REFUSED~~ **closed** | FOL |
 | B5 | `const char *s` as a parameter | ~~unmountable~~ **closed** | FOL |
+| B6 | an opaque handle inside a callback signature | REFUSED — **open** | FOL |
+
+**B2 is closed.** GERC refused the *declaration* `typedef struct T T;` as an
+opaque record in a by-value Rust position. The target of a typedef is a name
+for the record, not a use of one, so `TypePosition::AliasTarget` is exempt at
+both alias walks; a by-value *use* of the alias is still refused, because the
+alias walk recurses at the caller's position. `sqlite3.h` now binds, including
+`sqlite3` as a consumed/borrowed handle.
+
+**B6 is new**, found by the row that was meant to cover B2's declarator half.
+A callback returning `T *` is refused with `[A1006] 'T' is incomplete` even
+where `[handle.T]` is declared: the handle domain is not consulted inside a
+callback signature. A callback returning `int32_t` beside it binds, which is
+how it was isolated. `sqlite3_exec` and `lua_pushcfunction` need this.
 
 **B1 is the worst.** `const struct S *s` is refused with *"S is incomplete"*
 when `S` is defined in the same header. GERC only materialises a complete
@@ -109,11 +128,13 @@ with a `[handle.T]` domain. `fol tool bind c` fails in raw binding generation.
 Replacing the typedef with a bare `struct T;` and using `struct T *` binds,
 mounts, and runs — the corpus holds both rows.
 
-**What GERC would need to change**: verify an alias's target at the position
-the alias is *used* at, or treat an alias declaration's target as
-`BehindPointer` when every use of the alias is. This is the sibling-side issue
-to file; it is the same shape as §3.5 in `V4_CONTINUE.md`, where the certified
-resolution policy blocked a provider form FOL could not reach either.
+**What GERC changed** (done): neither of the two guesses above. `verify_rust_type`
+*already* verified an alias's target at the position the alias is used at — it
+recurses through `RustItem::TypeAlias` carrying the caller's position. What was
+wrong was the alias *declaration*, walked at `ByValue` as though naming the
+record were a use of it. A third `TypePosition::AliasTarget` is exempt from the
+opaque-record check at both alias walks, and a by-value use is still refused by
+the recursion that was always correct.
 
 **B3** means a callback only binds when its type is written inline in the
 parameter list. Real headers typedef callback types. FOL is not resolving the
@@ -271,8 +292,33 @@ same check is the first task here.
   not requested.
 - [x] If it is a contract limit: write the sibling-side issue with the
   reproduction, and record B1/B2 as blocked in this plan the way §3.5 is.
-  B1 was FOL's and is closed. **B2 is GERC's and is blocked**, with the
-  reproduction and the required change recorded in §2.1.
+  B1 was FOL's and is closed. B2 was GERC's and **is now fixed there**, along
+  with three more defects it was hiding. Each was found by running, and each
+  carries a test with a negative control:
+  - **GERC `verify.rs`** — `TypePosition::AliasTarget`, applied at both the
+    source-side and post-lowering alias walks. Fixing one leaves B2 live.
+  - **PARC `contract/complete.rs`** — a `Partial` package refused every
+    selection. Only reasons that reach the package block it now: one naming a
+    declaration scopes to it, a `Recovery`-stage one scopes to what it
+    destroyed, one a macro's own `support` carries scopes to that macro.
+    `PARC-P0001` still blocks, which GERC's `certify_parc_rejections` asserts.
+  - **PARC `preprocess/directive.rs`** — `collect_text` kept comment text, so
+    `#include <stdarg.h> /* why */` asked for a file by that whole name. This
+    alone blocked `sqlite3.h`, whose line 35 is spelled exactly that way.
+  - **PARC `extract/types.rs`** — `apply_derived` applied a declarator's
+    pointers *after* wrapping in `Function`, so `T *(*f)(int)` modelled as a
+    pointer to a function returning `T`. Plain function declarations go
+    through `function_parts`, which was always right, so only function
+    pointers were affected and nothing caught it.
+  - **PARC `scan/traced.rs`** — a macro using `#`/`##` was `ForcesRejected`.
+    It now carries `SupportStatus::Unsupported`, as a redefined macro already
+    carried `Partial`. This is what unblocked `lua.h`.
+
+  FOL-side, two of its own: the selection named *every* complete record in the
+  package rather than the ones `retain` proves reachable (which refused
+  `sqlite3.h` over a `volatile void **` in `sqlite3_vfs` for a caller wanting
+  a version number), and blocker reporting rendered only `PackageIncomplete`,
+  so a precise blocker printed "2 blocker(s)" and named none.
 - [x] Fix FOL's message either way. *"'S' is incomplete"* is false when the
   header defines `S`. It no longer arises for a defined struct; the one case
   that still reports it is a genuinely incomplete one. It should say FOL received an opaque view and name the
@@ -385,20 +431,34 @@ header* for constructs in declarations FOL never selects. zlib escaped through
 `Z_SOLO`; SQLite and Lua have no equivalent, because what they use is
 `va_list`, which nearly every non-trivial C library has somewhere.
 
-Three sibling-side limits now block real headers, and they compound — any one
-refuses a header entirely:
+Three sibling-side limits blocked real headers, and they compounded — any one
+refused a header entirely:
 
-| Limit | Seen in |
-|---|---|
-| `__builtin_va_list` unmodelled | SQLite, Lua |
-| unsigned comparison in `#if` (`PARC-E2113`) | zlib's `zconf.h` |
-| alias to an opaque record (B2) | SQLite, Lua |
+| Limit | Seen in | State |
+|---|---|---|
+| `__builtin_va_list` unmodelled | SQLite, Lua | moot — recovery scopes to the declaration it destroyed; `sqlite3.h` binds |
+| conditional outside the exact subset (`PARC-E2113`) | zlib's `zconf.h`, glibc's `bits/wchar.h` | **open**, and still package-scoped |
+| alias to an opaque record (B2) | SQLite, Lua | fixed in GERC |
 
 **The highest-value change is not in FOL.** It is for a declaration PARC cannot
 model to poison only itself. FOL already treats an *unselected unsupported
 declaration* that way and has a test for it
 (`an_unselected_unsupported_declaration_does_not_break_the_build`); what does
 not extend that far is a construct the scan rejects at parse time.
+
+This prediction held, and it was the change that mattered most: `into_complete`
+now scopes a `Partial` package's reasons by how far each reaches, and a macro
+using `#`/`##` marks the *macro* unsupported instead of rejecting the package.
+`va_list` never had to be modelled — FOL never selects those routines, so the
+recovery that destroys them is scoped to exactly them, and `sqlite3.h` binds.
+
+**E2113 is not covered by any of this** and remains open. It is a `Preprocess`
+diagnostic naming no declaration and no macro, so it is package-scoped and
+still refuses the header — measured against glibc's `bits/wchar.h`, which
+raises it twice. Scoping it needs a subject to attribute it to, which a
+conditional does not have; the honest options are to widen the evaluable subset
+or to attribute the diagnostic to the declarations the dead branch swallowed.
+Neither was attempted here.
 
 ---
 
