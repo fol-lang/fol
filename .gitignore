@@ -33,3 +33,4 @@ lang/tooling/fol-editor/tree-sitter/src/tree_sitter/
 # tracked; the compiled archive is rebuilt by the test that needs it.
 examples/*/native/*.a
 examples/*/native/*.o
+./result
